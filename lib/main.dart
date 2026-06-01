@@ -93,7 +93,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                 const SizedBox(height: 8),
                 const Text(
                   'Православен Календар',
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                  style: TextStyle(
+                    color: AppColors.textPrimary, fontSize: 18),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -127,8 +128,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 						setState(() {}); // презарежда CalendarPageView
 					  });
 					}),
-          _drawerItem(Icons.star, 'Оцени приложението', () {}),
-          _drawerItem(Icons.help_outline, 'За приложението', () {}),
+          //_drawerItem(Icons.star, 'Оцени приложението', () {}),
+          _drawerItemText('❈', 'Оцени приложението', () {}),
+					SafeArea(
+					  top: false,
+					  child: _drawerItem(Icons.help_outline, 'За приложението', () {}),
+					),
+					const SizedBox(height: 16),
         ],
       ),
     );
@@ -151,11 +157,25 @@ class _CalendarPageViewState extends State<CalendarPageView> {
         height: 22,
         colorFilter: ColorFilter.mode(AppColors.drawerIcon, BlendMode.srcIn),
       ),
-      title: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+      title: Text(title, style: const TextStyle(
+        color: AppColors.textPrimary, fontSize: 18)),
       onTap: onTap,
       dense: true,
     );
   }
+	Widget _drawerItemText(String symbol, String title, VoidCallback onTap) {
+	  return ListTile(
+		leading: Text(
+		  symbol,
+		  style: TextStyle(
+        color: AppColors.drawerIcon, fontSize: 30),
+		),
+		title: Text(title, style: const TextStyle(
+      color: AppColors.textPrimary, fontSize: 18)),
+		onTap: onTap,
+		dense: true,
+	  );
+	}
 
   @override
   Widget build(BuildContext context) {
@@ -211,12 +231,16 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 				  ),
 				],
       ),
-      body: PageView.builder(
-        controller: _pageController,
-        onPageChanged: (page) => setState(() => _currentPage = page),
-        itemCount: _totalDays,
-        itemBuilder: (context, index) => DayScreen(date: _dateForPage(index)),
-      ),
+			body: PageView.builder(
+			  key: ValueKey(AppSettings.isOldStyle),
+			  controller: _pageController,
+			  onPageChanged: (page) => setState(() => _currentPage = page),
+			  itemCount: _totalDays,
+			  itemBuilder: (context, index) => DayScreen(
+				key: ValueKey('${AppSettings.isOldStyle}_$index'),
+				date: _dateForPage(index),
+			  ),
+			),
     );
   }
 }
@@ -268,12 +292,22 @@ class _ExpandableSectionState extends State<ExpandableSection> {
             ),
             child: Row(
               children: [
-                Expanded(
-                  child: Text(
-                    widget.title,
-                    style: TextStyle(color: color, fontSize: 14, letterSpacing: 0.5),
-                  ),
-                ),
+								Expanded(
+								  child: RichText(
+									text: TextSpan(
+									  children: [
+										TextSpan(
+										  text: widget.title.substring(0, 2), // емоджито
+										  style: TextStyle(fontSize: 20),
+										),
+										TextSpan(
+										  text: widget.title.substring(2), // останалия текст
+										  style: TextStyle(color: color, fontSize: 14, letterSpacing: 0.5),
+										),
+									  ],
+									),
+								  ),
+								),
                 Icon(
                   _expanded ? Icons.expand_less : Icons.expand_more,
                   color: color,
@@ -350,7 +384,8 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   String _toneText(int tone) {
-    const tones = ['', '1-ви', '2-ри', '3-ти', '4-ти', '5-ти', '6-ти', '7-ми', '8-ми'];
+    //const tones = ['', '1-ви', '2-ри', '3-ти', '4-ти', '5-ти', '6-ти', '7-ми', '8-ми'];
+    const tones = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
     return 'Глас ${tone < tones.length ? tones[tone] : tone.toString()}';
   }
 
@@ -499,8 +534,9 @@ class _DayScreenState extends State<DayScreen> {
           if (_day != null) ...[
             Text(
               periodName.isNotEmpty
-                  ? '$periodName. ${_toneText(_day!.tone)}'
-                  : _toneText(_day!.tone),
+                ? (_day!.tone > 0 ? '$periodName. ${_toneText(_day!.tone)}' : periodName)
+                : (_day!.tone > 0 ? _toneText(_day!.tone) : ''),
+
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),

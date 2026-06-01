@@ -72,8 +72,8 @@ class _SettingsContentState extends State<SettingsContent> {
           ),
           child: Text(
             _isOldStyle
-                ? 'Календарът е по Юлиански (стар) стил. В горната лента се показва справочно и датата по Григориански (нов) стил.'
-                : 'Календарът е по Григориански (нов) стил. Показва се само датата по нов стил.',
+                ? 'Юлиански (стар) стил. В горната лента ще се показва справочно и датата по Григориански (нов) стил.'
+                : 'Григориански (нов) стил. Показва се само датата по нов стил.',
             style: TextStyle(
               color: AppColors.textSecondary,
               fontSize: 13,
@@ -97,12 +97,14 @@ class SettingsScreen extends StatelessWidget {
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary, size: 20),
+          icon: const Icon(Icons.arrow_back, 
+          color: AppColors.textPrimary, size: 24),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
           'Настройки',
-          style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+          style: TextStyle(
+            color: AppColors.textPrimary, fontSize: 20),
         ),
       ),
       backgroundColor: AppColors.background,
@@ -134,12 +136,14 @@ class SettingsDrawer extends StatelessWidget {
                     padding: EdgeInsets.only(left: 16),
                     child: Text(
                       'Настройки',
-                      style: TextStyle(color: AppColors.textPrimary, fontSize: 16),
+                      style: TextStyle(
+                        color: AppColors.textPrimary, fontSize: 20),
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.arrow_forward, color: AppColors.textPrimary, size: 20),
+                  icon: const Icon(Icons.arrow_forward, 
+                  color: AppColors.textPrimary, size: 24),
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
