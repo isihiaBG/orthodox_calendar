@@ -135,8 +135,8 @@ class _SettingsContentState extends State<SettingsContent> {
           child: Text(
             _isOldStyle
                 ? (_oldStyleFirst
-                    ? 'Църковната (стара) дата е на преден план вляво.'
-                    : 'Гражданската (нова) дата е на преден план вляво.')
+                    ? 'Гражданската дата (нов стил) е на преден план вляво.'
+                    : 'Църковната дата (стар стил) е на преден план вляво.')
                 : 'Опцията е налична само при стар стил.',
             style: TextStyle(
               color: _isOldStyle ? AppColors.textSecondary : AppColors.textSecondary.withOpacity(0.4),

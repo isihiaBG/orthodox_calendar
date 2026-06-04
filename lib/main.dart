@@ -261,7 +261,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
             onPressed: () async {
               final picked = await showDatePicker(
                 context: context,
-                helpText: AppSettings.isOldStyle && AppSettings.oldStyleFirst
+                helpText: AppSettings.isOldStyle && !AppSettings.oldStyleFirst
                     ? 'Изберете дата по нов стил'
                     : null,
                 initialDate: _dateForPage(_currentPage),
