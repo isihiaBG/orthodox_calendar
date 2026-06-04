@@ -5,7 +5,7 @@ import 'database_helper.dart';
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
 class SettingsContent extends StatefulWidget {
-  final VoidCallback? onChanged;  // ← ново
+  final Function(int page)? onChanged;
   const SettingsContent({super.key, this.onChanged});
 
   @override
@@ -52,15 +52,16 @@ class _SettingsContentState extends State<SettingsContent> {
               ),
             ],
             selected: {_isOldStyle},
-						onSelectionChanged: (value) async {
-						  setState(() {
-							_isOldStyle = value.first;
-							AppSettings.isOldStyle = value.first;
-						  });
-						  await DatabaseHelper.resetDatabase();
-						  await DatabaseHelper.database;
-						  widget.onChanged?.call();  // ← ново
-						},
+            onSelectionChanged: (value) async {
+              setState(() {
+                _isOldStyle = value.first;
+                AppSettings.isOldStyle = value.first;
+              });
+              await DatabaseHelper.resetDatabase();
+              await DatabaseHelper.database;
+              // Извикваме callback с текущата страница
+              widget.onChanged?.call(AppSettings.currentPage);
+            },
           ),
         ),
         const SizedBox(height: 16),
@@ -88,7 +89,8 @@ class _SettingsContentState extends State<SettingsContent> {
 
 // ─── Пълен екран (от менюто) ─────────────────────────────────────────────
 class SettingsScreen extends StatelessWidget {
-  const SettingsScreen({super.key});
+  final Function(int page)? onChanged;
+  const SettingsScreen({super.key, this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -97,25 +99,24 @@ class SettingsScreen extends StatelessWidget {
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, 
-          color: AppColors.textPrimary, size: 24),
+          icon: const Icon(Icons.arrow_back,
+              color: AppColors.textPrimary, size: 24),
           onPressed: () => Navigator.pop(context),
         ),
         title: const Text(
           'Настройки',
-          style: TextStyle(
-            color: AppColors.textPrimary, fontSize: 20),
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 20),
         ),
       ),
       backgroundColor: AppColors.background,
-      body: const SettingsContent(),
+      body: SettingsContent(onChanged: onChanged),
     );
   }
 }
 
 // ─── Десен Drawer (от toolbar) ───────────────────────────────────────────
 class SettingsDrawer extends StatelessWidget {
-  final VoidCallback? onChanged;
+  final Function(int page)? onChanged;
   const SettingsDrawer({super.key, this.onChanged});
 
   @override
@@ -124,7 +125,6 @@ class SettingsDrawer extends StatelessWidget {
       backgroundColor: AppColors.background,
       child: Column(
         children: [
-          // Хедър с title и бутон за затваряне вдясно
           Container(
             color: AppColors.toolbar,
             height: 40 + MediaQuery.of(context).padding.top,
@@ -137,22 +137,19 @@ class SettingsDrawer extends StatelessWidget {
                     child: Text(
                       'Настройки',
                       style: TextStyle(
-                        color: AppColors.textPrimary, fontSize: 20),
+                          color: AppColors.textPrimary, fontSize: 20),
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.arrow_forward, 
-                  color: AppColors.textPrimary, size: 24),
+                  icon: const Icon(Icons.arrow_forward,
+                      color: AppColors.textPrimary, size: 24),
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
             ),
           ),
-          // Съдържанието
-          //const Expanded(child: SettingsContent()),
           Expanded(child: SettingsContent(onChanged: onChanged)),
-
         ],
       ),
     );

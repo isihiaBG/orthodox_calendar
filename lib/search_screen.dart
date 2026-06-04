@@ -33,24 +33,37 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
     super.dispose();
   }
 
-  Future<void> _search(String query) async {
-    if (query.trim().isEmpty) {
-      setState(() => _results = []);
-      return;
-    }
-    setState(() => _loading = true);
-    final db = await DatabaseHelper.database;
-    final results = await db.rawQuery('''
-      SELECT s.name, s.date, s.rank
-      FROM saints s
-      WHERE s.name LIKE ?
-      ORDER BY s.date ASC
-    ''', ['%$query%']);
-    setState(() {
-      _results = results;
-      _loading = false;
-    });
-  }
+	Future<void> _search(String query) async {
+	  if (query.trim().isEmpty) {
+		setState(() => _results = []);
+		return;
+	  }
+	  setState(() => _loading = true);
+	  final db = await DatabaseHelper.database;
+
+	  // Заменяме * с % за wildcard
+	  final cleanQuery = query.replaceAll('*', '%');
+
+	  // Търсим всяка дума поотделно
+	  final words = cleanQuery.trim().split(' ')
+		  .where((w) => w.isNotEmpty)
+		  .toList();
+
+	  final whereClause = words.map((_) => 's.name LIKE ?').join(' AND ');
+	  final args = words.map((w) => '%$w%').toList();
+
+	  final results = await db.rawQuery('''
+		SELECT s.name, s.date, s.rank
+		FROM saints s
+		WHERE $whereClause
+		ORDER BY s.date ASC
+	  ''', args);
+
+	  setState(() {
+		_results = results;
+		_loading = false;
+	  });
+	}
 
   String _formatDate(String dateStr) {
     const months = [

@@ -126,10 +126,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 					  Navigator.pop(context);
 					  Navigator.push(
 						context,
-						MaterialPageRoute(builder: (_) => const SettingsScreen()),
-					  ).then((_) {
-						setState(() {}); // презарежда CalendarPageView
-					  });
+						MaterialPageRoute(builder: (_) => SettingsScreen(onChanged: (page) {
+						  setState(() {});
+						  WidgetsBinding.instance.addPostFrameCallback((_) {
+							_pageController.jumpToPage(page);
+						  });
+						})),
+            ).then((_) => setState(() {}));
 					}),
           //_drawerItem(Icons.star, 'Оцени приложението', () {}),
           _drawerItemText('❈', 'Оцени приложението', () {}),
@@ -205,10 +208,15 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     return Scaffold(
       key: _scaffoldKey,
       drawer: _buildDrawer(),
-			onEndDrawerChanged: (isOpen) {
-			  if (!isOpen) setState(() {});
-			},
-      endDrawer: SettingsDrawer(onChanged: () => setState(() {})),
+      onEndDrawerChanged: (isOpen) {
+        if (!isOpen) setState(() {});
+      },
+      endDrawer: SettingsDrawer(onChanged: (page) {
+        setState(() {});
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pageController.jumpToPage(page);
+        });
+      }),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
@@ -261,8 +269,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 			body: PageView.builder(
 			  key: ValueKey(AppSettings.isOldStyle),
 			  controller: _pageController,
-			  onPageChanged: (page) => setState(() => _currentPage = page),
-			  itemCount: _totalDays,
+				onPageChanged: (page) {
+				  setState(() => _currentPage = page);
+				  AppSettings.currentPage = page; // ← добено за запазване на страницата
+				},			  itemCount: _totalDays,
 			  itemBuilder: (context, index) => DayScreen(
 				key: ValueKey('${AppSettings.isOldStyle}_$index'),
 				date: _dateForPage(index),
