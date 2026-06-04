@@ -7,6 +7,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'settings_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
+import 'month_screen.dart';
 
 void main() {
   runApp(const OrthodoxCalendarApp());
@@ -56,6 +57,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   late PageController _pageController;
   late int _currentPage;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _isMonthView = false;
 
   @override
   void initState() {
@@ -238,6 +240,60 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
+          // Падащо меню за избор на изглед
+          PopupMenuButton<bool>(
+            initialValue: _isMonthView,
+            color: AppColors.drawerBackground,
+            offset: const Offset(0, 40),
+            onSelected: (value) => setState(() => _isMonthView = value),
+            itemBuilder: (_) => [
+              PopupMenuItem(
+                value: false,
+                child: Row(
+                  children: [
+                    Icon(Icons.view_day,
+                      color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                      size: 18),
+                    const SizedBox(width: 8),
+                    Text('Ден',
+                      style: TextStyle(
+                        color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                        fontWeight: !_isMonthView ? FontWeight.bold : FontWeight.normal,
+                      )),
+                  ],
+                ),
+              ),
+              PopupMenuItem(
+                value: true,
+                child: Row(
+                  children: [
+                    Icon(Icons.calendar_view_month,
+                      color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                      size: 18),
+                    const SizedBox(width: 8),
+                    Text('Месец',
+                      style: TextStyle(
+                        color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                        fontWeight: _isMonthView ? FontWeight.bold : FontWeight.normal,
+                      )),
+                  ],
+                ),
+              ),
+            ],
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _isMonthView ? 'Месец' : 'Ден',
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 13),
+                  ),
+                  const Icon(Icons.arrow_drop_down, color: AppColors.textPrimary, size: 18),
+                ],
+              ),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.search, color: AppColors.textPrimary, size: 24),
             onPressed: () => _showSearch(context),
@@ -282,20 +338,34 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           ),
         ],
       ),
-      body: PageView.builder(
-        key: ValueKey(AppSettings.isOldStyle),
-        controller: _pageController,
-        onPageChanged: (page) {
-          setState(() => _currentPage = page);
-          AppSettings.currentPage = page;
-        },
-        itemCount: _totalDays,
-        itemBuilder: (context, index) => DayScreen(
-          //key: ValueKey('${AppSettings.isOldStyle}_${AppSettings.oldStyleFirst}_$index'),
-          key: ValueKey('${AppSettings.isOldStyle}_$index'),
-          date: _dateForPage(index),
-        ),
-      ),
+      body: _isMonthView
+          ? MonthScreen(
+              //key: ValueKey('month_${AppSettings.isOldStyle}_${AppSettings.oldStyleFirst}'),
+              key: ValueKey('month'),
+              initialDate: _dateForPage(_currentPage),
+              onDateSelected: (date) {
+                setState(() => _isMonthView = false);
+                final page = DateTime.utc(date.year, date.month, date.day)
+                    .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+                    .inDays;
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _pageController.jumpToPage(page.clamp(0, _totalDays - 1));
+                });
+              },
+            )
+          : PageView.builder(
+              key: ValueKey(AppSettings.isOldStyle),
+              controller: _pageController,
+              onPageChanged: (page) {
+                setState(() => _currentPage = page);
+                AppSettings.currentPage = page;
+              },
+              itemCount: _totalDays,
+              itemBuilder: (context, index) => DayScreen(
+                key: ValueKey('\${AppSettings.isOldStyle}_\$index'),
+                date: _dateForPage(index),
+              ),
+            ),
     );
   }
 }
