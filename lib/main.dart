@@ -6,6 +6,7 @@ import 'app_settings.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'settings_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'search_screen.dart';
 
 //import 'package:logger/logger.dart';
 
@@ -63,7 +64,9 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   void initState() {
     super.initState();
     final today = DateTime.now();
-    _currentPage = today.difference(_startDate).inDays;
+		_currentPage = DateTime.utc(today.year, today.month, today.day)
+			.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+			.inDays;
     _pageController = PageController(initialPage: _currentPage);
   }
 
@@ -177,6 +180,26 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 	  );
 	}
 
+	void _showSearch(BuildContext context) {
+	  showModalBottomSheet(
+		context: context,
+		isScrollControlled: true,
+		backgroundColor: Colors.transparent,
+		builder: (_) => SearchBottomSheet(
+		  onDateSelected: (date) {
+			final page = DateTime.utc(date.year, date.month, date.day)
+				.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+				.inDays;
+			_pageController.animateToPage(
+			  page,
+			  duration: const Duration(milliseconds: 300),
+			  curve: Curves.easeInOut,
+			);
+		  },
+		),
+	  );
+	}
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -194,6 +217,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
 				actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: AppColors.textPrimary, size: 24),
+            onPressed: () => _showSearch(context),
+          ),
 					IconButton(
 					  icon: const Icon(Icons.today, color: AppColors.textPrimary, size: 24),
 					  onPressed: () {
