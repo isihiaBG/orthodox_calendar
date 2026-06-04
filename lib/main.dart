@@ -8,8 +8,6 @@ import 'settings_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 
-//import 'package:logger/logger.dart';
-
 void main() {
   runApp(const OrthodoxCalendarApp());
 }
@@ -22,16 +20,16 @@ class OrthodoxCalendarApp extends StatelessWidget {
     return MaterialApp(
       title: 'Православен Календар',
       debugShowCheckedModeBanner: false,
-		  localizationsDelegates: const [
-			GlobalMaterialLocalizations.delegate,
-			GlobalWidgetsLocalizations.delegate,
-			GlobalCupertinoLocalizations.delegate,
-		  ],
-		  supportedLocales: const [
-			Locale('bg', 'BG'),
-			Locale('en', 'US'),
-		  ],
-		  locale: const Locale('bg', 'BG'),
+      localizationsDelegates: const [
+        GlobalMaterialLocalizations.delegate,
+        GlobalWidgetsLocalizations.delegate,
+        GlobalCupertinoLocalizations.delegate,
+      ],
+      supportedLocales: const [
+        Locale('bg', 'BG'),
+        Locale('en', 'US'),
+      ],
+      locale: const Locale('bg', 'BG'),
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(
           seedColor: AppColors.appBarWeekday,
@@ -53,7 +51,6 @@ class CalendarPageView extends StatefulWidget {
 }
 
 class _CalendarPageViewState extends State<CalendarPageView> {
-  //final _logger = Logger();  // ← тук
   final DateTime _startDate = DateTime.utc(2026, 1, 1);
   final int _totalDays = 365;
   late PageController _pageController;
@@ -64,9 +61,9 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   void initState() {
     super.initState();
     final today = DateTime.now();
-		_currentPage = DateTime.utc(today.year, today.month, today.day)
-			.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-			.inDays;
+    _currentPage = DateTime.utc(today.year, today.month, today.day)
+        .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+        .inDays;
     _pageController = PageController(initialPage: _currentPage);
   }
 
@@ -78,7 +75,38 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 
   DateTime _dateForPage(int page) {
     final d = _startDate.add(Duration(days: page));
-    return DateTime(d.year, d.month, d.day); // нормализираме без часове
+    return DateTime(d.year, d.month, d.day);
+  }
+
+  int _pageForDate(DateTime date) {
+    return DateTime.utc(date.year, date.month, date.day)
+        .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+        .inDays;
+  }
+
+  // Изчислява целевата страница при смяна на стила
+  // При смяна стар→нов: +13 дни; нов→стар: -13 дни
+  // При смяна само на oldStyleFirst: без промяна
+  void _onSettingsChanged(bool styleChanged) {
+    if (styleChanged) {
+			final date = _dateForPage(AppSettings.currentPage);
+      int targetPage;
+      if (AppSettings.isOldStyle) {
+        // Преминахме КЪМ стар стил → -13 дни
+        targetPage = _pageForDate(date.subtract(const Duration(days: 13)));
+      } else {
+        // Преминахме КЪМ нов стил → +13 дни
+        targetPage = _pageForDate(date.add(const Duration(days: 13)));
+      }
+      targetPage = targetPage.clamp(0, _totalDays - 1);
+      setState(() {});
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _pageController.jumpToPage(_currentPage);
+      });
+    } else {
+      // Само смяна на oldStyleFirst — страницата остава
+      setState(() {});
+    }
   }
 
   Widget _buildDrawer() {
@@ -96,8 +124,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                 const SizedBox(height: 8),
                 const Text(
                   'Православен Календар',
-                  style: TextStyle(
-                    color: AppColors.textPrimary, fontSize: 18),
+                  style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
                   textAlign: TextAlign.center,
                 ),
               ],
@@ -122,25 +149,21 @@ class _CalendarPageViewState extends State<CalendarPageView> {
             child: Text('ДРУГИ',
                 style: TextStyle(color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
           ),
-					_drawerItem(Icons.settings, 'Настройки', () {
-					  Navigator.pop(context);
-					  Navigator.push(
-						context,
-						MaterialPageRoute(builder: (_) => SettingsScreen(onChanged: (page) {
-						  setState(() {});
-						  WidgetsBinding.instance.addPostFrameCallback((_) {
-							_pageController.jumpToPage(page);
-						  });
-						})),
+          _drawerItem(Icons.settings, 'Настройки', () {
+            Navigator.pop(context);
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => SettingsScreen(
+                onChanged: _onSettingsChanged,
+              )),
             ).then((_) => setState(() {}));
-					}),
-          //_drawerItem(Icons.star, 'Оцени приложението', () {}),
+          }),
           _drawerItemText('❈', 'Оцени приложението', () {}),
-					SafeArea(
-					  top: false,
-					  child: _drawerItem(Icons.help_outline, 'За приложението', () {}),
-					),
-					const SizedBox(height: 16),
+          SafeArea(
+            top: false,
+            child: _drawerItem(Icons.help_outline, 'За приложението', () {}),
+          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -163,45 +186,40 @@ class _CalendarPageViewState extends State<CalendarPageView> {
         height: 22,
         colorFilter: ColorFilter.mode(AppColors.drawerIcon, BlendMode.srcIn),
       ),
-      title: Text(title, style: const TextStyle(
-        color: AppColors.textPrimary, fontSize: 18)),
+      title: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 18)),
       onTap: onTap,
       dense: true,
     );
   }
-	Widget _drawerItemText(String symbol, String title, VoidCallback onTap) {
-	  return ListTile(
-		leading: Text(
-		  symbol,
-		  style: TextStyle(
-        color: AppColors.drawerIcon, fontSize: 30),
-		),
-		title: Text(title, style: const TextStyle(
-      color: AppColors.textPrimary, fontSize: 18)),
-		onTap: onTap,
-		dense: true,
-	  );
-	}
 
-	void _showSearch(BuildContext context) {
-	  showModalBottomSheet(
-		context: context,
-		isScrollControlled: true,
-		backgroundColor: Colors.transparent,
-		builder: (_) => SearchBottomSheet(
-		  onDateSelected: (date) {
-			final page = DateTime.utc(date.year, date.month, date.day)
-				.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-				.inDays;
-			_pageController.animateToPage(
-			  page,
-			  duration: const Duration(milliseconds: 300),
-			  curve: Curves.easeInOut,
-			);
-		  },
-		),
-	  );
-	}
+  Widget _drawerItemText(String symbol, String title, VoidCallback onTap) {
+    return ListTile(
+      leading: Text(symbol, style: TextStyle(color: AppColors.drawerIcon, fontSize: 30)),
+      title: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 18)),
+      onTap: onTap,
+      dense: true,
+    );
+  }
+
+  void _showSearch(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (_) => SearchBottomSheet(
+        onDateSelected: (date) {
+          final page = DateTime.utc(date.year, date.month, date.day)
+              .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+              .inDays;
+          _pageController.animateToPage(
+            page,
+            duration: const Duration(milliseconds: 300),
+            curve: Curves.easeInOut,
+          );
+        },
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -211,12 +229,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       onEndDrawerChanged: (isOpen) {
         if (!isOpen) setState(() {});
       },
-      endDrawer: SettingsDrawer(onChanged: (page) {
-        setState(() {});
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-        _pageController.jumpToPage(page);
-        });
-      }),
+      endDrawer: SettingsDrawer(onChanged: _onSettingsChanged),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
@@ -224,60 +237,65 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           icon: const Icon(Icons.menu, color: AppColors.textPrimary, size: 28),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
-				actions: [
+        actions: [
           IconButton(
             icon: const Icon(Icons.search, color: AppColors.textPrimary, size: 24),
             onPressed: () => _showSearch(context),
           ),
-					IconButton(
-					  icon: const Icon(Icons.today, color: AppColors.textPrimary, size: 24),
-					  onPressed: () {
-						final today = DateTime.now();
-						final page = DateTime.utc(today.year, today.month, today.day)
-							.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-							.inDays;
-						_pageController.animateToPage(
-						  page,
-						  duration: const Duration(milliseconds: 300),
-						  curve: Curves.easeInOut,
-						);
-					  },
-					),
-					IconButton(
-					  icon: const Icon(Icons.calendar_month, color: AppColors.textPrimary, size: 24),
-					  onPressed: () async {
-						final picked = await showDatePicker(
-						  context: context,
-						  initialDate: _dateForPage(_currentPage),
-						  firstDate: _startDate,
-						  lastDate: _startDate.add(Duration(days: _totalDays - 1)),
-						);
-						if (picked != null) {
-							final page = DateTime.utc(picked.year, picked.month, picked.day)
-								.difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-								.inDays;
-							_pageController.jumpToPage(page);
-						}
-					  },
-					),
-				  IconButton(
-					icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
-					onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-				  ),
-				],
+          IconButton(
+            icon: const Icon(Icons.today, color: AppColors.textPrimary, size: 24),
+            onPressed: () {
+              final today = DateTime.now();
+              final page = DateTime.utc(today.year, today.month, today.day)
+                  .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+                  .inDays;
+              _pageController.animateToPage(
+                page,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeInOut,
+              );
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.calendar_month, color: AppColors.textPrimary, size: 24),
+            onPressed: () async {
+              final picked = await showDatePicker(
+                context: context,
+                helpText: AppSettings.isOldStyle && AppSettings.oldStyleFirst
+                    ? 'Изберете дата по нов стил'
+                    : null,
+                initialDate: _dateForPage(_currentPage),
+                firstDate: _startDate,
+                lastDate: _startDate.add(Duration(days: _totalDays - 1)),
+              );
+              if (picked != null) {
+                final page = DateTime.utc(picked.year, picked.month, picked.day)
+                    .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+                    .inDays;
+                _pageController.jumpToPage(page);
+              }
+            },
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+        ],
       ),
-			body: PageView.builder(
-			  key: ValueKey(AppSettings.isOldStyle),
-			  controller: _pageController,
-				onPageChanged: (page) {
-				  setState(() => _currentPage = page);
-				  AppSettings.currentPage = page; // ← добено за запазване на страницата
-				},			  itemCount: _totalDays,
-			  itemBuilder: (context, index) => DayScreen(
-				key: ValueKey('${AppSettings.isOldStyle}_$index'),
-				date: _dateForPage(index),
-			  ),
-			),
+      body: PageView.builder(
+        key: ValueKey(AppSettings.isOldStyle),
+        controller: _pageController,
+        onPageChanged: (page) {
+          setState(() => _currentPage = page);
+          AppSettings.currentPage = page;
+        },
+        itemCount: _totalDays,
+        itemBuilder: (context, index) => DayScreen(
+          //key: ValueKey('${AppSettings.isOldStyle}_${AppSettings.oldStyleFirst}_$index'),
+          key: ValueKey('${AppSettings.isOldStyle}_$index'),
+          date: _dateForPage(index),
+        ),
+      ),
     );
   }
 }
@@ -329,22 +347,22 @@ class _ExpandableSectionState extends State<ExpandableSection> {
             ),
             child: Row(
               children: [
-								Expanded(
-								  child: RichText(
-									text: TextSpan(
-									  children: [
-										TextSpan(
-										  text: widget.title.substring(0, 2), // емоджито
-										  style: TextStyle(fontSize: 20),
-										),
-										TextSpan(
-										  text: widget.title.substring(2), // останалия текст
-										  style: TextStyle(color: color, fontSize: 14, letterSpacing: 0.5),
-										),
-									  ],
-									),
-								  ),
-								),
+                Expanded(
+                  child: RichText(
+                    text: TextSpan(
+                      children: [
+                        TextSpan(
+                          text: widget.title.substring(0, 2),
+                          style: const TextStyle(fontSize: 20),
+                        ),
+                        TextSpan(
+                          text: widget.title.substring(2),
+                          style: TextStyle(color: color, fontSize: 14, letterSpacing: 0.5),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 Icon(
                   _expanded ? Icons.expand_less : Icons.expand_more,
                   color: color,
@@ -421,25 +439,22 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   String _toneText(int tone) {
-    //const tones = ['', '1-ви', '2-ри', '3-ти', '4-ти', '5-ти', '6-ти', '7-ми', '8-ми'];
     const tones = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
     return 'Глас ${tone < tones.length ? tones[tone] : tone.toString()}';
   }
 
-	String _fastText(CalendarDay day) {
-	  final period = DatabaseHelper.fastPeriods[day.fastPeriod] ?? '';
-	  final type = DatabaseHelper.fastTypes[day.fastType] ?? '';
-
-	  if (type.isEmpty) return period;
-	  return '$period ($type)';
-	}
+  String _fastText(CalendarDay day) {
+    final period = DatabaseHelper.fastPeriods[day.fastPeriod] ?? '';
+    final type = DatabaseHelper.fastTypes[day.fastType] ?? '';
+    if (type.isEmpty) return period;
+    return '$period ($type)';
+  }
 
   Color _signColor(String? hexColor) {
     if (hexColor == AppColors.signRedHex) return AppColors.signRed;
     return AppColors.signWhite;
   }
 
-  // Изчислява датата по стар стил (- 13 дни)
   DateTime _toOldStyle(DateTime date) => date.subtract(const Duration(days: 13));
 
   String _dayMonth(DateTime date) {
@@ -461,124 +476,127 @@ class _DayScreenState extends State<DayScreen> {
         ? (_day?.fullSundayName ?? '')
         : (_day?.fullWeekName ?? '');
 
-    // Датата по стар стил (само при стар стил)
     final DateTime oldDate = _toOldStyle(date);
+    
+    // Определяме лява и дясна дата според oldStyleFirst
+    final bool showOldStyle = AppSettings.isOldStyle;
+    final bool oldFirst = AppSettings.oldStyleFirst;
+    
+    // Лява дата = водещата
+    final DateTime leftDate  = (showOldStyle && !oldFirst) ? oldDate : date;
+    final DateTime rightDate = (showOldStyle && !oldFirst) ? date : oldDate;
+    final String leftLabel   = showOldStyle ? (oldFirst ? 'нов стил' : 'стар стил') : '';
+    final String rightLabel  = showOldStyle ? (oldFirst ? 'стар стил' : 'нов стил') : '';
 
     return Container(
       width: double.infinity,
       color: headerColor,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
       child: Column(
-				mainAxisAlignment: MainAxisAlignment.end,
+        mainAxisAlignment: MainAxisAlignment.end,
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-					// Използваме LayoutBuilder за да синхронизираме двата реда
-					LayoutBuilder(
-					  builder: (context, constraints) {
-						// Изчисляваме ширината на средната колона
-						// (колкото е нужно за деня от седмицата, но минимум 80)
-						const double minCenterWidth = 80.0;
-						//final totalWidth = constraints.maxWidth;
+          LayoutBuilder(
+            builder: (context, constraints) {
+              const double minCenterWidth = 80.0;
 
-						return Column(
-						  children: [
-							// Ред 1: надписи нов стил / ден от седмицата / стар стил
-							Row(
-							  crossAxisAlignment: CrossAxisAlignment.end,
-							  children: [
-								Expanded(
-								  child: Text(
-									AppSettings.isOldStyle ? 'нов стил' : '',
-									textAlign: TextAlign.center,
-									style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-								  ),
-								),
-								ConstrainedBox(
-								  constraints: BoxConstraints(minWidth: minCenterWidth),
-								  child: Text(
-									_weekDayName(date),
-									textAlign: TextAlign.center,
-									style: const TextStyle(
-									  color: Color.fromARGB(179, 255, 255, 255),
-									  fontSize: 18,
-									  fontWeight: FontWeight.w500,
-									),
-								  ),
-								),
-								Expanded(
-								  child: Text(
-									AppSettings.isOldStyle ? 'стар стил' : '',
-									textAlign: TextAlign.center,
-									style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
-								  ),
-								),
-							  ],
-							),
-							const SizedBox(height: 2),
-							// Ред 2: дати и година — същата структура
-							Row(
-							  crossAxisAlignment: CrossAxisAlignment.baseline,
-							  textBaseline: TextBaseline.alphabetic,
-							  children: [
-								Expanded(
-								  // --- Ляво -----------
-                  child: Text(
-									AppSettings.isOldStyle ? _dayMonth(date) : '',
-									textAlign: TextAlign.center,
-									style: const TextStyle(
-									  color: AppColors.textPrimary,
-									  fontSize: 18,
-									  fontWeight: FontWeight.w500,
-									),
-								  ),
-								),
-								ConstrainedBox(
-								  constraints: BoxConstraints(minWidth: minCenterWidth),
-								  child: Text(
-									AppSettings.isOldStyle 
-										? date.year.toString() 
-										: '${_dayMonth(date)}  ${date.year}',
-									textAlign: TextAlign.center,
-									maxLines: 1,  // ← добави
-									overflow: TextOverflow.ellipsis,  // ← добави
-									style: const TextStyle(
-									  color: Colors.white,
-									  fontSize: 18,
-									  fontWeight: FontWeight.w500,
-									),
-								  ),
-								),
-								Expanded(
-								  // --- Дясно -------------
-								  child: Text(
-									AppSettings.isOldStyle ? _dayMonth(oldDate) : '',
-									textAlign: TextAlign.center,
-									style: const TextStyle(
-									  color: AppColors.textPrimary,
-									  fontSize: 18,
-									  fontWeight: FontWeight.w500,
-									),
-								  ),
-								),
-							  ],
-							),
-						  ],
-						);
-					  },
-					),
+              return Column(
+                children: [
+                  // Ред 1: надписи ляво / ден от седмицата / дясно
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          leftLabel,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        ),
+                      ),
+                      ConstrainedBox(
+                        constraints: BoxConstraints(minWidth: minCenterWidth),
+                        child: Text(
+                          _weekDayName(date),
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: Color.fromARGB(179, 255, 255, 255),
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      Expanded(
+                        child: Text(
+                          rightLabel,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: AppColors.textSecondary, fontSize: 12),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  // Ред 2: дати и година
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      // Ляво
+                      Expanded(
+                        child: Text(
+                          showOldStyle ? _dayMonth(leftDate) : '',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      // Център — година
+                      ConstrainedBox(
+                        constraints: BoxConstraints(minWidth: minCenterWidth),
+                        child: Text(
+                          showOldStyle
+                              ? date.year.toString()
+                              : '${_dayMonth(date)}  ${date.year}',
+                          textAlign: TextAlign.center,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                      // Дясно
+                      Expanded(
+                        child: Text(
+                          showOldStyle ? _dayMonth(rightDate) : '',
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            color: AppColors.textPrimary,
+                            fontSize: 18,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
           const SizedBox(height: 4),
-          // Ред 2: седмица/неделя + глас
           if (_day != null) ...[
             Text(
               periodName.isNotEmpty
-                ? (_day!.tone > 0 ? '$periodName. ${_toneText(_day!.tone)}' : periodName)
-                : (_day!.tone > 0 ? _toneText(_day!.tone) : ''),
-
+                  ? (_day!.tone > 0 ? '$periodName. ${_toneText(_day!.tone)}' : periodName)
+                  : (_day!.tone > 0 ? _toneText(_day!.tone) : ''),
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 2),
-            // Ред 3: пост (центриран)
             Text(
               _fastText(_day!),
               textAlign: TextAlign.center,
@@ -629,9 +647,7 @@ class _DayScreenState extends State<DayScreen> {
 
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(
-          child: _buildHeader(),
-        ),
+        SliverToBoxAdapter(child: _buildHeader()),
         SliverToBoxAdapter(
           child: Padding(
             padding: const EdgeInsets.all(16),

@@ -5,7 +5,7 @@ import 'database_helper.dart';
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
 class SettingsContent extends StatefulWidget {
-  final Function(int page)? onChanged;
+  final Function(bool styleChanged)? onChanged;
   const SettingsContent({super.key, this.onChanged});
 
   @override
@@ -14,22 +14,19 @@ class SettingsContent extends StatefulWidget {
 
 class _SettingsContentState extends State<SettingsContent> {
   bool _isOldStyle = AppSettings.isOldStyle;
+  bool _oldStyleFirst = AppSettings.oldStyleFirst;
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+
+        // ─── Стар/Нов стил ───────────────────────────────────────────────
         Padding(
           padding: const EdgeInsets.only(bottom: 12, top: 4),
-          child: Text(
-            'КАЛЕНДАР',
-            style: TextStyle(
-              color: AppColors.textMuted,
-              fontSize: 11,
-              letterSpacing: 1.5,
-            ),
-          ),
+          child: Text('КАЛЕНДАР',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
         ),
         Center(
           child: SegmentedButton<bool>(
@@ -53,14 +50,14 @@ class _SettingsContentState extends State<SettingsContent> {
             ],
             selected: {_isOldStyle},
             onSelectionChanged: (value) async {
+              final newIsOldStyle = value.first;
               setState(() {
-                _isOldStyle = value.first;
-                AppSettings.isOldStyle = value.first;
+                _isOldStyle = newIsOldStyle;
+                AppSettings.isOldStyle = newIsOldStyle;
               });
               await DatabaseHelper.resetDatabase();
               await DatabaseHelper.database;
-              // Извикваме callback с текущата страница
-              widget.onChanged?.call(AppSettings.currentPage);
+              widget.onChanged?.call(true);  // смяна на стил;
             },
           ),
         ),
@@ -75,8 +72,74 @@ class _SettingsContentState extends State<SettingsContent> {
             _isOldStyle
                 ? 'Юлиански (стар) стил. В горната лента ще се показва справочно и датата по Григориански (нов) стил.'
                 : 'Григориански (нов) стил. Показва се само датата по нов стил.',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 13, height: 1.5),
+          ),
+        ),
+
+        const SizedBox(height: 24),
+
+        // ─── Водеща дата ─────────────────────────────────────────────────
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('ВОДЕЩА ДАТА',
             style: TextStyle(
-              color: AppColors.textSecondary,
+              color: _isOldStyle ? AppColors.textMuted : AppColors.textMuted.withOpacity(0.4),
+              fontSize: 11,
+              letterSpacing: 1.5,
+            )),
+        ),
+        Center(
+          child: IgnorePointer(
+            ignoring: !_isOldStyle,  // посивено при нов стил
+            child: Opacity(
+              opacity: _isOldStyle ? 1.0 : 0.4,
+              child: SegmentedButton<bool>(
+                style: SegmentedButton.styleFrom(
+                  backgroundColor: AppColors.backgroundCard,
+                  foregroundColor: AppColors.textMuted,
+                  selectedForegroundColor: AppColors.textPrimary,
+                  selectedBackgroundColor: AppColors.appBarWeekday,
+                ),
+                segments: const [
+                  ButtonSegment(
+                    value: true,
+                    label: Text('Стар стил'),
+                    icon: Icon(Icons.history, size: 16),
+                  ),
+                  ButtonSegment(
+                    value: false,
+                    label: Text('Нов стил'),
+                    icon: Icon(Icons.today, size: 16),
+                  ),
+                ],
+                selected: {!_oldStyleFirst},
+                onSelectionChanged: (value) {
+                  setState(() {
+                    _oldStyleFirst = !value.first;
+                    AppSettings.oldStyleFirst = !value.first;
+                  });
+                  // Само презареждаме UI — страницата остава същата
+                  widget.onChanged?.call(true);  // смяна на стил;
+                },
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundCard,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            _isOldStyle
+                ? (_oldStyleFirst
+                    ? 'Църковната (стара) дата е на преден план вляво.'
+                    : 'Гражданската (нова) дата е на преден план вляво.')
+                : 'Опцията е налична само при стар стил.',
+            style: TextStyle(
+              color: _isOldStyle ? AppColors.textSecondary : AppColors.textSecondary.withOpacity(0.4),
               fontSize: 13,
               height: 1.5,
             ),
@@ -89,7 +152,7 @@ class _SettingsContentState extends State<SettingsContent> {
 
 // ─── Пълен екран (от менюто) ─────────────────────────────────────────────
 class SettingsScreen extends StatelessWidget {
-  final Function(int page)? onChanged;
+  final Function(bool styleChanged)? onChanged;
   const SettingsScreen({super.key, this.onChanged});
 
   @override
@@ -99,14 +162,11 @@ class SettingsScreen extends StatelessWidget {
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back,
-              color: AppColors.textPrimary, size: 24),
+          icon: const Icon(Icons.arrow_back, color: AppColors.textPrimary, size: 24),
           onPressed: () => Navigator.pop(context),
         ),
-        title: const Text(
-          'Настройки',
-          style: TextStyle(color: AppColors.textPrimary, fontSize: 20),
-        ),
+        title: const Text('Настройки',
+          style: TextStyle(color: AppColors.textPrimary, fontSize: 20)),
       ),
       backgroundColor: AppColors.background,
       body: SettingsContent(onChanged: onChanged),
@@ -116,7 +176,7 @@ class SettingsScreen extends StatelessWidget {
 
 // ─── Десен Drawer (от toolbar) ───────────────────────────────────────────
 class SettingsDrawer extends StatelessWidget {
-  final Function(int page)? onChanged;
+  final Function(bool styleChanged)? onChanged;
   const SettingsDrawer({super.key, this.onChanged});
 
   @override
@@ -134,16 +194,12 @@ class SettingsDrawer extends StatelessWidget {
                 const Expanded(
                   child: Padding(
                     padding: EdgeInsets.only(left: 16),
-                    child: Text(
-                      'Настройки',
-                      style: TextStyle(
-                          color: AppColors.textPrimary, fontSize: 20),
-                    ),
+                    child: Text('Настройки',
+                      style: TextStyle(color: AppColors.textPrimary, fontSize: 20)),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.arrow_forward,
-                      color: AppColors.textPrimary, size: 24),
+                  icon: const Icon(Icons.arrow_forward, color: AppColors.textPrimary, size: 24),
                   onPressed: () => Navigator.pop(context),
                 ),
               ],
