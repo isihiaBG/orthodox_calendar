@@ -135,8 +135,9 @@ class _MonthPageState extends State<_MonthPage> {
     // Разширен диапазон: 13 дни преди + целия месец
     // Всичко по НОВ стил (ключовете в базата)
     final rangeStart = DateTime(widget.year, widget.month, 1)
-        .subtract(const Duration(days: 13));
-    final rangeEnd = DateTime(widget.year, widget.month + 1, 0);
+      .subtract(const Duration(days: 13));
+		final rangeEnd = DateTime(widget.year, widget.month + 1, 0)
+			.add(const Duration(days: 13));
 
     final Map<String, List<Map<String, dynamic>>> cache = {};
 
