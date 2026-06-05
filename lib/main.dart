@@ -342,9 +342,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       ),
       body: _isMonthView
           ? MonthScreen(
-              //key: ValueKey('month_${AppSettings.isOldStyle}_${AppSettings.oldStyleFirst}'),
               key: const ValueKey('month'),
-              settingsVersion: _settingsVersion, // ← добави
               initialDate: _dateForPage(_currentPage),
               onDateSelected: (date) {
                 setState(() => _isMonthView = false);

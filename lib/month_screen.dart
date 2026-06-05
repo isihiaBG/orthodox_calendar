@@ -6,13 +6,11 @@ import 'app_settings.dart';
 class MonthScreen extends StatefulWidget {
   final DateTime initialDate;
   final Function(DateTime) onDateSelected;
-  final int settingsVersion;
 
   const MonthScreen({
     super.key,
     required this.initialDate,
     required this.onDateSelected,
-    required this.settingsVersion,
   });
 
   @override
@@ -26,7 +24,7 @@ class _MonthScreenState extends State<MonthScreen> {
   static final DateTime _baseDate = DateTime(2026, 1, 1);
 
   static const _monthNames = [
-    '', 'Јануари', 'Февруари', 'Март', 'Април', 'Май', 'Юни',
+    '', 'Януари', 'Февруари', 'Март', 'Април', 'Май', 'Юни',
     'Юли', 'Август', 'Септември', 'Октомври', 'Ноември', 'Декември'
   ];
 
@@ -35,7 +33,9 @@ class _MonthScreenState extends State<MonthScreen> {
     'юл', 'ав', 'се', 'ок', 'но', 'де'
   ];
 
-  static const _weekDaysShort = ['', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'];
+  static const _weekDaysShort = [
+    '', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'
+  ];
 
   static DateTime _indexToMonth(int index) {
     int year  = _baseDate.year + index ~/ 12;
@@ -63,28 +63,17 @@ class _MonthScreenState extends State<MonthScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Четем настройките тук за да се рендерира при смяна
-    final bool showOldStyle = AppSettings.isOldStyle;
-    final bool oldFirst = !AppSettings.oldStyleFirst;
-
-    final String leftLabel  = showOldStyle ? (oldFirst ? 'ст.с.' : 'н.с.') : '';
-    final String rightLabel = showOldStyle ? (oldFirst ? 'н.с.' : 'ст.с.') : '';
-
     return PageView.builder(
-      key: ValueKey(widget.settingsVersion),
       controller: _pageController,
       onPageChanged: (page) => setState(() => _currentMonthIndex = page - 100),
       itemBuilder: (context, page) {
         final monthDate = _indexToMonth(page - 100);
-        // KEY включва настройките — при смяна страницата се пресъздава
+        // Key включва isOldStyle — при смяна на базата пресъздаваме
+        // oldStyleFirst НЕ е в key — при смяна само UI се обновява
         return _MonthPage(
-          key: ValueKey('${monthDate.year}_${monthDate.month}_${widget.settingsVersion}'),
+          key: ValueKey('${monthDate.year}_${monthDate.month}_${AppSettings.isOldStyle}'),
           year: monthDate.year,
           month: monthDate.month,
-          showOldStyle: showOldStyle,
-          oldFirst: oldFirst,
-          leftLabel: leftLabel,
-          rightLabel: rightLabel,
           monthNames: _monthNames,
           monthNamesShort: _monthNamesShort,
           weekDaysShort: _weekDaysShort,
@@ -93,27 +82,12 @@ class _MonthScreenState extends State<MonthScreen> {
       },
     );
   }
-	@override
-	void didUpdateWidget(MonthScreen oldWidget) {
-	  super.didUpdateWidget(oldWidget);
-	  if (oldWidget.settingsVersion != widget.settingsVersion) {
-		// Запазваме текущия месец и пресъздаваме контролера
-		final savedIndex = _currentMonthIndex;
-		_pageController.dispose();
-		_pageController = PageController(initialPage: savedIndex + 100);
-		setState(() {});
-	  }
-	}
 }
 
 // ─── Един месец ───────────────────────────────────────────────────────────
 class _MonthPage extends StatefulWidget {
   final int year;
   final int month;
-  final bool showOldStyle;
-  final bool oldFirst;
-  final String leftLabel;
-  final String rightLabel;
   final List<String> monthNames;
   final List<String> monthNamesShort;
   final List<String> weekDaysShort;
@@ -123,10 +97,6 @@ class _MonthPage extends StatefulWidget {
     super.key,
     required this.year,
     required this.month,
-    required this.showOldStyle,
-    required this.oldFirst,
-    required this.leftLabel,
-    required this.rightLabel,
     required this.monthNames,
     required this.monthNamesShort,
     required this.weekDaysShort,
@@ -138,10 +108,12 @@ class _MonthPage extends StatefulWidget {
 }
 
 class _MonthPageState extends State<_MonthPage> {
-  Map<String, List<Map<String, dynamic>>> _saintsCache = {};
+  // Кешът съдържа РАЗШИРЕН диапазон по нов стил:
+  // от (1-ви - 13 дни) до 31-во число
+  // Ключ: '2026-01-14' (дата по нов стил)
+  Map<String, List<Map<String, dynamic>>> _cache = {};
   bool _loading = true;
 
-  // Конвертори
   static DateTime _toNewStyle(DateTime d) => d.add(const Duration(days: 13));
   static DateTime _toOldStyle(DateTime d) => d.subtract(const Duration(days: 13));
 
@@ -156,48 +128,23 @@ class _MonthPageState extends State<_MonthPage> {
     _loadMonth();
   }
 
-	@override
-	void didUpdateWidget(_MonthPage oldWidget) {
-	  super.didUpdateWidget(oldWidget);
-	  // При всяка промяна — презареждаме
-	  setState(() {
-		_saintsCache = {};
-		_loading = true;
-	  });
-	  _loadMonth();
-	}
-
-  // Генерира дните в месеца СПОРЕД ВОДЕЩИЯ СТИЛ
-  List<DateTime> _getDaysInMonth() {
-    final days = <DateTime>[];
-    final last = DateTime(widget.year, widget.month + 1, 0);
-    for (int d = 1; d <= last.day; d++) {
-      days.add(DateTime(widget.year, widget.month, d));
-    }
-    return days;
-  }
-
-  // Конвертира водещия ден към дата за заявка в базата (винаги нов стил)
-	DateTime _toDbDate(DateTime leadingDay) {
-	  // Четем директно от AppSettings — не от widget параметрите
-	  if (AppSettings.isOldStyle) {
-		return _toNewStyle(leadingDay);
-	  } else {
-		return leadingDay;
-	  }
-	}
-
   Future<void> _loadMonth() async {
     setState(() => _loading = true);
     final db = await DatabaseHelper.database;
-    final days = _getDaysInMonth();
+
+    // Разширен диапазон: 13 дни преди + целия месец
+    // Всичко по НОВ стил (ключовете в базата)
+    final rangeStart = DateTime(widget.year, widget.month, 1)
+        .subtract(const Duration(days: 13));
+    final rangeEnd = DateTime(widget.year, widget.month + 1, 0);
+
     final Map<String, List<Map<String, dynamic>>> cache = {};
 
-    for (final day in days) {
-      final dbDate  = _toDbDate(day);
-      final dateStr = dbDate.toIso8601String().substring(0, 10);
+    DateTime current = rangeStart;
+    while (!current.isAfter(rangeEnd)) {
+      final dateStr = current.toIso8601String().substring(0, 10);
 
-      final results = await db.rawQuery('''
+      final saints = await db.rawQuery('''
         SELECT s.name, s.rank, s.sign, r.sign_color
         FROM saints s
         LEFT JOIN saint_ranks r ON s.rank = r.id
@@ -214,32 +161,70 @@ class _MonthPageState extends State<_MonthPage> {
       ''', [dateStr]);
 
       cache[dateStr] = [
-        ...results,
+        ...saints,
         if (dayResult.isNotEmpty && dayResult.first['sunday_name'] != null)
           {'_sunday': dayResult.first['sunday_name']},
       ];
+
+      current = current.add(const Duration(days: 1));
     }
 
     if (mounted) {
       setState(() {
-        _saintsCache = cache;
+        _cache = cache;
         _loading = false;
       });
     }
   }
 
+  // Генерира дните за показване според водещия стил
+  List<DateTime> _getDaysToShow() {
+    final days = <DateTime>[];
+    final last = DateTime(widget.year, widget.month + 1, 0);
+    for (int d = 1; d <= last.day; d++) {
+      days.add(DateTime(widget.year, widget.month, d));
+    }
+    return days;
+  }
+
+  // Връща ключа за кеша (винаги нов стил)
+  String _cacheKey(DateTime day) {
+    // oldStyleFirst=false в AppSettings означава стар стил е водещ (инверсия)
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final DateTime newStyleDate = (AppSettings.isOldStyle && oldIsLeading)
+        ? _toNewStyle(day)  // деня е по стар стил → конвертираме за кеша
+        : day;              // деня е по нов стил → директно
+    return newStyleDate.toIso8601String().substring(0, 10);
+  }
+
+  // Справочната дата (другия стил)
+  DateTime _refDate(DateTime day) {
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    if (AppSettings.isOldStyle && oldIsLeading) {
+      // Водещ стар стил → справочна е нов стил
+      return _toNewStyle(day);
+    } else if (AppSettings.isOldStyle && !oldIsLeading) {
+      // Водещ нов стил → справочна е стар стил
+      return _toOldStyle(day);
+    }
+    return day; // нов стил режим → само нов стил
+  }
+
   @override
   Widget build(BuildContext context) {
-    final days = _getDaysInMonth();
+    final bool showOldStyle = AppSettings.isOldStyle;
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+
+    final String leftLabel  = showOldStyle ? (oldIsLeading ? 'ст.с.' : 'н.с.') : '';
+    final String rightLabel = showOldStyle ? (oldIsLeading ? 'н.с.' : 'ст.с.') : '';
     final headerMonth = '${widget.monthNames[widget.month]} ${widget.year}';
 
-    // Справочният месец на първия ден
-    final DateTime firstDbDate = _toDbDate(days.first);
-    final DateTime firstRefDate = widget.showOldStyle
-        ? firstDbDate                // нов стил като справочна
-        : _toOldStyle(days.first);   // стар стил като справочна
-    final bool firstRowShowsMonth = firstRefDate.month != widget.month
-        || firstRefDate.year != widget.year;
+    final days = _getDaysToShow();
+
+    // Определяме дали първия ред трябва да показва справочния месец
+    final DateTime firstRefDate = showOldStyle ? _refDate(days.first) : days.first;
+    final bool firstRowShowsMonth = showOldStyle &&
+        (firstRefDate.month != widget.month || firstRefDate.year != widget.year);
 
     return Column(
       children: [
@@ -249,14 +234,14 @@ class _MonthPageState extends State<_MonthPage> {
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           child: Row(
             children: [
-              if (widget.showOldStyle) ...[
+              if (showOldStyle) ...[
                 Icon(
-                  widget.oldFirst ? Icons.church : Icons.tv,
+                  oldIsLeading ? Icons.church : Icons.tv,
                   color: AppColors.textSecondary,
                   size: 22,
                 ),
                 const SizedBox(width: 4),
-                Text(widget.leftLabel,
+                Text(leftLabel,
                     style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 11)),
               ],
@@ -271,13 +256,13 @@ class _MonthPageState extends State<_MonthPage> {
                   ),
                 ),
               ),
-              if (widget.showOldStyle) ...[
-                Text(widget.rightLabel,
+              if (showOldStyle) ...[
+                Text(rightLabel,
                     style: const TextStyle(
                         color: AppColors.textSecondary, fontSize: 11)),
                 const SizedBox(width: 4),
                 Icon(
-                  widget.oldFirst ? Icons.tv : Icons.church,
+                  oldIsLeading ? Icons.tv : Icons.church,
                   color: AppColors.textSecondary,
                   size: 22,
                 ),
@@ -296,36 +281,29 @@ class _MonthPageState extends State<_MonthPage> {
                   separatorBuilder: (_, __) =>
                       Divider(color: AppColors.sectionDivider, height: 1),
                   itemBuilder: (context, index) {
-                    final day    = days[index];
+                    final day = days[index];
                     final bool isSunday = day.weekday == 7;
-                    final dbDate  = _toDbDate(day);
-                    final dateStr = dbDate.toIso8601String().substring(0, 10);
-                    final saints  = _saintsCache[dateStr] ?? [];
+                    final String key = _cacheKey(day);
+                    final saints = _cache[key] ?? [];
+                    final DateTime refDate = _refDate(day);
 
-                    // Справочна дата
-										final bool currentOldFirst = !AppSettings.oldStyleFirst;
-										final DateTime leadingDate = (AppSettings.isOldStyle && currentOldFirst)
-											? day           // стар стил вляво
-											: (AppSettings.isOldStyle && !currentOldFirst)
-												? dbDate    // нов стил вляво
-												: day;
-										final DateTime refDate = AppSettings.isOldStyle
-											? (currentOldFirst ? dbDate : day)   // справочна е другата
-											: _toOldStyle(day);
-
-                    // Показваме месеца в справочната колона когато:
+                    // Показваме справочния месец при:
                     // 1. Първо число на справочния месец
-                    // 2. Първи ред и месецът се различава от водещия
+                    // 2. Първи ред ако справочния месец ≠ водещия
                     final bool isFirstOfRefMonth = refDate.day == 1;
-                    final bool showRefMonth = isFirstOfRefMonth ||
-                        (index == 0 && firstRowShowsMonth);
-
+                    final bool showRefMonth = showOldStyle &&
+                        (isFirstOfRefMonth || (index == 0 && firstRowShowsMonth));
                     final String refMonthShort = showRefMonth
                         ? widget.monthNamesShort[refDate.month]
                         : '';
 
+                    // При клик отиваме на деня по нов стил (ключа в базата)
+                    final DateTime tapDate = (AppSettings.isOldStyle && oldIsLeading)
+                        ? _toNewStyle(day)
+                        : day;
+
                     return GestureDetector(
-                      onTap: () => widget.onDateSelected(dbDate),
+                      onTap: () => widget.onDateSelected(tapDate),
                       child: Container(
                         color: isSunday
                             ? AppColors.appBarSunday.withOpacity(0.15)
@@ -341,7 +319,7 @@ class _MonthPageState extends State<_MonthPage> {
                               child: Column(
                                 children: [
                                   Text(
-                                    '${leadingDate.day}',
+                                    '${day.day}',
                                     style: TextStyle(
                                       color: isSunday
                                           ? AppColors.appBarSunday
@@ -402,7 +380,7 @@ class _MonthPageState extends State<_MonthPage> {
                             ),
 
                             // Дясна колона: справочна дата
-                            if (widget.showOldStyle)
+                            if (showOldStyle)
                               SizedBox(
                                 width: 28,
                                 child: Column(
