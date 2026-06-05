@@ -58,6 +58,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   late int _currentPage;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _isMonthView = false;
+  int _settingsVersion = 0;
 
   @override
   void initState() {
@@ -90,6 +91,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   // При смяна стар→нов: +13 дни; нов→стар: -13 дни
   // При смяна само на oldStyleFirst: без промяна
   void _onSettingsChanged(bool styleChanged) {
+	  _settingsVersion++; // ← добавено за да се разбира кога е сменен
     if (styleChanged) {
 			final date = _dateForPage(AppSettings.currentPage);
       int targetPage;
@@ -341,7 +343,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       body: _isMonthView
           ? MonthScreen(
               //key: ValueKey('month_${AppSettings.isOldStyle}_${AppSettings.oldStyleFirst}'),
-              key: ValueKey('month'),
+              key: const ValueKey('month'),
+              settingsVersion: _settingsVersion, // ← добави
               initialDate: _dateForPage(_currentPage),
               onDateSelected: (date) {
                 setState(() => _isMonthView = false);
