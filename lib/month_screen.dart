@@ -54,6 +54,12 @@ class MonthScreenState extends State<MonthScreen> {
 	DateTime get currentDate {
 	  final index = _pageController.page?.round() ?? _currentMonthIndex;
 	  final monthDate = _indexToMonth(index - 100);
+	  // При водещ стар стил — конвертираме към нов стил за датепикъра
+	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  if (AppSettings.isOldStyle && oldIsLeading) {
+		return DateTime(monthDate.year, monthDate.month, 1)
+			.add(const Duration(days: 13));
+	  }
 	  return DateTime(monthDate.year, monthDate.month, 1);
 	}
 
@@ -74,30 +80,28 @@ class MonthScreenState extends State<MonthScreen> {
   }
 
   // Навигира до дата — плъзга месеца и скролира до деня
-  void navigateToDate(DateTime date, {bool flash = true}) {
-    print('navigateToDate called: $date'); //debug
-    final targetIndex = _monthToIndex(date);
-    final targetPage  = targetIndex + 100;
+	void navigateToDate(DateTime date, {bool flash = true}) {
+	  // date е винаги по нов стил
+	  // При водещ стар стил — навигираме до месеца по стар стил
+	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
+		  ? date.subtract(const Duration(days: 13))  // конвертираме към стар стил
+		  : date;
 
-    if (flash) {
-      AppSettings.flashDate = date;
-    }
+	  final targetIndex = _monthToIndex(leadingDate);  // месец по водещия стил
+	  final targetPage  = targetIndex + 100;
 
-    // Плъзгаме до правилния месец
-    _pageController.animateToPage(
-      targetPage,
-      duration: const Duration(milliseconds: 400),
-      curve: Curves.easeInOut,
-    ).then((_) {
-      print('then called, targetIndex: $targetIndex'); //debug
-      // След плъзгането — скролираме до деня
-      final key = _pageKeys[targetIndex];
-      print('key: $key');
-      print('key currentState: ${key?.currentState}');
-      key?.currentState?.scrollToDate(date);
+	  if (flash) AppSettings.flashDate = date;
 
-    });
-  }
+	  _pageController.animateToPage(
+		targetPage,
+		duration: const Duration(milliseconds: 400),
+		curve: Curves.easeInOut,
+	  ).then((_) {
+		final key = _pageKeys[targetIndex];
+		key?.currentState?.scrollToDate(date);
+	  });
+	}
 
   @override
   Widget build(BuildContext context) {
@@ -166,8 +170,10 @@ class _MonthPageState extends State<_MonthPage>
   late Animation<double> _flashAnimation;
   DateTime? _flashingDate;
 
-  static DateTime _toNewStyle(DateTime d) => d.add(const Duration(days: 13));
-  static DateTime _toOldStyle(DateTime d) => d.subtract(const Duration(days: 13));
+	static DateTime _toNewStyle(DateTime d) => 
+		DateTime.utc(d.year, d.month, d.day).add(const Duration(days: 13));
+	static DateTime _toOldStyle(DateTime d) => 
+		DateTime.utc(d.year, d.month, d.day).subtract(const Duration(days: 13));
 
   static Color _signColor(String? hexColor) {
     if (hexColor == AppColors.signRedHex) return AppColors.signRed;
@@ -488,9 +494,16 @@ class _MonthPageState extends State<_MonthPage>
                           Divider(color: AppColors.sectionDivider, height: 1),
                       itemBuilder: (context, index) {
                         final day = days[index];
-                        final bool isSunday = day.weekday == 7;
+												// Денят от седмицата е еднакъв по двата стила — взимаме от новостиловата дата
+												final DateTime dbDate = (AppSettings.isOldStyle && oldIsLeading)
+													? _toNewStyle(day)
+													: day;
+												final bool isSunday = dbDate.weekday == 7;
                         final String key = _cacheKey(day);
-                        final saints = _cache[key] ?? [];
+												final saints = _cache[key] ?? [];
+												if (index >= 11 && index <= 13) {
+												  print('day: ${day.day}, key: $key, saints: ${saints.length}');
+												}
                         final DateTime refDate = _refDate(day);
 
                         final bool isFirstOfRefMonth = refDate.day == 1;
@@ -554,15 +567,15 @@ class _MonthPageState extends State<_MonthPage>
 																  Text('${day.day}',
 																	style: TextStyle(
 																	  color: isSunday
-																		  ? AppColors.appBarSunday
+																		  ? AppColors.monthTitleSunday
 																		  : AppColors.textPrimary,
 																	  fontSize: AppFonts.monthDayNumber,
 																	  fontWeight: FontWeight.w600,
 																	)),
-																  Text(widget.weekDaysShort[day.weekday],
+																  Text(widget.weekDaysShort[dbDate.weekday],
 																	style: TextStyle(
 																	  color: isSunday
-																		  ? AppColors.appBarSunday
+																		  ? AppColors.monthTitleSunday
 																		  : AppColors.textMuted,
 																	  fontSize: AppFonts.monthWeekDay,
 																	)),
@@ -582,7 +595,7 @@ class _MonthPageState extends State<_MonthPage>
 																		if (s['_sunday'] != null)
 																		  Text(s['_sunday'] as String,
 																			style: const TextStyle(
-																			  color: AppColors.appBarSunday,
+																			  color: AppColors.monthTitleSunday,
 																			  fontSize: AppFonts.monthSundayName,
 																			  fontWeight: FontWeight.w600,
 																			)),
