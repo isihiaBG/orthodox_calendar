@@ -4,7 +4,7 @@ class AppColors {
   // AppBar
   static const appBarWeekday   = Color(0xFF2C3B4D);  // индиго
   static const appBarSunday    = Color(0xFF7b002c);  // винено червено
-  static const appBarSundayBg  = Color(0x447b002c);  // бордо 25% opacity
+  static const appBarSundayBg  = Color(0x887b002c);  // бордо 25% opacity
 
   // Фонове
   static const background        = Color(0xFF1E1510);
@@ -34,11 +34,11 @@ class AppColors {
   // ─── Highlight на днешния ден ─────────────────────────────────────────
   // Обикновен ден — днес
   static const todayBg       = Color.fromARGB(51, 187, 187, 186);  // топло жълто ~20%
-  static const todayFlash    = Color.fromARGB(135, 253, 228, 169);  // по-наситено за flash
+  static const todayFlash    = Color.fromARGB(133, 158, 153, 132);  // по-наситено за flash
 
   // Неделя — днес
-  static const sundayTodayBg = Color(0x887b002c);  // по-наситено бордо
-  static const sundayFlash   = Color(0xBB7b002c);  // наситено бордо за flash
+  static const sundayTodayBg = Color(0xff7b002c);  // по-наситено бордо
+  static const sundayFlash   = Color.fromARGB(184, 148, 75, 101);  // наситено бордо за flash
 }
 
 // ─── Размери на шрифтове ──────────────────────────────────────────────────
