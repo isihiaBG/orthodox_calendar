@@ -57,7 +57,7 @@ class _SettingsContentState extends State<SettingsContent> {
               });
               await DatabaseHelper.resetDatabase();
               await DatabaseHelper.database;
-              widget.onChanged?.call(true);  // смяна на стил;
+              widget.onChanged?.call(true);
             },
           ),
         ),
@@ -76,73 +76,77 @@ class _SettingsContentState extends State<SettingsContent> {
           ),
         ),
 
-        const SizedBox(height: 24),
-
-        // ─── Водеща дата ─────────────────────────────────────────────────
-        Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Text('ВОДЕЩА ДАТА',
-            style: TextStyle(
-              color: _isOldStyle ? AppColors.textMuted : AppColors.textMuted.withOpacity(0.4),
-              fontSize: 11,
-              letterSpacing: 1.5,
-            )),
-        ),
-        Center(
-          child: IgnorePointer(
-            ignoring: !_isOldStyle,  // посивено при нов стил
-            child: Opacity(
-              opacity: _isOldStyle ? 1.0 : 0.4,
-              child: SegmentedButton<bool>(
-                style: SegmentedButton.styleFrom(
-                  backgroundColor: AppColors.backgroundCard,
-                  foregroundColor: AppColors.textMuted,
-                  selectedForegroundColor: AppColors.textPrimary,
-                  selectedBackgroundColor: AppColors.appBarWeekday,
-                ),
-                segments: const [
-                  ButtonSegment(
-                    value: true,
-                    label: Text('Стар стил'),
-                    icon: Icon(Icons.history, size: 16),
-                  ),
-                  ButtonSegment(
-                    value: false,
-                    label: Text('Нов стил'),
-                    icon: Icon(Icons.today, size: 16),
-                  ),
-                ],
-                selected: {!_oldStyleFirst},
-                onSelectionChanged: (value) {
-                  setState(() {
-                    _oldStyleFirst = !value.first;
-                    AppSettings.oldStyleFirst = !value.first;
-                  });
-                  // Само презареждаме UI — страницата остава същата
-                  widget.onChanged?.call(true);  // смяна на стил;
-                },
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        Container(
-          padding: const EdgeInsets.all(12),
-          decoration: BoxDecoration(
-            color: AppColors.backgroundCard,
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Text(
-            _isOldStyle
-                ? (_oldStyleFirst
-                    ? 'Гражданската дата (нов стил) е на преден план вляво.'
-                    : 'Църковната дата (стар стил) е на преден план вляво.')
-                : 'Опцията е налична само при стар стил.',
-            style: TextStyle(
-              color: _isOldStyle ? AppColors.textSecondary : AppColors.textSecondary.withOpacity(0.4),
-              fontSize: 13,
-              height: 1.5,
-            ),
+        // ─── Водеща дата — плавно разширяване/свиване ────────────────────
+        AnimatedSize(
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeInOut,
+          child: SizedBox(
+            width: double.infinity,
+            child: _isOldStyle
+                ? Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 24),
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: Text('ВОДЕЩА ДАТА',
+                          style: TextStyle(
+                            color: AppColors.textMuted,
+                            fontSize: 11,
+                            letterSpacing: 1.5,
+                          )),
+                      ),
+                      Center(
+                        child: SegmentedButton<bool>(
+                          style: SegmentedButton.styleFrom(
+                            backgroundColor: AppColors.backgroundCard,
+                            foregroundColor: AppColors.textMuted,
+                            selectedForegroundColor: AppColors.textPrimary,
+                            selectedBackgroundColor: AppColors.appBarWeekday,
+                          ),
+                          segments: const [
+                            ButtonSegment(
+                              value: true,
+                              label: Text('Стар стил'),
+                              icon: Icon(Icons.history, size: 16),
+                            ),
+                            ButtonSegment(
+                              value: false,
+                              label: Text('Нов стил'),
+                              icon: Icon(Icons.today, size: 16),
+                            ),
+                          ],
+                          selected: {!_oldStyleFirst},
+                          onSelectionChanged: (value) {
+                            setState(() {
+                              _oldStyleFirst = !value.first;
+                              AppSettings.oldStyleFirst = !value.first;
+                            });
+                            widget.onChanged?.call(false);
+                          },
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: AppColors.backgroundCard,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          _oldStyleFirst
+                              ? 'Гражданската дата (нов стил) е на преден план вляво.'
+                              : 'Църковната дата (стар стил) е на преден план вляво.',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 13,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                    ],
+                  )
+                : const SizedBox.shrink(),
           ),
         ),
       ],

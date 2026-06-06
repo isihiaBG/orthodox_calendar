@@ -14,12 +14,15 @@ class MonthScreen extends StatefulWidget {
   });
 
   @override
-  State<MonthScreen> createState() => _MonthScreenState();
+  State<MonthScreen> createState() => MonthScreenState();
 }
 
-class _MonthScreenState extends State<MonthScreen> {
+class MonthScreenState extends State<MonthScreen> {
   late PageController _pageController;
   late int _currentMonthIndex;
+
+  // GlobalKey за достъп до текущата _MonthPage
+  final Map<int, GlobalKey<_MonthPageState>> _pageKeys = {};
 
   static final DateTime _baseDate = DateTime(2026, 1, 1);
 
@@ -29,8 +32,8 @@ class _MonthScreenState extends State<MonthScreen> {
   ];
 
   static const _monthNamesShort = [
-    '', 'ян', 'фе', 'мр', 'ап', 'ма', 'юн',
-    'юл', 'ав', 'се', 'ок', 'но', 'де'
+    '', 'яну', 'фев', 'мар', 'апр', 'май', 'юни',
+    'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'
   ];
 
   static const _weekDaysShort = [
@@ -48,9 +51,18 @@ class _MonthScreenState extends State<MonthScreen> {
     return (date.year - _baseDate.year) * 12 + (date.month - _baseDate.month);
   }
 
+	DateTime get currentDate {
+	  final index = _pageController.page?.round() ?? _currentMonthIndex;
+	  final monthDate = _indexToMonth(index - 100);
+	  return DateTime(monthDate.year, monthDate.month, 1);
+	}
+
   @override
   void initState() {
     super.initState();
+    // Инициализираме днешната дата
+    final now = DateTime.now();
+    AppSettings.today = DateTime(now.year, now.month, now.day);
     _currentMonthIndex = _monthToIndex(widget.initialDate);
     _pageController = PageController(initialPage: _currentMonthIndex + 100);
   }
@@ -61,23 +73,55 @@ class _MonthScreenState extends State<MonthScreen> {
     super.dispose();
   }
 
+  // Навигира до дата — плъзга месеца и скролира до деня
+  void navigateToDate(DateTime date, {bool flash = true}) {
+    print('navigateToDate called: $date'); //debug
+    final targetIndex = _monthToIndex(date);
+    final targetPage  = targetIndex + 100;
+
+    if (flash) {
+      AppSettings.flashDate = date;
+    }
+
+    // Плъзгаме до правилния месец
+    _pageController.animateToPage(
+      targetPage,
+      duration: const Duration(milliseconds: 400),
+      curve: Curves.easeInOut,
+    ).then((_) {
+      print('then called, targetIndex: $targetIndex'); //debug
+      // След плъзгането — скролираме до деня
+      final key = _pageKeys[targetIndex];
+      print('key: $key');
+      print('key currentState: ${key?.currentState}');
+      key?.currentState?.scrollToDate(date);
+
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageView.builder(
       controller: _pageController,
       onPageChanged: (page) => setState(() => _currentMonthIndex = page - 100),
       itemBuilder: (context, page) {
-        final monthDate = _indexToMonth(page - 100);
-        // Key включва isOldStyle — при смяна на базата пресъздаваме
-        // oldStyleFirst НЕ е в key — при смяна само UI се обновява
-        return _MonthPage(
+        final monthDate  = _indexToMonth(page - 100);
+        final monthIndex = page - 100;
+
+        _pageKeys[monthIndex] ??= GlobalKey<_MonthPageState>();
+
+        return KeyedSubtree(
           key: ValueKey('${monthDate.year}_${monthDate.month}_${AppSettings.isOldStyle}'),
-          year: monthDate.year,
-          month: monthDate.month,
-          monthNames: _monthNames,
-          monthNamesShort: _monthNamesShort,
-          weekDaysShort: _weekDaysShort,
-          onDateSelected: widget.onDateSelected,
+          child: _MonthPage(
+            key: _pageKeys[monthIndex]!,
+            //stateKey: _pageKeys[monthIndex]!,
+            year: monthDate.year,
+            month: monthDate.month,
+            monthNames: _monthNames,
+            monthNamesShort: _monthNamesShort,
+            weekDaysShort: _weekDaysShort,
+            onDateSelected: widget.onDateSelected,
+          ),
         );
       },
     );
@@ -86,6 +130,7 @@ class _MonthScreenState extends State<MonthScreen> {
 
 // ─── Един месец ───────────────────────────────────────────────────────────
 class _MonthPage extends StatefulWidget {
+  //final GlobalKey<_MonthPageState> stateKey;
   final int year;
   final int month;
   final List<String> monthNames;
@@ -94,25 +139,32 @@ class _MonthPage extends StatefulWidget {
   final Function(DateTime) onDateSelected;
 
   const _MonthPage({
-    super.key,
+    required Key key,
+    //required this.stateKey,
     required this.year,
     required this.month,
     required this.monthNames,
     required this.monthNamesShort,
     required this.weekDaysShort,
     required this.onDateSelected,
-  });
+  }) : super(key: key);
 
   @override
   State<_MonthPage> createState() => _MonthPageState();
 }
 
-class _MonthPageState extends State<_MonthPage> {
-  // Кешът съдържа РАЗШИРЕН диапазон по нов стил:
-  // от (1-ви - 13 дни) до 31-во число
-  // Ключ: '2026-01-14' (дата по нов стил)
+class _MonthPageState extends State<_MonthPage>
+    with TickerProviderStateMixin {
   Map<String, List<Map<String, dynamic>>> _cache = {};
   bool _loading = true;
+  final ScrollController _scrollController = ScrollController();
+  final Map<int, GlobalKey> _rowKeys = {};
+  DateTime? _pendingScrollDate;
+
+  // Flash анимация
+  late AnimationController _flashController;
+  late Animation<double> _flashAnimation;
+  DateTime? _flashingDate;
 
   static DateTime _toNewStyle(DateTime d) => d.add(const Duration(days: 13));
   static DateTime _toOldStyle(DateTime d) => d.subtract(const Duration(days: 13));
@@ -125,19 +177,126 @@ class _MonthPageState extends State<_MonthPage> {
   @override
   void initState() {
     super.initState();
+
+    // Flash анимация — плавно изсветляване и изчезване (~1.5 сек)
+    _flashController = AnimationController(
+      duration: const Duration(milliseconds: 1500),
+      vsync: this,
+    );
+    _flashAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 30),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 20),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 50),
+    ]).animate(CurvedAnimation(
+      parent: _flashController,
+      curve: Curves.easeInOut,
+    ));
+
     _loadMonth();
+
+    // Проверяваме дали има flashDate за този месец
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkFlash();
+    });
   }
+
+  @override
+  void dispose() {
+    _flashController.dispose();
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _checkFlash() {
+    final flash = AppSettings.flashDate;
+    if (flash == null) return;
+
+    // Конвертираме flash датата към водещия стил за сравнение
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final DateTime leadingFlash = (AppSettings.isOldStyle && oldIsLeading)
+        ? _toOldStyle(flash)
+        : flash;
+
+    if (leadingFlash.year == widget.year && leadingFlash.month == widget.month) {
+      _flashingDate = leadingFlash;
+      _flashController.forward(from: 0).then((_) {
+        AppSettings.flashDate = null;
+        _flashingDate = null;
+      });
+    }
+  }
+
+  // Скролира до конкретна дата в 2:1 позиция (горна:долна)
+	void scrollToDate(DateTime date) {
+	  if (_loading) {
+		// Запазваме датата и скролираме след зареждане
+		_pendingScrollDate = date;
+		return;
+	  }
+	  _doScroll(date);
+	}
+
+	void _doScroll(DateTime date) {
+	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
+		  ? _toOldStyle(date)
+		  : date;
+
+	  final days = _getDaysToShow();
+	  final index = days.indexWhere((d) =>
+		  d.day == leadingDate.day &&
+		  d.month == leadingDate.month &&
+		  d.year == leadingDate.year);
+
+	  if (index < 0 || !_scrollController.hasClients) return;
+
+	  // final approxOffset = (index / days.length) *
+		//   _scrollController.position.maxScrollExtent;
+	  // _scrollController.jumpTo(
+		//   approxOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
+
+	  WidgetsBinding.instance.addPostFrameCallback((_) {
+		final rowKey = _rowKeys[index];
+		if (rowKey?.currentContext != null) {
+		  Scrollable.ensureVisible(
+			rowKey!.currentContext!,
+			alignment: 0.33,
+			duration: const Duration(milliseconds: 400),
+			curve: Curves.easeInOut,
+		  );
+		} else {
+			// Редът не е видим — приблизително скролиране първо
+			final approxOffset = (index / days.length) *
+				_scrollController.position.maxScrollExtent;
+			_scrollController.jumpTo(
+				approxOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
+			Future.delayed(const Duration(milliseconds: 100), () {
+			  final rowKey2 = _rowKeys[index];
+			  if (rowKey2?.currentContext != null) {
+				Scrollable.ensureVisible(
+				  rowKey2!.currentContext!,
+				  alignment: 0.33,
+				  duration: const Duration(milliseconds: 400),
+				  curve: Curves.easeInOut,
+				);
+			  }
+			});
+		}
+		setState(() => _flashingDate = leadingDate);
+		_flashController.forward(from: 0).then((_) {
+		  if (mounted) setState(() => _flashingDate = null);
+		});
+	  });
+	}
 
   Future<void> _loadMonth() async {
     setState(() => _loading = true);
     final db = await DatabaseHelper.database;
 
-    // Разширен диапазон: 13 дни преди + целия месец
-    // Всичко по НОВ стил (ключовете в базата)
     final rangeStart = DateTime(widget.year, widget.month, 1)
-      .subtract(const Duration(days: 13));
-		final rangeEnd = DateTime(widget.year, widget.month + 1, 0)
-			.add(const Duration(days: 13));
+        .subtract(const Duration(days: 13));
+    final rangeEnd = DateTime(widget.year, widget.month + 1, 0)
+        .add(const Duration(days: 13));
 
     final Map<String, List<Map<String, dynamic>>> cache = {};
 
@@ -170,15 +329,21 @@ class _MonthPageState extends State<_MonthPage> {
       current = current.add(const Duration(days: 1));
     }
 
-    if (mounted) {
-      setState(() {
-        _cache = cache;
-        _loading = false;
-      });
-    }
+		if (mounted) {
+		  setState(() {
+			_cache = cache;
+			_loading = false;
+		  });
+		  // Изпълняваме отложения скрол ако има такъв
+		  if (_pendingScrollDate != null) {
+			final pending = _pendingScrollDate!;
+			_pendingScrollDate = null;
+			WidgetsBinding.instance.addPostFrameCallback((_) => _doScroll(pending));
+		  }
+		  WidgetsBinding.instance.addPostFrameCallback((_) => _checkFlash());
+		}
   }
 
-  // Генерира дните за показване според водещия стил
   List<DateTime> _getDaysToShow() {
     final days = <DateTime>[];
     final last = DateTime(widget.year, widget.month + 1, 0);
@@ -188,27 +353,49 @@ class _MonthPageState extends State<_MonthPage> {
     return days;
   }
 
-  // Връща ключа за кеша (винаги нов стил)
   String _cacheKey(DateTime day) {
-    // oldStyleFirst=false в AppSettings означава стар стил е водещ (инверсия)
     final bool oldIsLeading = !AppSettings.oldStyleFirst;
     final DateTime newStyleDate = (AppSettings.isOldStyle && oldIsLeading)
-        ? _toNewStyle(day)  // деня е по стар стил → конвертираме за кеша
-        : day;              // деня е по нов стил → директно
+        ? _toNewStyle(day)
+        : day;
     return newStyleDate.toIso8601String().substring(0, 10);
   }
 
-  // Справочната дата (другия стил)
   DateTime _refDate(DateTime day) {
     final bool oldIsLeading = !AppSettings.oldStyleFirst;
     if (AppSettings.isOldStyle && oldIsLeading) {
-      // Водещ стар стил → справочна е нов стил
       return _toNewStyle(day);
     } else if (AppSettings.isOldStyle && !oldIsLeading) {
-      // Водещ нов стил → справочна е стар стил
       return _toOldStyle(day);
     }
-    return day; // нов стил режим → само нов стил
+    return day;
+  }
+
+  // Определя фона на реда
+  Color _rowBackground(DateTime day, bool isSunday) {
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final DateTime dbDate = (AppSettings.isOldStyle && oldIsLeading)
+        ? _toNewStyle(day)
+        : day;
+
+    final today = AppSettings.today;
+    final bool isToday = today != null &&
+        dbDate.year == today.year &&
+        dbDate.month == today.month &&
+        dbDate.day == today.day;
+
+    final bool isFlashing = _flashingDate != null &&
+        day.day == _flashingDate!.day &&
+        day.month == _flashingDate!.month &&
+        day.year == _flashingDate!.year;
+
+    if (isSunday) {
+      if (isToday) return AppColors.sundayTodayBg;
+      return AppColors.appBarSundayBg;
+    } else {
+      if (isToday) return AppColors.todayBg;
+      return Colors.transparent;
+    }
   }
 
   @override
@@ -216,57 +403,70 @@ class _MonthPageState extends State<_MonthPage> {
     final bool showOldStyle = AppSettings.isOldStyle;
     final bool oldIsLeading = !AppSettings.oldStyleFirst;
 
-    final String leftLabel  = showOldStyle ? (oldIsLeading ? 'ст.с.' : 'н.с.') : '';
-    final String rightLabel = showOldStyle ? (oldIsLeading ? 'н.с.' : 'ст.с.') : '';
+    final String leftLabel  = showOldStyle ? (oldIsLeading ? 'стар' : 'нов') : '';
+    final String leftLabel2 = showOldStyle ? 'стил' : '';
+    final String rightLabel  = showOldStyle ? (oldIsLeading ? 'нов' : 'стар') : '';
+    final String rightLabel2 = showOldStyle ? 'стил' : '';
     final headerMonth = '${widget.monthNames[widget.month]} ${widget.year}';
 
     final days = _getDaysToShow();
 
-    // Определяме дали първия ред трябва да показва справочния месец
     final DateTime firstRefDate = showOldStyle ? _refDate(days.first) : days.first;
     final bool firstRowShowsMonth = showOldStyle &&
         (firstRefDate.month != widget.month || firstRefDate.year != widget.year);
 
     return Column(
       children: [
-        // ─── Хедър — плъзга се с месеца ──────────────────────────────
+        // ─── Хедър ────────────────────────────────────────────────────
         Container(
           color: AppColors.appBarWeekday,
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           child: Row(
             children: [
               if (showOldStyle) ...[
-                Icon(
-                  oldIsLeading ? Icons.church : Icons.tv,
-                  color: AppColors.textSecondary,
-                  size: 22,
-                ),
+                Icon(oldIsLeading ? Icons.church : Icons.live_tv,
+                    color: AppColors.textSecondary, size: 22),
                 const SizedBox(width: 4),
-                Text(leftLabel,
-                    style: const TextStyle(
-                        color: AppColors.textSecondary, fontSize: 11)),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(leftLabel, style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: AppFonts.monthHeaderLabel,
+                        height: 1.0)),
+                    Text(leftLabel2, style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: AppFonts.monthHeaderLabel,
+                        height: 1.0)),
+                  ],
+                ),
               ],
               Expanded(
-                child: Text(
-                  headerMonth,
+                child: Text(headerMonth,
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     color: AppColors.textPrimary,
-                    fontSize: 15,
+                    fontSize: AppFonts.monthHeaderMonth,
                     fontWeight: FontWeight.w500,
-                  ),
-                ),
+                  )),
               ),
               if (showOldStyle) ...[
-                Text(rightLabel,
-                    style: const TextStyle(
-                        color: AppColors.textSecondary, fontSize: 11)),
-                const SizedBox(width: 4),
-                Icon(
-                  oldIsLeading ? Icons.tv : Icons.church,
-                  color: AppColors.textSecondary,
-                  size: 22,
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(rightLabel, style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: AppFonts.monthHeaderLabel,
+                        height: 1.0)),
+                    Text(rightLabel2, style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: AppFonts.monthHeaderLabel,
+                        height: 1.0)),
+                  ],
                 ),
+                const SizedBox(width: 4),
+                Icon(oldIsLeading ? Icons.live_tv : Icons.church,
+                    color: AppColors.textSecondary, size: 22),
               ],
             ],
           ),
@@ -276,140 +476,165 @@ class _MonthPageState extends State<_MonthPage> {
         Expanded(
           child: _loading
               ? const Center(child: CircularProgressIndicator())
+              //: AnimatedBuilder(
               : ListView.separated(
-                  padding: EdgeInsets.zero,
-                  itemCount: days.length,
-                  separatorBuilder: (_, __) =>
-                      Divider(color: AppColors.sectionDivider, height: 1),
-                  itemBuilder: (context, index) {
-                    final day = days[index];
-                    final bool isSunday = day.weekday == 7;
-                    final String key = _cacheKey(day);
-                    final saints = _cache[key] ?? [];
-                    final DateTime refDate = _refDate(day);
+                  //animation: _flashAnimation,
+                  //builder: (context, child) {
+                    //return ListView.separated(
+                      controller: _scrollController,
+                      padding: EdgeInsets.zero,
+                      itemCount: days.length,
+                      separatorBuilder: (context, index) =>
+                          Divider(color: AppColors.sectionDivider, height: 1),
+                      itemBuilder: (context, index) {
+                        final day = days[index];
+                        final bool isSunday = day.weekday == 7;
+                        final String key = _cacheKey(day);
+                        final saints = _cache[key] ?? [];
+                        final DateTime refDate = _refDate(day);
 
-                    // Показваме справочния месец при:
-                    // 1. Първо число на справочния месец
-                    // 2. Първи ред ако справочния месец ≠ водещия
-                    final bool isFirstOfRefMonth = refDate.day == 1;
-                    final bool showRefMonth = showOldStyle &&
-                        (isFirstOfRefMonth || (index == 0 && firstRowShowsMonth));
-                    final String refMonthShort = showRefMonth
-                        ? widget.monthNamesShort[refDate.month]
-                        : '';
+                        final bool isFirstOfRefMonth = refDate.day == 1;
+                        final bool showRefMonth = showOldStyle &&
+                            (isFirstOfRefMonth ||
+                                (index == 0 && firstRowShowsMonth));
+                        final String refMonthShort = showRefMonth
+                            ? widget.monthNamesShort[refDate.month]
+                            : '';
 
-                    // При клик отиваме на деня по нов стил (ключа в базата)
-                    final DateTime tapDate = (AppSettings.isOldStyle && oldIsLeading)
-                        ? _toNewStyle(day)
-                        : day;
+                        final DateTime tapDate =
+                            (AppSettings.isOldStyle && oldIsLeading)
+                                ? _toNewStyle(day)
+                                : day;
 
-                    return GestureDetector(
-                      onTap: () => widget.onDateSelected(tapDate),
-                      child: Container(
-                        color: isSunday
-                            ? AppColors.appBarSunday.withOpacity(0.15)
-                            : Colors.transparent,
-                        padding: const EdgeInsets.symmetric(
-                            vertical: 8, horizontal: 8),
-                        child: Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            // Лява колона: водеща дата + ден
-                            SizedBox(
-                              width: 36,
-                              child: Column(
-                                children: [
-                                  Text(
-                                    '${day.day}',
-                                    style: TextStyle(
-                                      color: isSunday
-                                          ? AppColors.appBarSunday
-                                          : AppColors.textPrimary,
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  Text(
-                                    widget.weekDaysShort[day.weekday],
-                                    style: TextStyle(
-                                      color: isSunday
-                                          ? AppColors.appBarSunday
-                                          : AppColors.textMuted,
-                                      fontSize: 11,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
+                        // Изчисляваме фона с flash
+                        final bool isFlashing = _flashingDate != null &&
+                            day.day == _flashingDate!.day &&
+                            day.month == _flashingDate!.month &&
+                            day.year == _flashingDate!.year;
 
-                            // Средна колона: светии
-                            Expanded(
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    if (isSunday)
-                                      for (final s in saints)
-                                        if (s['_sunday'] != null)
-                                          Text(
-                                            s['_sunday'] as String,
-                                            style: const TextStyle(
-                                              color: AppColors.appBarSunday,
-                                              fontSize: 13,
-                                              fontStyle: FontStyle.italic,
-                                            ),
-                                          ),
-                                    for (final s in saints)
-                                      if (s['_sunday'] == null)
-                                        Padding(
-                                          padding: const EdgeInsets.only(bottom: 2),
-                                          child: Text(
-                                            '${s['sign'] ?? '•'} ${s['name']}',
-                                            style: TextStyle(
-                                              color: _signColor(
-                                                  s['sign_color'] as String?),
-                                              fontSize: 13,
-                                            ),
-                                            maxLines: 2,
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                  ],
-                                ),
-                              ),
-                            ),
+                        Color baseColor = _rowBackground(day, isSunday);
+                        
+                        Color rowColor = baseColor;
+                        if (isFlashing) {
+                          final flashColor = isSunday
+                              ? AppColors.sundayFlash
+                              : AppColors.todayFlash;
+                          rowColor = Color.lerp(
+                              baseColor, flashColor, _flashAnimation.value)!;
+                        }
+                        
+                        _rowKeys[index] ??= GlobalKey();
 
-                            // Дясна колона: справочна дата
-                            if (showOldStyle)
-                              SizedBox(
-                                width: 28,
-                                child: Column(
-                                  children: [
-                                    Text(
-                                      '${refDate.day}',
-                                      style: const TextStyle(
-                                        color: AppColors.textMuted,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                    if (showRefMonth)
-                                      ...refMonthShort.split('').map((c) => Text(
-                                            c,
-                                            style: const TextStyle(
-                                              color: AppColors.textMuted,
-                                              fontSize: 10,
-                                            ),
-                                          )),
-                                  ],
-                                ),
-                              ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
+												return GestureDetector(
+                          key: _rowKeys[index],
+												  onTap: () => widget.onDateSelected(tapDate),
+												  child: AnimatedBuilder(
+													animation: _flashAnimation,
+													builder: (context, _) {
+													  Color rowColor = baseColor;
+													  if (isFlashing) {
+														final flashColor = isSunday
+															? AppColors.sundayFlash
+															: AppColors.todayFlash;
+														rowColor = Color.lerp(
+															baseColor, flashColor, _flashAnimation.value)!;
+													  }
+													  return Container(
+														color: rowColor,
+														padding: const EdgeInsets.symmetric(
+															vertical: 8, horizontal: 8),
+														child: Row(
+														  crossAxisAlignment: CrossAxisAlignment.start,
+														  children: [
+															// Лява колона: водеща дата + ден
+															SizedBox(
+															  width: 36,
+															  child: Column(
+																children: [
+																  Text('${day.day}',
+																	style: TextStyle(
+																	  color: isSunday
+																		  ? AppColors.appBarSunday
+																		  : AppColors.textPrimary,
+																	  fontSize: AppFonts.monthDayNumber,
+																	  fontWeight: FontWeight.w600,
+																	)),
+																  Text(widget.weekDaysShort[day.weekday],
+																	style: TextStyle(
+																	  color: isSunday
+																		  ? AppColors.appBarSunday
+																		  : AppColors.textMuted,
+																	  fontSize: AppFonts.monthWeekDay,
+																	)),
+																],
+															  ),
+															),
+
+															// Средна колона: светии
+															Expanded(
+															  child: Padding(
+																padding: const EdgeInsets.symmetric(horizontal: 8),
+																child: Column(
+																  crossAxisAlignment: CrossAxisAlignment.start,
+																  children: [
+																	if (isSunday)
+																	  for (final s in saints)
+																		if (s['_sunday'] != null)
+																		  Text(s['_sunday'] as String,
+																			style: const TextStyle(
+																			  color: AppColors.appBarSunday,
+																			  fontSize: AppFonts.monthSundayName,
+																			  fontWeight: FontWeight.w600,
+																			)),
+																	for (final s in saints)
+																	  if (s['_sunday'] == null)
+																		Padding(
+																		  padding: const EdgeInsets.only(bottom: 2),
+																		  child: Text(
+																			'${s['sign'] ?? '•'} ${s['name']}',
+																			style: TextStyle(
+																			  color: _signColor(s['sign_color'] as String?),
+																			  fontSize: AppFonts.monthSaintName,
+																			),
+																			maxLines: 2,
+																			overflow: TextOverflow.ellipsis,
+																		  ),
+																		),
+																  ],
+																),
+															  ),
+															),
+
+															// Дясна колона: справочна дата
+															if (showOldStyle)
+															  SizedBox(
+																width: 28,
+																child: Column(
+																  children: [
+																	Text('${refDate.day}',
+																	  style: const TextStyle(
+																		color: AppColors.textMuted,
+																		fontSize: AppFonts.monthRefDate,
+																	  )),
+																	if (showRefMonth)
+																	  ...refMonthShort.split('').map((c) => Text(c,
+																		style: const TextStyle(
+																		  color: AppColors.textMuted,
+																		  fontSize: AppFonts.monthRefMonth,
+																		))),
+																  ],
+																),
+															  ),
+														  ],
+														),
+													  );
+													},
+												  ),
+												);
+                      },
+                    ),
+                  //},
+                //),
         ),
       ],
     );
