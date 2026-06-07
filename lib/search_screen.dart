@@ -34,35 +34,53 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   }
 
 	Future<void> _search(String query) async {
-	  if (query.trim().isEmpty) {
-		setState(() => _results = []);
-		return;
-	  }
-	  setState(() => _loading = true);
-	  final db = await DatabaseHelper.database;
+		if (query.trim().isEmpty) {
+		  setState(() => _results = []);
+		  return;
+		}
+		setState(() => _loading = true);
+		final db = await DatabaseHelper.database;
 
-	  // Заменяме * с % за wildcard
-	  final cleanQuery = query.replaceAll('*', '%');
+		final cleanQuery = query.replaceAll('*', '%');
+		final words = cleanQuery.trim().split(' ')
+			.where((w) => w.isNotEmpty).toList();
+		final args = words.map((w) => '%$w%').toList();
 
-	  // Търсим всяка дума поотделно
-	  final words = cleanQuery.trim().split(' ')
-		  .where((w) => w.isNotEmpty)
-		  .toList();
+		final List<Map<String, dynamic>> allResults = [];
 
-	  final whereClause = words.map((_) => 's.name LIKE ?').join(' AND ');
-	  final args = words.map((w) => '%$w%').toList();
+		// Светии
+		final saintsWhere = words.map((_) => 's.name LIKE ?').join(' AND ');
+		final saintsResults = await db.rawQuery(
+		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
+		  'FROM saints s WHERE $saintsWhere ORDER BY s.date ASC',
+		  args);
+		allResults.addAll(saintsResults);
 
-	  final results = await db.rawQuery('''
-		SELECT s.name, s.date, s.rank
-		FROM saints s
-		WHERE $whereClause
-		ORDER BY s.date ASC
-	  ''', args);
+		// Недели
+		final sundaysWhere = words.map((_) => 'sn.name LIKE ?').join(' AND ');
+		final sundaysResults = await db.rawQuery(
+		  'SELECT sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
+		  'FROM sundays sn JOIN calendar_days cd ON cd.sunday_id = sn.id '
+		  'WHERE $sundaysWhere ORDER BY cd.date ASC',
+		  args);
+		allResults.addAll(sundaysResults);
 
-	  setState(() {
-		_results = results;
-		_loading = false;
-	  });
+		// Седмици
+		final weeksWhere = words.map((_) => 'w.name LIKE ?').join(' AND ');
+		final weeksResults = await db.rawQuery(
+		  'SELECT w.name, cd.date, 0 as rank, \'week\' as result_type '
+		  'FROM weeks w JOIN calendar_days cd ON cd.week_id = w.id '
+		  'WHERE $weeksWhere ORDER BY cd.date ASC',
+		  args);
+		allResults.addAll(weeksResults);
+
+		allResults.sort((a, b) =>
+			(a['date'] as String).compareTo(b['date'] as String));
+
+		setState(() {
+		  _results = allResults;
+		  _loading = false;
+		});
 	}
 
   String _formatDate(String dateStr) {
@@ -185,22 +203,32 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                   indent: 16,
                 ),
                 itemBuilder: (context, index) {
-                  final result = _results[index];
-                  final name = result['name'] as String;
-                  final date = result['date'] as String;
+                  final result     = _results[index];
+                  final name       = result['name'] as String;
+                  final date       = result['date'] as String;
+                  final resultType = result['result_type'] as String? ?? 'saint';
+
+                  // Иконка според типа резултат
+                  final Widget leadingIcon = resultType == 'saint'
+                      ? const Icon(Icons.circle, size: 8, color: AppColors.textMuted)
+                      : const Icon(Icons.church, size: 14, color: AppColors.sectionTitle);
+
+                  // Цвят на текста според типа
+                  final Color textColor = resultType == 'saint'
+                      ? AppColors.textPrimary
+                      : AppColors.sectionTitle;
 
                   return ListTile(
                     dense: true,
-                    leading: const Icon(
-                      Icons.circle,
-                      size: 8,
-                      color: AppColors.textMuted,
-                    ),
+                    leading: leadingIcon,
                     title: Text(
                       name,
-                      style: const TextStyle(
-                        color: AppColors.textPrimary,
+                      style: TextStyle(
+                        color: textColor,
                         fontSize: 15,
+                        fontStyle: resultType == 'saint'
+                            ? FontStyle.normal
+                            : FontStyle.italic,
                       ),
                     ),
                     trailing: Text(

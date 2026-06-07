@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
 import 'app_settings.dart';
+import 'moon_calculator.dart';
 
 class MonthScreen extends StatefulWidget {
   final DateTime initialDate;
@@ -502,7 +503,7 @@ class _MonthPageState extends State<_MonthPage>
                         final String key = _cacheKey(day);
 												final saints = _cache[key] ?? [];
 												if (index >= 11 && index <= 13) {
-												  print('day: ${day.day}, key: $key, saints: ${saints.length}');
+												  //print('day: ${day.day}, key: $key, saints: ${saints.length}');
 												}
                         final DateTime refDate = _refDate(day);
 
@@ -579,6 +580,20 @@ class _MonthPageState extends State<_MonthPage>
 																		  : AppColors.textMuted,
 																	  fontSize: AppFonts.monthWeekDay,
 																	)),
+																	  // Фаза на луната — само при ключови фази
+																	  Builder(builder: (context) {
+																			final keyPhase = MoonCalculator.keyPhaseForDay(dbDate);
+																			if (keyPhase == null) {
+																			  return const SizedBox.shrink();
+																			}
+																			return Text(
+																			  MoonCalculator.symbol(keyPhase),
+																	      style: const TextStyle(
+																	        color: AppColors.textSecondary,
+																	        fontSize: 32, //MoonSize
+																	      ),
+																	    );
+																	  }),
 																],
 															  ),
 															),
