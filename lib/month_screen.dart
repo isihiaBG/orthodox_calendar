@@ -303,7 +303,7 @@ class _MonthPageState extends State<_MonthPage>
     final rangeStart = DateTime(widget.year, widget.month, 1)
         .subtract(const Duration(days: 13));
     final rangeEnd = DateTime(widget.year, widget.month + 1, 0)
-        .add(const Duration(days: 13));
+        .add(const Duration(days: 14)); // 13 + (1 ден за буфер) 
 
     final Map<String, List<Map<String, dynamic>>> cache = {};
 
@@ -592,6 +592,11 @@ class _MonthPageState extends State<_MonthPage>
 																	        color: AppColors.textSecondary,
 																	        fontSize: 32, //MoonSize
 																	      ),
+                                        strutStyle: StrutStyle(
+                                          fontSize: 32, // реже излишния padding
+                                          height: 0.5,
+                                          forceStrutHeight: true,
+                                        )
 																	    );
 																	  }),
 																],

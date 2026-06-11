@@ -267,12 +267,31 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          // ================ Ден | Месец превключвател =================
+          // ================ Месец | Ден превключвател =================
           Padding(
             padding: const EdgeInsets.only(right: 8),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
+                // Бутон МЕСЕЦ — превключва към месечен изглед и флашва текущата дата
+                GestureDetector(
+                  onTap: () {
+                    if (!_isMonthView) {
+                      setState(() => _isMonthView = true);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _monthScreenKey.currentState?.navigateToDate(_currentDate, flash: true);
+                      });
+                    }
+                  },
+                  child: Text('Месец',
+                    style: TextStyle(
+                      color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                      fontSize: 15,
+                      fontWeight: _isMonthView ? FontWeight.bold : FontWeight.normal,
+                    )),
+                ),
+                Text('  |  ',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
                 // Бутон ДЕН — превключва към дневен изглед
                 GestureDetector(
                   onTap: () {
@@ -292,25 +311,6 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                       color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
                       fontSize: 15,
                       fontWeight: !_isMonthView ? FontWeight.bold : FontWeight.normal,
-                    )),
-                ),
-                Text('  |  ',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
-                // Бутон МЕСЕЦ — превключва към месечен изглед и флашва текущата дата
-                GestureDetector(
-                  onTap: () {
-                    if (!_isMonthView) {
-                      setState(() => _isMonthView = true);
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _monthScreenKey.currentState?.navigateToDate(_currentDate, flash: true);
-                      });
-                    }
-                  },
-                  child: Text('Месец',
-                    style: TextStyle(
-                      color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
-                      fontSize: 15,
-                      fontWeight: _isMonthView ? FontWeight.bold : FontWeight.normal,
                     )),
                 ),
               ],
