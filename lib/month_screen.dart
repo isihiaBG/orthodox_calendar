@@ -104,6 +104,15 @@ class MonthScreenState extends State<MonthScreen> {
 	  });
 	}
 
+  // Извиква се при смяна на стар/нов стил от настройките.
+  // Презарежда данните на всички заредени месеци БЕЗ да пресъздава
+  // widget-ите — така скрол позицията се запазва (без премигване).
+  void refreshAfterSettingsChange() {
+    for (final key in _pageKeys.values) {
+      key.currentState?.reloadKeepingScroll();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return PageView.builder(
@@ -115,18 +124,14 @@ class MonthScreenState extends State<MonthScreen> {
 
         _pageKeys[monthIndex] ??= GlobalKey<_MonthPageState>();
 
-        return KeyedSubtree(
-          key: ValueKey('${monthDate.year}_${monthDate.month}_${AppSettings.isOldStyle}'),
-          child: _MonthPage(
-            key: _pageKeys[monthIndex]!,
-            //stateKey: _pageKeys[monthIndex]!,
-            year: monthDate.year,
-            month: monthDate.month,
-            monthNames: _monthNames,
-            monthNamesShort: _monthNamesShort,
-            weekDaysShort: _weekDaysShort,
-            onDateSelected: widget.onDateSelected,
-          ),
+        return _MonthPage(
+          key: _pageKeys[monthIndex]!,
+          year: monthDate.year,
+          month: monthDate.month,
+          monthNames: _monthNames,
+          monthNamesShort: _monthNamesShort,
+          weekDaysShort: _weekDaysShort,
+          onDateSelected: widget.onDateSelected,
         );
       },
     );
@@ -296,8 +301,30 @@ class _MonthPageState extends State<_MonthPage>
 	  });
 	}
 
-  Future<void> _loadMonth() async {
-    setState(() => _loading = true);
+  // Презарежда данните за този месец от (новата) база, без да
+  // премахва скрол позицията и без да пресъздава widget-а.
+  // Извиква се при смяна на стар/нов стил от настройките.
+  Future<void> reloadKeepingScroll() async {
+    final savedOffset = _scrollController.hasClients
+        ? _scrollController.offset
+        : null;
+
+    await _loadMonth(preserveScroll: true);
+
+    if (savedOffset != null && _scrollController.hasClients) {
+      // Възстановяваме позицията след презареждането на данните
+      final maxExtent = _scrollController.position.maxScrollExtent;
+      _scrollController.jumpTo(savedOffset.clamp(0.0, maxExtent));
+    }
+  }
+
+  Future<void> _loadMonth({bool preserveScroll = false}) async {
+    // При обикновено зареждане показваме спинъра.
+    // При смяна на настройки (preserveScroll) не показваме спинър,
+    // за да няма премигване — старите данни се виждат докато новите се зареждат.
+    if (!preserveScroll) {
+      setState(() => _loading = true);
+    }
     final db = await DatabaseHelper.database;
 
     final rangeStart = DateTime(widget.year, widget.month, 1)
@@ -341,13 +368,15 @@ class _MonthPageState extends State<_MonthPage>
 			_cache = cache;
 			_loading = false;
 		  });
-		  // Изпълняваме отложения скрол ако има такъв
-		  if (_pendingScrollDate != null) {
-			final pending = _pendingScrollDate!;
-			_pendingScrollDate = null;
-			WidgetsBinding.instance.addPostFrameCallback((_) => _doScroll(pending));
+		  if (!preserveScroll) {
+			// Изпълняваме отложения скрол ако има такъв
+			if (_pendingScrollDate != null) {
+			  final pending = _pendingScrollDate!;
+			  _pendingScrollDate = null;
+			  WidgetsBinding.instance.addPostFrameCallback((_) => _doScroll(pending));
+			}
+			WidgetsBinding.instance.addPostFrameCallback((_) => _checkFlash());
 		  }
-		  WidgetsBinding.instance.addPostFrameCallback((_) => _checkFlash());
 		}
   }
 

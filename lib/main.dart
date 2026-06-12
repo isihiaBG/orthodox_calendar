@@ -99,7 +99,6 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   // При смяна стар→нов: +13 дни; нов→стар: -13 дни
   // При смяна само на oldStyleFirst: без промяна
   void _onSettingsChanged(bool styleChanged) {
-	  //_settingsVersion++; // ← добавено за да се разбира кога е сменен
     if (styleChanged) {
 			final date = _dateForPage(AppSettings.currentPage);
       int targetPage;
@@ -115,6 +114,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _pageController.jumpToPage(_currentPage);
       });
+      // Презареждаме месечния изглед с новата база — без да губим
+      // скрол позицията и без премигване (старите данни се виждат
+      // докато новите се заредят в кеша).
+      _monthScreenKey.currentState?.refreshAfterSettingsChange();
     } else {
       // Само смяна на oldStyleFirst — страницата остава
       setState(() {});
