@@ -356,7 +356,9 @@ class _MonthPageState extends State<_MonthPage>
 
       cache[dateStr] = [
         ...saints,
-        if (dayResult.isNotEmpty && dayResult.first['sunday_name'] != null)
+        if (dayResult.isNotEmpty &&
+            dayResult.first['sunday_name'] != null &&
+            (dayResult.first['sunday_name'] as String).trim().isNotEmpty)
           {'_sunday': dayResult.first['sunday_name']},
       ];
 
