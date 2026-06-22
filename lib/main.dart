@@ -57,8 +57,12 @@ class CalendarPageView extends StatefulWidget {
 }
 
 class _CalendarPageViewState extends State<CalendarPageView> {
-  final DateTime _startDate = DateTime.utc(2026, 1, 1);
-  final int _totalDays = 365;
+  // _startDate и _totalDays НЕ са вече final константи — стартират с
+  // точни временни граници (изчислени синхронно, мигновено), а после
+  // тихо се коригират в background с реалните граници от базата
+  // (DatabaseHelper.dataMinDate/dataMaxDate), без потребителят да забележи.
+  late DateTime _startDate;
+  late int _totalDays;
   late PageController _pageController;
   late int _currentPage;
   late DateTime _currentDate;
@@ -71,11 +75,66 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   void initState() {
     super.initState();
     final today = DateTime.now();
+
+    // Точни временни граници за мигновен старт, преди реалните данни
+    // от базата да са известни: 1 януари [текуща година] минус 14 дни,
+    // до 31 декември [текуща година] плюс 14 дни. 14-дневният буфер
+    // съответства точно на изместването стар/нов стил (13-14 дни),
+    // покривайки коректно и преходния период около Нова година.
+    final currentYear = today.year;
+    _startDate = DateTime.utc(currentYear, 1, 1).subtract(const Duration(days: 14));
+    final tempEnd = DateTime.utc(currentYear, 12, 31).add(const Duration(days: 14));
+    _totalDays = tempEnd.difference(_startDate).inDays + 1;
+
     _currentPage = DateTime.utc(today.year, today.month, today.day)
         .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
         .inDays;
     _currentDate = _dateForPage(_currentPage);
     _pageController = PageController(initialPage: _currentPage);
+
+    // Background — зарежда реалната база (бързо, тъй като вече е на
+    // диска от предишно стартиране) и заменя временните граници с
+    // точните MIN/MAX от calendar_days, тихо, без потребителят да
+    // забележи (освен ако точно в този миг се опита да превърти
+    // отвъд временната граница — много рядък случай).
+    _refineDateBoundsFromDatabase();
+  }
+
+  Future<void> _refineDateBoundsFromDatabase() async {
+    await DatabaseHelper.database; // гарантира, че границите са изчислени
+    final minDate = DatabaseHelper.dataMinDate;
+    final maxDate = DatabaseHelper.dataMaxDate;
+    
+    if (minDate == null || maxDate == null) return;
+    
+    final newStart = DateTime.utc(minDate.year, minDate.month, minDate.day);
+    final newEnd = DateTime.utc(maxDate.year, maxDate.month, maxDate.day);
+    final newTotalDays = newEnd.difference(newStart).inDays + 1;
+    
+    // Ако границите вече съвпадат — нищо за правене.
+    if (newStart == _startDate && newTotalDays == _totalDays) return;
+
+    // Запазваме потребителя визуално на същия ден, само индексите
+    // се преизчисляват спрямо новата (по-точна) начална точка.
+    final dateBeforeUpdate = _currentDate;
+    final wasMonthView = _isMonthView;
+
+    setState(() {
+      _startDate = newStart;
+      _totalDays = newTotalDays;
+    });
+
+    if (!wasMonthView) {
+      final newPage = DateTime.utc(
+              dateBeforeUpdate.year, dateBeforeUpdate.month, dateBeforeUpdate.day)
+          .difference(_startDate)
+          .inDays
+          .clamp(0, _totalDays - 1);
+      // Пресъздаваме контролера тихо, без анимация, на същата дата.
+      _pageController.dispose();
+      _pageController = PageController(initialPage: newPage);
+      setState(() => _currentPage = newPage);
+    }
   }
 
   @override
@@ -118,6 +177,9 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       // скрол позицията и без премигване (старите данни се виждат
       // докато новите се заредят в кеша).
       _monthScreenKey.currentState?.refreshAfterSettingsChange();
+      // Преизчисляваме границите за новата база (стар/нов стил могат
+      // да имат различен реален обхват от данни).
+      _refineDateBoundsFromDatabase();
     } else {
       // Само смяна на oldStyleFirst — страницата остава
       setState(() {});
@@ -678,7 +740,7 @@ class _DayScreenState extends State<DayScreen> {
                         constraints: BoxConstraints(minWidth: minCenterWidth),
                         child: Text(
                           showOldStyle
-                              ? date.year.toString()
+                              ? (!oldFirst ? _toOldStyle(date).year.toString() : date.year.toString())
                               : '${_dayMonth(date)}  ${date.year}',
                           textAlign: TextAlign.center,
                           maxLines: 1,
