@@ -730,6 +730,7 @@ class _MonthPageState extends State<_MonthPage>
 															),
 
 															// Средна колона: светии
+                              // TODO: да добавя week_name
 															Expanded(
 															  child: Padding(
 																padding: const EdgeInsets.symmetric(horizontal: 8),
