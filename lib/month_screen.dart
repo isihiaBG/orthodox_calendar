@@ -92,7 +92,11 @@ class MonthScreenState extends State<MonthScreen> {
 	  final targetIndex = _monthToIndex(leadingDate);  // месец по водещия стил
 	  final targetPage  = targetIndex + 100;
 
-	  if (flash) AppSettings.flashDate = date;
+	  if (flash) {
+      AppSettings.flashDate = date;
+    } else {
+      AppSettings.flashDate = null; // изчистваме евентуален стар флаш
+    }
 
 	  _pageController.animateToPage(
 		targetPage,
@@ -103,6 +107,13 @@ class MonthScreenState extends State<MonthScreen> {
 		key?.currentState?.scrollToDate(date);
 	  });
 	}
+
+  // Връща датата (по нов стил) на реда в средата на екрана.
+  // Ползва се при смяна на водеща дата за да запазим позицията.
+  DateTime? getMiddleDate() {
+    final key = _pageKeys[_currentMonthIndex];
+    return key?.currentState?.getMiddleVisibleDate();
+  }
 
   // Извиква се при смяна на стар/нов стил от настройките.
   // Презарежда данните на всички заредени месеци БЕЗ да пресъздава
@@ -176,7 +187,42 @@ class _MonthPageState extends State<_MonthPage>
   late Animation<double> _flashAnimation;
   DateTime? _flashingDate;
 
-	static DateTime _toNewStyle(DateTime d) => 
+  // Връща датата (по нов стил) на реда който е приблизително
+  // в средата на екрана. Ползва RenderBox за точно определяне.
+  // Връща null ако нищо не е видимо или редовете не са рендерирани.
+  DateTime? getMiddleVisibleDate() {
+    if (!_scrollController.hasClients) return null;
+    final days = _getDaysToShow();
+    final screenHeight = MediaQuery.of(context).size.height;
+    final screenCenter = screenHeight / 2;
+
+    for (int i = 0; i < days.length; i++) {
+      final key = _rowKeys[i];
+      if (key?.currentContext == null) continue;
+      final box = key!.currentContext!.findRenderObject() as RenderBox?;
+      if (box == null) continue;
+      final position = box.localToGlobal(Offset.zero);
+      final rowTop    = position.dy;
+      final rowBottom = rowTop + box.size.height;
+      if (rowTop <= screenCenter && rowBottom >= screenCenter) {
+        // Конвертираме към нов стил ако водещ е стар стил
+        final bool oldIsLeading = AppSettings.oldStyleFirst;
+        // return (AppSettings.isOldStyle && oldIsLeading)
+        //     ? _toNewStyle(days[i])
+        //     : days[i];
+        
+        // days[i] е по нов стил, но при водещ стар стил
+        // показва се като стар стил — трябва да върнем нов стил
+        // еквивалента на водещата (стара) дата
+        return (AppSettings.isOldStyle && oldIsLeading)
+            ? _toNewStyle(days[i])  // стар→нов за navigateToDate
+            : days[i];              // вече е нов стил
+      }
+    }
+    return null;
+  }
+
+  static DateTime _toNewStyle(DateTime d) => 
 		DateTime.utc(d.year, d.month, d.day).add(const Duration(days: 13));
 	static DateTime _toOldStyle(DateTime d) => 
 		DateTime.utc(d.year, d.month, d.day).subtract(const Duration(days: 13));

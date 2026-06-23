@@ -181,8 +181,19 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       // да имат различен реален обхват от данни).
       _refineDateBoundsFromDatabase();
     } else {
-      // Само смяна на oldStyleFirst — страницата остава
-      setState(() {});
+      // Смяна на oldStyleFirst — запазваме средния ден на екрана
+      // и навигираме до съответния ден по новия водещ стил (без флаш)
+      if (_isMonthView) {
+        final middleDate = _monthScreenKey.currentState?.getMiddleDate();
+        setState(() {});
+        if (middleDate != null) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _monthScreenKey.currentState?.navigateToDate(middleDate, flash: false);
+          });
+        }
+      } else {
+        setState(() {});
+      }
     }
   }
 
