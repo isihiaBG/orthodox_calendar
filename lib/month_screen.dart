@@ -303,9 +303,15 @@ class _MonthPageState extends State<_MonthPage>
   void _tryScrollToIndex(int index, {int attempts = 0}) {
     final rowKey = _rowKeys[index];
     if (rowKey?.currentContext != null) {
+      final toolbarOffset = MediaQuery.of(context).padding.top 
+          + AppSizes.toolbarHeight 
+          + AppSizes.monthHeaderHeight;
+      final listHeight = MediaQuery.of(context).size.height - toolbarOffset;
+      final alignmentValue = toolbarOffset / MediaQuery.of(context).size.height + listHeight / 3 / MediaQuery.of(context).size.height;
+
       Scrollable.ensureVisible(
         rowKey!.currentContext!,
-        alignment: 0.33,
+        alignment: alignmentValue,
         duration: const Duration(milliseconds: 400),
         curve: Curves.easeInOut,
       );

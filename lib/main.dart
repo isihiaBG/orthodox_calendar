@@ -424,9 +424,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                 helpText: AppSettings.isOldStyle && !AppSettings.oldStyleFirst
                     ? 'Изберете дата по нов стил'
                     : null,
-                initialDate: _isMonthView
-                    ? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
-                    : _dateForPage(_currentPage),
+                initialDate: _currentDate,
+                // initialDate: _isMonthView
+                //     ? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
+                //     : _dateForPage(_currentPage),
                 firstDate: _startDate,
                 lastDate: _startDate.add(Duration(days: _totalDays - 1)),
                 builder: (context, child) {
