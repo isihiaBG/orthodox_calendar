@@ -248,23 +248,6 @@ class _MonthPageState extends State<_MonthPage>
 	  _doScroll(date);
 	}
 
-  void _tryScrollToIndex(int index, {int attempts = 0}) {
-    final rowKey = _rowKeys[index];
-    if (rowKey?.currentContext != null) {
-      Scrollable.ensureVisible(
-        rowKey!.currentContext!,
-        alignment: 0.33,
-        duration: const Duration(milliseconds: 400),
-        curve: Curves.easeInOut,
-      );
-    } else if (attempts < 10) {
-      // Повтаряме докато редът се зареди — макс 10 опита по 100ms
-      Future.delayed(const Duration(milliseconds: 100), () {
-        _tryScrollToIndex(index, attempts: attempts + 1);
-      });
-    }
-  }
-
 	void _doScroll(DateTime date) {
 	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
 	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
@@ -276,13 +259,6 @@ class _MonthPageState extends State<_MonthPage>
 		  d.day == leadingDate.day &&
 		  d.month == leadingDate.month &&
 		  d.year == leadingDate.year);
-
-    // print('date: $date');
-    // print('leadingDate: $leadingDate');
-    // print('index: $index / ${days.length}');
-    // print('maxExtent: ${_scrollController.position.maxScrollExtent}');
-    // print('approxOffset: ${(index / days.length) * _scrollController.position.maxScrollExtent}');
-    // print('rowKey[$index] context: ${_rowKeys[index]?.currentContext}');
 
 	  if (index < 0 || !_scrollController.hasClients) return;
 
@@ -306,26 +282,18 @@ class _MonthPageState extends State<_MonthPage>
 				_scrollController.position.maxScrollExtent;
 			_scrollController.jumpTo(
 				approxOffset.clamp(0.0, _scrollController.position.maxScrollExtent));
-			
-      // Изчакваме ДВА frames вместо един — за да се рендерират новите редове
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          _tryScrollToIndex(index);
-        });
-      });
-      // Future.delayed(const Duration(milliseconds: 100), () {
-			//   final rowKey2 = _rowKeys[index];
-			//   if (rowKey2?.currentContext != null) {
-			// 	Scrollable.ensureVisible(
-			// 	  rowKey2!.currentContext!,
-			// 	  alignment: 0.33,
-			// 	  duration: const Duration(milliseconds: 400),
-			// 	  curve: Curves.easeInOut,
-			// 	);
-			//   }
-			// });
+			Future.delayed(const Duration(milliseconds: 100), () {
+			  final rowKey2 = _rowKeys[index];
+			  if (rowKey2?.currentContext != null) {
+				Scrollable.ensureVisible(
+				  rowKey2!.currentContext!,
+				  alignment: 0.33,
+				  duration: const Duration(milliseconds: 400),
+				  curve: Curves.easeInOut,
+				);
+			  }
+			});
 		}
-		// setState(() => _flashingDate = leadingDate);
 		setState(() => _flashingDate = leadingDate);
 		_flashController.forward(from: 0).then((_) {
 		  if (mounted) setState(() => _flashingDate = null);
@@ -388,7 +356,9 @@ class _MonthPageState extends State<_MonthPage>
 
       cache[dateStr] = [
         ...saints,
-        if (dayResult.isNotEmpty && dayResult.first['sunday_name'] != null)
+        if (dayResult.isNotEmpty &&
+            dayResult.first['sunday_name'] != null &&
+            (dayResult.first['sunday_name'] as String).trim().isNotEmpty)
           {'_sunday': dayResult.first['sunday_name']},
       ];
 
@@ -550,7 +520,6 @@ class _MonthPageState extends State<_MonthPage>
                   //builder: (context, child) {
                     //return ListView.separated(
                       controller: _scrollController,
-                      cacheExtent: 2000, // ← рендерира 2000px извън видимата зона (bugfix)
                       padding: EdgeInsets.zero,
                       itemCount: days.length,
                       separatorBuilder: (context, index) =>

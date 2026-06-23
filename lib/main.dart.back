@@ -31,14 +31,19 @@ class OrthodoxCalendarApp extends StatelessWidget {
         Locale('en', 'US'),
       ],
       locale: const Locale('bg', 'BG'),
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: AppColors.appBarWeekday,
-          brightness: Brightness.dark,
-        ),
-        useMaterial3: true,
-        scaffoldBackgroundColor: AppColors.background,
-      ),
+			theme: ThemeData(
+			  useMaterial3: true,
+			  scaffoldBackgroundColor: AppColors.background,
+			  colorScheme: const ColorScheme.dark(),
+        visualDensity: VisualDensity.compact ,
+			  iconButtonTheme: IconButtonThemeData(
+				style: ButtonStyle(
+				  padding: WidgetStateProperty.all(
+					  const EdgeInsets.symmetric(horizontal: 2)),
+				  minimumSize: WidgetStateProperty.all(const Size(36, 36)),
+				),
+			  ),
+			),
       home: const CalendarPageView(),
     );
   }
@@ -52,10 +57,15 @@ class CalendarPageView extends StatefulWidget {
 }
 
 class _CalendarPageViewState extends State<CalendarPageView> {
-  final DateTime _startDate = DateTime.utc(2026, 1, 1);
-  final int _totalDays = 365;
+  // _startDate и _totalDays НЕ са вече final константи — стартират с
+  // точни временни граници (изчислени синхронно, мигновено), а после
+  // тихо се коригират в background с реалните граници от базата
+  // (DatabaseHelper.dataMinDate/dataMaxDate), без потребителят да забележи.
+  late DateTime _startDate;
+  late int _totalDays;
   late PageController _pageController;
   late int _currentPage;
+  late DateTime _currentDate;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _isMonthView = false;
   final GlobalKey<MonthScreenState> _monthScreenKey = GlobalKey<MonthScreenState>();
@@ -65,10 +75,66 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   void initState() {
     super.initState();
     final today = DateTime.now();
+
+    // Точни временни граници за мигновен старт, преди реалните данни
+    // от базата да са известни: 1 януари [текуща година] минус 14 дни,
+    // до 31 декември [текуща година] плюс 14 дни. 14-дневният буфер
+    // съответства точно на изместването стар/нов стил (13-14 дни),
+    // покривайки коректно и преходния период около Нова година.
+    final currentYear = today.year;
+    _startDate = DateTime.utc(currentYear, 1, 1).subtract(const Duration(days: 14));
+    final tempEnd = DateTime.utc(currentYear, 12, 31).add(const Duration(days: 14));
+    _totalDays = tempEnd.difference(_startDate).inDays + 1;
+
     _currentPage = DateTime.utc(today.year, today.month, today.day)
         .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
         .inDays;
+    _currentDate = _dateForPage(_currentPage);
     _pageController = PageController(initialPage: _currentPage);
+
+    // Background — зарежда реалната база (бързо, тъй като вече е на
+    // диска от предишно стартиране) и заменя временните граници с
+    // точните MIN/MAX от calendar_days, тихо, без потребителят да
+    // забележи (освен ако точно в този миг се опита да превърти
+    // отвъд временната граница — много рядък случай).
+    _refineDateBoundsFromDatabase();
+  }
+
+  Future<void> _refineDateBoundsFromDatabase() async {
+    await DatabaseHelper.database; // гарантира, че границите са изчислени
+    final minDate = DatabaseHelper.dataMinDate;
+    final maxDate = DatabaseHelper.dataMaxDate;
+    
+    if (minDate == null || maxDate == null) return;
+    
+    final newStart = DateTime.utc(minDate.year, minDate.month, minDate.day);
+    final newEnd = DateTime.utc(maxDate.year, maxDate.month, maxDate.day);
+    final newTotalDays = newEnd.difference(newStart).inDays + 1;
+    
+    // Ако границите вече съвпадат — нищо за правене.
+    if (newStart == _startDate && newTotalDays == _totalDays) return;
+
+    // Запазваме потребителя визуално на същия ден, само индексите
+    // се преизчисляват спрямо новата (по-точна) начална точка.
+    final dateBeforeUpdate = _currentDate;
+    final wasMonthView = _isMonthView;
+
+    setState(() {
+      _startDate = newStart;
+      _totalDays = newTotalDays;
+    });
+
+    if (!wasMonthView) {
+      final newPage = DateTime.utc(
+              dateBeforeUpdate.year, dateBeforeUpdate.month, dateBeforeUpdate.day)
+          .difference(_startDate)
+          .inDays
+          .clamp(0, _totalDays - 1);
+      // Пресъздаваме контролера тихо, без анимация, на същата дата.
+      _pageController.dispose();
+      _pageController = PageController(initialPage: newPage);
+      setState(() => _currentPage = newPage);
+    }
   }
 
   @override
@@ -92,7 +158,6 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   // При смяна стар→нов: +13 дни; нов→стар: -13 дни
   // При смяна само на oldStyleFirst: без промяна
   void _onSettingsChanged(bool styleChanged) {
-	  //_settingsVersion++; // ← добавено за да се разбира кога е сменен
     if (styleChanged) {
 			final date = _dateForPage(AppSettings.currentPage);
       int targetPage;
@@ -108,6 +173,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         _pageController.jumpToPage(_currentPage);
       });
+      // Презареждаме месечния изглед с новата база — без да губим
+      // скрол позицията и без премигване (старите данни се виждат
+      // докато новите се заредят в кеша).
+      _monthScreenKey.currentState?.refreshAfterSettingsChange();
+      // Преизчисляваме границите за новата база (стар/нов стил могат
+      // да имат различен реален обхват от данни).
+      _refineDateBoundsFromDatabase();
     } else {
       // Само смяна на oldStyleFirst — страницата остава
       setState(() {});
@@ -206,6 +278,27 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     );
   }
 
+  // Флаг за пропускане на първото onPageChanged след превключване от месечен към дневен изглед
+  bool _skipNextPageChange = false;
+
+  // Централизирана навигация до дата — работи и в дневен и в месечен изглед
+  // Обновява _currentDate при всяка навигация
+  void _navigateToDate(DateTime date, {bool flash = true}) {
+    setState(() => _currentDate = date);
+    if (_isMonthView) {
+      _monthScreenKey.currentState?.navigateToDate(date, flash: flash);
+    } else {
+      final page = DateTime.utc(date.year, date.month, date.day)
+          .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
+          .inDays;
+      _pageController.animateToPage(
+        page.clamp(0, _totalDays - 1),
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+      );
+    }
+  }
+
   void _showSearch(BuildContext context) {
     showModalBottomSheet(
       context: context,
@@ -213,19 +306,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       backgroundColor: Colors.transparent,
       builder: (_) => SearchBottomSheet(
         onDateSelected: (date) {
-          final selectedDate = DateTime(date.year, date.month, date.day);
-          if (_isMonthView) {
-            _monthScreenKey.currentState?.navigateToDate(selectedDate, flash: true);
-          } else {
-            final page = DateTime.utc(date.year, date.month, date.day)
-                .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-                .inDays;
-            _pageController.animateToPage(
-              page,
-              duration: const Duration(milliseconds: 300),
-              curve: Curves.easeInOut,
-            );
-          }
+          // Навигираме до избраната дата и обновяваме _currentDate
+          _navigateToDate(DateTime(date.year, date.month, date.day));
         },
       ),
     );
@@ -243,131 +325,129 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 40,
+        titleSpacing: 0,
+        // ================ Меню бутон =================
         leading: IconButton(
           icon: const Icon(Icons.menu, color: AppColors.textPrimary, size: 28),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
-          // Падащо меню за избор на изглед
-          PopupMenuButton<bool>(
-            initialValue: _isMonthView,
-            color: AppColors.drawerBackground,
-            offset: const Offset(0, 40),
-						onSelected: (value) {
-						  setState(() => _isMonthView = value);
-						  if (value) {
-							// Преминаваме към месечен изглед — навигираме до текущия ден
-							WidgetsBinding.instance.addPostFrameCallback((_) {
-							  final currentDate = _dateForPage(_currentPage);
-							  _monthScreenKey.currentState?.navigateToDate(currentDate, flash: true);
-							});
-						  }
-						},
-
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                value: false,
-                child: Row(
-                  children: [
-                    Icon(Icons.view_day,
-                      color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
-                      size: 18),
-                    const SizedBox(width: 8),
-                    Text('Ден',
-                      style: TextStyle(
-                        color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
-                        fontWeight: !_isMonthView ? FontWeight.bold : FontWeight.normal,
-                      )),
-                  ],
-                ),
-              ),
-              PopupMenuItem(
-                value: true,
-                child: Row(
-                  children: [
-                    Icon(Icons.calendar_view_month,
+          // ================ Месец | Ден превключвател =================
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Бутон МЕСЕЦ — превключва към месечен изглед и флашва текущата дата
+                GestureDetector(
+                  onTap: () {
+                    if (!_isMonthView) {
+                      setState(() => _isMonthView = true);
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        _monthScreenKey.currentState?.navigateToDate(_currentDate, flash: true);
+                      });
+                    }
+                  },
+                  child: Text('Месец',
+                    style: TextStyle(
                       color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
-                      size: 18),
-                    const SizedBox(width: 8),
-                    Text('Месец',
-                      style: TextStyle(
-                        color: _isMonthView ? AppColors.textPrimary : AppColors.textMuted,
-                        fontWeight: _isMonthView ? FontWeight.bold : FontWeight.normal,
-                      )),
-                  ],
+                      fontSize: 15,
+                      fontWeight: _isMonthView ? FontWeight.bold : FontWeight.normal,
+                    )),
                 ),
-              ),
-            ],
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    _isMonthView ? 'Месец' : 'Ден',
-                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 15),
-                  ),
-                  const Icon(Icons.arrow_drop_down, color: AppColors.textPrimary, size: 18),
-                ],
-              ),
+                Text('  |  ',
+                  style: TextStyle(color: AppColors.textMuted, fontSize: 15)),
+                // Бутон ДЕН — превключва към дневен изглед
+                GestureDetector(
+                  onTap: () {
+                    if (_isMonthView) {
+                      // Пресъздаваме контролера на правилната страница от _currentDate
+                      final page = _pageForDate(_currentDate).clamp(0, _totalDays - 1);
+                      _pageController.dispose();
+                      _pageController = PageController(initialPage: page);
+                      setState(() {
+                        _isMonthView = false;
+                        _currentPage = page;
+                      });
+                    }
+                  },
+                  child: Text('Ден',
+                    style: TextStyle(
+                      color: !_isMonthView ? AppColors.textPrimary : AppColors.textMuted,
+                      fontSize: 15,
+                      fontWeight: !_isMonthView ? FontWeight.bold : FontWeight.normal,
+                    )),
+                ),
+              ],
             ),
           ),
+          // ================ Търсене =================
           IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.search, color: AppColors.textPrimary, size: 24),
             onPressed: () => _showSearch(context),
           ),
+          // ================ Днес Бутон =================
           IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.today, color: AppColors.textPrimary, size: 24),
             onPressed: () {
               final today = DateTime.now();
               final todayDate = DateTime(today.year, today.month, today.day);
-              print('monthScreenKey state: ${_monthScreenKey.currentState}');
-              //_monthScreenKey.currentState?.navigateToDate(todayDate, flash: true);
-              if (_isMonthView) {
-                _monthScreenKey.currentState?.navigateToDate(todayDate, flash: true);
-              } else {
-                final page = DateTime.utc(today.year, today.month, today.day)
-                    .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-                    .inDays;
-                _pageController.animateToPage(
-                  page,
-                  duration: const Duration(milliseconds: 300),
-                  curve: Curves.easeInOut,
-                );
-              }
+              // Централизирана навигация — обновява _currentDate автоматично
+              _navigateToDate(todayDate, flash: true);
             },
           ),
+          // ================ Дата Пикър =================
           IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.calendar_month, color: AppColors.textPrimary, size: 24),
             onPressed: () async {
-							print('isMonthView: $_isMonthView');
-							print('currentState: ${_monthScreenKey.currentState}');
-							print('currentDate: ${_monthScreenKey.currentState?.currentDate}');
               final picked = await showDatePicker(
                 context: context,
                 helpText: AppSettings.isOldStyle && !AppSettings.oldStyleFirst
                     ? 'Изберете дата по нов стил'
                     : null,
-                initialDate: _isMonthView //_dateForPage(_currentPage),
-                  ? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
-                  : _dateForPage(_currentPage),
-               firstDate: _startDate,
+                initialDate: _isMonthView
+                    ? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
+                    : _dateForPage(_currentPage),
+                firstDate: _startDate,
                 lastDate: _startDate.add(Duration(days: _totalDays - 1)),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.dark(
+                        primary: AppColors.datePickerPrimary,
+                        onPrimary: AppColors.datePickerOnPrimary,
+                        surface: AppColors.datePickerSurface,
+                        onSurface: AppColors.datePickerOnSurface,
+                        secondary: AppColors.datePickerPrimary,
+                      ),
+                      dialogBackgroundColor: AppColors.datePickerBackground,
+                      textButtonTheme: TextButtonThemeData(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.datePickerButtons, // цвят на ОТКАЗ и ОК
+                        ),
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
               );
               if (picked != null) {
                 final pickedDate = DateTime(picked.year, picked.month, picked.day);
-                if (_isMonthView) {
-                  _monthScreenKey.currentState?.navigateToDate(pickedDate, flash: true);
-                } else {
-                  final page = DateTime.utc(picked.year, picked.month, picked.day)
-                      .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
-                      .inDays;
-                  _pageController.jumpToPage(page);
-                }
+                // Централизирана навигация — обновява _currentDate автоматично
+                _navigateToDate(pickedDate, flash: true);
               }
             },
           ),
+          // ================ Настройки =================
           IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
             onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
           ),
@@ -381,10 +461,16 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 								: _dateForPage(_currentPage),
               
               onDateSelected: (date) {
-                setState(() => _isMonthView = false);
+                // Навигираме до избрания ден и обновяваме _currentDate
                 final page = DateTime.utc(date.year, date.month, date.day)
                     .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
                     .inDays;
+                setState(() {
+                  _isMonthView = false;
+                  _currentDate = date;
+                  _currentPage = page.clamp(0, _totalDays - 1);
+                  _skipNextPageChange = true; // пропускаме onPageChanged
+                });
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _pageController.jumpToPage(page.clamp(0, _totalDays - 1));
                 });
@@ -394,8 +480,18 @@ class _CalendarPageViewState extends State<CalendarPageView> {
               key: ValueKey(AppSettings.isOldStyle),
               controller: _pageController,
               onPageChanged: (page) {
-                setState(() => _currentPage = page);
-                AppSettings.currentPage = page;
+                // Пропускаме първото извикване след превключване от месечен към дневен
+                if (_skipNextPageChange) {
+                  _skipNextPageChange = false;
+                  return;
+                }
+                final newDate = _dateForPage(page);
+                // Обновяваме само ако датата реално се е сменила от потребителя
+                setState(() {
+                  _currentPage = page;
+                  _currentDate = newDate; // синхронизираме _currentDate
+                  AppSettings.currentPage = page;
+                });
               },
               itemCount: _totalDays,
               itemBuilder: (context, index) => DayScreen(
@@ -664,7 +760,7 @@ class _DayScreenState extends State<DayScreen> {
                         constraints: BoxConstraints(minWidth: minCenterWidth),
                         child: Text(
                           showOldStyle
-                              ? date.year.toString()
+                              ? (!oldFirst ? _toOldStyle(date).year.toString() : date.year.toString())
                               : '${_dayMonth(date)}  ${date.year}',
                           textAlign: TextAlign.center,
                           maxLines: 1,

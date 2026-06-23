@@ -416,6 +416,26 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                     : _dateForPage(_currentPage),
                 firstDate: _startDate,
                 lastDate: _startDate.add(Duration(days: _totalDays - 1)),
+                builder: (context, child) {
+                  return Theme(
+                    data: Theme.of(context).copyWith(
+                      colorScheme: ColorScheme.dark(
+                        primary: AppColors.datePickerPrimary,
+                        onPrimary: AppColors.datePickerOnPrimary,
+                        surface: AppColors.datePickerSurface,
+                        onSurface: AppColors.datePickerOnSurface,
+                        secondary: AppColors.datePickerPrimary,
+                      ),
+                      dialogBackgroundColor: AppColors.datePickerBackground,
+                      textButtonTheme: TextButtonThemeData(
+                        style: TextButton.styleFrom(
+                          foregroundColor: AppColors.datePickerButtons, // цвят на ОТКАЗ и ОК
+                        ),
+                      ),
+                    ),
+                    child: child!,
+                  );
+                },
               );
               if (picked != null) {
                 final pickedDate = DateTime(picked.year, picked.month, picked.day);
@@ -441,18 +461,24 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 								: _dateForPage(_currentPage),
               
               onDateSelected: (date) {
-                // Навигираме до избрания ден и обновяваме _currentDate
+                // Навигираме до избрания ден и обновяваме _currentDate.
+                // Важно: ползваме _dateForPage след clamp за да е сигурно
+                // че _currentDate е валидна дата от базата (не извън границите).
+                // Това оправя бъга при клик на дата извън базата — дневният
+                // изглед правилно ни поставя на последния валиден ден, и при
+                // връщане в месечен изглед се хайлайтва именно той.
                 final page = DateTime.utc(date.year, date.month, date.day)
                     .difference(DateTime.utc(_startDate.year, _startDate.month, _startDate.day))
                     .inDays;
+                final clampedPage = page.clamp(0, _totalDays - 1);
                 setState(() {
                   _isMonthView = false;
-                  _currentDate = date;
-                  _currentPage = page.clamp(0, _totalDays - 1);
+                  _currentDate = _dateForPage(clampedPage); // винаги валидна дата
+                  _currentPage = clampedPage;
                   _skipNextPageChange = true; // пропускаме onPageChanged
                 });
                 WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _pageController.jumpToPage(page.clamp(0, _totalDays - 1));
+                  _pageController.jumpToPage(clampedPage);
                 });
               },
             )

@@ -33,12 +33,23 @@ class AppColors {
 
   // ─── Highlight на днешния ден ─────────────────────────────────────────
   // Обикновен ден — днес
-  static const todayBg       = Color.fromARGB(51, 187, 187, 186);  // топло жълто ~20%
-  static const todayFlash    = Color.fromARGB(133, 158, 153, 132);  // по-наситено за flash
+  static const todayBg       = Color.fromARGB(51, 187, 187, 186);
+  static const todayFlash    = Color.fromARGB(133, 158, 153, 132);
 
   // Неделя — днес
-  static const sundayTodayBg = Color(0xff7b002c);  // по-наситено бордо
-  static const sundayFlash   = Color.fromARGB(184, 148, 75, 101);  // наситено бордо за flash
+  static const sundayTodayBg = Color(0xff7b002c);
+  static const sundayFlash   = Color.fromARGB(184, 148, 75, 101);
+
+  // ─── Датепикър ────────────────────────────────────────────────────────
+  // Цветовете на стандартния Material датепикър, обвързани с темата
+  // на приложението. При смяна на скин — само тук се променят.
+  static const datePickerPrimary    = appBarWeekday;   // избрана дата / акцент
+  static const datePickerOnPrimary  = textPrimary;     // текст върху избрана дата
+  static const datePickerSurface    = backgroundCard;  // фон на календара
+  static const datePickerOnSurface  = textPrimary;     // текст на датите
+  static const datePickerBackground = background;      // фон на диалога
+  static final datePickerButtons    = Color.lerp(      // цвят на ОК/ОТКАЗ бутоните
+                sectionTitle, Colors.grey, 0)!;     // Изсветляване на sectionTitle с 20%
 }
 
 // ─── Размери на шрифтове ──────────────────────────────────────────────────
