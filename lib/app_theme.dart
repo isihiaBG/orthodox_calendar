@@ -66,3 +66,8 @@ class AppFonts {
   static const monthRefDate      = 16.0;
   static const monthRefMonth     = 14.0;
 }
+
+class AppSizes {
+  static const toolbarHeight = 40.0;      // височина на toolbar
+  static const monthHeaderHeight = 50.0;  // височина на month header
+}

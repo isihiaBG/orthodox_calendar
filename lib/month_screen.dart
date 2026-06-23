@@ -194,7 +194,13 @@ class _MonthPageState extends State<_MonthPage>
     if (!_scrollController.hasClients) return null;
     final days = _getDaysToShow();
     final screenHeight = MediaQuery.of(context).size.height;
-    final screenCenter = screenHeight / 2;
+    final toolbarOffset = MediaQuery.of(context).padding.top 
+                        + AppSizes.toolbarHeight 
+                        + AppSizes.monthHeaderHeight; // status bar + toolbar + month header
+    final listHeight = screenHeight - toolbarOffset;
+    final screenCenter = toolbarOffset + listHeight / 3; // 1/3 от листинг екрана = alignment: 0.33
+
+    // final screenCenter = screenHeight / 3; // 1/3 от листинг прозореца = alignment: 0.33
 
     for (int i = 0; i < days.length; i++) {
       final key = _rowKeys[i];

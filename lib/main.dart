@@ -185,10 +185,12 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       // и навигираме до съответния ден по новия водещ стил (без флаш)
       if (_isMonthView) {
         final middleDate = _monthScreenKey.currentState?.getMiddleDate();
-        setState(() {});
+        setState(() {
+          if (middleDate != null) _currentDate = middleDate;
+        });
         if (middleDate != null) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
-            _monthScreenKey.currentState?.navigateToDate(middleDate, flash: false);
+            _monthScreenKey.currentState?.navigateToDate(middleDate, flash: true);
           });
         }
       } else {
@@ -335,7 +337,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       endDrawer: SettingsDrawer(onChanged: _onSettingsChanged),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
-        toolbarHeight: 40,
+        toolbarHeight:   AppSizes.toolbarHeight, // 40 >> височина на toolbar-а 
         titleSpacing: 0,
         // ================ Меню бутон =================
         leading: IconButton(
