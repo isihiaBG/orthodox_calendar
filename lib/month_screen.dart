@@ -438,9 +438,11 @@ class _MonthPageState extends State<_MonthPage>
       ''', [dateStr]);
 
       final dayResult = await db.rawQuery('''
-        SELECT cd.*, sn.name as sunday_name, sn.tone as sunday_tone
+        SELECT cd.*, sn.name as sunday_name, sn.tone as sunday_tone,
+               w.name as week_name
         FROM calendar_days cd
         LEFT JOIN sundays sn ON cd.sunday_id = sn.id
+        LEFT JOIN weeks w ON cd.week_id = w.id
         WHERE cd.date = ?
       ''', [dateStr]);
 
@@ -453,6 +455,10 @@ class _MonthPageState extends State<_MonthPage>
             '_sunday': dayResult.first['sunday_name'],
             '_tone': dayResult.first['sunday_tone'],
           },
+        if (dayResult.isNotEmpty &&
+            dayResult.first['week_name'] != null &&
+            (dayResult.first['week_name'] as String).trim().isNotEmpty)
+          {'_week': dayResult.first['week_name']},
       ];
 
       current = current.add(const Duration(days: 1));
@@ -730,13 +736,27 @@ class _MonthPageState extends State<_MonthPage>
 															),
 
 															// Средна колона: светии
-                              // TODO: да добавя week_name
-															Expanded(
+                              Expanded(
 															  child: Padding(
 																padding: const EdgeInsets.symmetric(horizontal: 8),
 																child: Column(
 																  crossAxisAlignment: CrossAxisAlignment.start,
 																  children: [
+																	// Наименование на седмицата — само в понеделник
+																	if (dbDate.weekday == 1)
+																	  for (final s in saints)
+																		if (s['_week'] != null)
+																		  Padding(
+																			padding: const EdgeInsets.only(bottom: 2),
+																			child: Text(
+																			  s['_week'] as String,
+																			  style: const TextStyle(
+																				color: AppColors.textSecondary,
+																				fontSize: AppFonts.monthSaintName,
+																				fontStyle: FontStyle.italic,
+																			  ),
+																			),
+																		  ),
 																	if (isSunday)
 																	  for (final s in saints)
                                     // Изписва Неделята и гласа ----------------
@@ -756,7 +776,8 @@ class _MonthPageState extends State<_MonthPage>
                                     ],
                                   // Изписва светиите за деня
 																	for (final s in saints)
-																	  if (s['_sunday'] == null)
+																	  if (s['_sunday'] == null &&
+                                        s['_week']   == null)
 																		Padding(
 																		  padding: const EdgeInsets.only(bottom: 2),
 																		  child: Text(
