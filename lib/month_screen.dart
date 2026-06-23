@@ -704,7 +704,7 @@ class _MonthPageState extends State<_MonthPage>
 																		  ? AppColors.monthTitleSunday
 																		  : AppColors.textMuted,
 																	  fontSize: AppFonts.monthWeekDay,
-                                    height: 0.8,  // <-- намалява разст. над текста
+                                    height: 1.2,  // <-- намалява разст. над текста
 																	)),
 																	  // Фаза на луната — само при ключови фази
 																	  Builder(builder: (context) {
@@ -720,7 +720,7 @@ class _MonthPageState extends State<_MonthPage>
 																	      ),
                                         strutStyle: StrutStyle(
                                           fontSize: 32, // реже излишния padding
-                                          height: 0.5,
+                                          height: 0.8,
                                           forceStrutHeight: true,
                                         )
 																	    );
