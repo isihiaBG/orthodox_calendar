@@ -438,7 +438,7 @@ class _MonthPageState extends State<_MonthPage>
       ''', [dateStr]);
 
       final dayResult = await db.rawQuery('''
-        SELECT cd.*, sn.name as sunday_name
+        SELECT cd.*, sn.name as sunday_name, sn.tone as sunday_tone
         FROM calendar_days cd
         LEFT JOIN sundays sn ON cd.sunday_id = sn.id
         WHERE cd.date = ?
@@ -446,8 +446,13 @@ class _MonthPageState extends State<_MonthPage>
 
       cache[dateStr] = [
         ...saints,
-        if (dayResult.isNotEmpty && dayResult.first['sunday_name'] != null)
-          {'_sunday': dayResult.first['sunday_name']},
+        if (dayResult.isNotEmpty &&
+            dayResult.first['sunday_name'] != null &&
+            (dayResult.first['sunday_name'] as String).trim().isNotEmpty)
+          {
+            '_sunday': dayResult.first['sunday_name'],
+            '_tone': dayResult.first['sunday_tone'],
+          },
       ];
 
       current = current.add(const Duration(days: 1));
@@ -699,6 +704,7 @@ class _MonthPageState extends State<_MonthPage>
 																		  ? AppColors.monthTitleSunday
 																		  : AppColors.textMuted,
 																	  fontSize: AppFonts.monthWeekDay,
+                                    height: 0.8,  // <-- намалява разст. над текста
 																	)),
 																	  // Фаза на луната — само при ключови фази
 																	  Builder(builder: (context) {
@@ -732,13 +738,22 @@ class _MonthPageState extends State<_MonthPage>
 																  children: [
 																	if (isSunday)
 																	  for (final s in saints)
-																		if (s['_sunday'] != null)
-																		  Text(s['_sunday'] as String,
-																			style: const TextStyle(
-																			  color: AppColors.monthTitleSunday,
-																			  fontSize: AppFonts.monthSundayName,
-																			  fontWeight: FontWeight.w600,
-																			)),
+                                    // Изписва Неделята и гласа ----------------
+																		if (s['_sunday'] != null) ...[
+																		  Text(
+                                        s['_tone'] != null && 
+                                        s['_tone'].toString().trim().isNotEmpty && 
+                                        s['_tone'] != 0
+                                            ? '${s['_sunday']}  Гл.${s['_tone']}'
+                                            : s['_sunday'] as String,
+                                        style: const TextStyle(
+                                          color: AppColors.monthTitleSunday,
+                                          fontSize: AppFonts.monthSundayName,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  // Изписва светиите за деня
 																	for (final s in saints)
 																	  if (s['_sunday'] == null)
 																		Padding(
