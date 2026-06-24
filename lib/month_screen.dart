@@ -737,6 +737,8 @@ class _MonthPageState extends State<_MonthPage>
 
 															// Средна колона: светии
                               Expanded(
+                                //child:ColoredBox(
+                                //color: Colors.red.withOpacity(0.2),
 															  child: Padding(
 																padding: const EdgeInsets.symmetric(horizontal: 8),
 																child: Column(
@@ -778,21 +780,28 @@ class _MonthPageState extends State<_MonthPage>
 																	for (final s in saints)
 																	  if (s['_sunday'] == null &&
                                         s['_week']   == null)
-																		Padding(
-																		  padding: const EdgeInsets.only(bottom: 2),
-																		  child: Text(
-																			'${s['sign'] ?? '•'} ${s['name']}',
+																		// Padding(
+																		//   padding: const EdgeInsets.only(bottom: 2),
+																		//   child: Text(
+																		Text(	
+                                      // '${s['sign'] ?? '•'} ${s['name']}',
+                                      s['sign'] != null && (s['sign'] as String).isNotEmpty
+                                          ? '${s['sign']} ${s['name']}'
+                                          : s['name'] as String,
 																			style: TextStyle(
 																			  color: _signColor(s['sign_color'] as String?),
 																			  fontSize: AppFonts.monthSaintName,
 																			),
-																			maxLines: 2,
-																			overflow: TextOverflow.ellipsis,
-																		  ),
+                                      // maxLines: 2,
+																			textDirection: TextDirection.ltr,
+                                      //softWrap: true,
+																			//overflow: TextOverflow.visible,
 																		),
+																		//), //padding
 																  ],
 																),
 															  ),
+                                //),
 															),
 
 															// Дясна колона: справочна дата
