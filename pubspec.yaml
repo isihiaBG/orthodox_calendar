@@ -74,7 +74,7 @@ flutter:
     - assets/db/calendar_old.db
     - assets/db/calendar_new.db
     - assets/icon.png
-    - assets/icons/candle.svg
+    - assets/icons/
     
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -71,3 +71,21 @@ class AppSizes {
   static const toolbarHeight = 40.0;      // височина на toolbar
   static const monthHeaderHeight = 50.0;  // височина на month header
 }
+
+class AppIcons {
+  static const tipikonCircleCross   = 'assets/icons/tipikon_01_CircleCross.svg';
+  static const tipikonSemiCircle    = 'assets/icons/tipikon_02_SemiCircleCross.svg';
+  static const tipikonCross         = 'assets/icons/tipikon_03_Cross.svg';
+  static const tipikonThreeDots     = 'assets/icons/tipikon_04_ThreeDots.svg';
+  
+  static (String?, Color?) forRank(int rank) {
+    switch (rank) {
+      case 1: return (tipikonCircleCross, AppColors.signRed);   // Велик господски
+      case 2: return (tipikonSemiCircle,  AppColors.signRed);   // Бдение
+      case 3: return (tipikonCross,       AppColors.signRed);   // Полиелей
+      case 4: return (tipikonThreeDots,   AppColors.signRed);   // Славословна
+      case 5: return (tipikonThreeDots,   AppColors.signWhite); // Шестерична
+      default: return (null, null);                             // Обикновена
+    }
+  }
+}

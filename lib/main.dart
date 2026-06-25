@@ -357,7 +357,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                     if (!_isMonthView) {
                       setState(() => _isMonthView = true);
                       WidgetsBinding.instance.addPostFrameCallback((_) {
-                        _monthScreenKey.currentState?.navigateToDate(_currentDate, flash: true);
+                        _monthScreenKey.currentState?.navigateToDate(_currentDate, flash: true, animated: false);
                       });
                     }
                   },
@@ -814,7 +814,10 @@ class _DayScreenState extends State<DayScreen> {
           if (_day != null) ...[
             Text(
               periodName.isNotEmpty
-                  ? (_day!.tone > 0 ? '$periodName. ${_toneText(_day!.tone)}' : periodName)
+                  ? (isSunday // ако е неделя ще сложи † кръстче
+                      ? '† $periodName${_day!.tone > 0 ? '. ${_toneText(_day!.tone)}' : ''}'
+                        // а в обикновен седмичен ден ще бъде без † кръстче
+                      : '$periodName${_day!.tone > 0 ? '. ${_toneText(_day!.tone)}' : ''}')
                   : (_day!.tone > 0 ? _toneText(_day!.tone) : ''),
               textAlign: TextAlign.center,
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
@@ -839,27 +842,61 @@ class _DayScreenState extends State<DayScreen> {
       );
     }
     return Column(
-      children: _saints.map((saint) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.only(top: 6, right: 10),
-              child: Icon(Icons.circle, size: 8, color: _signColor(saint.signColor)),
-            ),
-            Expanded(
-              child: Text(
-                '${saint.sign ?? ''}${saint.sign != null ? ' ' : ''}${saint.name}',
-                style: TextStyle(fontSize: 16, color: _signColor(saint.signColor)),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: _saints.map((saint) {
+        // Взимаме SVG иконката и цвета според ранга на светията
+        final (iconPath, iconColor) = AppIcons.forRank(saint.rank ?? 6);
+        
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Bullet - SVG икона или обикновена точка
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: iconPath != null
+                    ? SvgPicture.asset(
+                        iconPath,
+                        width: 19,
+                        height: 19,
+                        colorFilter: ColorFilter.mode(
+                          iconColor ?? AppColors.signWhite,
+                          BlendMode.srcIn,
+                        ),
+                      )
+                    : Center(
+                        child: Text(
+                          '•',
+                          style: TextStyle(
+                            color: AppColors.textSecondary,
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
               ),
-            ),
-          ],
-        ),
-      )).toList(),
+              // Текст на светеца
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: Text(
+                    saint.name,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: iconColor ?? AppColors.signWhite,
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        );
+      }).toList(),
     );
   }
-
+  
   DateTime get date => widget.date;
 
   @override
