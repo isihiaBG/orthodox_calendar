@@ -663,7 +663,7 @@ class _DayScreenState extends State<DayScreen> {
 
   String _toneText(int tone) {
     const tones = ['', '1', '2', '3', '4', '5', '6', '7', '8'];
-    return 'Глас ${tone < tones.length ? tones[tone] : tone.toString()}';
+    return 'Глас\u00A0${tone < tones.length ? tones[tone] : tone.toString()}';
   }
 
   String _fastText(CalendarDay day) {

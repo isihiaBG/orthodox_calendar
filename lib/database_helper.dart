@@ -96,8 +96,15 @@ class DatabaseHelper {
   static String _versionPrefKey(String dbName) => 'db_version_$dbName';
 
   static Future<Database> _initDatabase() async {
+    
+    // print('_initDatabase started');
     final dbName = AppSettings.isOldStyle ? 'calendar_old.db' : 'calendar_new.db';
+    // print('dbName: $dbName');
     final dbPath = await getDatabasesPath();
+    // print('dbPath: $dbPath');
+    
+    // final dbName = AppSettings.isOldStyle ? 'calendar_old.db' : 'calendar_new.db';
+    // final dbPath = await getDatabasesPath();
     final path = join(dbPath, dbName);
 
     final file = File(path);
