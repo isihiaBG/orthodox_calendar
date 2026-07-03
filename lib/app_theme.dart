@@ -19,26 +19,31 @@ class AppColors {
   static const drawerDivider     = Color(0xFF2A2A2A);
 
   // Текст
-  static const textPrimary        = Color(0xFFFFFFFF);
-  static const textSecondary      = Color(0xB3FFFFFF);  // white70
-  static const textMuted          = Color(0x80FFFFFF);  // white54
-  static const fastText           = Color(0xB3FFFFFF);
-  static const sectionTitleSunday = Color.fromARGB(255, 179, 127, 145);
-  static const monthTitleSunday   = Color.fromARGB(255, 179, 127, 145);
+  static const textPrimary        = Color(0xA0FFFFFF);
+  static const textSecondary      = Color(0x80FFFFFF); // 0xB3A0A0A0 white70
+  static const textMuted          = Color(0x60FFFFFF); // 0x80AAAAAA white54
+  static const fastText           = Color(0x60FFFFFF);
+  static const sectionTitleSunday = Color(0xFFB993A0); //Color.fromARGB(255, 179, 127, 145);
+  static const monthTitleSunday   = Color(0xFFB993A0); //0xFFb37f91 Color.fromARGB(255, 179, 127, 145);
+  static const monthTextSecondary = Color(0x80FFFFFF);
+  static const moonColor          = Color(0x80FFFFFF);
 
   // Знаци на светии
-  static const signRedHex  = '#CC0000';
-  static const signRed     = Color.fromARGB(255, 235, 152, 182);
-  static const signWhite   = Color(0xFFFFFFFF);
+  // signRedHex е семантичен маркер от базата данни ('red' или '#CC0000').
+  // Конкретните цветове се определят от темата — не от базата данни.
+  // При смяна на тема само signRed/signWhite се променят тук.
+  static const signRedHex  = 'red'; // стойността в базата данни
+  static const signRed     = Color(0xFFBB8C9C); //Color(0xFFeb98b6); // цвят за dark mode
+  static const signWhite   = Color(0xFFAAAAAA); // цвят за тъмен фон
 
   // ─── Highlight на днешния ден ─────────────────────────────────────────
   // Обикновен ден — днес
-  static const todayBg       = Color.fromARGB(51, 187, 187, 186);
-  static const todayFlash    = Color.fromARGB(133, 158, 153, 132);
+  static const todayBg       = Color(0x33BBBBBA); //Color.fromARGB(51, 187, 187, 186);
+  static const todayFlash    = Color(0x859E9984); //Color.fromARGB(133, 158, 153, 132);
 
   // Неделя — днес
   static const sundayTodayBg = Color(0xff7b002c);
-  static const sundayFlash   = Color.fromARGB(184, 148, 75, 101);
+  static const sundayFlash   = Color(0xB8944B65); // Color.fromARGB(184, 148, 75, 101);
 
   // ─── Датепикър ────────────────────────────────────────────────────────
   // Цветовете на стандартния Material датепикър, обвързани с темата

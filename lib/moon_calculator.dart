@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'package:flutter/material.dart';
 
 // ─── Изчисления на фазите на луната ──────────────────────────────────────
 // Използва пълния алгоритъм на Meeus (Astronomical Algorithms, Chapter 49)
@@ -280,16 +281,30 @@ class MoonCalculator {
            type == MoonPhaseType.lastQuarter;
   }
 
-  static String symbol(MoonPhaseType type) {
+  static String symbol(MoonPhaseType type, Color moonColor, Color backgroundColor) {
+    // Изчисляваме яркостта на двата цвята
+    final moonLuminance = moonColor.computeLuminance();
+    final bgLuminance   = backgroundColor.computeLuminance();
+    
+    // Ако луната е по-светла от фона — тъмен фон, светъл знак
+    // → знакът се възприема като светъл обект
+    // Ако луната е по-тъмна от фона — светъл фон, тъмен знак  
+    // → знакът се възприема като тъмен обект
+    final bool moonAppearsLight = moonLuminance > bgLuminance;
+    
     switch (type) {
-      case MoonPhaseType.newMoon:        return '●';
-      case MoonPhaseType.waxingCrescent: return '☽';
-      case MoonPhaseType.firstQuarter:   return '◑';
-      case MoonPhaseType.waxingGibbous:  return '◕';
-      case MoonPhaseType.fullMoon:       return '○';
-      case MoonPhaseType.waningGibbous:  return '◔';
-      case MoonPhaseType.lastQuarter:    return '◐';
-      case MoonPhaseType.waningCrescent: return '☾';
+      case MoonPhaseType.newMoon:
+        // Новолуние = тъмен диск → ако знакът изглежда светъл, инвертираме
+        return moonAppearsLight ? '○' : '●';
+      case MoonPhaseType.fullMoon:
+        // Пълнолуние = светъл диск → ако знакът изглежда тъмен, инвертираме  
+        return moonAppearsLight ? '●' : '○';
+      case MoonPhaseType.firstQuarter:
+        return moonAppearsLight ? '◑' : '◐';
+      case MoonPhaseType.lastQuarter:
+        return moonAppearsLight ? '◐' : '◑';
+      default:
+        return '○';
     }
   }
 

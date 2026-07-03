@@ -97,6 +97,12 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // точните MIN/MAX от calendar_days, тихо, без потребителят да
     // забележи (освен ако точно в този миг се опита да превърти
     // отвъд временната граница — много рядък случай).
+    // print('today: ${DateTime.now()}');
+    // print('_startDate: $_startDate');
+    // print('_currentPage: $_currentPage');
+    // print('_currentDate: $_currentDate');
+
+
     _refineDateBoundsFromDatabase();
   }
 
@@ -124,6 +130,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       _totalDays = newTotalDays;
     });
 
+    
+
     if (!wasMonthView) {
       final newPage = DateTime.utc(
               dateBeforeUpdate.year, dateBeforeUpdate.month, dateBeforeUpdate.day)
@@ -134,6 +142,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       _pageController.dispose();
       _pageController = PageController(initialPage: newPage);
       setState(() => _currentPage = newPage);
+      // print('refineBounds: newStart=$newStart, dateBeforeUpdate=$dateBeforeUpdate, newPage=$newPage');
     }
   }
 
@@ -497,7 +506,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
               },
             )
           : PageView.builder(
-              key: ValueKey(AppSettings.isOldStyle),
+              //key: ValueKey(AppSettings.isOldStyle),
+              key: ValueKey('${AppSettings.isOldStyle}_${_startDate.millisecondsSinceEpoch}'),
               controller: _pageController,
               onPageChanged: (page) {
                 // Пропускаме първото извикване след превключване от месечен към дневен
@@ -650,9 +660,15 @@ class _DayScreenState extends State<DayScreen> {
       SELECT s.*, r.sign, r.sign_color
       FROM saints s
       LEFT JOIN saint_ranks r ON s.rank = r.id
+      LEFT JOIN saint_groups sg ON s.group_code = sg.code
       WHERE s.date = ?
-      ORDER BY s.rank ASC
+      ORDER BY sg.id ASC, s.rank ASC
     ''', [dateStr]);
+      // SELECT s.*, r.sign, r.sign_color
+      // FROM saints s
+      // LEFT JOIN saint_ranks r ON s.rank = r.id
+      // WHERE s.date = ?
+      // ORDER BY s.rank ASC
 
     setState(() {
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
@@ -673,8 +689,10 @@ class _DayScreenState extends State<DayScreen> {
     return '$period ($type)';
   }
 
-  Color _signColor(String? hexColor) {
-    if (hexColor == AppColors.signRedHex) return AppColors.signRed;
+  // Връща цвят според семантичния маркер от базата данни.
+  // Базата казва 'red' или '#CC0000' — темата решава точния цвят.
+  Color _signColor(String? colorCode) {
+    if (colorCode == AppColors.signRedHex) return AppColors.signRed;
     return AppColors.signWhite;
   }
 
@@ -786,7 +804,7 @@ class _DayScreenState extends State<DayScreen> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
-                            color: Colors.white,
+                            color: AppColors.textPrimary,
                             fontSize: 18,
                             fontWeight: FontWeight.w500,
                           ),
@@ -885,7 +903,10 @@ class _DayScreenState extends State<DayScreen> {
                     saint.name,
                     style: TextStyle(
                       fontSize: 16,
-                      color: iconColor ?? AppColors.signWhite,
+                      //color: iconColor ?? AppColors.signWhite,
+                      color:      saint.rank == 0 ? AppColors.monthTextSecondary : iconColor ?? AppColors.signWhite,
+                      fontStyle:  saint.rank == 0 ? FontStyle.italic : FontStyle.normal,
+                      fontWeight: saint.rank == 0 ? FontWeight.bold : FontWeight.normal,
                     ),
                   ),
                 ),

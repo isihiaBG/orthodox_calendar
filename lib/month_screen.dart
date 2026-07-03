@@ -236,8 +236,10 @@ class _MonthPageState extends State<_MonthPage>
 	static DateTime _toOldStyle(DateTime d) => 
 		DateTime.utc(d.year, d.month, d.day).subtract(const Duration(days: 13));
 
-  static Color _signColor(String? hexColor) {
-    if (hexColor == AppColors.signRedHex) return AppColors.signRed;
+  // Връща цвят според семантичния маркер от базата данни.
+  // Базата казва 'red' или '#CC0000' — темата решава точния цвят.
+  static Color _signColor(String? colorCode) {
+    if (colorCode == AppColors.signRedHex) return AppColors.signRed;
     return AppColors.signWhite;
   }
 
@@ -440,9 +442,11 @@ class _MonthPageState extends State<_MonthPage>
         SELECT s.name, s.rank, s.sign, r.sign_color
         FROM saints s
         LEFT JOIN saint_ranks r ON s.rank = r.id
+        LEFT JOIN saint_groups sg ON s.group_code = sg.code
         WHERE s.date = ?
-        ORDER BY s.rank ASC
+        ORDER BY sg.id ASC, s.rank ASC
         LIMIT 3
+
       ''', [dateStr]);
 
       final dayResult = await db.rawQuery('''
@@ -570,17 +574,17 @@ class _MonthPageState extends State<_MonthPage>
             children: [
               if (showOldStyle) ...[
                 Icon(oldIsLeading ? Icons.church : Icons.live_tv,
-                    color: AppColors.textSecondary, size: 22),
+                    color: AppColors.monthTextSecondary, size: 22),
                 const SizedBox(width: 4),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(leftLabel, style: const TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.monthTextSecondary,
                         fontSize: AppFonts.monthHeaderLabel,
                         height: 1.0)),
                     Text(leftLabel2, style: const TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.monthTextSecondary,
                         fontSize: AppFonts.monthHeaderLabel,
                         height: 1.0)),
                   ],
@@ -600,18 +604,18 @@ class _MonthPageState extends State<_MonthPage>
                   crossAxisAlignment: CrossAxisAlignment.end,
                   children: [
                     Text(rightLabel, style: const TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.monthTextSecondary,
                         fontSize: AppFonts.monthHeaderLabel,
                         height: 1.0)),
                     Text(rightLabel2, style: const TextStyle(
-                        color: AppColors.textSecondary,
+                        color: AppColors.monthTextSecondary,
                         fontSize: AppFonts.monthHeaderLabel,
                         height: 1.0)),
                   ],
                 ),
                 const SizedBox(width: 4),
                 Icon(oldIsLeading ? Icons.live_tv : Icons.church,
-                    color: AppColors.textSecondary, size: 22),
+                    color: AppColors.monthTextSecondary, size: 22),
               ],
             ],
           ),
@@ -730,9 +734,9 @@ class _MonthPageState extends State<_MonthPage>
                                         return const SizedBox.shrink();
                                       }
                                       return Text(
-                                        MoonCalculator.symbol(keyPhase),
+                                        MoonCalculator.symbol(keyPhase, AppColors.moonColor, rowColor),
                                         style: const TextStyle(
-                                          color: AppColors.textSecondary,
+                                          color: AppColors.moonColor,
                                           fontSize: 32, //MoonSize
                                         ),
                                         strutStyle: StrutStyle(
@@ -764,12 +768,13 @@ class _MonthPageState extends State<_MonthPage>
                                       child: Text(
                                         s['_week'] as String,
                                         style: const TextStyle(
-                                        color: AppColors.textSecondary,
+                                        color: AppColors.monthTextSecondary,
                                         fontSize: AppFonts.monthSaintName,
                                         fontStyle: FontStyle.italic,
                                         ),
                                       ),
                                       ),
+                                  
                                   if (isSunday)
                                     for (final s in saints)
                                     // Изписва Неделята и гласа ----------------
@@ -796,6 +801,8 @@ class _MonthPageState extends State<_MonthPage>
                                       final (iconPath, iconColor) = AppIcons.forRank(rank);
                                       // Иконката се вгражда в текста като символ (WidgetSpan)
                                       return RichText(
+                                        maxLines: 3, //максимален брой редове, след което: ...
+                                        overflow: TextOverflow.ellipsis,    
                                         text: TextSpan(
                                           children: [
                                             if (iconPath != null)
@@ -817,8 +824,10 @@ class _MonthPageState extends State<_MonthPage>
                                             TextSpan(
                                               text: s['name'] as String,
                                               style: TextStyle(
-                                                color: iconColor ?? AppColors.signWhite,
+                                                color: s['rank'] == 0 ? AppColors.monthTextSecondary : iconColor ?? AppColors.signWhite,
                                                 fontSize: AppFonts.monthSaintName,
+                                                fontStyle:  s['rank'] == 0 ? FontStyle.italic : FontStyle.normal,
+                                                //fontWeight: s['rank'] == 0 ? FontWeight.bold : FontWeight.normal,
                                               ),
                                             ),
                                           ],

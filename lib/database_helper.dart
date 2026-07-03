@@ -124,8 +124,14 @@ class DatabaseHelper {
     final prefs = await SharedPreferences.getInstance();
     final savedVersion = prefs.getString(_versionPrefKey(dbName));
 
-    final needsCopy = !fileExists || savedVersion != assetVersion;
-
+    //final needsCopy = !fileExists || savedVersion != assetVersion;
+    final needsCopy = true; // винаги презаписва
+    
+    // print('dbName: $dbName.version');
+    // print('assetVersion: $assetVersion');
+    // print('savedVersion: $savedVersion');
+    // print('needsCopy: $needsCopy');
+    
     if (needsCopy) {
       if (fileExists) {
         await file.delete();
