@@ -781,16 +781,33 @@ class _DayScreenState extends State<DayScreen> {
                     crossAxisAlignment: CrossAxisAlignment.baseline,
                     textBaseline: TextBaseline.alphabetic,
                     children: [
-                      // Ляво
+                      // Ляво — иконка (църква/телевизор) + дата
                       Expanded(
-                        child: Text(
-                          showOldStyle ? _dayMonth(leftDate) : '',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            if (showOldStyle)
+                              // Padding(
+                              //   padding: const EdgeInsets.only(right: 10, top: 0),
+                              Transform.translate(
+                                offset: const Offset(-10, -3), // -3 => нагоре с 3 пиксела
+                                child: Icon(
+                                  oldFirst ? Icons.live_tv : Icons.church,
+                                  color: AppColors.textPrimary,
+                                  size: 26,
+                                ),
+                              ),
+                            Text(
+                              showOldStyle ? _dayMonth(leftDate) : '',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       // Център — година
@@ -810,16 +827,33 @@ class _DayScreenState extends State<DayScreen> {
                           ),
                         ),
                       ),
-                      // Дясно
+                      // Дясно — дата + иконка (телевизор/църква)
                       Expanded(
-                        child: Text(
-                          showOldStyle ? _dayMonth(rightDate) : '',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: AppColors.textPrimary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.w500,
-                          ),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.center,
+                          children: [
+                            Text(
+                              showOldStyle ? _dayMonth(rightDate) : '',
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                color: AppColors.textPrimary,
+                                fontSize: 18,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            if (showOldStyle)
+                              //Padding(
+                                //padding: const EdgeInsets.only(left: 10, top: 0),
+                              Transform.translate(
+                                offset: const Offset(10, -3), // -3 => нагоре с 3 пиксела
+                                child: Icon(
+                                  oldFirst ? Icons.church : Icons.live_tv,
+                                  color: AppColors.textPrimary,
+                                  size: 26,
+                                ),
+                              ),
+                          ],
                         ),
                       ),
                     ],

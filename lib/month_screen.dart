@@ -183,6 +183,8 @@ class _MonthPageState extends State<_MonthPage>
   bool _initialScrollDone = true;
   final ScrollController _scrollController = ScrollController();
   final Map<int, GlobalKey> _rowKeys = {};
+  // Референтна рамка за изчисляване позицията на плаващата табела
+  final GlobalKey _listStackKey = GlobalKey();
   DateTime? _pendingScrollDate;
 
   // Flash анимация
@@ -262,6 +264,11 @@ class _MonthPageState extends State<_MonthPage>
     ));
 
     _loadMonth();
+
+    // Първо появяване на табелата с месеца в дясно
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) setState(() {}); // форсира изчисляване на табелата след първия рендер
+    });
 
     // Проверяваме дали има flashDate за този месец
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -451,10 +458,13 @@ class _MonthPageState extends State<_MonthPage>
 
       final dayResult = await db.rawQuery('''
         SELECT cd.*, sn.name as sunday_name, sn.tone as sunday_tone,
-               w.name as week_name
+              w.name as week_name,
+              fp.name as fast_period_name, ft.name as fast_type_name
         FROM calendar_days cd
         LEFT JOIN sundays sn ON cd.sunday_id = sn.id
         LEFT JOIN weeks w ON cd.week_id = w.id
+        LEFT JOIN fast_periods fp ON cd.fast_period = fp.id
+        LEFT JOIN fast_types ft ON cd.fast_type = ft.id
         WHERE cd.date = ?
       ''', [dateStr]);
 
@@ -471,6 +481,17 @@ class _MonthPageState extends State<_MonthPage>
             dayResult.first['week_name'] != null &&
             (dayResult.first['week_name'] as String).trim().isNotEmpty)
           {'_week': dayResult.first['week_name']},
+        // ----- Добавяме и поста за всеки ден в месечния изглед --------
+        if (dayResult.isNotEmpty) ...() {
+            final fastPeriod = dayResult.first['fast_period_name'] as String? ?? '';
+            final fastType   = dayResult.first['fast_type_name']   as String? ?? '';
+            final fastText   = fastType.isNotEmpty 
+                ? '$fastPeriod ($fastType)' 
+                : fastPeriod;
+            return fastText.trim().isNotEmpty
+                ? [{'_fast': fastText}]
+                : <Map<String, dynamic>>[];
+          }(),
       ];
 
       current = current.add(const Duration(days: 1));
@@ -481,6 +502,10 @@ class _MonthPageState extends State<_MonthPage>
 			_cache = cache;
 			_loading = false;
 		  });
+      // Форсира изчисляване на плаващата табела след като редовете са рендерирани
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() {});
+      });
 		  if (!preserveScroll) {
 			// Изпълняваме отложения скрол ако има такъв
 			if (_pendingScrollDate != null) {
@@ -547,6 +572,24 @@ class _MonthPageState extends State<_MonthPage>
     }
   }
 
+  // Връща списък от (индекс на ред, име на справочния месец) за всяко
+  // място, където започва нов справочен месец в дясната колона.
+  // Ползва се от плаващата (sticky) табела със справочния месец.
+  List<(int, String)> _refMonthBoundaries(List<DateTime> days) {
+    final boundaries = <(int, String)>[];
+    if (!AppSettings.isOldStyle) return boundaries;
+
+    int? lastMonth;
+    for (int i = 0; i < days.length; i++) {
+      final refDate = _refDate(days[i]);
+      if (lastMonth == null || refDate.month != lastMonth) {
+        boundaries.add((i, widget.monthNamesShort[refDate.month]));
+        lastMonth = refDate.month;
+      }
+    }
+    return boundaries;
+  }
+
   @override
   Widget build(BuildContext context) {
     final bool showOldStyle = AppSettings.isOldStyle;
@@ -560,9 +603,10 @@ class _MonthPageState extends State<_MonthPage>
 
     final days = _getDaysToShow();
 
-    final DateTime firstRefDate = showOldStyle ? _refDate(days.first) : days.first;
-    final bool firstRowShowsMonth = showOldStyle &&
-        (firstRefDate.month != widget.month || firstRefDate.year != widget.year);
+    // Вече не се ползват — месецът се показва от плаващата табела
+    // final DateTime firstRefDate = showOldStyle ? _refDate(days.first) : days.first;
+    // final bool firstRowShowsMonth = showOldStyle &&
+    //     (firstRefDate.month != widget.month || firstRefDate.year != widget.year);
 
     return Column(
       children: [
@@ -572,9 +616,9 @@ class _MonthPageState extends State<_MonthPage>
           padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
           child: Row(
             children: [
-              if (showOldStyle) ...[
+              if (showOldStyle) ...[ //--- слага иконките за църква и телевизор TV
                 Icon(oldIsLeading ? Icons.church : Icons.live_tv,
-                    color: AppColors.monthTextSecondary, size: 22),
+                    color: AppColors.monthTextSecondary, size: 24),
                 const SizedBox(width: 4),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -615,7 +659,7 @@ class _MonthPageState extends State<_MonthPage>
                 ),
                 const SizedBox(width: 4),
                 Icon(oldIsLeading ? Icons.live_tv : Icons.church,
-                    color: AppColors.monthTextSecondary, size: 22),
+                    color: AppColors.monthTextSecondary, size: 24),
               ],
             ],
           ),
@@ -626,254 +670,374 @@ class _MonthPageState extends State<_MonthPage>
           child: _loading
             ? const Center(child: CircularProgressIndicator())
             : Stack(
+              key: _listStackKey,
               children: [
                 Offstage(
                   offstage: !_initialScrollDone, //невидим докато не е позициониран
                   child: AnimatedOpacity(
                     opacity: _initialScrollDone ? 1.0 : 0.0,
                     duration: Duration.zero,
-                    child: ListView.separated(
-                      controller: _scrollController,
-                      cacheExtent: 2000, // ← рендерира 2000px извън видимата зона (bugfix)
-                      padding: EdgeInsets.zero,
-                      itemCount: days.length,
-                      separatorBuilder: (context, index) =>
-                          Divider(color: AppColors.sectionDivider, height: 1),
-                      itemBuilder: (context, index) {
-                        final day = days[index];
-                        // Денят от седмицата е еднакъв по двата стила — взимаме от новостиловата дата
-                        final DateTime dbDate = (AppSettings.isOldStyle && oldIsLeading)
-                          ? _toNewStyle(day)
-                          : day;
-                        final bool isSunday = dbDate.weekday == 7;
-                        final String key = _cacheKey(day);
-                        final saints = _cache[key] ?? [];
-                        if (index >= 11 && index <= 13) {
-                          //print('day: ${day.day}, key: $key, saints: ${saints.length}');
-                        }
-                        final DateTime refDate = _refDate(day);
+                    child: NotificationListener<ScrollEndNotification>(
+                    onNotification: (notification) {
+                      // Финално преизчисление на табелата след края на скрола
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (mounted) setState(() {});
+                      });
+                      return false; // пропускаме notification-а нагоре
+                    },
+                      child: ListView.separated(
+                        controller: _scrollController,
+                        cacheExtent: 2000, // ← рендерира 2000px извън видимата зона (bugfix)
+                        padding: EdgeInsets.zero,
+                        itemCount: days.length,
+                        separatorBuilder: (context, index) =>
+                            Divider(color: AppColors.sectionDivider, height: 1),
+                        itemBuilder: (context, index) {
+                          final day = days[index];
+                          // Денят от седмицата е еднакъв по двата стила — взимаме от новостилната дата
+                          final DateTime dbDate = (AppSettings.isOldStyle && oldIsLeading)
+                            ? _toNewStyle(day)
+                            : day;
+                          final bool isSunday = dbDate.weekday == 7;
+                          final String key = _cacheKey(day);
+                          final saints = _cache[key] ?? [];
+                          if (index >= 11 && index <= 13) {
+                            //print('day: ${day.day}, key: $key, saints: ${saints.length}');
+                          }
+                          final DateTime refDate = _refDate(day);
 
-                        final bool isFirstOfRefMonth = refDate.day == 1;
-                        final bool showRefMonth = showOldStyle &&
-                            (isFirstOfRefMonth ||
-                                (index == 0 && firstRowShowsMonth));
-                        final String refMonthShort = showRefMonth
-                            ? widget.monthNamesShort[refDate.month]
-                            : '';
+                          final DateTime tapDate =
+                              (AppSettings.isOldStyle && oldIsLeading)
+                                  ? _toNewStyle(day)
+                                  : day;
 
-                        final DateTime tapDate =
-                            (AppSettings.isOldStyle && oldIsLeading)
-                                ? _toNewStyle(day)
-                                : day;
+                          // Изчисляваме фона с flash
+                          final bool isFlashing = _flashingDate != null &&
+                              day.day == _flashingDate!.day &&
+                              day.month == _flashingDate!.month &&
+                              day.year == _flashingDate!.year;
 
-                        // Изчисляваме фона с flash
-                        final bool isFlashing = _flashingDate != null &&
-                            day.day == _flashingDate!.day &&
-                            day.month == _flashingDate!.month &&
-                            day.year == _flashingDate!.year;
-
-                        Color baseColor = _rowBackground(day, isSunday);
-                        
-                        Color rowColor = baseColor;
-                        if (isFlashing) {
-                          final flashColor = isSunday
-                              ? AppColors.sundayFlash
-                              : AppColors.todayFlash;
-                          rowColor = Color.lerp(
-                              baseColor, flashColor, _flashAnimation.value)!;
-                        }
-                        
-                        _rowKeys[index] ??= GlobalKey();
-
-                        return GestureDetector(
-                          key: _rowKeys[index],
-                          onTap: () => widget.onDateSelected(tapDate),
-                          child: AnimatedBuilder(
-                          animation: _flashAnimation,
-                          builder: (context, _) {
-                            Color rowColor = baseColor;
-                            if (isFlashing) {
+                          Color baseColor = _rowBackground(day, isSunday);
+                          
+                          Color rowColor = baseColor;
+                          if (isFlashing) {
                             final flashColor = isSunday
-                              ? AppColors.sundayFlash
-                              : AppColors.todayFlash;
+                                ? AppColors.sundayFlash
+                                : AppColors.todayFlash;
                             rowColor = Color.lerp(
-                              baseColor, flashColor, _flashAnimation.value)!;
-                            }
-                            return Container(
-                            color: rowColor,
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 8, horizontal: 8),
-                            child: Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                              // Лява колона: водеща дата + ден
-                              SizedBox(
-                                width: 36,
-                                child: Column(
-                                children: [
-                                  Text('${day.day}',
-                                  style: TextStyle(
-                                    color: isSunday
-                                      ? AppColors.monthTitleSunday
-                                      : AppColors.textPrimary,
-                                    fontSize: AppFonts.monthDayNumber,
-                                    fontWeight: FontWeight.w600,
-                                  )),
-                                  Text(widget.weekDaysShort[dbDate.weekday],
-                                  style: TextStyle(
-                                    color: isSunday
-                                      ? AppColors.monthTitleSunday
-                                      : AppColors.textMuted,
-                                    fontSize: AppFonts.monthWeekDay,
-                                    height: 1.2,  // <-- намалява разст. над текста
-                                  )),
-                                    // Фаза на луната — само при ключови фази
-                                    Builder(builder: (context) {
-                                      final keyPhase = MoonCalculator.keyPhaseForDay(dbDate);
-                                      if (keyPhase == null) {
-                                        return const SizedBox.shrink();
-                                      }
-                                      return Text(
-                                        MoonCalculator.symbol(keyPhase, AppColors.moonColor, rowColor),
-                                        style: const TextStyle(
-                                          color: AppColors.moonColor,
-                                          fontSize: 32, //MoonSize
-                                        ),
-                                        strutStyle: StrutStyle(
-                                          fontSize: 32, // реже излишния padding
-                                          height: 0.8,
-                                          forceStrutHeight: true,
-                                        )
-                                      );
-                                    }),
-                                ],
-                                ),
-                              ),
+                                baseColor, flashColor, _flashAnimation.value)!;
+                          }
+                          
+                          _rowKeys[index] ??= GlobalKey();
 
-                              // Средна колона: светии
-                              Expanded(
-                                //child:ColoredBox(
-                                //color: Colors.red.withOpacity(0.2),
-                                child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 8),
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                          return GestureDetector(
+                            key: _rowKeys[index],
+                            onTap: () => widget.onDateSelected(tapDate),
+                            child: AnimatedBuilder(
+                            animation: _flashAnimation,
+                            builder: (context, _) {
+                              Color rowColor = baseColor;
+                              if (isFlashing) {
+                              final flashColor = isSunday
+                                ? AppColors.sundayFlash
+                                : AppColors.todayFlash;
+                              rowColor = Color.lerp(
+                                baseColor, flashColor, _flashAnimation.value)!;
+                              }
+                              return Container(
+                              color: rowColor,
+                              padding: const EdgeInsets.symmetric(
+                                vertical: 8, horizontal: 8),
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                // Лява колона: водеща дата + ден от седмицата
+                                SizedBox(
+                                  width: 36,
+                                  child: Column(
                                   children: [
-                                  // Наименование на седмицата — само в понеделник
-                                  if (dbDate.weekday == 1)
-                                    for (final s in saints)
-                                    if (s['_week'] != null)
-                                      Padding(
-                                      padding: const EdgeInsets.only(bottom: 2),
-                                      child: Text(
-                                        s['_week'] as String,
-                                        style: const TextStyle(
-                                        color: AppColors.monthTextSecondary,
-                                        fontSize: AppFonts.monthSaintName,
-                                        fontStyle: FontStyle.italic,
+                                    Text('${day.day}',
+                                    style: TextStyle(
+                                      color: isSunday
+                                        ? AppColors.monthTitleSunday
+                                        : AppColors.textPrimary,
+                                      fontSize: AppFonts.monthDayNumber,
+                                      fontWeight: FontWeight.w600,
+                                    )),
+                                    Text(widget.weekDaysShort[dbDate.weekday],
+                                    style: TextStyle(
+                                      color: isSunday
+                                        ? AppColors.monthTitleSunday
+                                        : AppColors.textMuted,
+                                      fontSize: AppFonts.monthWeekDay,
+                                      height: 1.2,  // <-- намалява разст. над текста
+                                    )),
+                                      // Фаза на луната — само при ключови фази
+                                      Builder(builder: (context) {
+                                        final keyPhase = MoonCalculator.keyPhaseForDay(dbDate);
+                                        if (keyPhase == null) {
+                                          return const SizedBox.shrink();
+                                        }
+                                        return Text(
+                                          MoonCalculator.symbol(keyPhase, AppColors.moonColor, rowColor),
+                                          style: const TextStyle(
+                                            color: AppColors.moonColor,
+                                            fontSize: 32, //MoonSize
+                                          ),
+                                          strutStyle: StrutStyle(
+                                            fontSize: 32, // реже излишния padding
+                                            height: 0.8,
+                                            forceStrutHeight: true,
+                                          )
+                                        );
+                                      }),
+                                  ],
+                                  ),
+                                ),
+
+                                // Средна колона: светии
+                                Expanded(
+                                  //child:ColoredBox(
+                                  //color: Colors.red.withOpacity(0.2),
+                                  child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
+                                    children: [
+                                    // Наименование на седмицата — само в понеделник
+                                    if (dbDate.weekday == 1)
+                                      for (final s in saints)
+                                      if (s['_week'] != null)
+                                        Padding(
+                                        padding: const EdgeInsets.only(bottom: 2),
+                                        child: Text(
+                                          s['_week'] as String,
+                                          style: const TextStyle(
+                                          color: AppColors.monthTextSecondary,
+                                          fontSize: AppFonts.monthSaintName,
+                                          fontStyle: FontStyle.italic,
+                                          ),
                                         ),
-                                      ),
-                                      ),
-                                  
-                                  if (isSunday)
-                                    for (final s in saints)
-                                    // Изписва Неделята и гласа ----------------
-                                    if (s['_sunday'] != null) ...[
-                                      Text(
-                                        s['_tone'] != null && 
-                                        s['_tone'].toString().trim().isNotEmpty && 
-                                        s['_tone'] != 0
-                                            ? '† ${s['_sunday']}  Гл.${s['_tone']}'
-                                            : '† ${s['_sunday']}',
-                                        style: const TextStyle(
-                                          color: AppColors.monthTitleSunday,
-                                          fontSize: AppFonts.monthSundayName,
-                                          fontWeight: FontWeight.w600,
                                         ),
-                                      ),
-                                    ],
-                                  // Изписва светиите за деня
-                                  for (final s in saints)
-                                    if (s['_sunday'] == null &&
-                                        s['_week']   == null)
-                                    Builder(builder: (context) {
-                                      final rank = s['rank'] as int? ?? 6;
-                                      final (iconPath, iconColor) = AppIcons.forRank(rank);
-                                      // Иконката се вгражда в текста като символ (WidgetSpan)
-                                      return RichText(
-                                        maxLines: 3, //максимален брой редове, след което: ...
-                                        overflow: TextOverflow.ellipsis,    
-                                        text: TextSpan(
-                                          children: [
-                                            if (iconPath != null)
-                                              WidgetSpan(
-                                                alignment: PlaceholderAlignment.top,
-                                                child: Padding(
-                                                  padding: const EdgeInsets.only(right: 4),
-                                                  child: SvgPicture.asset(
-                                                    iconPath,
-                                                    width: 14,
-                                                    height: 14,
-                                                    colorFilter: ColorFilter.mode(
-                                                      iconColor ?? AppColors.signWhite,
-                                                      BlendMode.srcIn,
+                                    
+                                    if (isSunday)
+                                      for (final s in saints)
+                                      // Изписва Неделята и гласа ----------------
+                                      if (s['_sunday'] != null) ...[
+                                        Text(
+                                          s['_tone'] != null && 
+                                          s['_tone'].toString().trim().isNotEmpty && 
+                                          s['_tone'] != 0
+                                              ? '† ${s['_sunday']}  Гл.${s['_tone']}'
+                                              : '† ${s['_sunday']}',
+                                          style: const TextStyle(
+                                            color: AppColors.monthTitleSunday,
+                                            fontSize: AppFonts.monthSundayName,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ],
+                                    // Изписва светиите за деня
+                                    for (final s in saints)
+                                      if (s['_sunday'] == null &&
+                                          s['_week']   == null &&
+                                          s['_fast']   == null)
+                                      Builder(builder: (context) {
+                                        final rank = s['rank'] as int? ?? 6;
+                                        final (iconPath, iconColor) = AppIcons.forRank(rank);
+                                        // Типокон - иконката се вгражда в текста като символ (WidgetSpan)
+                                        return RichText(
+                                          maxLines: 3, //максимален брой редове, след което: ...
+                                          overflow: TextOverflow.ellipsis,    
+                                          text: TextSpan(
+                                            children: [
+                                              if (iconPath != null)
+                                                WidgetSpan(
+                                                  alignment: PlaceholderAlignment.middle,
+                                                  child: Padding(
+                                                    padding: const EdgeInsets.only(right: 4, bottom: 2),
+                                                    //padding: const EdgeInsets.only(bottom: 4),
+                                                    child: SvgPicture.asset(
+                                                      iconPath,
+                                                      width:  18, // Размер на иконата (символа)
+                                                      height: 18, // за празника според типикона
+                                                      colorFilter: ColorFilter.mode(
+                                                        iconColor ?? AppColors.signWhite,
+                                                        BlendMode.srcIn,
+                                                      ),
                                                     ),
                                                   ),
                                                 ),
+                                              TextSpan(
+                                                text: s['name'] as String,
+                                                style: TextStyle(
+                                                  color: s['rank'] == 0 ? AppColors.monthTextSecondary : iconColor ?? AppColors.signWhite,
+                                                  fontSize: AppFonts.monthSaintName,
+                                                  fontStyle:  s['rank'] == 0 ? FontStyle.italic : FontStyle.normal,
+                                                  //fontWeight: s['rank'] == 0 ? FontWeight.bold : FontWeight.normal,
+                                                ),
                                               ),
-                                            TextSpan(
-                                              text: s['name'] as String,
-                                              style: TextStyle(
-                                                color: s['rank'] == 0 ? AppColors.monthTextSecondary : iconColor ?? AppColors.signWhite,
+                                            ],
+                                          ),
+                                        );
+                                      }),
+                                    // Добавя накрая и поста за всеки ден
+                                    for (final s in saints)
+                                      if (s['_fast'] != null)
+                                        Padding(
+                                          padding: const EdgeInsets.only(top: 4, bottom: 0),
+                                          child: SizedBox(
+                                            width: double.infinity,
+                                            child: Text(
+                                              s['_fast'] as String,
+                                              textAlign: TextAlign.center,
+                                              style: const TextStyle(
+                                                color: AppColors.textMuted,
                                                 fontSize: AppFonts.monthSaintName,
-                                                fontStyle:  s['rank'] == 0 ? FontStyle.italic : FontStyle.normal,
-                                                //fontWeight: s['rank'] == 0 ? FontWeight.bold : FontWeight.normal,
+                                                fontStyle: FontStyle.italic,
                                               ),
                                             ),
-                                          ],
+                                          ),
                                         ),
-                                      );
-                                    }),
-                                  ],
+                                    ],
+                                  ),
+                                  ),
                                 ),
-                                ),
-                                //),
-                              ),
 
-                              // Дясна колона: справочна дата
-                              if (showOldStyle)
-                                SizedBox(
-                                width: 28,
-                                child: Column(
-                                  children: [
-                                  Text('${refDate.day}',
-                                    style: const TextStyle(
-                                    color: AppColors.textMuted,
-                                    fontSize: AppFonts.monthRefDate,
-                                    )),
-                                  if (showRefMonth)
-                                    ...refMonthShort.split('').map((c) => Text(c,
-                                    style: const TextStyle(
-                                      color: AppColors.textMuted,
-                                      fontSize: AppFonts.monthRefMonth,
-                                    ))),
-                                  ],
-                                ),
-                                ),
-                              ],
+                                // Дясна колона: справочна дата
+                                // Месецът вече не се изписва тук — показва се
+                                // от плаващата (sticky) табела вдясно.
+                                if (showOldStyle)
+                                  SizedBox(
+                                  width: 36,
+                                  child: Align(
+                                    alignment: Alignment.topLeft,
+                                    child: SizedBox(
+                                      width: 28,
+                                      child: Text('${refDate.day}',
+                                        textAlign: TextAlign.center,
+                                        style: const TextStyle(
+                                        color: AppColors.textMuted,
+                                        fontSize: AppFonts.monthRefDate,
+                                        )),
+                                    ),
+                                  ),
+                                  ),
+                                ],
+                              ),
+                              );
+                            },
                             ),
-                            );
-                          },
-                          ),
-                        );
-                      },
-                    ),
+                          );
+                        },
+                      ),
+                    ), // до тук
                   ),
                 ),
+
+                // ─── Плаваща (sticky) табела със справочния месец ────────
+                // Не заема място в потока на редовете — рисува се върху тях.
+                // AnimatedBuilder слуша _scrollController директно, така че
+                // ListView НЕ се rebuild-ва при скрол → напълно гладко движение.
+                if (showOldStyle && _initialScrollDone)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: _scrollController,
+                        builder: (context, _) => _buildStickyMonthLabels(days),
+                      ),
+                    ),
+                  ),
               ],
             ),
         ),
       ],
     );
+  }
+
+  // ─── Плаваща табела със справочния месец ────────────────────────────────
+  // Изчислява позицията на всяка табела спрямо реалните позиции на редовете.
+  // Табелата се "закача" горе, когато 1-во число на справочния месец излезе
+  // над видимата зона, и се избутва плавно нагоре от следващата табела.
+  Widget _buildStickyMonthLabels(List<DateTime> days) {
+    if (!_scrollController.hasClients) return const SizedBox.shrink();
+
+    final boundaries = _refMonthBoundaries(days);
+    if (boundaries.isEmpty) return const SizedBox.shrink();
+
+    // Височина на една буква + височина на цялата табела (3 букви)
+    const double letterHeight = AppFonts.monthRefMonth * 1.15;
+    const double labelHeight  = letterHeight * 3;
+
+    // Горна граница на видимата зона на ListView (в локални координати)
+    const double topLimit = 0.0;
+
+    final listBox = _listStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (listBox == null) return const SizedBox.shrink();
+
+    final labels = <Widget>[];
+
+    for (int b = 0; b < boundaries.length; b++) {
+      final (rowIndex, monthName) = boundaries[b];
+
+      final rowKey = _rowKeys[rowIndex];
+      if (rowKey?.currentContext == null) continue;
+
+      final rowBox = rowKey!.currentContext!.findRenderObject() as RenderBox?;
+      if (rowBox == null) continue;
+
+      // Позиция на реда спрямо ListView-а
+      final rowTop = rowBox.localToGlobal(Offset.zero, ancestor: listBox).dy;
+
+      // Позиция на СЛЕДВАЩАТА табела (за ефекта на избутване)
+      double? nextTop;
+      if (b + 1 < boundaries.length) {
+        final nextKey = _rowKeys[boundaries[b + 1].$1];
+        if (nextKey?.currentContext != null) {
+          final nextBox = nextKey!.currentContext!.findRenderObject() as RenderBox?;
+          if (nextBox != null) {
+            nextTop = nextBox.localToGlobal(Offset.zero, ancestor: listBox).dy;
+          }
+        }
+      }
+
+      // Изчисляваме позицията:
+      // 1. По подразбиране табелата стои залепена за своя ред
+      // 2. Ако редът излезе над горната граница → табелата се закача горе
+      // 3. Ако следващата табела наближи → бива избутана нагоре
+      double top = rowTop + 8; //изравняване с числото
+      if (top < topLimit) top = topLimit;
+      if (nextTop != null && nextTop - labelHeight < top) {
+        top = nextTop - labelHeight;
+      }
+
+      // Скриваме табели, които са напълно извън видимата зона
+      final viewHeight = listBox.size.height;
+      if (top + labelHeight < 0 || top > viewHeight) continue;
+
+      labels.add(Positioned(
+        right: 5, //разстояние в пиксели от дясната рамка на екрана
+        top: top,
+        child: SizedBox(
+          width: 12,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: monthName.split('').map((c) => SizedBox(
+              height: letterHeight,
+              child: Text(c,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: AppFonts.monthRefMonth,
+                  height: 1.0,
+                ),
+              ),
+            )).toList(),
+          ),
+        ),
+      ));
+    }
+
+    return Stack(children: labels);
   }
 }
