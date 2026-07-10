@@ -489,7 +489,12 @@ class _MonthPageState extends State<_MonthPage>
                 ? '$fastPeriod ($fastType)' 
                 : fastPeriod;
             return fastText.trim().isNotEmpty
-                ? [{'_fast': fastText}]
+                ? [{
+                    '_fast': fastText,
+                    // id на постния период (2-5 = многодневните пости)
+                    // за сивата ивица и плаващата табела вляво
+                    '_fastId': dayResult.first['fast_period'],
+                  }]
                 : <Map<String, dynamic>>[];
           }(),
       ];
@@ -585,6 +590,61 @@ class _MonthPageState extends State<_MonthPage>
       if (lastMonth == null || refDate.month != lastMonth) {
         boundaries.add((i, widget.monthNamesShort[refDate.month]));
         lastMonth = refDate.month;
+      }
+    }
+    return boundaries;
+  }
+
+  // ─── Постни периоди (лява ивица и табела) ────────────────────────────────
+
+  // Еднодневни строги пости (нов стил: ден, месец) — винаги постни,
+  // независимо от деня от седмицата. Посивяват се, но без табела.
+  static const _singleFastDays = [
+    (18, 1),  // Предпразненство на Богоявление
+    (11, 9),  // Отсичане главата на св. Йоан Кръстител
+    (27, 9),  // Въздвижение на Кръста Господен
+  ];
+
+  // Връща id на многодневния постен период (2-5) за деня, или null.
+  int? _multiDayFastId(DateTime day) {
+    final key = _cacheKey(day);
+    final entries = _cache[key] ?? [];
+    for (final e in entries) {
+      final id = e['_fastId'];
+      if (id is int && id >= 2 && id <= 5) return id;
+    }
+    return null;
+  }
+
+  // Дали денят е постен за целите на сивата ивица:
+  // многодневен пост (2-5) или един от трите еднодневни строги поста.
+  bool _isFastStripeDay(DateTime day) {
+    if (_multiDayFastId(day) != null) return true;
+    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
+        ? _toNewStyle(day)
+        : day;
+    return _singleFastDays.contains((newStyle.day, newStyle.month));
+  }
+
+  // Връща списък от (начален индекс, краен индекс, име на поста) за
+  // многодневните постни периоди, попадащи в този месец.
+  // Ползва се от плаващата табела вляво.
+  List<(int, int, String)> _fastPeriodBoundaries(List<DateTime> days) {
+    final boundaries = <(int, int, String)>[];
+    int? currentId;
+    int startIndex = 0;
+
+    for (int i = 0; i <= days.length; i++) {
+      final id = i < days.length ? _multiDayFastId(days[i]) : null;
+      if (id != currentId) {
+        if (currentId != null) {
+          // Затваряме предишния период
+          final name = DatabaseHelper.fastPeriods[currentId] ?? '';
+          boundaries.add((startIndex, i - 1, name.toLowerCase()));
+        }
+        currentId = id;
+        startIndex = i;
       }
     }
     return boundaries;
@@ -746,14 +806,32 @@ class _MonthPageState extends State<_MonthPage>
                               }
                               return Container(
                               color: rowColor,
-                              padding: const EdgeInsets.symmetric(
-                                vertical: 8, horizontal: 8),
+                              child: IntrinsicHeight(
                               child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.stretch,
+                                children: [
+                                // Постна ивица: посивява фона на реда при пост.
+                                // Цветът се извежда от фона чрез придвижване към
+                                // AppColors.fastStripeTint — така се адаптира към
+                                // всяка тема и неделите остават различими.
+                                // stretch + IntrinsicHeight → пълна височина на реда.
+                                Container(
+                                  width: 15, //ширина на посивената ивица за поста
+                                  color: _isFastStripeDay(day)
+                                    ? Color.lerp(rowColor, AppColors.fastStripeTint,
+                                        AppColors.fastStripeAmount)
+                                    : Colors.transparent,
+                                ),
+                                Expanded(
+                                child: Padding(
+                                padding: const EdgeInsets.only(
+                                  top: 8, bottom: 8, right: 8),
+                                child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                 // Лява колона: водеща дата + ден от седмицата
                                 SizedBox(
-                                  width: 36,
+                                  width: 24,
                                   child: Column(
                                   children: [
                                     Text('${day.day}',
@@ -909,11 +987,11 @@ class _MonthPageState extends State<_MonthPage>
                                 // от плаващата (sticky) табела вдясно.
                                 if (showOldStyle)
                                   SizedBox(
-                                  width: 36,
+                                  width: 32, //Ширина на дясната колона
                                   child: Align(
                                     alignment: Alignment.topLeft,
                                     child: SizedBox(
-                                      width: 28,
+                                      width: 22,
                                       child: Text('${refDate.day}',
                                         textAlign: TextAlign.center,
                                         style: const TextStyle(
@@ -924,7 +1002,12 @@ class _MonthPageState extends State<_MonthPage>
                                   ),
                                   ),
                                 ],
-                              ),
+                              ), // вътрешен Row (съдържание)
+                              ), // Padding
+                              ), // Expanded
+                                ],
+                              ), // външен Row (ивица + съдържание)
+                              ), // IntrinsicHeight
                               );
                             },
                             ),
@@ -945,6 +1028,19 @@ class _MonthPageState extends State<_MonthPage>
                       child: AnimatedBuilder(
                         animation: _scrollController,
                         builder: (context, _) => _buildStickyMonthLabels(days),
+                      ),
+                    ),
+                  ),
+
+                // ─── Плаваща (sticky) табела с постния период (вляво) ────
+                // Аналогична на месечната, но границата на избутване е
+                // краят на самия постен период (постовете не граничат).
+                if (_initialScrollDone)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: _scrollController,
+                        builder: (context, _) => _buildStickyFastLabels(days),
                       ),
                     ),
                   ),
@@ -1016,7 +1112,7 @@ class _MonthPageState extends State<_MonthPage>
       if (top + labelHeight < 0 || top > viewHeight) continue;
 
       labels.add(Positioned(
-        right: 5, //разстояние в пиксели от дясната рамка на екрана
+        right: 4, //разстояние в пиксели от дясната рамка на екрана
         top: top,
         child: SizedBox(
           width: 12,
@@ -1035,6 +1131,105 @@ class _MonthPageState extends State<_MonthPage>
             )).toList(),
           ),
         ),
+      ));
+    }
+
+    return Stack(children: labels);
+  }
+
+  // Проверява дали някой ред от диапазона е рендериран (видим или в кеша)
+  bool _anyRowVisibleInRange(int start, int end) {
+    for (int i = start; i <= end; i++) {
+      if (_rowKeys[i]?.currentContext != null) return true;
+    }
+    return false;
+  }
+
+  // ─── Плаваща табела с постния период (вляво) ─────────────────────────────
+  // Табелата стои в началото на постния период, закача се горе при скрол,
+  // и бива избутана нагоре от КРАЯ на периода (последния му ред).
+  Widget _buildStickyFastLabels(List<DateTime> days) {
+    if (!_scrollController.hasClients) return const SizedBox.shrink();
+
+    final periods = _fastPeriodBoundaries(days);
+    if (periods.isEmpty) return const SizedBox.shrink();
+
+    const double letterHeight = AppFonts.monthRefMonth * 1.15;
+    const double topLimit = 0.0;
+
+    final listBox = _listStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (listBox == null) return const SizedBox.shrink();
+
+    final labels = <Widget>[];
+
+    for (final (startIndex, endIndex, name) in periods) {
+      if (name.isEmpty) continue;
+
+      // Височина на табелата зависи от дължината на името
+      final double labelHeight = letterHeight * name.length;
+
+      final startKey = _rowKeys[startIndex];
+      final startBox = startKey?.currentContext?.findRenderObject() as RenderBox?;
+
+      double startTop;
+      if (startBox != null) {
+        startTop = startBox.localToGlobal(Offset.zero, ancestor: listBox).dy + 8;
+      } else {
+        // Стартовият ред не е рендериран. Ако сме ВЪТРЕ в периода
+        // (крайният ред е рендериран или още по-надолу) — табелата виси горе.
+        // Ако целият период е далеч под нас — краят също не е рендериран,
+        // но тогава и никоя част от периода не е видима.
+        final anyVisible = _anyRowVisibleInRange(startIndex, endIndex);
+        if (!anyVisible) continue;
+        startTop = -999999; // все едно е далеч над екрана → ще се clamp-не на topLimit
+      }
+
+      //final startTop = startBox.localToGlobal(Offset.zero, ancestor: listBox).dy + 8;
+
+      // Долна граница: краят (долният ръб) на последния ред от периода
+      double? periodBottom;
+      final endKey = _rowKeys[endIndex];
+      if (endKey?.currentContext != null) {
+        final endBox = endKey!.currentContext!.findRenderObject() as RenderBox?;
+        if (endBox != null) {
+          periodBottom = endBox.localToGlobal(Offset.zero, ancestor: listBox).dy
+              + endBox.size.height;
+        }
+      }
+
+      // Позициониране:
+      // 1. По подразбиране табелата стои в началото на периода
+      // 2. При скрол нагоре се закача на topLimit
+      // 3. Краят на периода я избутва нагоре, когато наближи
+      double top = startTop;
+      if (top < topLimit) top = topLimit;
+      if (periodBottom != null && periodBottom - labelHeight < top) {
+        top = periodBottom - labelHeight;
+      }
+
+      final viewHeight = listBox.size.height;
+      if (top + labelHeight < 0 || top > viewHeight) continue;
+
+      labels.add(Positioned(
+        left: 4, // залепена за левия ръб, върху сивата ивица
+        top: top,
+        //child: SizedBox(
+          //width: 12,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: name.split('').map((c) => SizedBox(
+              height: letterHeight,
+              child: Text(c,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: AppFonts.monthRefMonth,
+                  height: 1.0,
+                ),
+              ),
+            )).toList(),
+          ),
+        //),
       ));
     }
 
