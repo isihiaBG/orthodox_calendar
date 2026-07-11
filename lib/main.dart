@@ -795,7 +795,7 @@ class _DayScreenState extends State<DayScreen> {
                                 child: Icon(
                                   oldFirst ? Icons.live_tv : Icons.church,
                                   color: AppColors.textPrimary,
-                                  size: 26,
+                                  size: 24, // Църква/Телевизор
                                 ),
                               ),
                             Text(
@@ -850,7 +850,7 @@ class _DayScreenState extends State<DayScreen> {
                                 child: Icon(
                                   oldFirst ? Icons.church : Icons.live_tv,
                                   color: AppColors.textPrimary,
-                                  size: 26,
+                                  size: 24, // Църква/Телевизор
                                 ),
                               ),
                           ],
@@ -996,7 +996,7 @@ class _DayScreenState extends State<DayScreen> {
                   ),
                 ),
                 ExpandableSection(
-                  title: '⛪  ИЗРЕЧЕНИЯ ОТ ОПТИНСКИТЕ СТАРЦИ',
+                  title: '⛪  ОТ ОПТИНСКИТЕ СТАРЦИ',
                   isSunday: isSunday,
                   content: const Text(
                     'Тук ще се показват изреченията от Оптинските старци.',

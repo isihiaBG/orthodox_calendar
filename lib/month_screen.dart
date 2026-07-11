@@ -4,6 +4,7 @@ import 'database_helper.dart';
 import 'app_theme.dart';
 import 'app_settings.dart';
 import 'moon_calculator.dart';
+import 'app_strings.dart';
 
 class MonthScreen extends StatefulWidget {
   final DateTime initialDate;
@@ -639,7 +640,6 @@ class _MonthPageState extends State<_MonthPage>
       final id = i < days.length ? _multiDayFastId(days[i]) : null;
       if (id != currentId) {
         if (currentId != null) {
-          // Затваряме предишния период
           final name = DatabaseHelper.fastPeriods[currentId] ?? '';
           boundaries.add((startIndex, i - 1, name.toLowerCase()));
         }
@@ -647,6 +647,19 @@ class _MonthPageState extends State<_MonthPage>
         startIndex = i;
       }
     }
+
+    // Еднодневните строги пости — период от един ред с текст "пост"
+    for (int i = 0; i < days.length; i++) {
+      if (_multiDayFastId(days[i]) != null) continue; // вече покрит
+      final bool oldIsLeading = !AppSettings.oldStyleFirst;
+      final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
+          ? _toNewStyle(days[i])
+          : days[i];
+      if (_singleFastDays.contains((newStyle.day, newStyle.month))) {
+        boundaries.add((i, i, AppStrings.fastLabel)); // 'пост' <-- табела за еднодневните постни дни
+      }
+    }
+
     return boundaries;
   }
 
@@ -818,14 +831,21 @@ class _MonthPageState extends State<_MonthPage>
                                 Container(
                                   width: 15, //ширина на посивената ивица за поста
                                   color: _isFastStripeDay(day)
-                                    ? Color.lerp(rowColor, AppColors.fastStripeTint,
-                                        AppColors.fastStripeAmount)
+                                    ? Color.lerp(Colors.transparent, AppColors.fastStripeTint,
+                                        (AppSettings.today != null &&
+                                        dbDate.year  == AppSettings.today!.year &&
+                                        dbDate.month == AppSettings.today!.month &&
+                                        dbDate.day   == AppSettings.today!.day)
+                                            ? AppColors.fastStripeAmountToday
+                                            : isSunday
+                                            ? AppColors.fastStripeAmountToday
+                                            : AppColors.fastStripeAmount)
                                     : Colors.transparent,
                                 ),
                                 Expanded(
                                 child: Padding(
                                 padding: const EdgeInsets.only(
-                                  top: 8, bottom: 8, right: 8),
+                                  top: 8, bottom: 4, right: 8),
                                 child: Row(
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
@@ -971,7 +991,7 @@ class _MonthPageState extends State<_MonthPage>
                                               textAlign: TextAlign.center,
                                               style: const TextStyle(
                                                 color: AppColors.textMuted,
-                                                fontSize: AppFonts.monthSaintName,
+                                                fontSize: AppFonts.monthSaintName-2,
                                                 fontStyle: FontStyle.italic,
                                               ),
                                             ),
@@ -1211,7 +1231,7 @@ class _MonthPageState extends State<_MonthPage>
       if (top + labelHeight < 0 || top > viewHeight) continue;
 
       labels.add(Positioned(
-        left: 4, // залепена за левия ръб, върху сивата ивица
+        left: 3, // залепена за левия ръб, върху сивата ивица
         top: top,
         //child: SizedBox(
           //width: 12,
