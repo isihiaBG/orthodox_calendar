@@ -35,7 +35,12 @@ class OrthodoxCalendarApp extends StatelessWidget {
 			theme: ThemeData(
 			  useMaterial3: true,
 			  scaffoldBackgroundColor: AppColors.background,
-			  colorScheme: const ColorScheme.dark(),
+			  colorScheme: const ColorScheme.dark(
+          primary: AppColors.sectionTitle,
+        ),
+        progressIndicatorTheme: ProgressIndicatorThemeData(
+          color:   AppColors.sectionTitle,
+        ),
         visualDensity: VisualDensity.compact ,
 			  iconButtonTheme: IconButtonThemeData(
 				style: ButtonStyle(
