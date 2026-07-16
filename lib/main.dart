@@ -8,6 +8,7 @@ import 'settings_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'month_screen.dart';
+import 'saint_expandable_tile.dart';
 
 void main() {
   runApp(const OrthodoxCalendarApp());
@@ -657,24 +658,48 @@ class _DayScreenState extends State<DayScreen> {
     ''', [dateStr]);
 
     final saintsResult = await db.rawQuery('''
-      SELECT s.*, r.sign, r.sign_color
-      FROM saints s
-      LEFT JOIN saint_ranks r ON s.rank = r.id
-      LEFT JOIN saint_groups sg ON s.group_code = sg.code
-      WHERE s.date = ?
-      ORDER BY sg.id ASC, s.rank ASC
+    SELECT s.id, s.date, s.name, s.rank, s.group_code,
+          r.sign, r.sign_color,
+          (s.tropar IS NOT NULL AND s.tropar != '') AS has_tropar,
+          (s.kondak IS NOT NULL AND s.kondak != '') AS has_kondak,
+          (s.life   IS NOT NULL AND s.life   != '') AS has_life,
+          (s.sluzhba IS NOT NULL AND s.sluzhba != '') AS has_sluzhba
+    FROM saints s
+    LEFT JOIN saint_ranks r ON s.rank = r.id
+    LEFT JOIN saint_groups sg ON s.group_code = sg.code
+    WHERE s.date = ?
+    ORDER BY sg.id ASC, s.rank ASC
     ''', [dateStr]);
-      // SELECT s.*, r.sign, r.sign_color
-      // FROM saints s
-      // LEFT JOIN saint_ranks r ON s.rank = r.id
-      // WHERE s.date = ?
-      // ORDER BY s.rank ASC
 
     setState(() {
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();
       _loading = false;
     });
+  }
+
+  /// Пълните текстове на светия — зареждат се чак при тап върху секция.
+  Future<SaintTexts?> _loadSaintTexts(int id) async {
+    final db = await DatabaseHelper.database;
+    final r = await db.query('saints',
+        columns: ['name', 'tropar', 'tropar_trans', 'tropar2',
+                  'tropar2_trans', 'kondak', 'kondak_trans', 'kondak2',
+                  'kondak2_trans', 'life', 'sluzhba', 'source', 'slug'],
+        where: 'id = ?', whereArgs: [id], limit: 1);
+    if (r.isEmpty) return null;
+    return SaintTexts.fromMap(r.first);
+  }
+
+  /// Търсене по слъг — за saint:// линковете в житията.
+  Future<SaintTexts?> _lookupBySlug(String slug) async {
+    final db = await DatabaseHelper.database;
+    final r = await db.query('saints',
+        columns: ['name', 'tropar', 'tropar_trans', 'tropar2',
+                  'tropar2_trans', 'kondak', 'kondak_trans', 'kondak2',
+                  'kondak2_trans', 'life', 'sluzhba', 'source', 'slug'],
+        where: 'slug = ?', whereArgs: [slug], limit: 1);
+    if (r.isEmpty) return null;
+    return SaintTexts.fromMap(r.first);
   }
 
   String _toneText(int tone) {
@@ -896,15 +921,14 @@ class _DayScreenState extends State<DayScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _saints.map((saint) {
-        // Взимаме SVG иконката и цвета според ранга на светията
         final (iconPath, iconColor) = AppIcons.forRank(saint.rank ?? 6);
-        
-        return Padding(
+
+        // Редът както досега — знак + име (визуално непроменен)
+        final row = Padding(
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // Bullet - SVG икона или обикновена точка
               SizedBox(
                 width: 24,
                 height: 24,
@@ -929,7 +953,6 @@ class _DayScreenState extends State<DayScreen> {
                         ),
                       ),
               ),
-              // Текст на светеца
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.only(left: 8),
@@ -937,7 +960,6 @@ class _DayScreenState extends State<DayScreen> {
                     saint.name,
                     style: TextStyle(
                       fontSize: 16,
-                      //color: iconColor ?? AppColors.signWhite,
                       color:      saint.rank == 0 ? AppColors.monthTextSecondary : iconColor ?? AppColors.signWhite,
                       fontStyle:  saint.rank == 0 ? FontStyle.italic : FontStyle.normal,
                       fontWeight: saint.rank == 0 ? FontWeight.bold : FontWeight.normal,
@@ -948,9 +970,20 @@ class _DayScreenState extends State<DayScreen> {
             ],
           ),
         );
+
+        return SaintExpandableTile(
+          collapsedRow: row,
+          hasTropar: saint.hasTropar,
+          hasKondak: saint.hasKondak,
+          hasLife: saint.hasLife,
+          hasSluzhba: saint.hasSluzhba,
+          loadTexts: () => _loadSaintTexts(saint.id),
+          lookup: _lookupBySlug,
+        );
       }).toList(),
     );
   }
+
   
   DateTime get date => widget.date;
 
