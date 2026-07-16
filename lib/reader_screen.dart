@@ -23,6 +23,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
 import 'saint_expandable_tile.dart'
@@ -39,24 +40,25 @@ const String _bodyFamily = 'Cambria';         // основният текст �
 /// като чист Text, а не през flutter_html (той си ги разкодира сам).
 String _decodeEntities(String s) {
   const named = {
-    '&ndash;': '\u2013',   // –
-    '&mdash;': '\u2014',   // —
-    '&nbsp;': '\u00A0',
-    '&laquo;': '\u00AB',   // «
-    '&raquo;': '\u00BB',   // »
-    '&bdquo;': '\u201E',   // „
-    '&ldquo;': '\u201C',   // “
-    '&rdquo;': '\u201D',   // ”
-    '&lsquo;': '\u2018',
-    '&rsquo;': '\u2019',
+    '&ndash;' : '\u2013',   // –
+    '&mdash;' : '\u2014',   // —
+    '&nbsp;'  : '\u00A0',
+    '&laquo;' : '\u00AB',   // «
+    '&raquo;' : '\u00BB',   // »
+    '&bdquo;' : '\u201E',   // „
+    '&ldquo;' : '\u201C',   // “
+    '&rdquo;' : '\u201D',   // ”
+    '&lsquo;' : '\u2018',
+    '&rsquo;' : '\u2019',
     '&hellip;': '\u2026',  // …
     '&middot;': '\u00B7',
-    '&deg;': '\u00B0',
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&apos;': "'",
+    '&deg;'   : '\u00B0',
+    '&dagger;': '\u2020',  // † кръст
+    '&amp;'   : '&',
+    '&lt;'    : '<',
+    '&gt;'    : '>',
+    '&quot;'  : '"',
+    '&apos;'  : "'",
   };
   var out = s;
   named.forEach((k, v) => out = out.replaceAll(k, v));
@@ -219,7 +221,16 @@ class _ReaderScreenState extends State<ReaderScreen> {
       return;
     }
 
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
+    // Външен линк (https://…) — отваряме в браузъра по подразбиране
+    final uri = Uri.tryParse(url);
+    if (uri == null) return;
+    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!ok && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Не може да се отвори: $url')),
+      );
+    }
+    // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
   }
 
   // ---------------------------------------------------------------
