@@ -122,24 +122,30 @@ class _ReaderScreenState extends State<ReaderScreen> {
   // Съставяне на HTML
   // ---------------------------------------------------------------
 
-  /// Отделя: (HTML преди първия <p> — напр. <h3> заглавие; първата буква;
-  /// текстът на първия <p> без буквата; останалият HTML след първия <p>).
-  /// Буквата се вади от първия <p>, а заглавието остава на пълна ширина.
+  /// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
+  /// този абзац без буквата; останалият HTML).
+  ///
+  /// Обхожда абзаците, докато намери такъв, който започва с истинска буква.
+  /// Така редакторски бележки в скоби ("(не путать с …)"), стоящи между
+  /// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
+  /// буквицата пада върху първия същински абзац.
   (String, String, String, String) _splitDropCap(String html) {
-    final pm = RegExp(r'<p>(.*?)</p>', dotAll: true).firstMatch(html);
-    if (pm == null) return (html, '', '', '');
-    final before = html.substring(0, pm.start);
-    final pInner = pm.group(1)!;
-    final after = html.substring(pm.end);
-
-    final cm = RegExp(r'^\s*(\S)').firstMatch(pInner);
-    if (cm == null || !RegExp(r'[А-Яа-яA-Za-z]').hasMatch(cm.group(1)!)) {
-      // Няма буква за инициал — всичко тече нормално.
-      return (html, '', '', '');
+    int scanned = 0;
+    for (final m in RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(html)) {
+      if (++scanned > 3) break; // буквица само в началото, не насред текста
+      final inner = m.group(1)!;
+      final cm = RegExp(r'^\s*(\S)').firstMatch(inner);
+      if (cm == null) continue;
+      final ch = cm.group(1)!;
+      if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
+      return (
+        html.substring(0, m.start),
+        ch,
+        inner.substring(cm.end),
+        html.substring(m.end),
+      );
     }
-    final ch = cm.group(1)!;
-    final pRest = pInner.substring(cm.end);
-    return (before, ch, pRest, after);
+    return (html, '', '', '');
   }
 
   String _buildHtml() {
@@ -253,6 +259,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
     return Scaffold(
       backgroundColor: _bg,
       appBar: AppBar(
+        toolbarHeight: 44, //
         title: Text(title),
         actions: [
           // Тогъл на темата: кръг, разделен вертикално (първа четвъртина)
