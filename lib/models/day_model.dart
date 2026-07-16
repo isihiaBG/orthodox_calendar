@@ -61,6 +61,11 @@ class Saint {
   final int rank;
   final String? sign;
   final String? signColor;
+  final bool hasTropar;
+  final bool hasKondak;
+  final bool hasLife;
+  final bool hasSluzhba;
+  
 
   Saint({
     required this.id,
@@ -69,6 +74,10 @@ class Saint {
     required this.rank,
     this.sign,
     this.signColor,
+    this.hasTropar  = false,
+    this.hasKondak  = false,
+    this.hasLife    = false,
+    this.hasSluzhba = false,
   });
 
   factory Saint.fromMap(Map<String, dynamic> map) {
@@ -79,6 +88,10 @@ class Saint {
       rank: map['rank'] ?? 4,
       sign: map['sign'],
       signColor: map['sign_color'],
+      hasTropar:  (map['has_tropar']  ?? 0) == 1,
+      hasKondak:  (map['has_kondak']  ?? 0) == 1,
+      hasLife:    (map['has_life']    ?? 0) == 1,
+      hasSluzhba: (map['has_sluzhba'] ?? 0) == 1,
     );
   }
 }
