@@ -110,6 +110,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const double _min = 13.0;
   static const double _max = 30.0;
   static const double _lineHeight = 1.25;
+  static const double _titleGap = 30.0;  // константно разстояние заглавие → текст
 
   void _bump(double d) {
     setState(() {
@@ -312,7 +313,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
             // Името на светията — само ако житието няма собствено заглавие
             if (!hasOwnTitle)
               Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: 6),
+                padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
                 child: Text(
                   widget.texts.name,
                   textAlign: TextAlign.center,
@@ -325,13 +326,19 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
               ),
 
-            // Заглавието на житието (напр. <h3>) — на пълна ширина
-            if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty)
+            // Заглавието на житието (напр. <h3>) — на пълна ширина.
+            // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
+            // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
+            // шрифт прелива от кутията на реда и margin-ът се "изяжда".
+            // Така разстоянието е константно, независимо от броя редове.
+            if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
               Html(
                 data: beforeHtml,
                 onLinkTap: (url, attributes, element) => _onLinkTap(url),
                 style: _htmlStyles(context),
               ),
+              const SizedBox(height: _titleGap),
+            ],
 
             // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
             // останалият текст — на пълна ширина под буквата
@@ -392,7 +399,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
         lineHeight: const LineHeight(_lineHeight),
         fontWeight: FontWeight.normal,
         textAlign: TextAlign.center,
-        margin: Margins.only(top: 18, bottom: 40),
+        margin: Margins.only(top: 18, bottom: 0), // bottom се управлява от _titleGap
         color: _ink,
       ),
       // В службата <strong> носи богослужебните указания ("На велицей
