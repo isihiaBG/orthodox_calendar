@@ -2,6 +2,50 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
 
+/// Филтри по група, изписвани с # в полето за търсене.
+/// Ключът е това, което потребителят пише след #; стойността е group_code.
+/// Има и кирилски псевдоними — на българска клавиатура е по-удобно.
+const Map<String, String> _groupAliases = {
+  'bg': 'BG',        'бг': 'BG',      'бъл': 'BG',
+  'ru': 'RU',        'ру': 'RU',      'рус': 'RU',
+  'athos': 'ATHOS',  'aton': 'ATHOS', 'атон': 'ATHOS',
+  'rs': 'RS',        'srb': 'RS',     'сръб': 'RS',   'серб': 'RS',
+  'gr': 'GR',        'гр': 'GR',      'грц': 'GR',
+  'ge': 'GE',        'гру': 'GE',
+  'ro': 'RO',        'рум': 'RO',
+  'jer': 'JER',      'йер': 'JER',
+  'us': 'US',
+  'vs': 'ECUMENICAL', 'вс': 'ECUMENICAL', 'все': 'ECUMENICAL',
+};
+
+/// Разложена заявка: думите за търсене отделно от груповите филтри.
+class _ParsedQuery {
+  final List<String> words;
+  final List<String> groups;   // group_code стойности
+  const _ParsedQuery(this.words, this.groups);
+}
+
+/// "иван #bg"  → words: [иван], groups: [BG]
+/// "#bg"       → words: [],     groups: [BG]   (всички български светии)
+/// "#bg #rs"   → words: [],     groups: [BG, RS]
+/// Непознат #токен се търси като обикновен текст.
+_ParsedQuery _parseQuery(String raw) {
+  final words = <String>[];
+  final groups = <String>[];
+  for (final token in raw.replaceAll('*', '%').trim().split(RegExp(r'\s+'))) {
+    if (token.isEmpty) continue;
+    if (token.startsWith('#') && token.length > 1) {
+      final code = _groupAliases[token.substring(1).toLowerCase()];
+      if (code != null) {
+        if (!groups.contains(code)) groups.add(code);
+        continue;
+      }
+    }
+    words.add(token);
+  }
+  return _ParsedQuery(words, groups);
+}
+
 class SearchBottomSheet extends StatefulWidget {
   final Function(DateTime) onDateSelected;
 
@@ -34,45 +78,60 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   }
 
 	Future<void> _search(String query) async {
-		if (query.trim().isEmpty) {
+		final parsed = _parseQuery(query);
+
+		// Нищо за търсене: нито дума, нито филтър
+		if (parsed.words.isEmpty && parsed.groups.isEmpty) {
 		  setState(() => _results = []);
 		  return;
 		}
 		setState(() => _loading = true);
 		final db = await DatabaseHelper.database;
 
-		final cleanQuery = query.replaceAll('*', '%');
-		final words = cleanQuery.trim().split(' ')
-			.where((w) => w.isNotEmpty).toList();
+		final words = parsed.words;
 		final args = words.map((w) => '%$w%').toList();
 
 		final List<Map<String, dynamic>> allResults = [];
 
-		// Светии
-		final saintsWhere = words.map((_) => 's.name LIKE ?').join(' AND ');
+		// Светии — тук важат и думите, и груповите филтри
+		final saintConds = <String>[];
+		final saintArgs = <Object?>[];
+		for (final w in words) {
+		  saintConds.add('s.name LIKE ?');
+		  saintArgs.add('%$w%');
+		}
+		if (parsed.groups.isNotEmpty) {
+		  final ph = List.filled(parsed.groups.length, '?').join(',');
+		  saintConds.add('s.group_code IN ($ph)');
+		  saintArgs.addAll(parsed.groups);
+		}
 		final saintsResults = await db.rawQuery(
 		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
-		  'FROM saints s WHERE $saintsWhere ORDER BY s.date ASC',
-		  args);
+		  'FROM saints s WHERE ${saintConds.join(' AND ')} ORDER BY s.date ASC',
+		  saintArgs);
 		allResults.addAll(saintsResults);
 
-		// Недели
-		final sundaysWhere = words.map((_) => 'sn.name LIKE ?').join(' AND ');
-		final sundaysResults = await db.rawQuery(
-		  'SELECT sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
-		  'FROM sundays sn JOIN calendar_days cd ON cd.sunday_id = sn.id '
-		  'WHERE $sundaysWhere ORDER BY cd.date ASC',
-		  args);
-		allResults.addAll(sundaysResults);
+		// Недели и седмици нямат group_code — при активен филтър ги пропускаме
+		// (иначе "#bg" би извадил и всички недели, което няма смисъл).
+		if (parsed.groups.isEmpty && words.isNotEmpty) {
+		  // Недели
+		  final sundaysWhere = words.map((_) => 'sn.name LIKE ?').join(' AND ');
+		  final sundaysResults = await db.rawQuery(
+		    'SELECT sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
+		    'FROM sundays sn JOIN calendar_days cd ON cd.sunday_id = sn.id '
+		    'WHERE $sundaysWhere ORDER BY cd.date ASC',
+		    args);
+		  allResults.addAll(sundaysResults);
 
-		// Седмици
-		final weeksWhere = words.map((_) => 'w.name LIKE ?').join(' AND ');
-		final weeksResults = await db.rawQuery(
-		  'SELECT w.name, cd.date, 0 as rank, \'week\' as result_type '
-		  'FROM weeks w JOIN calendar_days cd ON cd.week_id = w.id '
-		  'WHERE $weeksWhere ORDER BY cd.date ASC',
-		  args);
-		allResults.addAll(weeksResults);
+		  // Седмици
+		  final weeksWhere = words.map((_) => 'w.name LIKE ?').join(' AND ');
+		  final weeksResults = await db.rawQuery(
+		    'SELECT w.name, cd.date, 0 as rank, \'week\' as result_type '
+		    'FROM weeks w JOIN calendar_days cd ON cd.week_id = w.id '
+		    'WHERE $weeksWhere ORDER BY cd.date ASC',
+		    args);
+		  allResults.addAll(weeksResults);
+		}
 
 		allResults.sort((a, b) =>
 			(a['date'] as String).compareTo(b['date'] as String));
@@ -163,7 +222,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       fontSize: 16,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Търси светия...',
+                      hintText: 'Търси светия...  (#bg, #ru, #атон)',
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       isDense: true,

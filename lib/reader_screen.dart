@@ -113,6 +113,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static const double _max = 30.0;
   static const double _lineHeight = 1.25;
   static const double _titleGap = 30.0;  // константно разстояние заглавие → текст
+  static const double _scrollThumb = 10.0;  // дебелина на палеца на скролбара
 
   void _bump(double d) {
     setState(() {
@@ -236,10 +237,11 @@ class _ReaderScreenState extends State<ReaderScreen> {
   // ---------------------------------------------------------------
 
   // Палитрата на четеца — независима от темата на приложението.
-  Color get _bg   => _darkMode ? const Color(0xFF121212) : const Color(0xFFFAF7F0);
+  Color get _bg   => _darkMode ? const Color(0xFF121212) : const Color(0xFFF5E6C5);
   Color get _ink  => _darkMode ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
   Color get _dim  => _darkMode ? const Color(0xFF9A948A) : const Color(0xFF6B675F);
-  Color get _wine => _darkMode ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
+  Color get _wine => _darkMode ? const Color(0xFFA0555B) : const Color(0xFFB83333);
+  //Color get _wine => _darkMode ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
 
   @override
   Widget build(BuildContext context) {
@@ -268,127 +270,163 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final dropCapSize = lineHeightPx * 5.5 * 0.82; // корекция за ascender
 
     return Scaffold(
-      backgroundColor: _bg,
-      appBar: AppBar(
-        toolbarHeight: 44, //
-        title: Text(title),
-        actions: [
-          // Тогъл на темата: кръг, разделен вертикално (първа четвъртина)
-          Tooltip(
-            message: 'Светла/тъмна тема',
-            child: InkWell(
-              onTap: () => setState(() => _darkMode = !_darkMode),
-              customBorder: const CircleBorder(),
-              child: Container(
-                width: _btnSize,
-                height: _btnSize,
-                alignment: Alignment.center,
-                child: CustomPaint(
-                  size: const Size(_btnSize - 0, _btnSize - 0),
-                  painter: _HalfMoonPainter(
-                    outline: AppBarTheme.of(context).foregroundColor ??
-                        Colors.white,
+      backgroundColor: AppColors.toolbar,
+                       //Theme.of(context).appBarTheme.backgroundColor,
+                       //Theme.of(context).appBarTheme.backgroundColor //AppColors.background,
+                       //?? AppColors.background,
+      body: SafeArea(
+        // top: false — SliverAppBar сам отчита статус лентата; ако SafeArea
+        // я поеме и той, отстъпът горе се удвоява.
+        top: true,
+        child: Container(
+          color: _bg,
+          child: ScrollbarTheme(
+            // Палецът следва темата на ЧЕТЕЦА, не на приложението.
+            data: ScrollbarThemeData(
+              thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.55)),
+              radius: const Radius.circular(5),
+              thickness: const WidgetStatePropertyAll(_scrollThumb),
+              // Палецът не бива да става твърде къс при дълго житие —
+              // иначе е неуловим с пръст.
+              minThumbLength: 48,
+              crossAxisMargin: 2,
+              mainAxisMargin: 4,
+            ),
+            child: Scrollbar(
+              // interactive: true разрешава ВЛАЧЕНЕ на палеца с пръст. Без него
+              // скролбарът е само индикатор. Флагът разширява и зоната за
+              // докосване отвъд видимата ширина на палеца.
+              interactive: true,
+              // Появява се при скрол и плавно избледнява след бездействие.
+              //timeToFade: const Duration(milliseconds: 800),
+              //fadeDuration: const Duration(milliseconds: 400),
+              child: Theme(
+                data: Theme.of(context).copyWith(
+                  textSelectionTheme: TextSelectionThemeData(
+                    selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                    selectionHandleColor: AppColors.sectionTitle,
+                    cursorColor: AppColors.sectionTitle,
+                  ),
+                ),
+                child: SelectionArea(
+                  child: CustomScrollView(
+                    slivers: [
+                      // Лентата се изтърколва нагоре при скрол надолу и се
+                      // връща при първо движение нагоре (floating + snap).
+                      // Това е стандартният Material патърн — анимацията следва
+                      // пръста, вместо да се задейства по праг или таймер.
+                      SliverAppBar(
+                        primary: false,
+                        floating: true,
+                        snap: true,
+                        //surfaceTintColor: Colors.transparent,
+                        //scrolledUnderElevation: 0,
+                        //elevation: 0,
+                        backgroundColor: AppColors.toolbar, //Theme.of(context).appBarTheme.backgroundColor,
+          toolbarHeight: 44, //
+          title: Text(title),
+          actions: [
+            // Тогъл на темата: кръг, разделен вертикално (първа четвъртина)
+            Tooltip(
+              message: 'Светла/тъмна тема',
+              child: InkWell(
+                onTap: () => setState(() => _darkMode = !_darkMode),
+                customBorder: const CircleBorder(),
+                child: Container(
+                  width: _btnSize,
+                  height: _btnSize,
+                  alignment: Alignment.center,
+                  child: CustomPaint(
+                    size: const Size(_btnSize - 0, _btnSize - 0),
+                    painter: _HalfMoonPainter(
+                      outline: AppBarTheme.of(context).foregroundColor ??
+                          Colors.white,
+                    ),
                   ),
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 24), // Разстояние между Тогъл и (-)
-          _RoundIconButton(
-            icon: Icons.remove,
-            tooltip: 'По-дребен шрифт',
-            enabled: _fontSize > _min,
-            onTap: () => _bump(-_step),
-            size: _btnSize,
-          ),
-          const SizedBox(width: 24), // Разстояние между (-) и (+)
-          _RoundIconButton(
-            icon: Icons.add,
-            tooltip: 'По-едър шрифт',
-            enabled: _fontSize < _max,
-            onTap: () => _bump(_step),
-            size: _btnSize,
-          ),
-          const SizedBox(width: 30), // Разстояние до десния край
-        ],
-      ),
-      body: SafeArea(
-        child: ScrollbarTheme(
-          // Палецът следва темата на ЧЕТЕЦА, не на приложението.
-          data: ScrollbarThemeData(
-            thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.55)),
-            radius: const Radius.circular(3),
-            thickness: const WidgetStatePropertyAll(4),
-          ),
-          child: Scrollbar(
-            // Появява се при скрол и плавно избледнява след бездействие.
-            //timeToFade: const Duration(milliseconds: 800),
-            //fadeDuration: const Duration(milliseconds: 400),
-            child: Theme(
-              data: Theme.of(context).copyWith(
-                textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: AppColors.sectionTitle.withOpacity(0.35),
-                  selectionHandleColor: AppColors.sectionTitle,
-                  cursorColor: AppColors.sectionTitle,
-                ),
-              ),
-              child: SelectionArea(
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
-                  children: [
-              // Името на светията — само ако житието няма собствено заглавие
-              if (!hasOwnTitle)
-                Padding(
-                  padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
-                  child: Text(
-                    widget.texts.name,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: _titleFamily,
-                      fontSize: _fontSize + 9,
-                      height: 1.25,
-                      color: _ink,
+            const SizedBox(width: 24), // Разстояние между Тогъл и (-)
+            _RoundIconButton(
+              icon: Icons.remove,
+              tooltip: 'По-дребен шрифт',
+              enabled: _fontSize > _min,
+              onTap: () => _bump(-_step),
+              size: _btnSize,
+            ),
+            const SizedBox(width: 24), // Разстояние между (-) и (+)
+            _RoundIconButton(
+              icon: Icons.add,
+              tooltip: 'По-едър шрифт',
+              enabled: _fontSize < _max,
+              onTap: () => _bump(_step),
+              size: _btnSize,
+            ),
+            const SizedBox(width: 30), // Разстояние до десния край
+          ],
+        
+                      ),
+                      SliverPadding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
+                        sliver: SliverList(
+                          delegate: SliverChildListDelegate([
+                // Името на светията — само ако житието няма собствено заглавие
+                if (!hasOwnTitle)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
+                    child: Text(
+                      widget.texts.name,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontFamily: _titleFamily,
+                        fontSize: _fontSize + 9,
+                        height: 1.25,
+                        color: _ink,
+                      ),
                     ),
                   ),
-                ),
 
-              // Заглавието на житието (напр. <h3>) — на пълна ширина.
-              // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
-              // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
-              // шрифт прелива от кутията на реда и margin-ът се "изяжда".
-              // Така разстоянието е константно, независимо от броя редове.
-              if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
-                Html(
-                  data: beforeHtml,
-                  onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                  style: _htmlStyles(context),
-                ),
-                const SizedBox(height: _titleGap),
-              ],
+                // Заглавието на житието (напр. <h3>) — на пълна ширина.
+                // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
+                // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
+                // шрифт прелива от кутията на реда и margin-ът се "изяжда".
+                // Така разстоянието е константно, независимо от броя редове.
+                if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
+                  Html(
+                    data: beforeHtml,
+                    onLinkTap: (url, attributes, element) => _onLinkTap(url),
+                    style: _htmlStyles(context),
+                  ),
+                  const SizedBox(height: _titleGap),
+                ],
 
-              // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
-              // останалият текст — на пълна ширина под буквата
-              if (dropCap.isNotEmpty)
-                _DropCapParagraph(
-                  dropCap: dropCap,
-                  dropCapSize: dropCapSize,
-                  lineHeight: lineHeightPx,
-                  lineFactor: _lineHeight,
-                  firstParagraph: firstP,
-                  afterHtml: afterHtml,
-                  fontSize: _fontSize,
-                  capColor: _wine,
-                  inkColor: _ink,
-                  onLinkTap: _onLinkTap,
-                  styles: _htmlStyles(context),
-                )
-              else
-                Html(
-                  data: beforeHtml,
-                  onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                  style: _htmlStyles(context),
-                ),
-            ],
+                // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
+                // останалият текст — на пълна ширина под буквата
+                if (dropCap.isNotEmpty)
+                  _DropCapParagraph(
+                    dropCap: dropCap,
+                    dropCapSize: dropCapSize,
+                    lineHeight: lineHeightPx,
+                    lineFactor: _lineHeight,
+                    firstParagraph: firstP,
+                    afterHtml: afterHtml,
+                    fontSize: _fontSize,
+                    capColor: _wine,
+                    inkColor: _ink,
+                    onLinkTap: _onLinkTap,
+                    styles: _htmlStyles(context),
+                  )
+                else
+                  Html(
+                    data: beforeHtml,
+                    onLinkTap: (url, attributes, element) => _onLinkTap(url),
+                    style: _htmlStyles(context),
+                  ),
+                          ]),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

@@ -225,8 +225,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset('assets/icon.png', width: 64, height: 64),
-                const SizedBox(height: 8),
+                Image.asset('assets/icon_trans.png', width: 100, height: 100),
+                const SizedBox(height: 0),
                 const Text(
                   'Православен Календар',
                   style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
