@@ -306,63 +306,72 @@ class _ReaderScreenState extends State<ReaderScreen> {
             // Появява се при скрол и плавно избледнява след бездействие.
             //timeToFade: const Duration(milliseconds: 800),
             //fadeDuration: const Duration(milliseconds: 400),
-            child: SelectionArea(
-              child: ListView(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
-                children: [
-            // Името на светията — само ако житието няма собствено заглавие
-            if (!hasOwnTitle)
-              Padding(
-                padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
-                child: Text(
-                  widget.texts.name,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontFamily: _titleFamily,
-                    fontSize: _fontSize + 9,
-                    height: 1.25,
-                    color: _ink,
-                  ),
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                  selectionHandleColor: AppColors.sectionTitle,
+                  cursorColor: AppColors.sectionTitle,
                 ),
               ),
+              child: SelectionArea(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
+                  children: [
+              // Името на светията — само ако житието няма собствено заглавие
+              if (!hasOwnTitle)
+                Padding(
+                  padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
+                  child: Text(
+                    widget.texts.name,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: _titleFamily,
+                      fontSize: _fontSize + 9,
+                      height: 1.25,
+                      color: _ink,
+                    ),
+                  ),
+                ),
 
-            // Заглавието на житието (напр. <h3>) — на пълна ширина.
-            // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
-            // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
-            // шрифт прелива от кутията на реда и margin-ът се "изяжда".
-            // Така разстоянието е константно, независимо от броя редове.
-            if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
-              Html(
-                data: beforeHtml,
-                onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                style: _htmlStyles(context),
-              ),
-              const SizedBox(height: _titleGap),
+              // Заглавието на житието (напр. <h3>) — на пълна ширина.
+              // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
+              // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
+              // шрифт прелива от кутията на реда и margin-ът се "изяжда".
+              // Така разстоянието е константно, независимо от броя редове.
+              if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
+                Html(
+                  data: beforeHtml,
+                  onLinkTap: (url, attributes, element) => _onLinkTap(url),
+                  style: _htmlStyles(context),
+                ),
+                const SizedBox(height: _titleGap),
+              ],
+
+              // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
+              // останалият текст — на пълна ширина под буквата
+              if (dropCap.isNotEmpty)
+                _DropCapParagraph(
+                  dropCap: dropCap,
+                  dropCapSize: dropCapSize,
+                  lineHeight: lineHeightPx,
+                  lineFactor: _lineHeight,
+                  firstParagraph: firstP,
+                  afterHtml: afterHtml,
+                  fontSize: _fontSize,
+                  capColor: _wine,
+                  inkColor: _ink,
+                  onLinkTap: _onLinkTap,
+                  styles: _htmlStyles(context),
+                )
+              else
+                Html(
+                  data: beforeHtml,
+                  onLinkTap: (url, attributes, element) => _onLinkTap(url),
+                  style: _htmlStyles(context),
+                ),
             ],
-
-            // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
-            // останалият текст — на пълна ширина под буквата
-            if (dropCap.isNotEmpty)
-              _DropCapParagraph(
-                dropCap: dropCap,
-                dropCapSize: dropCapSize,
-                lineHeight: lineHeightPx,
-                lineFactor: _lineHeight,
-                firstParagraph: firstP,
-                afterHtml: afterHtml,
-                fontSize: _fontSize,
-                capColor: _wine,
-                inkColor: _ink,
-                onLinkTap: _onLinkTap,
-                styles: _htmlStyles(context),
-              )
-            else
-              Html(
-                data: beforeHtml,
-                onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                style: _htmlStyles(context),
-              ),
-          ],
+                ),
               ),
             ),
           ),
