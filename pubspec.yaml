@@ -75,6 +75,9 @@ flutter:
   assets:
     - assets/db/
     - assets/icon.png
+    - assets/icon_trans.png
+    - assets/icon_WHT.png
+    - assets/icon_BLK.png
     - assets/icons/
     
   # An image asset can refer to one or more resolution-specific "variants", see
