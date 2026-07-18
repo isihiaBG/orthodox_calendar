@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
+import 'app_settings.dart';
 
 /// Филтри по група, изписвани с # в полето за търсене.
 /// Ключът е това, което потребителят пише след #; стойността е group_code.
@@ -11,18 +12,49 @@ const Map<String, String> _groupAliases = {
   'athos': 'ATHOS',  'aton': 'ATHOS', 'атон': 'ATHOS',
   'rs': 'RS',        'srb': 'RS',     'сръб': 'RS',   'серб': 'RS',
   'gr': 'GR',        'гр': 'GR',      'грц': 'GR',
-  'ge': 'GE',        'гру': 'GE',
+  'ge': 'GE',        'гру': 'GE',     'груз': 'GE',
   'ro': 'RO',        'рум': 'RO',
   'jer': 'JER',      'йер': 'JER',
   'us': 'US',
-  'vs': 'ECUMENICAL', 'вс': 'ECUMENICAL', 'все': 'ECUMENICAL',
+  'vs': 'ECUMENICAL', 'вс': 'ECUMENICAL', 'все': 'ECUMENICAL', 'old': 'ECUMENICAL',
+  'ecu': 'ECUMENICAL', 'ecum': 'ECUMENICAL', 'ecumeni': 'ECUMENICAL',
 };
 
-/// Разложена заявка: думите за търсене отделно от груповите филтри.
+/// Филтри по СЪДЪРЖАНИЕ — показват само светии, за които има съответният
+/// текст. Няколко филтъра се комбинират с логическо И (както при групите).
+const Map<String, String> _contentAliases = {
+  // тропар
+  'тро': 'tropar', 'троп': 'tropar', 'тропар': 'tropar',
+  'tro': 'tropar', 'trop': 'tropar', 'tropar': 'tropar',
+  // кондак
+  'кон': 'kondak', 'конд': 'kondak', 'кондак': 'kondak',
+  'kon': 'kondak', 'kond': 'kondak', 'kondak': 'kondak',
+  // житие
+  'жит': 'life', 'жив': 'life', 'жиз': 'life',
+  'житие': 'life', 'живот': 'life',
+  'lif': 'life', 'life': 'life', 'liv': 'life', 'live': 'life',
+  // служба (по същата логика — махни реда, ако не я искаш)
+  'сл': 'sluzhba', 'слу': 'sluzhba', 'служ': 'sluzhba', 'служба': 'sluzhba',
+  'sl': 'sluzhba', 'slu': 'sluzhba', 'sluj': 'sluzhba', 'slujb': 'sluzhba', 'slujba': 'sluzhba', 'sluzhba': 'sluzhba',
+};
+
+/// SQL условието за всеки филтър по съдържание.
+const Map<String, String> _contentSql = {
+  'tropar':  "(s.tropar  IS NOT NULL AND s.tropar  != '')",
+  'kondak':  "(s.kondak  IS NOT NULL AND s.kondak  != '')",
+  'life':    "(s.life    IS NOT NULL AND s.life    != '')",
+  'sluzhba': "(s.sluzhba IS NOT NULL AND s.sluzhba != '')",
+};
+
+/// Разложена заявка: думите за търсене, груповите филтри и филтрите
+/// по съдържание — поотделно.
 class _ParsedQuery {
   final List<String> words;
-  final List<String> groups;   // group_code стойности
-  const _ParsedQuery(this.words, this.groups);
+  final List<String> groups;    // group_code стойности
+  final List<String> content;   // tropar / kondak / life / sluzhba
+  const _ParsedQuery(this.words, this.groups, this.content);
+
+  bool get hasFilters => groups.isNotEmpty || content.isNotEmpty;
 }
 
 /// "иван #bg"  → words: [иван], groups: [BG]
@@ -32,18 +64,25 @@ class _ParsedQuery {
 _ParsedQuery _parseQuery(String raw) {
   final words = <String>[];
   final groups = <String>[];
+  final content = <String>[];
   for (final token in raw.replaceAll('*', '%').trim().split(RegExp(r'\s+'))) {
     if (token.isEmpty) continue;
     if (token.startsWith('#') && token.length > 1) {
-      final code = _groupAliases[token.substring(1).toLowerCase()];
-      if (code != null) {
-        if (!groups.contains(code)) groups.add(code);
+      final key = token.substring(1).toLowerCase();
+      final g = _groupAliases[key];
+      if (g != null) {
+        if (!groups.contains(g)) groups.add(g);
+        continue;
+      }
+      final c = _contentAliases[key];
+      if (c != null) {
+        if (!content.contains(c)) content.add(c);
         continue;
       }
     }
     words.add(token);
   }
-  return _ParsedQuery(words, groups);
+  return _ParsedQuery(words, groups, content);
 }
 
 class SearchBottomSheet extends StatefulWidget {
@@ -81,7 +120,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		final parsed = _parseQuery(query);
 
 		// Нищо за търсене: нито дума, нито филтър
-		if (parsed.words.isEmpty && parsed.groups.isEmpty) {
+		if (parsed.words.isEmpty && !parsed.hasFilters) {
 		  setState(() => _results = []);
 		  return;
 		}
@@ -105,15 +144,21 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  saintConds.add('s.group_code IN ($ph)');
 		  saintArgs.addAll(parsed.groups);
 		}
+		// Филтри по съдържание — комбинират се с И
+		for (final c in parsed.content) {
+		  final sql = _contentSql[c];
+		  if (sql != null) saintConds.add(sql);
+		}
 		final saintsResults = await db.rawQuery(
 		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
 		  'FROM saints s WHERE ${saintConds.join(' AND ')} ORDER BY s.date ASC',
 		  saintArgs);
 		allResults.addAll(saintsResults);
 
-		// Недели и седмици нямат group_code — при активен филтър ги пропускаме
-		// (иначе "#bg" би извадил и всички недели, което няма смисъл).
-		if (parsed.groups.isEmpty && words.isNotEmpty) {
+		// Недели и седмици нямат нито group_code, нито колони с текстове —
+		// при активен филтър ги пропускаме (иначе "#bg" или "#троп" биха
+		// извадили и всички недели, което няма смисъл).
+		if (!parsed.hasFilters && words.isNotEmpty) {
 		  // Недели
 		  final sundaysWhere = words.map((_) => 'sn.name LIKE ?').join(' AND ');
 		  final sundaysResults = await db.rawQuery(
@@ -142,20 +187,89 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		});
 	}
 
-  String _formatDate(String dateStr) {
-    const months = [
-      '', 'януари', 'февруари', 'март', 'април',
-      'май', 'юни', 'юли', 'август', 'септември',
-      'октомври', 'ноември', 'декември'
-    ];
+  // Съкратени месеци за формата d.mmm
+  static const List<String> _monthsShort = [
+    '', 'ян', 'фев', 'мар', 'апр', 'май', 'юни',
+    'юли', 'авг', 'сеп', 'окт', 'ное', 'дек'
+  ];
+
+  String _fmtShort(DateTime d) => '${d.day} ${_monthsShort[d.month]}';
+
+  /// saints.date е в НОВ стил (григориански) — така е по замисъл, за да
+  /// работят вградените изчисления за ден от седмицата и пр.
+  /// Старият стил е нов минус 13 дни (валидно за XX–XXI век).
+  DateTime _toOldStyle(DateTime newStyle) =>
+      newStyle.subtract(const Duration(days: 13));
+
+  /// Клетката с датата вдясно.
+  ///
+  ///  • само нов стил          → една дата
+  ///  • двете, водещ нов стил  → нов отгоре; отдолу посивено /стар с църквица
+  ///  • двете, водещ стар стил → стар отгоре с църквица; отдолу /нов с телевизор
+  ///
+  /// ЗАБЕЛЕЖКА: тук се предполага, че AppSettings.isOldStyle значи
+  /// "показвай и двата стила", а AppSettings.oldStyleFirst — "старият води".
+  /// Ако имената/смисълът при теб са други, смени САМО двата реда по-долу.
+  Widget _buildDateCell(String dateStr) {
+    final DateTime newDate;
     try {
-      final parts = dateStr.split('-');
-      final day   = int.parse(parts[2]);
-      final month = int.parse(parts[1]);
-      return '$day ${months[month]}';
+      newDate = _parseDate(dateStr);
     } catch (_) {
-      return dateStr;
+      return Text(dateStr, style: const TextStyle(
+          color: AppColors.sectionTitle, fontSize: 13));
     }
+    final oldDate = _toOldStyle(newDate);
+
+    final bool showBoth = AppSettings.isOldStyle;      // ← провери
+    final bool oldFirst = !AppSettings.oldStyleFirst;  // ← провери
+
+    // Режим "само нов стил": една-единствена дата
+    if (!showBoth) {
+      return Text(
+        _fmtShort(newDate),
+        style: const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
+      );
+    }
+
+    final lead = oldFirst ? oldDate : newDate;
+    final sub  = oldFirst ? newDate : oldDate;
+    // Водещият ред носи църквица само когато води СТАРИЯТ стил.
+    final IconData? leadIcon = oldFirst ? Icons.church : null;
+    // Справочният ред: църквица за стар стил, телевизорче за нов.
+    final IconData subIcon = oldFirst ? Icons.tv : Icons.church;
+
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (leadIcon != null) ...[
+              Icon(leadIcon, size: 13, color: AppColors.sectionTitle),
+              const SizedBox(width: 3),
+            ],
+            Text(
+              _fmtShort(lead),
+              style: const TextStyle(
+                  color: AppColors.sectionTitle, fontSize: 13),
+            ),
+          ],
+        ),
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(subIcon, size: 12, color: AppColors.textMuted),
+            const SizedBox(width: 2),
+            Text(
+              '${_fmtShort(sub)}',
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontSize: 12),
+            ),
+          ],
+        ),
+      ],
+    );
   }
 
   DateTime _parseDate(String dateStr) {
@@ -222,7 +336,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       fontSize: 16,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Търси светия...  (#bg, #ru, #атон)',
+                      hintText: 'Търси...  (#bg #ru #атон #троп #жит)',
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       isDense: true,
@@ -290,13 +404,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                             : FontStyle.italic,
                       ),
                     ),
-                    trailing: Text(
-                      _formatDate(date),
-                      style: const TextStyle(
-                        color: AppColors.sectionTitle,
-                        fontSize: 13,
-                      ),
-                    ),
+                    trailing: _buildDateCell(date),
                     onTap: () {
                       Navigator.pop(context);
                       widget.onDateSelected(_parseDate(date));
