@@ -36,7 +36,7 @@
 ### Технологии
 
 Към настоящия момент приложението е компилирано и тествано единствено за Android. 
-Тестовете на други платформи като iOS , Linux, Windows , TV са планирани за по-късен етап.
+Тестовете на други платформи като iOS , Linux, Windows , Web и TV са планирани за по-късен етап.
 
 За изходния код се ползват:
 - **Flutter** (Dart) — потребителски интерфейс
@@ -110,7 +110,7 @@ calendar and for those accustomed to the civil one.
 ### Technologies
 
 For now, the application is only compiled and tested on Android.
-Testing on other platforms — like iOS, Linux, Windows, and TV — is scheduled for a later stage.
+Testing on other platforms — like iOS, Linux, Windows, Web, and TV — is scheduled for a later stage.
 
 Under the hood, the code relies on:
 - **Flutter** (Dart) — user interface
