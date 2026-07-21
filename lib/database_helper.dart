@@ -10,6 +10,17 @@ class DatabaseHelper {
   static bool _initializing = false;
   static bool? _lastStyle;
 
+  // Житията, службите и молитвите живеят в ОТДЕЛНА база, обща за двата
+  // стила. Причината: текстът за св. Атанасий Атонски не зависи нито от
+  // стила, нито от годината — календарът зависи, текстът не. Ако стоеше
+  // в календара, щеше да е дублиран и в calendar_old.db, и в
+  // calendar_new.db, а догодина — още веднъж във всяка нова.
+  //
+  // Връзката е slug. Календарен ред без slug просто няма партньор:
+  // LEFT JOIN връща NULL и в приложението нищо не се показва — точно
+  // както беше при празни колони.
+  static const String _livesDbName = 'lives.db';
+
   // Кеш за периоди и типове пост
   static Map<int, String> fastPeriods = {};
   static Map<int, String> fastTypes = {};
@@ -95,6 +106,39 @@ class DatabaseHelper {
   // calendar_old.db и calendar_new.db се обновяват независимо.
   static String _versionPrefKey(String dbName) => 'db_version_$dbName';
 
+  /// Осигурява lives.db на диска и връща пътя до нея.
+  /// Копира се веднъж — обща е за двата стила, затова не зависи от
+  /// AppSettings.isOldStyle.
+  static Future<String> _ensureLivesDb() async {
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _livesDbName);
+    final file = File(path);
+
+    String assetVersion = '0';
+    try {
+      assetVersion =
+          (await rootBundle.loadString('assets/db/$_livesDbName.version')).trim();
+    } catch (_) {
+      // няма version файл → третираме като "0"
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    final savedVersion = prefs.getString(_versionPrefKey(_livesDbName));
+
+    //final needsCopy = !await file.exists() || savedVersion != assetVersion;
+    final needsCopy = true; // винаги презаписва (както при календара)
+
+    if (needsCopy) {
+      if (await file.exists()) {
+        await file.delete();
+      }
+      final data = await rootBundle.load('assets/db/$_livesDbName');
+      await file.writeAsBytes(data.buffer.asUint8List());
+      await prefs.setString(_versionPrefKey(_livesDbName), assetVersion);
+    }
+    return path;
+  }
+
   static Future<Database> _initDatabase() async {
     
     // print('_initDatabase started');
@@ -142,7 +186,17 @@ class DatabaseHelper {
       await prefs.setString(_versionPrefKey(dbName), assetVersion);
     }
 
-    return await openDatabase(path);
+    final livesPath = await _ensureLivesDb();
+    final db = await openDatabase(path);
+
+    // ATTACH прикачва втората база към същата връзка — оттук нататък
+    // заявките могат да JOIN-ват през двете, все едно са в една база:
+    //     LEFT JOIN lives.texts l ON l.slug = s.slug
+    // Прикачването е за ВРЪЗКАТА, не за файла; при всяко преотваряне
+    // (смяна на стила) минава оттук наново, тъй че е автоматично.
+    await db.execute("ATTACH DATABASE ? AS lives", [livesPath]);
+
+    return db;
   }
 
   static Future<void> resetDatabase() async {
