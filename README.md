@@ -55,7 +55,7 @@
 > Ако сте носител на права върху съдържание, използвано тук, и имате забележка,
 > моля свържете се с мен — ще реагирам своевременно.
 
-### Лиценз ##################################################################
+### Лиценз
 
 Кодът в това хранилище е под лиценз **[GPL-3.0]**.
 
@@ -72,7 +72,7 @@
 
 ### Автор
 
-Разработва се като личен проект с отворен код.
+Разработва се като личен проект с отворен код от иером. Калиник (Василев) - православен монах, клирик на Българската Православна Църква.
 Предложения и забележки са добре дошли през Issues.
 
 ---
@@ -130,7 +130,7 @@ the user can verify the information against the original.
 > me — I will respond promptly.
 
 
-### License ##################################################################
+### License
 
 The code in this repository is licensed under **[GPL-3.0]**.
 
@@ -150,5 +150,5 @@ interface are subject to change.
 
 ### Author
 
-Developed as a personal open-source project.
+Developed as a personal open-source project by Hieromonk Kalinik (Vasilev), an Orthodox monk and cleric of the Bulgarian Orthodox Church.
 Suggestions and feedback are welcome via Issues.
