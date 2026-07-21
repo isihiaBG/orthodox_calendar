@@ -24,11 +24,12 @@
 
 ### Възможности
 
-- Показване по стар (юлиански) **и** нов (григориански) стил с превключване
+- Показване по стар (юлиански) **и** нов (григориански) стил с възможност за превключване
 - Навигация по дати
+- Търсене по ключови думи вкл. и с възможност за филтриране чрез #, напр. #бг #ру #гр #атон #житие #тропар #кондак ...
 - Жития на светиите за всеки ден
-- Тропари и кондаци с указан глас
-- Постни периоди и вид на поста
+- Тропари и кондаци на църковно-славянски (транскрипция с новобългарски букви) и техните преводи.
+- Постни периоди и вид на поста с препратки към типикона
 - Икони на светиите и празниците
 - Работа офлайн (данните се съхраняват локално)
 
@@ -95,8 +96,9 @@ calendar and for those accustomed to the civil one.
 
 - Display in Old (Julian) **and** New (Gregorian) style with switching
 - Navigation by date
+- Search by keyword, including filtering via #, e.g. #bg #ru #gr #athos #life #tropar #kondak ...
 - Lives of the saints for each day
-- Troparia and kontakia with the indicated tone
+- Troparia and kontakia in Church Slavonic (transcribed using contemporary Bulgarian letters) as well as their Bulgarian translation.
 - Fasting periods and type of fast
 - Icons of the saints and feasts
 - Offline support (data is stored locally)
