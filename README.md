@@ -8,7 +8,7 @@
 
 ## Български
 
-Мобилно приложение за Android с православен църковен календар на **български език**,
+Мултиплатформено мобилно приложение за православен църковен календар на **български език**,
 с възможност за показване както по **стар (юлиански)**, така и по **нов (григориански)**
 стил. За всеки ден показва паметта на светиите, жития, тропари и кондаци, вида на
 постния период, гласа и празниците.
@@ -35,6 +35,10 @@
 
 ### Технологии
 
+Към настоящия момент приложението е компилирано и тествано единствено за Android. 
+Тестовете на други платформи като iOS , Linux, Windows , TV са планирани за по-късен етап.
+
+За изходния код се ползват:
 - **Flutter** (Dart) — потребителски интерфейс
 - **SQLite** — локална база данни
 - **Python** — помощни скриптове за подготовка на данните
@@ -77,7 +81,7 @@
 
 ## English
 
-An Android application featuring an Orthodox Church calendar in **Bulgarian**,
+A multiplatform mobile application featuring an Orthodox Church calendar in **Bulgarian**,
 with the ability to display dates in both the **Old (Julian)** and
 **New (Gregorian)** style. For each day it shows the commemorated saints, their
 lives, troparia and kontakia, the type of fasting period, the tone, and the feasts.
@@ -105,6 +109,10 @@ calendar and for those accustomed to the civil one.
 
 ### Technologies
 
+For now, the application is only compiled and tested on Android.
+Testing on other platforms — like iOS, Linux, Windows, and TV — is scheduled for a later stage.
+
+Under the hood, the code relies on:
 - **Flutter** (Dart) — user interface
 - **SQLite** — local database
 - **Python** — helper scripts for data preparation
