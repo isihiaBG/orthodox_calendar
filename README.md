@@ -17,10 +17,7 @@
 
 ### Какво отличава приложението
 
-За разлика от повечето подобни календари, които следват само един стил, тук
-потребителят може да **превключва между стар и нов стил** и да вижда съответствията
-между двата. Това прави приложението еднакво полезно както за следващите юлианския
-календар, така и за онези, свикнали с гражданския.
+За разлика от повечето подобни календари, които следват само един стил, тук потребителят може да **превключва между стар и нов стил** и да вижда съответствията и различията между двата. Това прави приложението еднакво полезно както за следващите юлианския светоотечески календар, така и за онези, предпочитащи официалния григориански.
 
 ### Възможности
 
@@ -91,10 +88,7 @@ educational purpose.
 
 ### What makes it different
 
-Unlike most similar calendars, which follow only one style, this application lets
-the user **switch between the Old and New style** and see the correspondence
-between the two. This makes it equally useful both for those who follow the Julian
-calendar and for those accustomed to the civil one.
+Unlike most similar calendars, which follow only one style, this application lets the user **switch between the Old and New style** and see the correspondence and differences between the two. This makes it equally useful both for those who follow the Julian-based patristic calendar as well as for those who prefer the official Gregorian one.
 
 ### Features
 
