@@ -1,4 +1,4 @@
-# Православен календар (orthodox_calendar)
+# Православен календар (orthodox calendar)
 
 *[Български](#български) · [English](#english)*
 
