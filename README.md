@@ -50,9 +50,11 @@
 > Ако сте носител на права върху съдържание, използвано тук, и имате забележка,
 > моля свържете се с мен — ще реагирам своевременно.
 
-### Лиценз
+### Лиценз ##################################################################
 
-Кодът в това хранилище е под лиценз **[избери: MIT / Apache-2.0 / GPL-3.0]**.
+Кодът в това хранилище е под лиценз **[GPL-3.0]**.
+
+С прости думи казано: всеки може да копира и преизползва програмния код вкл. за комерсиални цели, но при разпространяване на производния код, съдържащ каквато и да е част от този код, се задължава да държи целия производен код отворен (под същия лиценз) :)
 
 Този лиценз покрива **само програмния код**. Съдържанието на календара
 (жития, преводи, икони) **не** попада под него и остава собственост на
@@ -117,9 +119,15 @@ the user can verify the information against the original.
 > If you hold rights to content used here and have any concern, please contact
 > me — I will respond promptly.
 
-### License
 
-The code in this repository is licensed under **[choose: MIT / Apache-2.0 / GPL-3.0]**.
+### License ##################################################################
+
+The code in this repository is licensed under **[GPL-3.0]**.
+
+In simple terms: anyone may copy and reuse this code, including for 
+commercial purposes, but when distributing derivative code containing 
+any part of this code, they are obliged to keep the entire derivative 
+code open (under the same license) :)
 
 This license covers **only the program code**. The calendar content (lives,
 translations, icons) is **not** covered by it and remains the property of the
