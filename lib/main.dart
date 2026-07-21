@@ -662,18 +662,23 @@ class _DayScreenState extends State<DayScreen> {
       WHERE cd.date = ?
     ''', [dateStr]);
 
+    // Текстовете живеят в прикачената база lives (виж DatabaseHelper).
+    // Тук взимаме САМО евтините флагове — житието може да е 130 KB и няма
+    // работа в дневната заявка. Пълните текстове се четат при тап.
+    // Ред без slug няма партньор → LEFT JOIN дава NULL → флаговете са 0.
     final saintsResult = await db.rawQuery('''
     SELECT s.id, s.date, s.name, s.rank, s.group_code,
           r.sign, r.sign_color,
-          (s.tropar IS NOT NULL AND s.tropar != '') AS has_tropar,
-          (s.kondak IS NOT NULL AND s.kondak != '') AS has_kondak,
-          (s.life   IS NOT NULL AND s.life   != '') AS has_life,
-          (s.sluzhba IS NOT NULL AND s.sluzhba != '') AS has_sluzhba
+          (l.tropar  IS NOT NULL AND l.tropar  != '') AS has_tropar,
+          (l.kondak  IS NOT NULL AND l.kondak  != '') AS has_kondak,
+          (l.life    IS NOT NULL AND l.life    != '') AS has_life,
+          (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
     FROM saints s
     LEFT JOIN saint_ranks r ON s.rank = r.id
     LEFT JOIN saint_groups sg ON s.group_code = sg.code
+    LEFT JOIN lives.texts l ON l.slug = s.slug
     WHERE s.date = ?
-    ORDER BY sg.id ASC, s.rank ASC
+    ORDER BY sg.id ASC, s.rank ASC, s.id ASC
     ''', [dateStr]);
 
     setState(() {
@@ -684,25 +689,49 @@ class _DayScreenState extends State<DayScreen> {
   }
 
   /// Пълните текстове на светия — зареждат се чак при тап върху секция.
+  ///
+  /// Името: календарното (българското, твоето) има предимство. Пада към
+  /// това от lives.texts само ако календарният ред няма име — на практика
+  /// при справочните записи без ред в календара (виж _lookupBySlug).
   Future<SaintTexts?> _loadSaintTexts(int id) async {
     final db = await DatabaseHelper.database;
-    final r = await db.query('saints',
-        columns: ['name', 'tropar', 'tropar_trans', 'tropar2',
-                  'tropar2_trans', 'kondak', 'kondak_trans', 'kondak2',
-                  'kondak2_trans', 'life', 'sluzhba', 'source', 'slug'],
-        where: 'id = ?', whereArgs: [id], limit: 1);
+    final r = await db.rawQuery('''
+      SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
+             l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
+             l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
+             l.life, l.sluzhba, l.source, s.slug
+      FROM saints s
+      LEFT JOIN lives.texts l ON l.slug = s.slug
+      WHERE s.id = ?
+      LIMIT 1
+    ''', [id]);
     if (r.isEmpty) return null;
     return SaintTexts.fromMap(r.first);
   }
 
   /// Търсене по слъг — за saint:// линковете в житията.
+  ///
+  /// ТУК Е ПЕЧАЛБАТА ОТ ОТДЕЛНАТА БАЗА: тръгва се от lives.texts, не от
+  /// календара. Досега линк към светия без календарен ред казваше "няма
+  /// запис" — а такива са стотици: светогорците, които се честват само на
+  /// подвижния съборен ден, и всички, към които житията препращат, без да
+  /// са в тазгодишния календар.
+  ///
+  /// Календарът се закача отляво САМО за името: ако светията има ред в
+  /// него, показваме твоето българско име; ако няма — падаме към името от
+  /// lives (то е руското от azbyka и затова се превежда).
   Future<SaintTexts?> _lookupBySlug(String slug) async {
     final db = await DatabaseHelper.database;
-    final r = await db.query('saints',
-        columns: ['name', 'tropar', 'tropar_trans', 'tropar2',
-                  'tropar2_trans', 'kondak', 'kondak_trans', 'kondak2',
-                  'kondak2_trans', 'life', 'sluzhba', 'source', 'slug'],
-        where: 'slug = ?', whereArgs: [slug], limit: 1);
+    final r = await db.rawQuery('''
+      SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
+             l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
+             l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
+             l.life, l.sluzhba, l.source, l.slug
+      FROM lives.texts l
+      LEFT JOIN saints s ON s.slug = l.slug
+      WHERE l.slug = ?
+      LIMIT 1
+    ''', [slug]);
     if (r.isEmpty) return null;
     return SaintTexts.fromMap(r.first);
   }
