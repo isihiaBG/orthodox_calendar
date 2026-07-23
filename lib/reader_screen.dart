@@ -554,7 +554,13 @@ class _DropCapParagraph extends StatelessWidget {
       final capWidth = dropCapSize * 0.40; // приблизителна ширина на глифа
       const gap = 4.0;
       final narrowWidth = constraints.maxWidth - capWidth - gap;
-      final capLines = (dropCapSize / lineHeight).ceil();
+
+      // Букви с descender (опашка под базовата линия) заемат повече
+      // височина от останалите — обтичащата зона им дава още един ред,
+      // за да не застъпи глифът първия ред под буквицата.
+      const descenderCaps = {'Ч', 'Д', 'Ц', 'Щ', 'У', 'Р'};
+      final extraLine = descenderCaps.contains(dropCap) ? 1 : 0;
+      final capLines = (dropCapSize / lineHeight).ceil() + extraLine;
 
       // Чист текст (без тагове) за измерването.
       // Махаме таговете, после разкодираме entity-тата (&ndash; и др.),
