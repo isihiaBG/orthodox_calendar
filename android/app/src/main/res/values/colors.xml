@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Съвпада с AppColors.toolbar (lib/app_theme.dart) — фонът зад
+         иконата в горната част на менюто (DrawerHeader). -->
+    <color name="splash_background">#1A1A1A</color>
+</resources>

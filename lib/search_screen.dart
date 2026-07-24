@@ -39,34 +39,55 @@ const Map<String, String> _contentAliases = {
 };
 
 /// SQL условието за всеки филтър по съдържание.
+/// Текстовете живеят в lives.texts (виж DatabaseHelper._initDatabase),
+/// не в saints — затова сочат към l.*, а не към s.*.
 const Map<String, String> _contentSql = {
-  'tropar':  "(s.tropar  IS NOT NULL AND s.tropar  != '')",
-  'kondak':  "(s.kondak  IS NOT NULL AND s.kondak  != '')",
-  'life':    "(s.life    IS NOT NULL AND s.life    != '')",
-  'sluzhba': "(s.sluzhba IS NOT NULL AND s.sluzhba != '')",
+  'tropar':  "(l.tropar  IS NOT NULL AND l.tropar  != '')",
+  'kondak':  "(l.kondak  IS NOT NULL AND l.kondak  != '')",
+  'life':    "(l.life    IS NOT NULL AND l.life    != '')",
+  'sluzhba': "(l.sluzhba IS NOT NULL AND l.sluzhba != '')",
 };
 
 /// Разложена заявка: думите за търсене, груповите филтри и филтрите
-/// по съдържание — поотделно.
+/// по съдържание (наличие и липса) — поотделно.
 class _ParsedQuery {
   final List<String> words;
-  final List<String> groups;    // group_code стойности
-  final List<String> content;   // tropar / kondak / life / sluzhba
-  const _ParsedQuery(this.words, this.groups, this.content);
+  final List<String> groups;         // group_code стойности
+  final List<String> content;        // tropar / kondak / life / sluzhba — ИМА
+  final List<String> excludeContent; // tropar / kondak / life / sluzhba — НЯМА
+  const _ParsedQuery(this.words, this.groups, this.content, this.excludeContent);
 
-  bool get hasFilters => groups.isNotEmpty || content.isNotEmpty;
+  bool get hasFilters =>
+      groups.isNotEmpty || content.isNotEmpty || excludeContent.isNotEmpty;
 }
 
-/// "иван #bg"  → words: [иван], groups: [BG]
-/// "#bg"       → words: [],     groups: [BG]   (всички български светии)
-/// "#bg #rs"   → words: [],     groups: [BG, RS]
-/// Непознат #токен се търси като обикновен текст.
+/// "иван #bg"       → words: [иван], groups: [BG]
+/// "#bg"            → words: [],     groups: [BG]   (всички български светии)
+/// "#bg #rs"        → words: [],     groups: [BG, RS]
+/// "#троп #!кон"    → content: [tropar], excludeContent: [kondak]
+///                    (има тропар, И НЯМА кондак — логическо И между всички филтри)
+/// Непознат #/#! токен се търси като обикновен текст.
 _ParsedQuery _parseQuery(String raw) {
   final words = <String>[];
   final groups = <String>[];
   final content = <String>[];
+  final excludeContent = <String>[];
   for (final token in raw.replaceAll('*', '%').trim().split(RegExp(r'\s+'))) {
     if (token.isEmpty) continue;
+
+    // Отрицателен филтър по съдържание: #!троп → липсва тропар.
+    // Проверяваме го ПРЕДИ обикновения #, защото го съдържа като префикс.
+    if (token.startsWith('#!') && token.length > 2) {
+      final key = token.substring(2).toLowerCase();
+      final c = _contentAliases[key];
+      if (c != null) {
+        if (!excludeContent.contains(c)) excludeContent.add(c);
+        continue;
+      }
+      words.add(token);
+      continue;
+    }
+
     if (token.startsWith('#') && token.length > 1) {
       final key = token.substring(1).toLowerCase();
       final g = _groupAliases[key];
@@ -82,7 +103,7 @@ _ParsedQuery _parseQuery(String raw) {
     }
     words.add(token);
   }
-  return _ParsedQuery(words, groups, content);
+  return _ParsedQuery(words, groups, content, excludeContent);
 }
 
 class SearchBottomSheet extends StatefulWidget {
@@ -149,9 +170,16 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  final sql = _contentSql[c];
 		  if (sql != null) saintConds.add(sql);
 		}
+		// Отрицателни филтри по съдържание (#!троп и пр.) — И НЕ го съдържа
+		for (final c in parsed.excludeContent) {
+		  final sql = _contentSql[c];
+		  if (sql != null) saintConds.add('NOT $sql');
+		}
 		final saintsResults = await db.rawQuery(
 		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
-		  'FROM saints s WHERE ${saintConds.join(' AND ')} ORDER BY s.date ASC',
+		  'FROM saints s '
+		  'LEFT JOIN lives.texts l ON l.slug = s.slug '
+		  'WHERE ${saintConds.join(' AND ')} ORDER BY s.date ASC',
 		  saintArgs);
 		allResults.addAll(saintsResults);
 
@@ -336,7 +364,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       fontSize: 16,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Търси...  (#bg #ru #атон #троп #жит)',
+                      hintText: 'Търси...  (#bg #ru #атон #троп #!кон)',
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       isDense: true,
