@@ -7,9 +7,18 @@ class AppColors {
   static const appBarSundayBg  = Color(0x887b002c);  // бордо 25% opacity
 
   // Фонове
-  static const background        = Color(0xFF1E1510);
-  static const backgroundCard    = Color(0xFF2A1F14);
   static const toolbar           = Color(0xFF1A1A1A);
+  // Фон на месечния/дневния изглед (делнични дни) — същият цвят като
+  // toolbar/drawerBackground и splash екрана (android/.../colors.xml),
+  // не отделен хардкоднат цвят, за да останат винаги в синхрон.
+  static const background        = toolbar;
+  // Предишният фон на дневния изглед (преди background да стане = toolbar) —
+  // запазен нарочно само за неделите в дневния изглед (виж DayScreen.build).
+  static const sundayBackground  = Color(0xFF1E1510);
+  // Леко по-светла от background/toolbar (elevation overlay стил, а не
+  // отделен хардкоднат нюанс) — за карти/табелки с пояснителен текст и
+  // "изгасената" (невдигната) част на SegmentedButton в настройките.
+  static final backgroundCard    = Color.lerp(toolbar, Colors.white, 0.08)!;
 
   static const sectionTitle      = Color(0xFF8A9BB0);
   static const sectionDivider    = Color(0xFF2A2A2A);
@@ -57,7 +66,7 @@ class AppColors {
   // на приложението. При смяна на скин — само тук се променят.
   static const datePickerPrimary    = appBarWeekday;   // избрана дата / акцент
   static const datePickerOnPrimary  = textPrimary;     // текст върху избрана дата
-  static const datePickerSurface    = backgroundCard;  // фон на календара
+  static final datePickerSurface    = backgroundCard;  // фон на календара
   static const datePickerOnSurface  = textPrimary;     // текст на датите
   static const datePickerBackground = background;      // фон на диалога
   static final datePickerButtons    = Color.lerp(      // цвят на ОК/ОТКАЗ бутоните

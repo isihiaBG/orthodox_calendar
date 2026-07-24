@@ -1027,7 +1027,9 @@ class _DayScreenState extends State<DayScreen> {
 
     final bool isSunday = date.weekday == 7;
 
-    return CustomScrollView(
+    return Container(
+      color: isSunday ? AppColors.sundayBackground : null,
+      child: CustomScrollView(
       slivers: [
         SliverToBoxAdapter(child: _buildHeader()),
         SliverToBoxAdapter(
@@ -1075,6 +1077,7 @@ class _DayScreenState extends State<DayScreen> {
           ),
         ),
       ],
+      ),
     );
   }
 }

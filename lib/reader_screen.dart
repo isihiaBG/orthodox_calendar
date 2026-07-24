@@ -133,22 +133,56 @@ class _ReaderScreenState extends State<ReaderScreen> {
   /// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
   /// буквицата пада върху първия същински абзац.
   (String, String, String, String) _splitDropCap(String html) {
+    // Абзац се ПРОПУСКА, ако същинският му текст започва с един от тези
+    // знаци — редакторски бележки, цитати, бележки под линия и др. —
+    // ИЛИ ако абзацът започва с курсивен таг (<em>/<i>): акцент/курсив
+    // не бива да носи буквица. Курсивните абзаци допълнително се
+    // центрират (клас .italic-center, виж _htmlStyles).
+    const skipChars = {'(', "'", '*', '/', '«', '"', '['};
+    final italicStart =
+        RegExp(r'^\s*<(?:em|i)\b[^>]*>', caseSensitive: false);
+
     int scanned = 0;
+    int cursor = 0; // докъдето е "преписан" html в before
+    final before = StringBuffer();
+
     for (final m in RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(html)) {
       if (++scanned > 3) break; // буквица само в началото, не насред текста
       final inner = m.group(1)!;
-      final cm = RegExp(r'^\s*(\S)').firstMatch(inner);
+
+      // Пропускаме абзаци, започващи с курсивен таг, но ги центрираме.
+      if (italicStart.hasMatch(inner)) {
+        before.write(html.substring(cursor, m.start));
+        before.write('<p class="italic-center">$inner</p>');
+        cursor = m.end;
+        continue;
+      }
+
+      // Търсим първия ЗНАЧИМ символ, като прескачаме HTML таговете.
+      // Така заглавие в <strong>/<b> в началото на абзаца не пречи —
+      // буквицата пада върху първата истинска буква след тага.
+      final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)').firstMatch(inner);
       if (cm == null) continue;
       final ch = cm.group(1)!;
+
+      // Пропускаме абзаца при изрично изброените знаци.
+      if (skipChars.contains(ch)) continue;
+      // Пропускаме и ако не е буква (цифри, тирета и пр.).
       if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
+
+      before.write(html.substring(cursor, m.start));
       return (
-        html.substring(0, m.start),
+        before.toString(),
         ch,
-        inner.substring(cm.end),
+        // Запазваме таговете преди буквата (напр. отварящ <strong>),
+        // за да не се загуби форматирането на останалия текст.
+        inner.substring(0, cm.start) + inner.substring(cm.end),
         html.substring(m.end),
       );
     }
-    return (html, '', '', '');
+    // Няма подходящ абзац за буквица — връщаме html, но със запазени
+    // центрирания за курсивните абзаци, засечени дотук.
+    return (before.toString() + html.substring(cursor), '', '', '');
   }
 
   String _buildHtml() {
@@ -504,6 +538,10 @@ class _ReaderScreenState extends State<ReaderScreen> {
         fontStyle: FontStyle.italic,
         color: _dim,
         margin: Margins.only(top: 24),
+      ),
+      // Курсивен абзац, пропуснат за буквица (виж _splitDropCap) — центриран.
+      '.italic-center': Style(
+        textAlign: TextAlign.center,
       ),
       // Линковете: синьото на секциите от дневния изглед, не лилаво.
       'a': Style(
