@@ -84,6 +84,19 @@ String prayersTitleFor(SaintTexts t) => prayersLabel(
       hasKondak: t.kondak.isNotEmpty,
     );
 
+/// "Житие" пасва само при светия с жизнеописание. При най-големите
+/// господски/богородични празници (rank 1), икони, предпразненства,
+/// попразненства, събори и възпоменания думата не пасва граматически —
+/// там е по-подходящо "Сказание".
+String lifeLabelFor({required int rank, required String name}) {
+  final n = name.toLowerCase();
+  if (rank == 1) return 'Сказание';
+  if (n.contains('икона')) return 'Сказание';
+  const keywords = ['предпразн', 'попразн', 'събор', 'памет', 'възпомен'];
+  if (keywords.any(n.contains)) return 'Сказание';
+  return 'Житие';
+}
+
 class SaintExpandableTile extends StatefulWidget {
   /// Редът, както се рендва сега (SVG знак + име) — не се променя визуално.
   final Widget collapsedRow;
@@ -93,6 +106,9 @@ class SaintExpandableTile extends StatefulWidget {
   final bool hasKondak;
   final bool hasLife;
   final bool hasSluzhba;
+
+  /// "Житие" или "Сказание" — виж lifeLabelFor().
+  final String lifeLabel;
 
   /// Зарежда пълните текстове от базата — вика се чак при тап.
   final Future<SaintTexts?> Function() loadTexts;
@@ -107,6 +123,7 @@ class SaintExpandableTile extends StatefulWidget {
     required this.hasKondak,
     required this.hasLife,
     required this.hasSluzhba,
+    this.lifeLabel = 'Житие',
     required this.loadTexts,
     required this.lookup,
   });
@@ -192,7 +209,7 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                       if (widget.hasLife)
                         _SectionRow(
                           icon: Icons.menu_book_outlined,
-                          label: 'Житие',
+                          label: widget.lifeLabel,
                           onTap: () => _open(_Section.life),
                         ),
                       if (widget.hasSluzhba)

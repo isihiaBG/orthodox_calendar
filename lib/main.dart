@@ -1011,6 +1011,7 @@ class _DayScreenState extends State<DayScreen> {
           hasKondak: saint.hasKondak,
           hasLife: saint.hasLife,
           hasSluzhba: saint.hasSluzhba,
+          lifeLabel: lifeLabelFor(rank: saint.rank, name: saint.name),
           loadTexts: () => _loadSaintTexts(saint.id),
           lookup: _lookupBySlug,
         );
