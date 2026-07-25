@@ -92,8 +92,10 @@ String lifeLabelFor({required int rank, required String name}) {
   final n = name.toLowerCase();
   if (rank == 1) return 'Сказание';
   //if (n.contains('икона')) return 'Сказание';
-  const keywords = ['икона', 'предпразн', 'попразн', 'отдание', 
-                    'събор', 'памет', 'възпомен'];
+  const keywords = ['икона', 
+                    'празненство', 'предпразн', 'попразн', 'отдание', 
+                    'събор', 'памет', 'възпомен',
+                    'открива', 'намира'];
   if (keywords.any(n.contains)) return 'Сказание';
   return 'Житие';
 }
