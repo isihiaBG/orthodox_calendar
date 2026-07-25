@@ -91,8 +91,9 @@ String prayersTitleFor(SaintTexts t) => prayersLabel(
 String lifeLabelFor({required int rank, required String name}) {
   final n = name.toLowerCase();
   if (rank == 1) return 'Сказание';
-  if (n.contains('икона')) return 'Сказание';
-  const keywords = ['предпразн', 'попразн', 'събор', 'памет', 'възпомен'];
+  //if (n.contains('икона')) return 'Сказание';
+  const keywords = ['икона', 'предпразн', 'попразн', 'отдание', 
+                    'събор', 'памет', 'възпомен'];
   if (keywords.any(n.contains)) return 'Сказание';
   return 'Житие';
 }
@@ -158,7 +159,8 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
         } else if (section == _Section.sluzhba) {
           return ReaderScreen.sluzhba(texts: texts, lookup: widget.lookup);
         }
-        return ReaderScreen.life(texts: texts, lookup: widget.lookup);
+        return ReaderScreen.life(
+            texts: texts, lookup: widget.lookup, lifeTitle: widget.lifeLabel);
       },
     ));
   }

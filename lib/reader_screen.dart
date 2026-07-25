@@ -91,12 +91,14 @@ class ReaderScreen extends StatefulWidget {
     super.key,
     required this.texts,
     required this.lookup,
+    this.lifeTitle,
   }) : _mode = _ReaderMode.prayers;
 
   const ReaderScreen.sluzhba({
     super.key,
     required this.texts,
     required this.lookup,
+    this.lifeTitle,
   }) : _mode = _ReaderMode.sluzhba;
 
   @override
@@ -284,7 +286,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   @override
   Widget build(BuildContext context) {
     final title = widget._mode == _ReaderMode.life
-        ? 'Житие'
+        ? (widget.lifeTitle ?? 'Житие')
         : widget._mode == _ReaderMode.sluzhba
             ? 'Служба'
             : prayersTitleFor(widget.texts);
