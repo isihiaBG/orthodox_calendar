@@ -76,11 +76,15 @@ class ReaderScreen extends StatefulWidget {
   final SaintTexts texts;
   final SaintLookup lookup;
   final _ReaderMode _mode;
+  /// "Житие" или "Сказание" — виж lifeLabelFor(). Ако е null, пада към
+  /// "Житие" (напр. при saint:// вътрешен линк, където няма rank).
+  final String? lifeTitle;
 
   const ReaderScreen.life({
     super.key,
     required this.texts,
     required this.lookup,
+    this.lifeTitle,
   }) : _mode = _ReaderMode.life;
 
   const ReaderScreen.prayers({
