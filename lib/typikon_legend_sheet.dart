@@ -35,7 +35,7 @@ void showTypikonLegendSheet(BuildContext context) {
       leading: _iconOrDot(AppIcons.tipikonCircleCross, AppColors.signRed),
       title: 'Велик празник',
       description: 'Най-високият ранг — дванадесетте велики Господски и '
-          'Богородични празници, както и Въздвижение. Прилага се '
+          'Богородични празници, както и Обрезание. Прилага се '
           'най-тържественият чин на празнично богослужение.',
     ),
     InfoSheetItem(
