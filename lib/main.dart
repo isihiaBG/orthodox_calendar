@@ -9,6 +9,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'month_screen.dart';
 import 'saint_expandable_tile.dart';
+import 'typikon_legend_sheet.dart';
 
 void main() {
   runApp(const OrthodoxCalendarApp());
@@ -963,29 +964,33 @@ class _DayScreenState extends State<DayScreen> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 24,
-                height: 24,
-                child: iconPath != null
-                    ? SvgPicture.asset(
-                        iconPath,
-                        width: 19,
-                        height: 19,
-                        colorFilter: ColorFilter.mode(
-                          iconColor ?? AppColors.signWhite,
-                          BlendMode.srcIn,
-                        ),
-                      )
-                    : Center(
-                        child: Text(
-                          '•',
-                          style: TextStyle(
-                            color: AppColors.textSecondary,
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+              InkWell(
+                onTap: () => showTypikonLegendSheet(context),
+                customBorder: const CircleBorder(),
+                child: SizedBox(
+                  width: 24,
+                  height: 24,
+                  child: iconPath != null
+                      ? SvgPicture.asset(
+                          iconPath,
+                          width: 19,
+                          height: 19,
+                          colorFilter: ColorFilter.mode(
+                            iconColor ?? AppColors.signWhite,
+                            BlendMode.srcIn,
+                          ),
+                        )
+                      : Center(
+                          child: Text(
+                            '•',
+                            style: TextStyle(
+                              color: AppColors.textSecondary,
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                      ),
+                ),
               ),
               Expanded(
                 child: Padding(
