@@ -426,11 +426,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   // Търсене в текста
   // ---------------------------------------------------------------
   bool _searchOpen = false;
+  bool _isBookmarked = false; // TODO: реално запазване/зареждане на отметки
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
-  // Ползва се за приблизителен "скок" близо до далечно (още непостроено)
-  // съвпадение в мързеливо виртуализирания SliverList — виж _scrollToCurrent.
-  final ScrollController _scrollController = ScrollController();
+  // Два РАЗЛИЧНИ дървовидни изгледа според _searchOpen (виж build()):
+  // при четене — CustomScrollView с floating SliverAppBar; при търсене —
+  // фиксирана (не-sliver) лента + отделен скролируем Expanded отдолу. При
+  // всяко превключване контролерът се ПРЕСЪЗДАВА с initialScrollOffset =
+  // текущата позиция (виж _toggleSearch) — новият Scrollable се ражда
+  // директно на правилното място, без видим "скок" на първия кадър.
+  ScrollController _scrollController = ScrollController();
   late final AnimationController _searchAnim = AnimationController(
     vsync: this,
     duration: const Duration(milliseconds: 220),
@@ -469,6 +474,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   Color get _hitCurrentColor =>
       _darkMode ? const Color(0xFFCC8A2E) : const Color(0xFFFFA726);
 
+  /// Пресъздава скрол-контролера със стартова позиция = текущата, за да
+  /// прехвърли безшумно офсета към новото Scrollable (виж коментара на
+  /// _scrollController).
+  void _reanchorScrollController() {
+    final offset =
+        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    _scrollController.dispose();
+    _scrollController = ScrollController(initialScrollOffset: offset);
+  }
+
   void _toggleSearch() {
     if (_searchOpen) {
       _searchAnim.reverse();
@@ -478,10 +493,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         _totalMatches = 0;
         _currentMatch = -1;
         _regionMatchCounts = [];
+        _reanchorScrollController();
       });
       _searchCtrl.clear();
     } else {
-      setState(() => _searchOpen = true);
+      setState(() {
+        _searchOpen = true;
+        _reanchorScrollController();
+      });
       _searchAnim.forward();
       Future.delayed(const Duration(milliseconds: 120), () {
         if (mounted) _searchFocusNode.requestFocus();
@@ -672,7 +691,13 @@ class _ReaderScreenState extends State<ReaderScreen>
       // mainAxisMargin: 4, thickness: _scrollThumb (10) — за да легнат
       // чертичките точно върху палеца/лентата, не встрани от нея.
       right: 2,
-      top: 4,
+      // Тази лента се вижда САМО докато търсенето е отворено — тогава
+      // NestedScrollView вече пази лентата с инструменти (44) + search
+      // лентата (58) pinned отгоре, а тялото (и нативната му Scrollbar)
+      // естествено започва под тях. Чертичките са отделен widget (не част
+      // от тялото), затова трябва РЪЧНО да поемат същия отстъп, за да се
+      // подравнят с реалната позиция на скролбара.
+      top: 44 + 58 + 4,
       bottom: 4,
       width: _scrollThumb,
       child: IgnorePointer(
@@ -692,7 +717,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
     return Container(
       height: 58,
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      // Дясната страна е малко по-широка — брояча (15/118) иначе се
+      // "залепва" за чертичките на скролбара, разположени точно в тази зона.
+      padding: const EdgeInsets.fromLTRB(12, 6, 17, 6),
       color: AppColors.toolbar,
       child: Row(
         children: [
@@ -1126,86 +1153,10 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           );
 
-    return Scaffold(
-      backgroundColor: AppColors.toolbar,
-                       //Theme.of(context).appBarTheme.backgroundColor,
-                       //Theme.of(context).appBarTheme.backgroundColor //AppColors.background,
-                       //?? AppColors.background,
-      body: SafeArea(
-        // top: false — SliverAppBar сам отчита статус лентата; ако SafeArea
-        // я поеме и той, отстъпът горе се удвоява.
-        top: true,
-        child: Container(
-          color: _bg,
-          child: Stack(
-            children: [
-            ScrollbarTheme(
-            // Палецът следва темата на ЧЕТЕЦА, не на приложението.
-            data: ScrollbarThemeData(
-              thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.55)),
-              radius: const Radius.circular(5),
-              thickness: const WidgetStatePropertyAll(_scrollThumb),
-              // Палецът не бива да става твърде къс при дълго житие —
-              // иначе е неуловим с пръст.
-              minThumbLength: 48,
-              crossAxisMargin: 2,
-              mainAxisMargin: 4,
-            ),
-            child: Scrollbar(
-              // ВАЖНО: същият controller като на CustomScrollView отдолу —
-              // иначе Scrollbar търси PrimaryScrollController (различен от
-              // нашия explicit controller) и следи ГРЕШНА/несъществуваща
-              // ScrollPosition: палецът "подскача" произволно и не може да
-              // се хване с пръст, защото буквално не гледа истинския скрол.
-              controller: _scrollController,
-              // Постоянно видим палец, докато ИМА чертички за гледане —
-              // от старта на търсенето с поне 1 намерен резултат, до
-              // затварянето му. Иначе чертичките се виждат, а палецът
-              // (референтната точка спрямо тях) избледнява — безсмислено.
-              thumbVisibility: _searchOpen && _totalMatches > 0,
-              // interactive: true разрешава ВЛАЧЕНЕ на палеца с пръст. Без него
-              // скролбарът е само индикатор. Флагът разширява и зоната за
-              // докосване отвъд видимата ширина на палеца.
-              interactive: true,
-              // Появява се при скрол и плавно избледнява след бездействие.
-              //timeToFade: const Duration(milliseconds: 800),
-              //fadeDuration: const Duration(milliseconds: 400),
-              child: Theme(
-                data: Theme.of(context).copyWith(
-                  textSelectionTheme: TextSelectionThemeData(
-                    selectionColor: AppColors.sectionTitle.withOpacity(0.35),
-                    selectionHandleColor: AppColors.sectionTitle,
-                    cursorColor: AppColors.sectionTitle,
-                  ),
-                ),
-                child: SelectionArea(
-                  child: CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      // Лентата се изтърколва нагоре при скрол надолу и се
-                      // връща при първо движение нагоре (floating + snap).
-                      // Това е стандартният Material патърн — анимацията следва
-                      // пръста, вместо да се задейства по праг или таймер.
-                      AnimatedBuilder(
-                        animation: _searchAnim,
-                        builder: (context, _) => SliverAppBar(
-                        primary: false,
-                        // ВИНАГИ pinned (не floating/snap) — floating
-                        // header-ът има ДИНАМИЧНА собствена геометрия
-                        // (при скриване/появяване временно заема различно
-                        // "виртуално" пространство в изчисляването на
-                        // maxScrollExtent), което правеше показалеца на
-                        // скрола нестабилен независимо от съдържанието.
-                        floating: false,
-                        snap: false,
-                        pinned: true,
-                        //surfaceTintColor: Colors.transparent,
-                        //scrolledUnderElevation: 0,
-                        //elevation: 0,
-                        backgroundColor: AppColors.toolbar, //Theme.of(context).appBarTheme.backgroundColor,
-          toolbarHeight: 44, //
-          title: Text(title),
-          actions: [
+    // Действията в лентата — общи за ДВАТА режима (виж по-долу): при четене
+    // се рендват вътре в плаващ SliverAppBar, при търсене — в обикновен,
+    // фиксиран AppBar. Изчисляваме ги веднъж тук, за да не дублираме кода.
+    final headerActions = <Widget>[
             // Търсене — плосък стил (като в search_screen/main.dart), не
             // outline-кръга на +/-. "Хлътнало" състояние = запълнен кръг
             // зад иконата, докато лентата за търсене е отворена.
@@ -1236,7 +1187,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 ),
               ),
             ),
-            const SizedBox(width: 20), // Разстояние между лупата и Тогъл
+            const SizedBox(width: 16), // Разстояние между лупата и Тогъл
             // Тогъл на темата: кръг, разделен вертикално (първа четвъртина)
             Tooltip(
               message: 'Светла/тъмна тема',
@@ -1257,7 +1208,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 ),
               ),
             ),
-            const SizedBox(width: 24), // Разстояние между Тогъл и (-)
+            const SizedBox(width: 18), // Разстояние между Тогъл и (-)
             _RoundIconButton(
               icon: Icons.remove,
               tooltip: 'По-дребен шрифт',
@@ -1265,7 +1216,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               onTap: () => _bump(-_step),
               size: _btnSize,
             ),
-            const SizedBox(width: 24), // Разстояние между (-) и (+)
+            const SizedBox(width: 18), // Разстояние между (-) и (+)
             _RoundIconButton(
               icon: Icons.add,
               tooltip: 'По-едър шрифт',
@@ -1273,39 +1224,203 @@ class _ReaderScreenState extends State<ReaderScreen>
               onTap: () => _bump(_step),
               size: _btnSize,
             ),
-            const SizedBox(width: 30), // Разстояние до десния край
-          ],
-          bottom: _searchAnim.value == 0
-              ? null
-              : PreferredSize(
-                  preferredSize: Size.fromHeight(58 * _searchAnim.value),
-                  child: ClipRect(
-                    child: Align(
-                      alignment: Alignment.topCenter,
-                      heightFactor: _searchAnim.value,
-                      child: _buildSearchBar(context),
-                    ),
+            const SizedBox(width: 18), // Разстояние между (+) и отметката
+            // Отметка — плосък стил (като лупата). TODO: истинско
+            // запазване/зареждане на позицията; засега само визуален toggle.
+            Tooltip(
+              message: _isBookmarked ? 'Премахни отметката' : 'Отметни тук',
+              child: InkWell(
+                onTap: () => setState(() => _isBookmarked = !_isBookmarked),
+                customBorder: const CircleBorder(),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: _btnSize + 8,
+                  height: _btnSize + 8,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _isBookmarked
+                        ? (AppBarTheme.of(context).foregroundColor ??
+                                Colors.white)
+                            .withOpacity(0.28)
+                        : Colors.transparent,
                   ),
-                ),
-                        ),
-                      ),
-                      SliverPadding(
-                        // Долен отстъп: докато режимът е хюристичен (преди
-                        // реалното измерване), floating SliverAppBar може да
-                        // "открадне" скрол-делта близо до края — луфтът пази
-                        // от това. Веднъж измерено точно, вече не е нужен,
-                        // но оставяме малък за спокойствие.
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
-                        sliver: contentSliver,
-                      ),
-                    ],
+                  child: Icon(
+                    _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
+                    size: 24,
+                    color:
+                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
                   ),
                 ),
               ),
             ),
+            const SizedBox(width: 10), // По-тясно — менюто е "приятел" на отметката
+            // Контекстно меню — най-вдясно. TODO: истинско съдържание
+            // (списъци с отметки, преименуване и т.н.).
+            PopupMenuButton<String>(
+              tooltip: 'Още',
+              icon: Icon(
+                Icons.more_vert,
+                size: 24,
+                color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
+              ),
+              itemBuilder: (context) => const [
+                PopupMenuItem(
+                  value: 'bookmarks',
+                  child: Text('Списък с отметки'),
+                ),
+              ],
+              onSelected: (value) {},
+            ),
+            const SizedBox(width: 12), // Разстояние до десния край
+          ];
+
+    // Търсещата лента (плъзгаща се отгоре-надолу с анимация) — обща за двата
+    // варианта на лентата (SliverAppBar/AppBar) по-долу, затова
+    // параметризирана по текущата стойност на анимацията.
+    PreferredSizeWidget? searchBarBottom(double value) {
+      if (value == 0) return null;
+      return PreferredSize(
+        preferredSize: Size.fromHeight(58 * value),
+        child: ClipRect(
+          child: Align(
+            alignment: Alignment.topCenter,
+            heightFactor: value,
+            child: _buildSearchBar(context),
           ),
-            if (measurementTree != null) measurementTree,
-            _buildMatchTicksOverlay(context),
+        ),
+      );
+    }
+
+    // РЕЖИМ НА ЧЕТЕНЕ: лентата е sliver вътре в CustomScrollView — floating
+    // (скрива се при скрол надолу, връща се плавно при скрол нагоре).
+    final sliverHeader = AnimatedBuilder(
+      animation: _searchAnim,
+      builder: (context, _) => SliverAppBar(
+        primary: false,
+        floating: true,
+        snap: true,
+        pinned: false,
+        backgroundColor: AppColors.toolbar,
+        toolbarHeight: 44,
+        title: Text(title),
+        actions: headerActions,
+        bottom: searchBarBottom(_searchAnim.value),
+      ),
+    );
+
+    // РЕЖИМ НА ТЪРСЕНЕ: обикновен (НЕ-sliver) AppBar, фиксиран най-отгоре в
+    // Column — напълно извън всякаква Scrollable/sliver координация, затова
+    // няма как да "потрепва" или да обръща посоката на палеца при скрол.
+    final fixedHeader = AnimatedBuilder(
+      animation: _searchAnim,
+      // AppBar, ползван директно като дете на Column (извън слота
+      // Scaffold.appBar), НЕ получава сам фиксирана височина отвън — тя
+      // идва нормално от Scaffold. Без нея вътрешната му Column получава
+      // неограничена височина и хвърля RenderFlex/unbounded assertion.
+      // SizedBox тук изрично задава височината = preferredSize.
+      builder: (context, _) => SizedBox(
+        height: 44 + 58 * _searchAnim.value,
+        child: AppBar(
+          primary: false,
+          backgroundColor: AppColors.toolbar,
+          toolbarHeight: 44,
+          title: Text(title),
+          actions: headerActions,
+          bottom: searchBarBottom(_searchAnim.value),
+        ),
+      ),
+    );
+
+    // Скролируемото тяло — самò по себе си, БЕЗ лентата с инструменти.
+    // includeHeaderSliver=true (режим на четене) добавя sliverHeader като
+    // ПЪРВИ sliver в СЪЩИЯ CustomScrollView, за да работи floating
+    // поведението естествено (лентата е част от скрола, който контролира).
+    // При търсене (includeHeaderSliver=false) тялото е самостоятелно, под
+    // отделния fixedHeader — виж mainContent по-долу.
+    Widget buildScrollableBody({required bool includeHeaderSliver}) {
+      return ScrollbarTheme(
+        // Палецът следва темата на ЧЕТЕЦА, не на приложението.
+        data: ScrollbarThemeData(
+          thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.44)),
+          radius: const Radius.circular(5),
+          thickness: const WidgetStatePropertyAll(_scrollThumb),
+          // Палецът не бива да става твърде къс при дълго житие —
+          // иначе е неуловим с пръст.
+          minThumbLength: 48,
+          crossAxisMargin: 2,
+          mainAxisMargin: 4,
+        ),
+        child: Scrollbar(
+          controller: _scrollController,
+          // Постоянно видим палец, докато ИМА чертички за гледане —
+          // от старта на търсенето с поне 1 намерен резултат, до
+          // затварянето му. Иначе чертичките се виждат, а палецът
+          // (референтната точка спрямо тях) избледнява — безсмислено.
+          thumbVisibility: _searchOpen && _totalMatches > 0,
+          // interactive: true разрешава ВЛАЧЕНЕ на палеца с пръст. Без него
+          // скролбарът е само индикатор. Флагът разширява и зоната за
+          // докосване отвъд видимата ширина на палеца.
+          interactive: true,
+          child: Theme(
+            data: Theme.of(context).copyWith(
+              textSelectionTheme: TextSelectionThemeData(
+                selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                selectionHandleColor: AppColors.sectionTitle,
+                cursorColor: AppColors.sectionTitle,
+              ),
+            ),
+            child: SelectionArea(
+              child: CustomScrollView(
+                controller: _scrollController,
+                slivers: [
+                  if (includeHeaderSliver) sliverHeader,
+                  SliverPadding(
+                    // Долен отстъп: докато режимът е хюристичен (преди
+                    // реалното измерване), floating SliverAppBar може да
+                    // "открадне" скрол-делта близо до края — луфтът пази
+                    // от това. Веднъж измерено точно, вече не е нужен,
+                    // но оставяме малък за спокойствие.
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
+                    sliver: contentSliver,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Двете СТРУКТУРНО различни подредби (виж коментара при _scrollController
+    // по-горе за как офсетът се пренася безшумно между тях при превключване):
+    //  - четене: единствен CustomScrollView, лентата е floating sliver в него;
+    //  - търсене: фиксиран AppBar отгоре + отделен скролируем Expanded отдолу,
+    //    напълно изолирани едно от друго — без sliver-координация между
+    //    външна и вътрешна скрол зона, която причиняваше потрепването и
+    //    грешната посока на палеца.
+    final mainContent = _searchOpen
+        ? Column(
+            children: [
+              fixedHeader,
+              Expanded(child: buildScrollableBody(includeHeaderSliver: false)),
+            ],
+          )
+        : buildScrollableBody(includeHeaderSliver: true);
+
+    return Scaffold(
+      backgroundColor: AppColors.toolbar,
+      body: SafeArea(
+        // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
+        // SafeArea я поеме и той, отстъпът горе се удвоява.
+        top: true,
+        child: Container(
+          color: _bg,
+          child: Stack(
+            children: [
+              mainContent,
+              if (measurementTree != null) measurementTree,
+              _buildMatchTicksOverlay(context),
             ],
           ),
         ),
@@ -1595,7 +1710,7 @@ class _RoundIconButton extends StatelessWidget {
             shape: BoxShape.circle,
             border: Border.all(color: color, width: 1.3),
           ),
-          child: Icon(icon, size: size * 0.58, color: color),
+          child: Icon(icon, size: size * 0.72, color: color),
         ),
       ),
     );
