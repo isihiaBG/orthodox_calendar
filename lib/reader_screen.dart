@@ -70,6 +70,281 @@ String _decodeEntities(String s) {
   return out;
 }
 
+// ---------------------------------------------------------------
+// Търсене: диакритик- и регистър-неутрално сравнение
+// ---------------------------------------------------------------
+
+/// "Изчистен" текст за търсене (малки букви, без ударения над буквите:
+/// U+0300–U+036F — комбиниращи диакритични знаци) + карта на позициите,
+/// за да можем да маркираме точно оригиналния (с ударения) откъс.
+class _Folded {
+  final String text;
+  final List<int> origIndex;
+  const _Folded(this.text, this.origIndex);
+}
+
+_Folded _fold(String s) {
+  final buf = StringBuffer();
+  final idx = <int>[];
+  for (int i = 0; i < s.length; i++) {
+    final code = s.codeUnitAt(i);
+    if (code >= 0x0300 && code <= 0x036F) continue; // ударение/диакритика
+    buf.write(s[i].toLowerCase());
+    idx.add(i);
+  }
+  return _Folded(buf.toString(), idx);
+}
+
+int _countMatchesPlain(String text, String foldedQuery) {
+  if (foldedQuery.isEmpty) return 0;
+  final f = _fold(text).text;
+  int count = 0, from = 0;
+  while (true) {
+    final at = f.indexOf(foldedQuery, from);
+    if (at < 0) break;
+    count++;
+    from = at + foldedQuery.length;
+  }
+  return count;
+}
+
+/// Брои съвпаденията само в текстовите сегменти на HTML (не в таговете).
+int _countMatchesHtml(String html, String foldedQuery) {
+  if (foldedQuery.isEmpty) return 0;
+  int count = 0;
+  for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(html)) {
+    final piece = m.group(0)!;
+    if (piece.startsWith('<')) continue;
+    count += _countMatchesPlain(piece, foldedQuery);
+  }
+  return count;
+}
+
+/// Маркира съвпаденията в чист текст (за буквицата) — връща TextSpan-ове.
+List<InlineSpan> _highlightPlain(
+  String text,
+  String foldedQuery,
+  int firstGlobalIndex,
+  int currentGlobalIndex,
+  TextStyle baseStyle,
+  Color hitBg,
+  Color hitCurrentBg,
+) {
+  if (foldedQuery.isEmpty) return [TextSpan(text: text, style: baseStyle)];
+  final folded = _fold(text);
+  final spans = <InlineSpan>[];
+  int from = 0, lastEnd = 0, local = 0;
+  while (true) {
+    final at = folded.text.indexOf(foldedQuery, from);
+    if (at < 0) break;
+    final origStart = folded.origIndex[at];
+    final endFoldedIdx = at + foldedQuery.length - 1;
+    final origEnd = folded.origIndex[endFoldedIdx] + 1;
+    if (origStart > lastEnd) {
+      spans.add(
+          TextSpan(text: text.substring(lastEnd, origStart), style: baseStyle));
+    }
+    final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
+    spans.add(TextSpan(
+      text: text.substring(origStart, origEnd),
+      style: baseStyle.copyWith(
+        backgroundColor: isCurrent ? hitCurrentBg : hitBg,
+      ),
+    ));
+    lastEnd = origEnd;
+    local++;
+    from = endFoldedIdx + 1;
+  }
+  if (lastEnd < text.length) {
+    spans.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
+  }
+  return spans;
+}
+
+/// Маркира съвпаденията в HTML — обвива всяко в <span class="hit(-current)">.
+String _highlightHtml(
+  String html,
+  String foldedQuery,
+  int firstGlobalIndex,
+  int currentGlobalIndex,
+) {
+  if (foldedQuery.isEmpty) return html;
+  final buf = StringBuffer();
+  int local = 0;
+  for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(html)) {
+    final piece = m.group(0)!;
+    if (piece.startsWith('<')) {
+      buf.write(piece);
+      continue;
+    }
+    final folded = _fold(piece);
+    int from = 0, lastEnd = 0;
+    while (true) {
+      final at = folded.text.indexOf(foldedQuery, from);
+      if (at < 0) break;
+      final origStart = folded.origIndex[at];
+      final endFoldedIdx = at + foldedQuery.length - 1;
+      final origEnd = folded.origIndex[endFoldedIdx] + 1;
+      buf.write(piece.substring(lastEnd, origStart));
+      final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
+      buf.write('<span class="${isCurrent ? 'hit-current' : 'hit'}">');
+      buf.write(piece.substring(origStart, origEnd));
+      buf.write('</span>');
+      lastEnd = origEnd;
+      local++;
+      from = endFoldedIdx + 1;
+    }
+    buf.write(piece.substring(lastEnd));
+  }
+  return buf.toString();
+}
+
+/// Дели HTML на блокове по абзаци/заглавия — всеки получава свой GlobalKey,
+/// за да можем да скролваме прецизно до региона с текущото съвпадение.
+List<String> _splitBlocks(String html) {
+  final blocks = <String>[];
+  final re =
+      RegExp(r'<(p|h[1-6])\b[^>]*>.*?</\1>', dotAll: true, caseSensitive: false);
+  int cursor = 0;
+  for (final m in re.allMatches(html)) {
+    if (m.start > cursor) {
+      final gap = html.substring(cursor, m.start).trim();
+      if (gap.isNotEmpty) blocks.add(gap);
+    }
+    blocks.add(m.group(0)!);
+    cursor = m.end;
+  }
+  if (cursor < html.length) {
+    final tail = html.substring(cursor).trim();
+    if (tail.isNotEmpty) blocks.add(tail);
+  }
+  return blocks.isEmpty ? [html] : blocks;
+}
+
+/// Чист текст без тагове — същата формула, ползвана и в _DropCapParagraph.
+String _plainTextOf(String innerHtml) {
+  return _decodeEntities(innerHtml.replaceAll(RegExp(r'<[^>]+>'), ''))
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+}
+
+/// Груба приблизителна оценка на височината (в пиксели) на един регион по
+/// дължината на текста му. SliverList строи децата си мързеливо и когато
+/// не ги е построил всичките, познава общата дължина на скрола по
+/// СРЕДНОТО от вече построеното — при абзаци с много различна дължина
+/// (кратка бележка vs. многоабзацен блок) тази преценка се преизчислява
+/// драстично при всеки нов построен елемент, което кара показалеца на
+/// скрола да "подскача" и прави приблизителния скок до далечно съвпадение
+/// ненадежден. С тази оценка подаваме на SliverList знание за ЦЯЛата
+/// дължина отнапред (виж _EstimatingListDelegate по-долу), вместо да гадае.
+double _estimateRegionHeight(
+  String plainText,
+  double fontSize,
+  double lineHeight,
+  double viewportWidth, {
+  int linkCount = 0,
+}) {
+  if (plainText.isEmpty) return 24.0;
+  final availableWidth = (viewportWidth - 32).clamp(100.0, 2000.0);
+  // Грубо средна широчина на знак спрямо fontSize за серифния шрифт Cambria.
+  final avgCharWidth = fontSize * 0.52;
+  final charsPerLine = (availableWidth / avgCharWidth).floor().clamp(10, 300);
+  final lines = (plainText.length / charsPerLine).ceil().clamp(1, 2000);
+  final base = lines * (fontSize * lineHeight) + 16; // + margin на <p>
+  // Абзаци с няколко линка един до друг систематично подценяваха реалната
+  // височина (наблюдение от чертичките на скролбара) — грубо компенсираме
+  // на линк, докато не измерим точната причина в самия flutter_html рендер.
+  return base + linkCount * (fontSize * 0.4);
+}
+
+/// SliverChildListDelegate с наша собствена преценка за общата дължина на
+/// скрола (виж _estimateRegionHeight) — вместо вградената "средно от
+/// построеното досега", която е нестабилна при силно различни по размер
+/// деца.
+class _EstimatingListDelegate extends SliverChildListDelegate {
+  // Кумулативни оценени височини по РЕГИОН (не по child-индекс на sliver-а —
+  // виж indexOffset). cumulativeHeights[i] = приблизителен край на региона i.
+  final List<double> cumulativeHeights;
+  // 1, ако преди regionWidgets има допълнителен елемент (заглавието на
+  // светията), иначе 0 — за превод от sliver child-индекс към регион-индекс.
+  final int indexOffset;
+
+  _EstimatingListDelegate(
+    super.children, {
+    required this.cumulativeHeights,
+    required this.indexOffset,
+  });
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) {
+    if (cumulativeHeights.isEmpty) return null;
+    // Тази фаза е КРАТКА (само докато фоновото реално измерване приключи —
+    // виж _finishMeasuring), затова тук държим нещата ПРОСТИ: фиксиран
+    // резерв, не самокоригиращо се съотношение (то водеше до отделен скок
+    // при всеки нов построен регион — разпръснато "подскачане" по пътя).
+    return cumulativeHeights.last * 1.3;
+  }
+}
+
+/// Delegate за РЕАЛНО измерения (точен) режим. КЛЮЧОВО: дори със
+/// SliverVariedExtentList + itemExtentBuilder (точен размер на ВСЕКИ
+/// елемент), Flutter пак пресмята maxScrollExtent по старата наивна формула
+/// "средно от построеното досега × оставащ брой" (виж
+/// _extrapolateMaxScrollOffset в sliver.dart) за всеки елемент, който още
+/// не е построен — itemExtentBuilder изобщо не се пита за тази цел! Точно
+/// това причиняваше "подскачането" дори в "точния" режим. Като върнем тук
+/// готовата, точно известна обща сума, Flutter спира да гадае изцяло.
+class _ExactListDelegate extends SliverChildListDelegate {
+  final double totalExtent;
+  _ExactListDelegate(super.children, {required this.totalExtent});
+
+  @override
+  double? estimateMaxScrollOffset(
+    int firstIndex,
+    int lastIndex,
+    double leadingScrollOffset,
+    double trailingScrollOffset,
+  ) => totalExtent;
+}
+
+/// Един "регион" от документа — единица за търсене/скролиране.
+/// isHtml=true  → рендва се през flutter_html (обикновен абзац/блок).
+/// isHtml=false → буквицата (плосък текст, специален рендер).
+class _Region {
+  final bool isHtml;
+  final String content;
+  const _Region.html(this.content) : isHtml = true;
+  const _Region.dropcapPlain(this.content) : isHtml = false;
+}
+
+List<_Region> _computeRegions(
+    String beforeHtml, String dropCap, String firstP, String afterHtml) {
+  final regions = <_Region>[];
+  if (dropCap.isNotEmpty) {
+    if (beforeHtml.trim().isNotEmpty) regions.add(_Region.html(beforeHtml));
+    regions.add(_Region.dropcapPlain(firstP));
+    for (final block in _splitBlocks(afterHtml)) {
+      regions.add(_Region.html(block));
+    }
+  } else {
+    for (final block in _splitBlocks(beforeHtml)) {
+      regions.add(_Region.html(block));
+    }
+  }
+  return regions;
+}
+
+int _countInRegion(_Region r, String foldedQuery) {
+  return r.isHtml
+      ? _countMatchesHtml(r.content, foldedQuery)
+      : _countMatchesPlain(_plainTextOf(r.content), foldedQuery);
+}
+
 enum _ReaderMode { life, prayers, sluzhba }
 
 class ReaderScreen extends StatefulWidget {
@@ -105,7 +380,8 @@ class ReaderScreen extends StatefulWidget {
   State<ReaderScreen> createState() => _ReaderScreenState();
 }
 
-class _ReaderScreenState extends State<ReaderScreen> {
+class _ReaderScreenState extends State<ReaderScreen>
+    with SingleTickerProviderStateMixin {
   // Размерът е static: пази се за цялата сесия, общ за всички екрани
   // на четеца. 17 е базата; стъпка 1.5; разумни граници.
   // Тема на четеца — НЕЗАВИСИМА от темата на приложението.
@@ -115,6 +391,7 @@ class _ReaderScreenState extends State<ReaderScreen> {
   static double _fontSize = 22.0; //Първоначален размер на шрифта по подразбиране
   static const double _step = 1.5;
   static const double _btnSize = 22.0;   // еднакъв размер и за трите бутона
+  static const double _searchBtnSize = _btnSize + 6; // старт/</>  в search лентата
   static const double _min = 13.0;
   static const double _max = 30.0;
   static const double _lineHeight = 1.25;
@@ -124,7 +401,368 @@ class _ReaderScreenState extends State<ReaderScreen> {
   void _bump(double d) {
     setState(() {
       _fontSize = (_fontSize + d).clamp(_min, _max);
+      // Реалните измерени височини важат само за СТАРИЯ размер на шрифта —
+      // със SliverVariedExtentList старите стойности биха ПРИНУДИЛИ новия
+      // (различно висок) текст в грешна кутия (препълване, изрязване).
+      // Нулираме, за да прескочим обратно на хюристиката и да предизвикаме
+      // ново фоново измерване за актуалния размер.
+      _realCumulativeHeights = null;
+      _realItemExtents = null;
+      _measuring = false;
     });
+    // Смяната на шрифта преформатира целия текст (различни височини на
+    // абзаците) — ако има активно търсене, текущото съвпадение би могло
+    // да "избяга" от изгледа; пренасочваме скрола към него отново.
+    if (_totalMatches > 0) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (mounted) _scrollToCurrent();
+        });
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------
+  // Търсене в текста
+  // ---------------------------------------------------------------
+  bool _searchOpen = false;
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocusNode = FocusNode();
+  // Ползва се за приблизителен "скок" близо до далечно (още непостроено)
+  // съвпадение в мързеливо виртуализирания SliverList — виж _scrollToCurrent.
+  final ScrollController _scrollController = ScrollController();
+  late final AnimationController _searchAnim = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 220),
+  );
+
+  String _committedQuery = ''; // сурова заявка, преди fold
+  int _totalMatches = 0;
+  int _currentMatch = -1; // 0-based; -1 = няма
+  List<int> _regionMatchCounts = [];
+  List<GlobalKey> _regionKeys = [];
+  // Кумулативни (нарастващи) оценени височини по региони — region i започва
+  // приблизително на _cumulativeHeights[i-1] пиксела (0 за i=0). Ползва се
+  // и от _EstimatingListDelegate (обща дължина), и от _scrollToCurrent
+  // (по-точен "скок" до далечно съвпадение) и от маркерите на скролбара.
+  List<double> _cumulativeHeights = [];
+  double _viewportWidth = 400.0;
+
+  // --- Фоново реално измерване на височините (заменя хюристиката) -----
+  // Показваме житието веднага с хюристичната преценка (бързо), после в
+  // невидим (Offstage) слой измерваме РЕАЛНИТЕ височини на всеки регион и
+  // еднократно превключваме sliver-а към SliverVariedExtentList с точните
+  // стойности — оттам нататък нативният скролбар (влачене, пропорционален
+  // палец) е перфектно точен, без изкуствени прескачания.
+  List<double>? _realCumulativeHeights; // по регион, кумулативно
+  List<double>? _realItemExtents; // по sliver child-индекс (вкл. заглавие)
+  bool _measuring = false;
+  List<GlobalKey> _measureKeys = [];
+  final GlobalKey _titleMeasureKey = GlobalKey();
+  double? _measuredForWidth; // ширината, за която важат реалните измервания
+
+  List<double> get _effectiveCumulativeHeights =>
+      _realCumulativeHeights ?? _cumulativeHeights;
+
+  Color get _hitColor =>
+      _darkMode ? const Color(0xFF6B5B1E) : const Color(0xFFFFF176);
+  Color get _hitCurrentColor =>
+      _darkMode ? const Color(0xFFCC8A2E) : const Color(0xFFFFA726);
+
+  void _toggleSearch() {
+    if (_searchOpen) {
+      _searchAnim.reverse();
+      setState(() {
+        _searchOpen = false;
+        _committedQuery = '';
+        _totalMatches = 0;
+        _currentMatch = -1;
+        _regionMatchCounts = [];
+      });
+      _searchCtrl.clear();
+    } else {
+      setState(() => _searchOpen = true);
+      _searchAnim.forward();
+      Future.delayed(const Duration(milliseconds: 120), () {
+        if (mounted) _searchFocusNode.requestFocus();
+      });
+    }
+  }
+
+  void _runSearch() {
+    final query = _searchCtrl.text.trim();
+    final html = _buildHtml();
+    final isLife = widget._mode == _ReaderMode.life;
+    final (beforeHtml, dropCap, firstP, afterHtml) =
+        isLife ? _splitDropCap(html) : (html, '', '', '');
+    final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+
+    if (query.isEmpty) {
+      setState(() {
+        _committedQuery = '';
+        _totalMatches = 0;
+        _currentMatch = -1;
+        _regionMatchCounts = [];
+      });
+      return;
+    }
+
+    final foldedQuery = _fold(query).text;
+    final counts = regions.map((r) => _countInRegion(r, foldedQuery)).toList();
+    final total = counts.fold<int>(0, (a, b) => a + b);
+    setState(() {
+      _committedQuery = query;
+      _regionMatchCounts = counts;
+      _totalMatches = total;
+      _currentMatch = total > 0 ? 0 : -1;
+      if (_regionKeys.length != regions.length) {
+        _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+      }
+    });
+    if (total > 0) _scrollToCurrent();
+  }
+
+  void _goToMatch(int delta) {
+    if (_totalMatches == 0) return;
+    setState(() {
+      _currentMatch = (_currentMatch + delta) % _totalMatches;
+      if (_currentMatch < 0) _currentMatch += _totalMatches;
+    });
+    _scrollToCurrent();
+  }
+
+  int _regionIndexForCurrentMatch() {
+    int remaining = _currentMatch;
+    for (int i = 0; i < _regionMatchCounts.length; i++) {
+      if (remaining < _regionMatchCounts[i]) return i;
+      remaining -= _regionMatchCounts[i];
+    }
+    return 0;
+  }
+
+  /// Подравняване спрямо ГОРНАТА половина на видимата зона (не центъра) —
+  /// по искане на потребителя: контекстът над фразата да се вижда, а
+  /// клавиатурата долу да не я скрива. 0.22 ≈ среда на горната половина.
+  static const double _matchAlignment = 0.22;
+
+  /// Скролва до региона с текущото съвпадение. SliverList строи децата си
+  /// мързеливо (само близо до видимата зона) — ако регионът вече е
+  /// построен, ensureVisible е точен; иначе първо скачаме ПРИБЛИЗИТЕЛНО
+  /// по пропорция, за да влезе в build-обхвата, после прецизираме.
+  void _scrollToCurrent() {
+    if (_currentMatch < 0 || _regionKeys.isEmpty) return;
+    final regionIdx = _regionIndexForCurrentMatch();
+    if (regionIdx >= _regionKeys.length) return;
+    final key = _regionKeys[regionIdx];
+
+    void refine(String tag) {
+      final ctx = key.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: _matchAlignment,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
+
+    final ctx = key.currentContext;
+    if (ctx != null) {
+      refine('direct');
+      Future.delayed(const Duration(milliseconds: 420), () {
+        if (mounted) refine('refine-1');
+      });
+      return;
+    }
+    // Не е построен — скок по НАШАТА кумулативна оценка (не сляпа пропорция
+    // от maxScrollExtent, който самият той е нестабилен), после прецизиране.
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final cumulative = _effectiveCumulativeHeights;
+    final estimateRaw = regionIdx > 0 && regionIdx - 1 < cumulative.length
+        ? cumulative[regionIdx - 1]
+        : 0.0;
+    final estimate =
+        estimateRaw.clamp(position.minScrollExtent, position.maxScrollExtent);
+    position.jumpTo(estimate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) refine('after-jump');
+      });
+    });
+  }
+
+  /// Чете реалните построени (Offstage) височини и еднократно превключва
+  /// на точен режим (SliverVariedExtentList). Ако някой елемент още не е
+  /// построен, пробва пак на следващия кадър.
+  void _finishMeasuring(int regionCount, bool hasOwnTitle, bool hasGap) {
+    if (!mounted) return;
+    double? titleHeight;
+    if (!hasOwnTitle) {
+      final ctx = _titleMeasureKey.currentContext;
+      if (ctx == null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap));
+        return;
+      }
+      titleHeight = (ctx.findRenderObject() as RenderBox).size.height;
+    }
+    final regionHeights = <double>[];
+    for (int i = 0; i < regionCount; i++) {
+      final ctx = _measureKeys[i].currentContext;
+      if (ctx == null) {
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap));
+        return;
+      }
+      regionHeights.add((ctx.findRenderObject() as RenderBox).size.height);
+    }
+
+    final cumulative = List<double>.filled(regionCount, 0.0);
+    double running = 0;
+    for (int i = 0; i < regionCount; i++) {
+      running += regionHeights[i];
+      cumulative[i] = running;
+    }
+
+    final regionExtents = List<double>.from(regionHeights);
+    if (hasGap) regionExtents.insert(1, _titleGap);
+    final itemExtents = <double>[
+      if (!hasOwnTitle) titleHeight!,
+      ...regionExtents,
+    ];
+
+    setState(() {
+      _realCumulativeHeights = cumulative;
+      _realItemExtents = itemExtents;
+      _measuredForWidth = _viewportWidth;
+      _measuring = false;
+    });
+  }
+
+  /// Позицията (0..1) на всяко съвпадение спрямо цялата преценена дължина
+  /// на текста — по нашата кумулативна оценка (_cumulativeHeights), не по
+  /// (нестабилния) реален maxScrollExtent. Ползва се за маркерите на
+  /// скролбара — визуална проверка дали оценката е разумна.
+  List<double> _allMatchRatios() {
+    final cumulative = _effectiveCumulativeHeights;
+    if (_totalMatches == 0 || cumulative.isEmpty) return const [];
+    final total = cumulative.last;
+    if (total <= 0) return const [];
+    final ratios = <double>[];
+    for (int i = 0; i < _regionMatchCounts.length; i++) {
+      final startHeight = i > 0 ? cumulative[i - 1] : 0.0;
+      final ratio = (startHeight / total).clamp(0.0, 1.0);
+      for (int k = 0; k < _regionMatchCounts[i]; k++) {
+        ratios.add(ratio);
+      }
+    }
+    return ratios;
+  }
+
+  /// Тънка лента вдясно с чертички за всяко съвпадение (жълто) и текущото
+  /// (оранжево) — визуализира нашите изчислени позиции върху скролбара,
+  /// за проверка дали оценката на височините е стабилна/разумна.
+  Widget _buildMatchTicksOverlay(BuildContext context) {
+    if (!_searchOpen || _totalMatches == 0) return const SizedBox.shrink();
+    final ratios = _allMatchRatios();
+    if (ratios.isEmpty) return const SizedBox.shrink();
+    return Positioned(
+      // Съвпада с геометрията на Scrollbar-а: crossAxisMargin: 2,
+      // mainAxisMargin: 4, thickness: _scrollThumb (10) — за да легнат
+      // чертичките точно върху палеца/лентата, не встрани от нея.
+      right: 2,
+      top: 4,
+      bottom: 4,
+      width: _scrollThumb,
+      child: IgnorePointer(
+        child: CustomPaint(
+          painter: _MatchTicksPainter(
+            ratios: ratios,
+            currentIndex: _currentMatch,
+            hitColor: _hitColor,
+            currentColor: _hitCurrentColor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSearchBar(BuildContext context) {
+    final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+    return Container(
+      height: 58,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      color: AppColors.toolbar,
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              focusNode: _searchFocusNode,
+              style: TextStyle(color: fg, fontSize: 16),
+              textInputAction: TextInputAction.search,
+              onSubmitted: (_) => _runSearch(),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'Търсене в текста…',
+                hintStyle: TextStyle(color: fg.withOpacity(0.5)),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                filled: true,
+                fillColor: Colors.black.withOpacity(0.15),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          _RoundIconButton(
+            icon: Icons.search,
+            tooltip: 'Старт на търсенето',
+            enabled: true,
+            onTap: _runSearch,
+            size: _searchBtnSize,
+          ),
+          const SizedBox(width: 16),
+          _RoundIconButton(
+            icon: Icons.chevron_left,
+            tooltip: 'Предишно съвпадение',
+            enabled: _totalMatches > 0,
+            onTap: () => _goToMatch(-1),
+            size: _searchBtnSize,
+          ),
+          const SizedBox(width: 16),
+          _RoundIconButton(
+            icon: Icons.chevron_right,
+            tooltip: 'Следващо съвпадение',
+            enabled: _totalMatches > 0,
+            onTap: () => _goToMatch(1),
+            size: _searchBtnSize,
+          ),
+          const SizedBox(width: 12),
+          // Без фиксирана ширина — при повече цифри (напр. 1125/1130) текстът
+          // просто заема колкото му трябва, вместо да се пренася на ред.
+          Text(
+            _totalMatches > 0 ? '${_currentMatch + 1}/$_totalMatches' : '0/0',
+            maxLines: 1,
+            softWrap: false,
+            style: TextStyle(color: fg, fontSize: 13),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  void dispose() {
+    _searchAnim.dispose();
+    _searchCtrl.dispose();
+    _searchFocusNode.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
   // ---------------------------------------------------------------
@@ -309,6 +947,185 @@ class _ReaderScreenState extends State<ReaderScreen> {
     final lineHeightPx = _fontSize * _lineHeight; //1.5;
     final dropCapSize = lineHeightPx * 5.5 * 0.82; // корекция за ascender
 
+    // Региони за търсене/скролиране — виж _computeRegions().
+    final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+    if (_regionKeys.length != regions.length) {
+      _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+    }
+    _viewportWidth = MediaQuery.sizeOf(context).width;
+    // Реалните измервания важат само за ширината, при която са направени
+    // (напр. завъртане на устройството би променила пренасянето на реда).
+    // Толеранс, не точно равенство — MediaQuery може да върне
+    // микроскопично различна ширина между кадри (закръгляване, скролбар,
+    // който се появява/изчезва), което иначе анулира измерването ПОСТОЯННО
+    // и никога не му позволява да се задържи.
+    if (_realItemExtents != null &&
+        (_measuredForWidth == null ||
+            (_measuredForWidth! - _viewportWidth).abs() > 2.0)) {
+      _realCumulativeHeights = null;
+      _realItemExtents = null;
+      _measuring = false;
+    }
+    // Кумулативни оценени височини — виж _estimateRegionHeight() и
+    // _EstimatingListDelegate по-долу.
+    _cumulativeHeights = List.filled(regions.length, 0.0);
+    double running = 0;
+    for (int i = 0; i < regions.length; i++) {
+      final plain = _plainTextOf(regions[i].content);
+      final linkCount = 'href='.allMatches(regions[i].content).length;
+      running += _estimateRegionHeight(plain, _fontSize, _lineHeight, _viewportWidth,
+          linkCount: linkCount);
+      _cumulativeHeights[i] = running;
+    }
+    final foldedQuery =
+        _committedQuery.isEmpty ? '' : _fold(_committedQuery).text;
+
+    int matchOffset = 0;
+    final regionWidgets = <Widget>[];
+    for (int i = 0; i < regions.length; i++) {
+      final r = regions[i];
+      final count =
+          i < _regionMatchCounts.length ? _regionMatchCounts[i] : 0;
+      final key = _regionKeys[i];
+      if (r.isHtml) {
+        final data = foldedQuery.isEmpty
+            ? r.content
+            : _highlightHtml(r.content, foldedQuery, matchOffset, _currentMatch);
+        regionWidgets.add(KeyedSubtree(
+          key: key,
+          child: Html(
+            data: data,
+            onLinkTap: (url, attributes, element) => _onLinkTap(url),
+            style: _htmlStyles(context),
+          ),
+        ));
+      } else {
+        regionWidgets.add(KeyedSubtree(
+          key: key,
+          child: _DropCapParagraph(
+            dropCap: dropCap,
+            dropCapSize: dropCapSize,
+            lineHeight: lineHeightPx,
+            lineFactor: _lineHeight,
+            firstParagraph: r.content,
+            fontSize: _fontSize,
+            capColor: _wine,
+            inkColor: _ink,
+            searchQuery: foldedQuery,
+            firstGlobalMatchIndex: matchOffset,
+            currentGlobalMatch: _currentMatch,
+            hitColor: _hitColor,
+            hitCurrentColor: _hitCurrentColor,
+          ),
+        ));
+      }
+      matchOffset += count;
+    }
+    // Разстояние след заглавната част (преди буквицата), ако имаше before-блок.
+    final hasGap = dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty;
+    if (hasGap) {
+      regionWidgets.insert(1, const SizedBox(height: _titleGap));
+    }
+
+    final titleWidget = hasOwnTitle
+        ? null
+        : Padding(
+            padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
+            child: Text(
+              widget.texts.name,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: _titleFamily,
+                fontSize: _fontSize + 9,
+                height: 1.25,
+                color: _ink,
+              ),
+            ),
+          );
+    final sliverChildren = <Widget>[
+      if (titleWidget != null) titleWidget,
+      ...regionWidgets,
+    ];
+
+    // --- Фоново реално измерване (виж коментара при полетата по-горе) —
+    // построяваме СЪЩОТО съдържание веднъж в невидим (Offstage) слой, за
+    // да прочетем реалните му височини и еднократно да превключим към
+    // SliverVariedExtentList, вместо да разчитаме вечно на хюристиката.
+    Widget? measurementTree;
+    if (_realItemExtents == null) {
+      if (_measureKeys.length != regions.length) {
+        _measureKeys = List.generate(regions.length, (_) => GlobalKey());
+      }
+      if (!_measuring) {
+        _measuring = true;
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) => _finishMeasuring(regions.length, hasOwnTitle, hasGap));
+      }
+      final measureChildren = <Widget>[
+        if (titleWidget != null)
+          KeyedSubtree(key: _titleMeasureKey, child: titleWidget),
+      ];
+      for (int i = 0; i < regions.length; i++) {
+        final r = regions[i];
+        if (r.isHtml) {
+          measureChildren.add(KeyedSubtree(
+            key: _measureKeys[i],
+            child: Html(data: r.content, style: _htmlStyles(context)),
+          ));
+        } else {
+          measureChildren.add(KeyedSubtree(
+            key: _measureKeys[i],
+            child: _DropCapParagraph(
+              dropCap: dropCap,
+              dropCapSize: dropCapSize,
+              lineHeight: lineHeightPx,
+              lineFactor: _lineHeight,
+              firstParagraph: r.content,
+              fontSize: _fontSize,
+              capColor: _wine,
+              inkColor: _ink,
+            ),
+          ));
+        }
+      }
+      if (hasGap) {
+        measureChildren.insert(
+            titleWidget != null ? 2 : 1, const SizedBox(height: _titleGap));
+      }
+      measurementTree = Offstage(
+        offstage: true,
+        child: Align(
+          alignment: Alignment.topLeft,
+          child: SizedBox(
+            width: (_viewportWidth - 32).clamp(100.0, 2000.0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: measureChildren,
+            ),
+          ),
+        ),
+      );
+    }
+
+    final contentSliver = _realItemExtents != null
+        ? SliverVariedExtentList(
+            delegate: _ExactListDelegate(
+              sliverChildren,
+              totalExtent: _realItemExtents!.fold(0.0, (a, b) => a + b),
+            ),
+            itemExtentBuilder: (index, dimensions) {
+              final extents = _realItemExtents!;
+              return index < extents.length ? extents[index] : 100.0;
+            },
+          )
+        : SliverList(
+            delegate: _EstimatingListDelegate(
+              sliverChildren,
+              cumulativeHeights: _cumulativeHeights,
+              indexOffset: hasOwnTitle ? 0 : 1,
+            ),
+          );
+
     return Scaffold(
       backgroundColor: AppColors.toolbar,
                        //Theme.of(context).appBarTheme.backgroundColor,
@@ -320,7 +1137,9 @@ class _ReaderScreenState extends State<ReaderScreen> {
         top: true,
         child: Container(
           color: _bg,
-          child: ScrollbarTheme(
+          child: Stack(
+            children: [
+            ScrollbarTheme(
             // Палецът следва темата на ЧЕТЕЦА, не на приложението.
             data: ScrollbarThemeData(
               thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.55)),
@@ -333,6 +1152,17 @@ class _ReaderScreenState extends State<ReaderScreen> {
               mainAxisMargin: 4,
             ),
             child: Scrollbar(
+              // ВАЖНО: същият controller като на CustomScrollView отдолу —
+              // иначе Scrollbar търси PrimaryScrollController (различен от
+              // нашия explicit controller) и следи ГРЕШНА/несъществуваща
+              // ScrollPosition: палецът "подскача" произволно и не може да
+              // се хване с пръст, защото буквално не гледа истинския скрол.
+              controller: _scrollController,
+              // Постоянно видим палец, докато ИМА чертички за гледане —
+              // от старта на търсенето с поне 1 намерен резултат, до
+              // затварянето му. Иначе чертичките се виждат, а палецът
+              // (референтната точка спрямо тях) избледнява — безсмислено.
+              thumbVisibility: _searchOpen && _totalMatches > 0,
               // interactive: true разрешава ВЛАЧЕНЕ на палеца с пръст. Без него
               // скролбарът е само индикатор. Флагът разширява и зоната за
               // докосване отвъд видимата ширина на палеца.
@@ -350,15 +1180,25 @@ class _ReaderScreenState extends State<ReaderScreen> {
                 ),
                 child: SelectionArea(
                   child: CustomScrollView(
+                    controller: _scrollController,
                     slivers: [
                       // Лентата се изтърколва нагоре при скрол надолу и се
                       // връща при първо движение нагоре (floating + snap).
                       // Това е стандартният Material патърн — анимацията следва
                       // пръста, вместо да се задейства по праг или таймер.
-                      SliverAppBar(
+                      AnimatedBuilder(
+                        animation: _searchAnim,
+                        builder: (context, _) => SliverAppBar(
                         primary: false,
-                        floating: true,
-                        snap: true,
+                        // ВИНАГИ pinned (не floating/snap) — floating
+                        // header-ът има ДИНАМИЧНА собствена геометрия
+                        // (при скриване/появяване временно заема различно
+                        // "виртуално" пространство в изчисляването на
+                        // maxScrollExtent), което правеше показалеца на
+                        // скрола нестабилен независимо от съдържанието.
+                        floating: false,
+                        snap: false,
+                        pinned: true,
                         //surfaceTintColor: Colors.transparent,
                         //scrolledUnderElevation: 0,
                         //elevation: 0,
@@ -366,6 +1206,37 @@ class _ReaderScreenState extends State<ReaderScreen> {
           toolbarHeight: 44, //
           title: Text(title),
           actions: [
+            // Търсене — плосък стил (като в search_screen/main.dart), не
+            // outline-кръга на +/-. "Хлътнало" състояние = запълнен кръг
+            // зад иконата, докато лентата за търсене е отворена.
+            Tooltip(
+              message: 'Търсене в текста',
+              child: InkWell(
+                onTap: _toggleSearch,
+                customBorder: const CircleBorder(),
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 150),
+                  width: _btnSize + 8,
+                  height: _btnSize + 8,
+                  alignment: Alignment.center,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: _searchOpen
+                        ? (AppBarTheme.of(context).foregroundColor ??
+                                Colors.white)
+                            .withOpacity(0.28)
+                        : Colors.transparent,
+                  ),
+                  child: Icon(
+                    Icons.search,
+                    size: 24,
+                    color:
+                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 20), // Разстояние между лупата и Тогъл
             // Тогъл на темата: кръг, разделен вертикално (първа четвъртина)
             Tooltip(
               message: 'Светла/тъмна тема',
@@ -404,72 +1275,38 @@ class _ReaderScreenState extends State<ReaderScreen> {
             ),
             const SizedBox(width: 30), // Разстояние до десния край
           ],
-        
-                      ),
-                      SliverPadding(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
-                        sliver: SliverList(
-                          delegate: SliverChildListDelegate([
-                // Името на светията — само ако житието няма собствено заглавие
-                if (!hasOwnTitle)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 10, bottom: _titleGap),
-                    child: Text(
-                      widget.texts.name,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontFamily: _titleFamily,
-                        fontSize: _fontSize + 9,
-                        height: 1.25,
-                        color: _ink,
-                      ),
+          bottom: _searchAnim.value == 0
+              ? null
+              : PreferredSize(
+                  preferredSize: Size.fromHeight(58 * _searchAnim.value),
+                  child: ClipRect(
+                    child: Align(
+                      alignment: Alignment.topCenter,
+                      heightFactor: _searchAnim.value,
+                      child: _buildSearchBar(context),
                     ),
                   ),
-
-                // Заглавието на житието (напр. <h3>) — на пълна ширина.
-                // След него слагаме ИЗРИЧЕН SizedBox вместо да разчитаме на
-                // margin-а на h3: при заглавие от 2-3 реда едрият декоративен
-                // шрифт прелива от кутията на реда и margin-ът се "изяжда".
-                // Така разстоянието е константно, независимо от броя редове.
-                if (dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty) ...[
-                  Html(
-                    data: beforeHtml,
-                    onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                    style: _htmlStyles(context),
-                  ),
-                  const SizedBox(height: _titleGap),
-                ],
-
-                // Водеща буква с ИСТИНСКО обтичане: първите редове с отстъп,
-                // останалият текст — на пълна ширина под буквата
-                if (dropCap.isNotEmpty)
-                  _DropCapParagraph(
-                    dropCap: dropCap,
-                    dropCapSize: dropCapSize,
-                    lineHeight: lineHeightPx,
-                    lineFactor: _lineHeight,
-                    firstParagraph: firstP,
-                    afterHtml: afterHtml,
-                    fontSize: _fontSize,
-                    capColor: _wine,
-                    inkColor: _ink,
-                    onLinkTap: _onLinkTap,
-                    styles: _htmlStyles(context),
-                  )
-                else
-                  Html(
-                    data: beforeHtml,
-                    onLinkTap: (url, attributes, element) => _onLinkTap(url),
-                    style: _htmlStyles(context),
-                  ),
-                          ]),
+                ),
                         ),
+                      ),
+                      SliverPadding(
+                        // Долен отстъп: докато режимът е хюристичен (преди
+                        // реалното измерване), floating SliverAppBar може да
+                        // "открадне" скрол-делта близо до края — луфтът пази
+                        // от това. Веднъж измерено точно, вече не е нужен,
+                        // но оставяме малък за спокойствие.
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
+                        sliver: contentSliver,
                       ),
                     ],
                   ),
                 ),
               ),
             ),
+          ),
+            if (measurementTree != null) measurementTree,
+            _buildMatchTicksOverlay(context),
+            ],
           ),
         ),
       ),
@@ -554,6 +1391,13 @@ class _ReaderScreenState extends State<ReaderScreen> {
         color: AppColors.sectionTitle,
         textDecoration: TextDecoration.none,
       ),
+      // Маркиране на съвпаденията от търсенето — виж _highlightHtml().
+      '.hit': Style(
+        backgroundColor: _hitColor,
+      ),
+      '.hit-current': Style(
+        backgroundColor: _hitCurrentColor,
+      ),
     };
   }
 }
@@ -571,12 +1415,15 @@ class _DropCapParagraph extends StatelessWidget {
   final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
   final double lineFactor;   // коефициентът за TextStyle.height (напр. 1.25)
   final String firstParagraph; // HTML съдържанието на първия <p> (без буквата)
-  final String afterHtml;      // всичко след първия </p>
   final double fontSize;
   final Color capColor;
   final Color inkColor;
-  final Future<void> Function(String?) onLinkTap;
-  final Map<String, Style> styles;
+  // Търсене: празен searchQuery = няма активно търсене.
+  final String searchQuery;
+  final int firstGlobalMatchIndex;
+  final int currentGlobalMatch;
+  final Color hitColor;
+  final Color hitCurrentColor;
 
   const _DropCapParagraph({
     required this.dropCap,
@@ -584,12 +1431,14 @@ class _DropCapParagraph extends StatelessWidget {
     required this.lineHeight,
     required this.lineFactor,
     required this.firstParagraph,
-    required this.afterHtml,
     required this.fontSize,
     required this.capColor,
     required this.inkColor,
-    required this.onLinkTap,
-    required this.styles,
+    this.searchQuery = '',
+    this.firstGlobalMatchIndex = 0,
+    this.currentGlobalMatch = -1,
+    this.hitColor = const Color(0x00000000),
+    this.hitCurrentColor = const Color(0x00000000),
   });
 
   @override
@@ -638,6 +1487,15 @@ class _DropCapParagraph extends StatelessWidget {
       final wrapText = plain.substring(0, cut).trim();
       final restText = plain.substring(cut).trim();
 
+      final baseStyle = TextStyle(
+        fontFamily: _bodyFamily,
+        fontSize: fontSize,
+        height: lineFactor,
+        color: inkColor,
+      );
+      final wrapCount =
+          searchQuery.isEmpty ? 0 : _countMatchesPlain(wrapText, searchQuery);
+
       // Забележка: обтичащата зона и остатъкът се рендват като ЧИСТ ТЕКСТ
       // (Html таговете на първия абзац се губят при измерването; на практика
       // първият абзац на житията е почти винаги плоски изречения, а
@@ -665,38 +1523,37 @@ class _DropCapParagraph extends StatelessWidget {
               ),
               const SizedBox(width: gap),
               Expanded(
-                child: Text(
-                  wrapText,
-                  textAlign: TextAlign.justify,
-                  style: TextStyle(
-                    fontFamily: _bodyFamily,
-                    fontSize: fontSize,
-                    height: lineFactor,
-                    color: inkColor,
-                  ),
-                ),
+                child: searchQuery.isEmpty
+                    ? Text(wrapText, textAlign: TextAlign.justify, style: baseStyle)
+                    : Text.rich(
+                        TextSpan(
+                          children: _highlightPlain(wrapText, searchQuery,
+                              firstGlobalMatchIndex, currentGlobalMatch,
+                              baseStyle, hitColor, hitCurrentColor),
+                        ),
+                        textAlign: TextAlign.justify,
+                      ),
               ),
             ],
           ),
           if (restText.isNotEmpty)
             Padding(
               padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                restText,
-                textAlign: TextAlign.justify,
-                style: TextStyle(
-                  fontFamily: _bodyFamily,
-                  fontSize: fontSize,
-                  height: lineFactor,
-                  color: inkColor,
-                ),
-              ),
-            ),
-          if (afterHtml.trim().isNotEmpty)
-            Html(
-              data: afterHtml,
-              onLinkTap: (url, attributes, element) => onLinkTap(url),
-              style: styles,
+              child: searchQuery.isEmpty
+                  ? Text(restText, textAlign: TextAlign.justify, style: baseStyle)
+                  : Text.rich(
+                      TextSpan(
+                        children: _highlightPlain(
+                            restText,
+                            searchQuery,
+                            firstGlobalMatchIndex + wrapCount,
+                            currentGlobalMatch,
+                            baseStyle,
+                            hitColor,
+                            hitCurrentColor),
+                      ),
+                      textAlign: TextAlign.justify,
+                    ),
             ),
         ],
       );
@@ -779,4 +1636,48 @@ class _HalfMoonPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _HalfMoonPainter old) =>
       old.outline != outline;
+}
+
+/// Чертички за позициите на съвпаденията върху лентата (виж
+/// _buildMatchTicksOverlay). ratios са стойности 0..1 — дял от цялата
+/// (оценена) дължина на текста.
+class _MatchTicksPainter extends CustomPainter {
+  final List<double> ratios;
+  final int currentIndex;
+  final Color hitColor;
+  final Color currentColor;
+
+  const _MatchTicksPainter({
+    required this.ratios,
+    required this.currentIndex,
+    required this.hitColor,
+    required this.currentColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final hitPaint = Paint()
+      ..color = hitColor
+      ..strokeWidth = 2;
+    // Първо всички жълти чертички...
+    for (int i = 0; i < ratios.length; i++) {
+      final y = (ratios[i].clamp(0.0, 1.0) * size.height).clamp(0.0, size.height);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), hitPaint);
+    }
+    // ...после ОТДЕЛНО оранжевата, рисувана НАПОСЛЕДЪК — гарантирано най-
+    // отгоре в z-реда, дори когато няколко жълти са плътно една до друга и
+    // иначе биха я скрили.
+    if (currentIndex >= 0 && currentIndex < ratios.length) {
+      final currentPaint = Paint()
+        ..color = currentColor
+        ..strokeWidth = 3;
+      final y = (ratios[currentIndex].clamp(0.0, 1.0) * size.height)
+          .clamp(0.0, size.height);
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), currentPaint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _MatchTicksPainter old) =>
+      old.ratios != ratios || old.currentIndex != currentIndex;
 }
