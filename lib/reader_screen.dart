@@ -22,6 +22,7 @@
 //         - asset: assets/fonts/ТВОЯ_ФАЙЛ.ttf
 
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -166,6 +167,16 @@ List<InlineSpan> _highlightPlain(
 }
 
 /// Маркира съвпаденията в HTML — обвива всяко в <span class="hit(-current)">.
+///
+/// <a href="...">...</a> се третира като ЦЯЛОСТЕН блок, обработван ОТДЕЛНО
+/// от _highlightAnchorText — flutter_html принудително презаписва стила на
+/// ВСЕКИ вложен span вътре в котва със собствения стил на котвата (виж
+/// InteractiveElementBuiltIn._processInteractableChild в пакета), затова
+/// <span class="hit"> вътре в <a> губи жълтия си фон и изчезва визуално.
+/// Вместо да вмъкваме span, разделяме самата котва на съседни <a> тагове
+/// със същия href — само фрагментът със съвпадението носи class="hit",
+/// получавайки собствен смесен стил (синьо + жълт фон). Всичко останало
+/// продължава по старата таг/текст логика, непроменена.
 String _highlightHtml(
   String html,
   String foldedQuery,
@@ -175,32 +186,106 @@ String _highlightHtml(
   if (foldedQuery.isEmpty) return html;
   final buf = StringBuffer();
   int local = 0;
-  for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(html)) {
-    final piece = m.group(0)!;
-    if (piece.startsWith('<')) {
-      buf.write(piece);
-      continue;
+
+  void highlightPlainSegment(String segment) {
+    for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(segment)) {
+      final piece = m.group(0)!;
+      if (piece.startsWith('<')) {
+        buf.write(piece);
+        continue;
+      }
+      final folded = _fold(piece);
+      int from = 0, lastEnd = 0;
+      while (true) {
+        final at = folded.text.indexOf(foldedQuery, from);
+        if (at < 0) break;
+        final origStart = folded.origIndex[at];
+        final endFoldedIdx = at + foldedQuery.length - 1;
+        final origEnd = folded.origIndex[endFoldedIdx] + 1;
+        buf.write(piece.substring(lastEnd, origStart));
+        final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
+        buf.write('<span class="${isCurrent ? 'hit-current' : 'hit'}">');
+        buf.write(piece.substring(origStart, origEnd));
+        buf.write('</span>');
+        lastEnd = origEnd;
+        local++;
+        from = endFoldedIdx + 1;
+      }
+      buf.write(piece.substring(lastEnd));
     }
-    final folded = _fold(piece);
-    int from = 0, lastEnd = 0;
-    while (true) {
-      final at = folded.text.indexOf(foldedQuery, from);
-      if (at < 0) break;
-      final origStart = folded.origIndex[at];
-      final endFoldedIdx = at + foldedQuery.length - 1;
-      final origEnd = folded.origIndex[endFoldedIdx] + 1;
-      buf.write(piece.substring(lastEnd, origStart));
-      final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-      buf.write('<span class="${isCurrent ? 'hit-current' : 'hit'}">');
-      buf.write(piece.substring(origStart, origEnd));
-      buf.write('</span>');
-      lastEnd = origEnd;
-      local++;
-      from = endFoldedIdx + 1;
+  }
+
+  final anchorRe = RegExp(r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>',
+      caseSensitive: false, dotAll: true);
+  int cursor = 0;
+  for (final am in anchorRe.allMatches(html)) {
+    if (am.start > cursor) {
+      highlightPlainSegment(html.substring(cursor, am.start));
     }
-    buf.write(piece.substring(lastEnd));
+    local = _highlightAnchorText(
+      am.group(1)!,
+      am.group(2)!,
+      foldedQuery,
+      firstGlobalIndex,
+      local,
+      currentGlobalIndex,
+      buf,
+    );
+    cursor = am.end;
+  }
+  if (cursor < html.length) {
+    highlightPlainSegment(html.substring(cursor));
   }
   return buf.toString();
+}
+
+/// Маркиране на съвпадение ВЪТРЕ в линк (виж коментара на _highlightHtml).
+/// Приема, че вътрешността на <a> е чист текст (важи за всички линкове в
+/// това приложение — saint:// и източник-атрибуцията, без вложено
+/// форматиране). Връща новата стойност на local (брояча за "текущо"
+/// съвпадение), за да продължи броенето непрекъснато след котвата.
+int _highlightAnchorText(
+  String href,
+  String innerText,
+  String foldedQuery,
+  int firstGlobalIndex,
+  int localStart,
+  int currentGlobalIndex,
+  StringBuffer buf,
+) {
+  final hrefAttr = 'href="$href"';
+  final folded = _fold(innerText);
+  int from = 0, lastEnd = 0, local = localStart;
+  while (true) {
+    final at = folded.text.indexOf(foldedQuery, from);
+    if (at < 0) break;
+    final origStart = folded.origIndex[at];
+    final endFoldedIdx = at + foldedQuery.length - 1;
+    final origEnd = folded.origIndex[endFoldedIdx] + 1;
+    if (origStart > lastEnd) {
+      buf.write('<a $hrefAttr>');
+      buf.write(innerText.substring(lastEnd, origStart));
+      buf.write('</a>');
+    }
+    final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
+    buf.write('<a $hrefAttr class="${isCurrent ? 'hit-current' : 'hit'}">');
+    buf.write(innerText.substring(origStart, origEnd));
+    buf.write('</a>');
+    lastEnd = origEnd;
+    local++;
+    from = endFoldedIdx + 1;
+  }
+  if (lastEnd < innerText.length) {
+    buf.write('<a $hrefAttr>');
+    buf.write(innerText.substring(lastEnd));
+    buf.write('</a>');
+  } else if (lastEnd == 0) {
+    // Няма съвпадение в тази котва — оставяме я непроменена (един таг).
+    buf.write('<a $hrefAttr>');
+    buf.write(innerText);
+    buf.write('</a>');
+  }
+  return local;
 }
 
 /// Дели HTML на блокове по абзаци/заглавия — всеки получава свой GlobalKey,
@@ -540,24 +625,127 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
 // Отметка — пази се ЕДНА позиция (индекс на регион) на четиво (slug +
 // режим). Наличието на запис = проследяването е включено; изтриване на
 // записа = изключено — няма нужда от отделен bool флаг в storage-а.
+// Освен индекса пазим и name/typeLabel — иначе списъкът с отметки (виж
+// BookmarksListScreen) би трябвало да прави отделна DB заявка за всеки
+// запис само за да покаже заглавие; вместо това ги кешираме тук, в
+// момента на записа, когато вече ги имаме безплатно под ръка.
 // ---------------------------------------------------------------
-class _BookmarkStore {
-  static String _key(String slug, _ReaderMode mode) =>
-      'bookmark_pos_${mode.name}_$slug';
+class _BookmarkRecord {
+  final int regionIndex;
+  final String name;
+  final String typeLabel;
+  final int savedAtMs; // за сортиране по скорошност в списъка с отметки
 
-  static Future<int?> load(String slug, _ReaderMode mode) async {
+  const _BookmarkRecord({
+    required this.regionIndex,
+    required this.name,
+    required this.typeLabel,
+    required this.savedAtMs,
+  });
+
+  Map<String, dynamic> toJson() => {
+        'regionIndex': regionIndex,
+        'name': name,
+        'typeLabel': typeLabel,
+        'savedAtMs': savedAtMs,
+      };
+
+  static _BookmarkRecord? fromJson(Map<String, dynamic> m) {
+    final regionIndex = m['regionIndex'];
+    final name = m['name'];
+    final typeLabel = m['typeLabel'];
+    final savedAtMs = m['savedAtMs'];
+    if (regionIndex is! int || name is! String || typeLabel is! String) {
+      return null;
+    }
+    return _BookmarkRecord(
+      regionIndex: regionIndex,
+      name: name,
+      typeLabel: typeLabel,
+      savedAtMs: savedAtMs is int ? savedAtMs : 0,
+    );
+  }
+}
+
+/// Идентификатор на отметка — slug + режим (двете заедно сочат ЕДНО
+/// конкретно четиво). Ползва се от списъка с отметки.
+class _BookmarkId {
+  final String slug;
+  final _ReaderMode mode;
+  const _BookmarkId(this.slug, this.mode);
+}
+
+class _BookmarkStore {
+  static const String _prefix = 'bookmark_pos_';
+
+  static String _key(String slug, _ReaderMode mode) =>
+      '$_prefix${mode.name}_$slug';
+
+  static Future<_BookmarkRecord?> load(String slug, _ReaderMode mode) async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_key(slug, mode));
+    final key = _key(slug, mode);
+    try {
+      // prefs.getString() САМО ТУК хвърля, ако под този ключ има стар
+      // формат (чист int, от преди JSON записа) — затова целият прочит е
+      // в try, не само декодирането.
+      final raw = prefs.getString(key);
+      if (raw == null) return null;
+      return _BookmarkRecord.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+    } catch (_) {
+      // Несъвместим/повреден стар запис — трием го, вместо да чупим четенето.
+      await prefs.remove(key);
+      return null;
+    }
   }
 
-  static Future<void> save(String slug, _ReaderMode mode, int regionIndex) async {
+  static Future<void> save(
+      String slug, _ReaderMode mode, _BookmarkRecord record) async {
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_key(slug, mode), regionIndex);
+    await prefs.setString(_key(slug, mode), jsonEncode(record.toJson()));
   }
 
   static Future<void> clear(String slug, _ReaderMode mode) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_key(slug, mode));
+  }
+
+  /// Всички запазени отметки в приложението — за BookmarksListScreen.
+  static Future<List<(_BookmarkId, _BookmarkRecord)>> loadAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    final result = <(_BookmarkId, _BookmarkRecord)>[];
+    for (final key in prefs.getKeys()) {
+      if (!key.startsWith(_prefix)) continue;
+      _ReaderMode? mode;
+      String? slug;
+      for (final m in _ReaderMode.values) {
+        final withMode = '$_prefix${m.name}_';
+        if (key.startsWith(withMode)) {
+          mode = m;
+          slug = key.substring(withMode.length);
+          break;
+        }
+      }
+      if (mode == null || slug == null || slug.isEmpty) continue;
+      try {
+        final raw = prefs.getString(key);
+        if (raw == null) continue;
+        final record =
+            _BookmarkRecord.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        if (record != null) result.add((_BookmarkId(slug, mode), record));
+      } catch (_) {
+        // Несъвместим/повреден стар запис — трием го при засичане.
+        await prefs.remove(key);
+      }
+    }
+    result.sort((a, b) => b.$2.savedAtMs.compareTo(a.$2.savedAtMs));
+    return result;
+  }
+
+  static Future<void> clearAll() async {
+    final prefs = await SharedPreferences.getInstance();
+    for (final key in prefs.getKeys().toList()) {
+      if (key.startsWith(_prefix)) await prefs.remove(key);
+    }
   }
 }
 
@@ -699,7 +887,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!mounted || saved == null) return;
       setState(() {
         _isBookmarked = true;
-        _bookmarkedRegionIndex = saved;
+        _bookmarkedRegionIndex = saved.regionIndex;
         _showResumePrompt = true;
         _awaitingBookmarkDecision = true;
       });
@@ -847,7 +1035,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     // пропускаме излишния запис на диска.
     if (idx == _bookmarkedRegionIndex) return;
     _bookmarkedRegionIndex = idx;
-    _BookmarkStore.save(slug, widget._mode, idx);
+    _BookmarkStore.save(
+      slug,
+      widget._mode,
+      _BookmarkRecord(
+        regionIndex: idx,
+        name: widget.texts.name,
+        typeLabel: _typeLabel,
+        savedAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
   }
 
   /// Включва/изключва проследяването. При включване записваме ТЕКУЩАТА
@@ -870,7 +1067,16 @@ class _ReaderScreenState extends State<ReaderScreen>
       final idx = _scrollController.hasClients
           ? _topmostRegionIndex(_scrollController.position.pixels)
           : 0;
-      await _BookmarkStore.save(slug, widget._mode, idx);
+      await _BookmarkStore.save(
+        slug,
+        widget._mode,
+        _BookmarkRecord(
+          regionIndex: idx,
+          name: widget.texts.name,
+          typeLabel: _typeLabel,
+          savedAtMs: DateTime.now().millisecondsSinceEpoch,
+        ),
+      );
       if (!mounted) return;
       setState(() {
         _isBookmarked = true;
@@ -1319,6 +1525,16 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   // ---------------------------------------------------------------
 
+  // Житие/Сказание/Служба/Тропар и кондак/… — ТУК е единственото място,
+  // където се решава. Записва се в отметката такова, каквото е (виж
+  // _BookmarkRecord.typeLabel), за да не се пресмята повторно в списъка
+  // с отметки.
+  String get _typeLabel => widget._mode == _ReaderMode.life
+      ? (widget.lifeTitle ?? 'Житие')
+      : widget._mode == _ReaderMode.sluzhba
+          ? 'Служба'
+          : prayersTitleFor(widget.texts);
+
   // Палитрата на четеца — независима от темата на приложението.
   Color get _bg   => _darkMode ? const Color(0xFF121212) : const Color(0xFFF5E6C5);
   Color get _ink  => _darkMode ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
@@ -1357,11 +1573,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   Widget build(BuildContext context) {
-    final title = widget._mode == _ReaderMode.life
-        ? (widget.lifeTitle ?? 'Житие')
-        : widget._mode == _ReaderMode.sluzhba
-            ? 'Служба'
-            : prayersTitleFor(widget.texts);
+    final title = _typeLabel;
 
     // Тежката подготовка (HTML, буквица, региони — виж _prepareReaderContent)
     // още работи във фонов isolate — показваме лек spinner, вместо да
@@ -1675,7 +1887,13 @@ class _ReaderScreenState extends State<ReaderScreen>
                   child: Text('Списък с отметки'),
                 ),
               ],
-              onSelected: (value) {},
+              onSelected: (value) {
+                if (value == 'bookmarks') {
+                  Navigator.of(context).push(MaterialPageRoute(
+                    builder: (_) => BookmarksListScreen(lookup: widget.lookup),
+                  ));
+                }
+              },
             ),
             const SizedBox(width: 2), // Разстояние до десния край
           ];
@@ -2445,4 +2663,178 @@ class _MatchTicksPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant _MatchTicksPainter old) =>
       old.ratios != ratios || old.currentIndex != currentIndex;
+}
+
+/// Списък с всички запазени отметки в приложението (виж _BookmarkStore) —
+/// отваря се от менюто с трите точки в reader_screen. Всеки ред: заглавие
+/// (натискане → отваря четивото; native InkWell "присветване" за feedback)
+/// + тип (Житие/Сказание/Тропар и кондак/…, вече готов от _BookmarkRecord —
+/// виж коментара там за защо не се пресмята повторно тук) + кошче вдясно
+/// за единично изтриване. "Изтрий всички" — иконка в лентата отгоре.
+class BookmarksListScreen extends StatefulWidget {
+  final SaintLookup lookup;
+  const BookmarksListScreen({super.key, required this.lookup});
+
+  @override
+  State<BookmarksListScreen> createState() => _BookmarksListScreenState();
+}
+
+class _BookmarksListScreenState extends State<BookmarksListScreen> {
+  List<(_BookmarkId, _BookmarkRecord)>? _items;
+
+  @override
+  void initState() {
+    super.initState();
+    _reload();
+  }
+
+  Future<void> _reload() async {
+    final items = await _BookmarkStore.loadAll();
+    if (!mounted) return;
+    setState(() => _items = items);
+  }
+
+  Future<bool> _confirm(String title, String content) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text(title, style: const TextStyle(fontSize: 20)),
+        content: Text(content, style: const TextStyle(fontSize: 16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Не', style: TextStyle(fontSize: 20)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Да', style: TextStyle(fontSize: 20)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  Future<void> _deleteOne(_BookmarkId id) async {
+    final confirmed = await _confirm(
+      'Изтриване на отметката',
+      'Наистина ли искате да изтриете тази отметка?',
+    );
+    if (!confirmed) return;
+    await _BookmarkStore.clear(id.slug, id.mode);
+    _reload();
+  }
+
+  Future<void> _deleteAll() async {
+    final confirmed = await _confirm(
+      'Изтриване на всички отметки',
+      'Наистина ли искате да изтриете ВСИЧКИ запазени отметки?',
+    );
+    if (!confirmed) return;
+    await _BookmarkStore.clearAll();
+    _reload();
+  }
+
+  Future<void> _open(_BookmarkId id) async {
+    final texts = await widget.lookup(id.slug);
+    if (!mounted) return;
+    if (texts == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Няма запис за този светия.')),
+      );
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => switch (id.mode) {
+        _ReaderMode.life => ReaderScreen.life(texts: texts, lookup: widget.lookup),
+        _ReaderMode.prayers =>
+          ReaderScreen.prayers(texts: texts, lookup: widget.lookup),
+        _ReaderMode.sluzhba =>
+          ReaderScreen.sluzhba(texts: texts, lookup: widget.lookup),
+      },
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final items = _items;
+    return Scaffold(
+      backgroundColor: AppColors.toolbar,
+      appBar: AppBar(
+        backgroundColor: AppColors.toolbar,
+        title: const Text('Списък с отметки'),
+        // actionsPadding: нула, за да МАХНЕМ вградения отстъп на AppBar-а и
+        // сами да контролираме десния отстъп (виж contentPadding на
+        // ListTile-овете долу) — за да легнат кошчетата едно точно под
+        // друго, и двете разстояния трябва да идват от НАС, не от
+        // framework подразбирания, които може да са различни едно от друго.
+        actionsPadding: EdgeInsets.zero,
+        actions: [
+          if (items != null && items.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Tooltip(
+                message: 'Изтрий всички',
+                child: IconButton(
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                  onPressed: _deleteAll,
+                ),
+              ),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: Container(
+          color: AppColors.background,
+          child: items == null
+              ? const Center(child: CircularProgressIndicator())
+              : items.isEmpty
+                  ? const Center(
+                      child: Text(
+                        'Няма запазени отметки.',
+                        style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+                      ),
+                    )
+                  : ListView.separated(
+                      itemCount: items.length,
+                      separatorBuilder: (_, _) => const Divider(
+                        height: 1,
+                        color: AppColors.sectionDivider,
+                      ),
+                      itemBuilder: (context, i) {
+                        final (id, record) = items[i];
+                        return ListTile(
+                          // Десен отстъп = точно колкото добавихме на
+                          // "Изтрий всички" в лентата отгоре (виж
+                          // AppBar.actionsPadding по-горе) — за да легне
+                          // кошчето точно под него.
+                          contentPadding:
+                              const EdgeInsets.only(left: 16, right: 16),
+                          onTap: () => _open(id),
+                          title: Text(
+                            record.name,
+                            style: const TextStyle(
+                              color: AppColors.textPrimary,
+                              fontSize: 16,
+                            ),
+                          ),
+                          subtitle: Text(
+                            record.typeLabel,
+                            style: const TextStyle(
+                              color: AppColors.sectionTitle,
+                              fontSize: 13,
+                            ),
+                          ),
+                          trailing: IconButton(
+                            icon: const Icon(Icons.delete_outline,
+                                color: AppColors.textSecondary),
+                            onPressed: () => _deleteOne(id),
+                          ),
+                        );
+                      },
+                    ),
+        ),
+      ),
+    );
+  }
 }
