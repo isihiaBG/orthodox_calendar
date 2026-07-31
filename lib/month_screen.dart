@@ -761,7 +761,13 @@ class _MonthPageState extends State<_MonthPage>
                       child: ListView.separated(
                         controller: _scrollController,
                         cacheExtent: 2000, // ← рендерира 2000px извън видимата зона (bugfix)
-                        padding: EdgeInsets.zero,
+                        // Долен отстъп = системния bottom inset (лентата за жестове/
+                        // навигационните бутони) — иначе последният ден от месеца
+                        // опира точно в нея и текстът му (напр. "Постен ден") се
+                        // отрязва. Важи за всеки месец, не само за конкретния.
+                        padding: EdgeInsets.only(
+                          bottom: MediaQuery.of(context).padding.bottom,
+                        ),
                         itemCount: days.length,
                         separatorBuilder: (context, index) =>
                             Divider(color: AppColors.sectionDivider, height: 1),

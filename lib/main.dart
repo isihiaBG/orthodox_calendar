@@ -5,6 +5,7 @@ import 'app_theme.dart';
 import 'app_settings.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'settings_screen.dart';
+import 'about_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'month_screen.dart';
@@ -267,7 +268,12 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           _drawerItemText('❈', 'Оцени приложението', () {}),
           SafeArea(
             top: false,
-            child: _drawerItem(Icons.help_outline, 'За приложението', () {}),
+            child: _drawerItem(Icons.help_outline, 'За приложението', () {
+              Navigator.pop(context);
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => const AboutScreen(),
+              ));
+            }),
           ),
           const SizedBox(height: 16),
         ],
