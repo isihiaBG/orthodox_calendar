@@ -21,8 +21,12 @@
 //       fonts:
 //         - asset: assets/fonts/ТВОЯ_ФАЙЛ.ttf
 
+import 'dart:async';
+
+import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
@@ -347,6 +351,216 @@ int _countInRegion(_Region r, String foldedQuery) {
 
 enum _ReaderMode { life, prayers, sluzhba }
 
+// ---------------------------------------------------------------
+// Тежка текстова подготовка — изнесена в ТОП-НИВО чисти функции, за да могат
+// да текат във фонов isolate (compute()), вместо синхронно в build(). За
+// дълги жития (десетки региони) сглобяването на HTML + делението на
+// абзаци/буквица + декодирането на entity-та във всеки регион отнемаше до
+// секунда-две на устройството — точно толкова, колкото Navigator блокираше
+// на push (той строи новия екран синхронно, за да го анимира), при което
+// дори анимацията на присветването при тап "засичаше". Сега initState()
+// стартира тази подготовка в отделен isolate; build() показва лек spinner
+// докато чака и после ползва кешираните резултати (_prepared).
+// ---------------------------------------------------------------
+
+String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
+  if (mode == _ReaderMode.sluzhba) {
+    final src = texts.source.isEmpty
+        ? ''
+        : '<p class="source">Източник: <a href="${texts.source}">'
+            '${texts.source}</a></p>';
+    return '${texts.sluzhba}$src';
+  }
+
+  if (mode == _ReaderMode.life) {
+    final src = texts.source.isEmpty
+        ? ''
+        : '<p class="source">Източник: <a href="${texts.source}">'
+            '${texts.source}</a></p>';
+    return '${texts.lifeHtml}$src';
+  }
+
+  final b = StringBuffer();
+  void block(String csl, String trans) {
+    if (csl.isEmpty) return;
+    final i = csl.indexOf(': ');
+    if (i > 0 && i < 40) {
+      b.write('<p class="prayerhead">${csl.substring(0, i)}</p>');
+      b.write('<p class="csl">${csl.substring(i + 2)}</p>');
+    } else {
+      b.write('<p class="csl">$csl</p>');
+    }
+    if (trans.isNotEmpty) {
+      b.write('<p class="trans"><span class="translabel">Превод:</span> $trans</p>');
+    }
+  }
+
+  block(texts.tropar, texts.troparTrans);
+  block(texts.tropar2, texts.tropar2Trans);
+  block(texts.kondak, texts.kondakTrans);
+  block(texts.kondak2, texts.kondak2Trans);
+
+  if (texts.source.isNotEmpty) {
+    b.write('<p class="source">Източник: '
+        '<a href="${texts.source}">${texts.source}</a></p>');
+  }
+  return b.toString();
+}
+
+/// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
+/// този абзац без буквата; останалият HTML).
+///
+/// Обхожда абзаците, докато намери такъв, който започва с истинска буква.
+/// Така редакторски бележки в скоби ("(не путать с …)"), стоящи между
+/// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
+/// буквицата пада върху първия същински абзац.
+(String, String, String, String) _splitDropCap(String html) {
+  // Абзац се ПРОПУСКА, ако същинският му текст започва с един от тези
+  // знаци — редакторски бележки, цитати, бележки под линия и др. —
+  // ИЛИ ако абзацът започва с курсивен таг (<em>/<i>): акцент/курсив
+  // не бива да носи буквица. Курсивните абзаци допълнително се
+  // центрират (клас .italic-center, виж _htmlStyles).
+  const skipChars = {'(', "'", '*', '/', '«', '"', '['};
+  final italicStart = RegExp(r'^\s*<(?:em|i)\b[^>]*>', caseSensitive: false);
+
+  int scanned = 0;
+  int cursor = 0; // докъдето е "преписан" html в before
+  final before = StringBuffer();
+
+  for (final m in RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(html)) {
+    if (++scanned > 3) break; // буквица само в началото, не насред текста
+    final inner = m.group(1)!;
+
+    // Пропускаме абзаци, започващи с курсивен таг, но ги центрираме.
+    if (italicStart.hasMatch(inner)) {
+      before.write(html.substring(cursor, m.start));
+      before.write('<p class="italic-center">$inner</p>');
+      cursor = m.end;
+      continue;
+    }
+
+    // Търсим първия ЗНАЧИМ символ, като прескачаме HTML таговете.
+    // Така заглавие в <strong>/<b> в началото на абзаца не пречи —
+    // буквицата пада върху първата истинска буква след тага.
+    final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)').firstMatch(inner);
+    if (cm == null) continue;
+    final ch = cm.group(1)!;
+
+    // Пропускаме абзаца при изрично изброените знаци.
+    if (skipChars.contains(ch)) continue;
+    // Пропускаме и ако не е буква (цифри, тирета и пр.).
+    if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
+
+    before.write(html.substring(cursor, m.start));
+    return (
+      before.toString(),
+      ch,
+      // Запазваме таговете преди буквата (напр. отварящ <strong>),
+      // за да не се загуби форматирането на останалия текст.
+      inner.substring(0, cm.start) + inner.substring(cm.end),
+      html.substring(m.end),
+    );
+  }
+  // Няма подходящ абзац за буквица — връщаме html, но със запазени
+  // центрирания за курсивните абзаци, засечени дотук.
+  return (before.toString() + html.substring(cursor), '', '', '');
+}
+
+/// Аргументи за _prepareReaderContent — трябва да са "sendable" (само данни,
+/// без closures), за да минат през границата на isolate-а с compute().
+class _PrepareArgs {
+  final _ReaderMode mode;
+  final SaintTexts texts;
+  const _PrepareArgs({required this.mode, required this.texts});
+}
+
+/// Резултатът от еднократната тежка подготовка — кешира се в State
+/// (_prepared) и се преизползва при всеки следващ build() (тема, търсене,
+/// смяна на шрифт), без да се преизчислява.
+class _PreparedContent {
+  final bool hasOwnTitle;
+  final bool hasGap;
+  final String dropCap;
+  final List<_Region> regions;
+  // Успоредни на regions — плоският текст (декодиран, без тагове) и броят
+  // линкове на всеки регион, кеширани веднъж тук вместо преизвличани при
+  // всеки build() само за да се пресметне хюристичната височина.
+  final List<String> regionPlainTexts;
+  final List<int> regionLinkCounts;
+
+  const _PreparedContent({
+    required this.hasOwnTitle,
+    required this.hasGap,
+    required this.dropCap,
+    required this.regions,
+    required this.regionPlainTexts,
+    required this.regionLinkCounts,
+  });
+}
+
+/// Върши ЦЯЛАТА тежка, чисто текстова подготовка (сглобяване на HTML,
+/// делене на буквица/региони, декодиране на всеки регион) — стартира се
+/// през compute() в отделен isolate, затова е ЧИСТА функция: никакви
+/// референции към BuildContext/State/widget.
+_PreparedContent _prepareReaderContent(_PrepareArgs args) {
+  final html = _buildHtmlFor(args.mode, args.texts);
+  final isLife = args.mode == _ReaderMode.life;
+  final (beforeHtml, dropCap, firstP, afterHtml) =
+      isLife ? _splitDropCap(html) : (html, '', '', '');
+
+  // Житието има ли собствено заглавие (<h1>..<h6> преди първия абзац)? Ако
+  // да — нашето име отгоре е излишно и се пропуска, за да няма два почти
+  // еднакви заглавни реда един под друг. isLife: в режима с молитвите
+  // beforeHtml съдържа целия HTML (вкл. заглавията на тропарите), затова
+  // проверката важи само за житието.
+  final hasOwnTitle = (isLife || args.mode == _ReaderMode.sluzhba) &&
+      RegExp(r'<h[1-6]\b').hasMatch(beforeHtml);
+
+  final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+  final hasGap = dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty;
+
+  final plainTexts = <String>[];
+  final linkCounts = <int>[];
+  for (final r in regions) {
+    plainTexts.add(_plainTextOf(r.content));
+    linkCounts.add('href='.allMatches(r.content).length);
+  }
+
+  return _PreparedContent(
+    hasOwnTitle: hasOwnTitle,
+    hasGap: hasGap,
+    dropCap: dropCap,
+    regions: regions,
+    regionPlainTexts: plainTexts,
+    regionLinkCounts: linkCounts,
+  );
+}
+
+// ---------------------------------------------------------------
+// Отметка — пази се ЕДНА позиция (индекс на регион) на четиво (slug +
+// режим). Наличието на запис = проследяването е включено; изтриване на
+// записа = изключено — няма нужда от отделен bool флаг в storage-а.
+// ---------------------------------------------------------------
+class _BookmarkStore {
+  static String _key(String slug, _ReaderMode mode) =>
+      'bookmark_pos_${mode.name}_$slug';
+
+  static Future<int?> load(String slug, _ReaderMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_key(slug, mode));
+  }
+
+  static Future<void> save(String slug, _ReaderMode mode, int regionIndex) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_key(slug, mode), regionIndex);
+  }
+
+  static Future<void> clear(String slug, _ReaderMode mode) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_key(slug, mode));
+  }
+}
+
 class ReaderScreen extends StatefulWidget {
   final SaintTexts texts;
   final SaintLookup lookup;
@@ -389,6 +603,17 @@ class _ReaderScreenState extends State<ReaderScreen>
   static bool _darkMode = true;   // по подразбиране тъмна
 
   static double _fontSize = 22.0; //Първоначален размер на шрифта по подразбиране
+  // Персистиране на размера в потребителските настройки (SharedPreferences),
+  // за да оцелее и след рестарт на приложението (_fontSize сам по себе си е
+  // само сесиен). Зареждаме от диска ЕДНОКРАТНО на сесия (виж
+  // _loadPersistedFontSizeOnce) — следващите ReaderScreen инстанции вече
+  // виждат правилната стойност направо в статичното поле, без нов прочит.
+  static bool _fontSizeLoadedFromDisk = false;
+  // Последно ЗАПИСАНАТА на диска стойност, пазена в паметта — сравняваме
+  // с нея вместо да четем от диска всеки път, за да пропускаме излишни
+  // записи (напр. потребителят увеличава и после пак намалява до същото).
+  static double? _lastSavedFontSize;
+  static const String _fontSizeKey = 'reader_font_size';
   static const double _step = 1.5;
   static const double _btnSize = 22.0;   // еднакъв размер и за трите бутона
   static const double _searchBtnSize = _btnSize + 6; // старт/</>  в search лентата
@@ -397,6 +622,89 @@ class _ReaderScreenState extends State<ReaderScreen>
   static const double _lineHeight = 1.25;
   static const double _titleGap = 30.0;  // константно разстояние заглавие → текст
   static const double _scrollThumb = 10.0;  // дебелина на палеца на скролбара
+
+  // Резултатът от еднократната тежка текстова подготовка (виж
+  // _prepareReaderContent по-горе) — null докато фоновият isolate работи.
+  // build() показва лек spinner дотогава, за да не блокира push-а на
+  // екрана (виж коментара в initState).
+  _PreparedContent? _prepared;
+  Timer? _fontSizeSaveTimer;
+
+  /// Зарежда персистирания размер на шрифта от диска — САМО веднъж на
+  /// сесия (виж _fontSizeLoadedFromDisk); следващи ReaderScreen инстанции
+  /// вече го виждат директно в статичното поле _fontSize.
+  static Future<void> _loadPersistedFontSizeOnce() async {
+    if (_fontSizeLoadedFromDisk) return;
+    _fontSizeLoadedFromDisk = true;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getDouble(_fontSizeKey);
+    if (saved != null) {
+      _fontSize = saved.clamp(_min, _max);
+      _lastSavedFontSize = _fontSize;
+    }
+  }
+
+  /// Рестартира 3-секундния debounce за запис на шрифта (извиква се при
+  /// всяко +/- натискане). Записваме едва когато измине покой от 3 сек —
+  /// потребителите почти никога не уцелват желания размер от първия тап.
+  void _scheduleFontSizeSave() {
+    _fontSizeSaveTimer?.cancel();
+    _fontSizeSaveTimer = Timer(const Duration(seconds: 3), _flushFontSizeSave);
+  }
+
+  /// Записва текущия _fontSize на диска — но само ако се различава от
+  /// последно запазената стойност (пазена в паметта, без препрочитане).
+  void _flushFontSizeSave() {
+    _fontSizeSaveTimer = null;
+    if (_lastSavedFontSize == _fontSize) return;
+    _lastSavedFontSize = _fontSize;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setDouble(_fontSizeKey, _fontSize));
+  }
+
+  // Captured в didChangeDependencies() (безопасно място за ScaffoldMessenger.of),
+  // за да можем да скрием евентуален висящ SnackBar в dispose() — там
+  // context вече не е сигурен за нови lookup-и. ScaffoldMessenger е ОБЩ за
+  // цялото приложение (не локален за екрана), затова без това SnackBar-ът
+  // (напр. "Последната ви позиция...") би останал да виси и върху
+  // дневния изглед, след като reader_screen вече е затворен.
+  ScaffoldMessengerState? _scaffoldMessenger;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.of(context);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_onScrollForBookmark);
+    _loadPersistedFontSizeOnce().then((_) {
+      if (mounted) setState(() {});
+    });
+    // Стартираме тежката подготовка ВЕДНАГА, но във фонов isolate — Navigator
+    // все пак строи екрана синхронно веднъж при push (за анимацията), но
+    // тъй като ТОЗИ (първият) build() е вече евтин (само spinner, виж
+    // build() по-долу), push-ът вече не засича/блокира анимацията на тапа.
+    compute(_prepareReaderContent, _PrepareArgs(mode: widget._mode, texts: widget.texts))
+        .then((result) async {
+      if (!mounted) return;
+      setState(() => _prepared = result);
+      // Има ли вече запазена позиция за това четиво? Ако да — показваме
+      // resume-подканата (виж _ResumePrompt) вместо да скачаме безшумно.
+      final slug = widget.texts.slug;
+      if (slug.isEmpty) return;
+      final saved = await _BookmarkStore.load(slug, widget._mode);
+      if (!mounted || saved == null) return;
+      setState(() {
+        _isBookmarked = true;
+        _bookmarkedRegionIndex = saved;
+        _showResumePrompt = true;
+        _awaitingBookmarkDecision = true;
+      });
+    });
+  }
 
   void _bump(double d) {
     setState(() {
@@ -410,6 +718,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _realItemExtents = null;
       _measuring = false;
     });
+    _scheduleFontSizeSave();
     // Смяната на шрифта преформатира целия текст (различни височини на
     // абзаците) — ако има активно търсене, текущото съвпадение би могло
     // да "избяга" от изгледа; пренасочваме скрола към него отново.
@@ -426,7 +735,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   // Търсене в текста
   // ---------------------------------------------------------------
   bool _searchOpen = false;
-  bool _isBookmarked = false; // TODO: реално запазване/зареждане на отметки
+  // Отметка — виж _BookmarkStore по-горе и коментарите при методите долу.
+  // _isBookmarked = проследяването е включено (има запис в storage-а).
+  bool _isBookmarked = false;
+  int? _bookmarkedRegionIndex; // последно известната запазена позиция
+  bool _showResumePrompt = false; // показваме ли долния widget при отваряне
+  // Докато resume-подканата виси на екрана (в което и да е от двете ѝ
+  // състояния), автозаписът при скрол СПИРА — не бива да презаписваме
+  // старата позиция, докато потребителят още не е решил какво иска.
+  bool _awaitingBookmarkDecision = false;
+  Timer? _bookmarkIdleTimer;
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   // Два РАЗЛИЧНИ дървовидни изгледа според _searchOpen (виж build()):
@@ -474,6 +792,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   Color get _hitCurrentColor =>
       _darkMode ? const Color(0xFFCC8A2E) : const Color(0xFFFFA726);
 
+  // Чертичките на скролбара имат СВОЙ цвят за светлата тема — светложълтото
+  // на _hitColor (добро като фон зад маркиран текст) почти изчезва на тънка
+  // линия върху кремавия фон (_bg = 0xFFF5E6C5), затова тук е по-тъмен,
+  // по-наситен маслинено-кехлибарен нюанс само за тях.
+  Color get _tickHitColor => _darkMode ? _hitColor : const Color(0xFF9C7A1A);
+  Color get _tickCurrentColor => _hitCurrentColor;
+
   /// Пресъздава скрол-контролера със стартова позиция = текущата, за да
   /// прехвърли безшумно офсета към новото Scrollable (виж коментара на
   /// _scrollController).
@@ -481,7 +806,153 @@ class _ReaderScreenState extends State<ReaderScreen>
     final offset =
         _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
     _scrollController.dispose();
-    _scrollController = ScrollController(initialScrollOffset: offset);
+    _scrollController = ScrollController(initialScrollOffset: offset)
+      ..addListener(_onScrollForBookmark);
+  }
+
+  // ---------------------------------------------------------------
+  // Отметка — проследяване на последна позиция (виж _BookmarkStore)
+  // ---------------------------------------------------------------
+
+  /// Регионът, който в момента е най-отгоре във видимата зона, по нашата
+  /// кумулативна оценка (същата, ползвана за скрол до съвпадение).
+  int _topmostRegionIndex(double pixels) {
+    final cumulative = _effectiveCumulativeHeights;
+    for (int i = 0; i < cumulative.length; i++) {
+      if (cumulative[i] > pixels) return i;
+    }
+    return cumulative.isEmpty ? 0 : cumulative.length - 1;
+  }
+
+  /// Скрол-listener — НЕ пише при всяко движение (виж дискусията с
+  /// потребителя): само рестартира 3-секунден таймер. Записваме едва
+  /// когато скролът е бил напълно неподвижен за тези 3 секунди — така
+  /// динамичното "докъде ми остава" разлистване не се брои за позиция на
+  /// четене, и нищо не засича самия скрол (нула записи по време на движение).
+  void _onScrollForBookmark() {
+    if (!_isBookmarked || _awaitingBookmarkDecision) return;
+    _bookmarkIdleTimer?.cancel();
+    _bookmarkIdleTimer = Timer(const Duration(seconds: 3), _saveBookmarkIfStillIdle);
+  }
+
+  void _saveBookmarkIfStillIdle() {
+    if (!mounted || !_isBookmarked || _awaitingBookmarkDecision) return;
+    if (!_scrollController.hasClients) return;
+    final slug = widget.texts.slug;
+    if (slug.isEmpty) return;
+    final idx = _topmostRegionIndex(_scrollController.position.pixels);
+    // Сравняваме с последно ЗАПАЗЕНАТА (в паметта, не презачитаме от диска)
+    // стойност — ако позицията не се е променила (напр. телефонът лежи
+    // неподвижен с часове, или дребно поклащане в рамките на същия регион),
+    // пропускаме излишния запис на диска.
+    if (idx == _bookmarkedRegionIndex) return;
+    _bookmarkedRegionIndex = idx;
+    _BookmarkStore.save(slug, widget._mode, idx);
+  }
+
+  /// Включва/изключва проследяването. При включване записваме ТЕКУЩАТА
+  /// позиция веднага (без да чакаме 3-те секунди покой — самият тап е
+  /// достатъчно ясен сигнал). При изключване трием запазеното изцяло.
+  Future<void> _toggleBookmark() async {
+    final slug = widget.texts.slug;
+    if (slug.isEmpty) return;
+    if (_isBookmarked) {
+      await _BookmarkStore.clear(slug, widget._mode);
+      _bookmarkIdleTimer?.cancel();
+      if (!mounted) return;
+      setState(() {
+        _isBookmarked = false;
+        _bookmarkedRegionIndex = null;
+        _showResumePrompt = false;
+        _awaitingBookmarkDecision = false;
+      });
+    } else {
+      final idx = _scrollController.hasClients
+          ? _topmostRegionIndex(_scrollController.position.pixels)
+          : 0;
+      await _BookmarkStore.save(slug, widget._mode, idx);
+      if (!mounted) return;
+      setState(() {
+        _isBookmarked = true;
+        _bookmarkedRegionIndex = idx;
+      });
+      _showBookmarkEnabledSnackbar();
+    }
+  }
+
+  void _showBookmarkEnabledSnackbar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Последната ви позиция в четивото ще се запазва регулярно, '
+          'докато бутонът за отметка остава включен.',
+          style: TextStyle(fontSize: 18),
+        ),
+        duration: Duration(seconds: 10),
+      ),
+    );
+  }
+
+  /// Скролира до региона на запазената отметка — първо пряко (ако вече е
+  /// построен), иначе приблизителен скок по кумулативната оценка + прецизиране
+  /// (същата двуфазна логика като _scrollToCurrent за търсенето).
+  void _jumpToBookmarkRegion(int regionIndex) {
+    if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
+    final key = _regionKeys[regionIndex];
+
+    void refine() {
+      final ctx = key.currentContext;
+      if (ctx == null) return;
+      Scrollable.ensureVisible(
+        ctx,
+        alignment: 0.05,
+        duration: const Duration(milliseconds: 350),
+        curve: Curves.easeInOut,
+      );
+    }
+
+    final ctx = key.currentContext;
+    if (ctx != null) {
+      refine();
+      return;
+    }
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    final cumulative = _effectiveCumulativeHeights;
+    final estimateRaw = regionIndex > 0 && regionIndex - 1 < cumulative.length
+        ? cumulative[regionIndex - 1]
+        : 0.0;
+    final estimate =
+        estimateRaw.clamp(position.minScrollExtent, position.maxScrollExtent);
+    position.jumpTo(estimate);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 100), () {
+        if (mounted) refine();
+      });
+    });
+  }
+
+  void _onResumePromptJump() {
+    final idx = _bookmarkedRegionIndex;
+    if (idx != null) _jumpToBookmarkRegion(idx);
+  }
+
+  void _onResumePromptDeleted() {
+    final slug = widget.texts.slug;
+    if (slug.isNotEmpty) _BookmarkStore.clear(slug, widget._mode);
+    if (!mounted) return;
+    setState(() => _bookmarkedRegionIndex = null);
+  }
+
+  /// Извиква се, когато resume-подканата си отива — независимо дали чрез
+  /// скок, изтриване или swipe-отказ. Възобновява нормалния автозапис.
+  void _onResumePromptClosed() {
+    if (!mounted) return;
+    setState(() {
+      _showResumePrompt = false;
+      _awaitingBookmarkDecision = false;
+    });
   }
 
   void _toggleSearch() {
@@ -509,12 +980,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _runSearch() {
+    final prepared = _prepared;
+    if (prepared == null) return; // текстът още не е готов (spinner-фазата)
     final query = _searchCtrl.text.trim();
-    final html = _buildHtml();
-    final isLife = widget._mode == _ReaderMode.life;
-    final (beforeHtml, dropCap, firstP, afterHtml) =
-        isLife ? _splitDropCap(html) : (html, '', '', '');
-    final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+    final regions = prepared.regions;
 
     if (query.isEmpty) {
       setState(() {
@@ -705,8 +1174,8 @@ class _ReaderScreenState extends State<ReaderScreen>
           painter: _MatchTicksPainter(
             ratios: ratios,
             currentIndex: _currentMatch,
-            hitColor: _hitColor,
-            currentColor: _hitCurrentColor,
+            hitColor: _tickHitColor,
+            currentColor: _tickCurrentColor,
           ),
         ),
       ),
@@ -785,6 +1254,18 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   void dispose() {
+    // Прибираме евентуален висящ SnackBar веднага — иначе остава да виси и
+    // след като този екран е затворен (ScaffoldMessenger е общ, не
+    // локален за reader_screen). removeCurrentSnackBar (не hideCurrentSnackBar)
+    // нарочно, за да изчезне мигновено, без анимация на излизане.
+    _scaffoldMessenger?.removeCurrentSnackBar();
+    _bookmarkIdleTimer?.cancel();
+    // Ако имаше чакащ (недовършил 3-те си секунди) запис на шрифта, го
+    // пускаме веднага сега — иначе промяната би се изгубила при излизане.
+    if (_fontSizeSaveTimer != null) {
+      _fontSizeSaveTimer!.cancel();
+      _flushFontSizeSave();
+    }
     _searchAnim.dispose();
     _searchCtrl.dispose();
     _searchFocusNode.dispose();
@@ -792,114 +1273,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.dispose();
   }
 
-  // ---------------------------------------------------------------
-  // Съставяне на HTML
-  // ---------------------------------------------------------------
-
-  /// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
-  /// този абзац без буквата; останалият HTML).
-  ///
-  /// Обхожда абзаците, докато намери такъв, който започва с истинска буква.
-  /// Така редакторски бележки в скоби ("(не путать с …)"), стоящи между
-  /// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
-  /// буквицата пада върху първия същински абзац.
-  (String, String, String, String) _splitDropCap(String html) {
-    // Абзац се ПРОПУСКА, ако същинският му текст започва с един от тези
-    // знаци — редакторски бележки, цитати, бележки под линия и др. —
-    // ИЛИ ако абзацът започва с курсивен таг (<em>/<i>): акцент/курсив
-    // не бива да носи буквица. Курсивните абзаци допълнително се
-    // центрират (клас .italic-center, виж _htmlStyles).
-    const skipChars = {'(', "'", '*', '/', '«', '"', '['};
-    final italicStart =
-        RegExp(r'^\s*<(?:em|i)\b[^>]*>', caseSensitive: false);
-
-    int scanned = 0;
-    int cursor = 0; // докъдето е "преписан" html в before
-    final before = StringBuffer();
-
-    for (final m in RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(html)) {
-      if (++scanned > 3) break; // буквица само в началото, не насред текста
-      final inner = m.group(1)!;
-
-      // Пропускаме абзаци, започващи с курсивен таг, но ги центрираме.
-      if (italicStart.hasMatch(inner)) {
-        before.write(html.substring(cursor, m.start));
-        before.write('<p class="italic-center">$inner</p>');
-        cursor = m.end;
-        continue;
-      }
-
-      // Търсим първия ЗНАЧИМ символ, като прескачаме HTML таговете.
-      // Така заглавие в <strong>/<b> в началото на абзаца не пречи —
-      // буквицата пада върху първата истинска буква след тага.
-      final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)').firstMatch(inner);
-      if (cm == null) continue;
-      final ch = cm.group(1)!;
-
-      // Пропускаме абзаца при изрично изброените знаци.
-      if (skipChars.contains(ch)) continue;
-      // Пропускаме и ако не е буква (цифри, тирета и пр.).
-      if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
-
-      before.write(html.substring(cursor, m.start));
-      return (
-        before.toString(),
-        ch,
-        // Запазваме таговете преди буквата (напр. отварящ <strong>),
-        // за да не се загуби форматирането на останалия текст.
-        inner.substring(0, cm.start) + inner.substring(cm.end),
-        html.substring(m.end),
-      );
-    }
-    // Няма подходящ абзац за буквица — връщаме html, но със запазени
-    // центрирания за курсивните абзаци, засечени дотук.
-    return (before.toString() + html.substring(cursor), '', '', '');
-  }
-
-  String _buildHtml() {
-    if (widget._mode == _ReaderMode.sluzhba) {
-      final src = widget.texts.source.isEmpty
-          ? ''
-          : '<p class="source">Източник: <a href="${widget.texts.source}">'
-              '${widget.texts.source}</a></p>';
-      return '${widget.texts.sluzhba}$src';
-    }
-
-    if (widget._mode == _ReaderMode.life) {
-      final src = widget.texts.source.isEmpty
-          ? ''
-          : '<p class="source">Източник: <a href="${widget.texts.source}">'
-              '${widget.texts.source}</a></p>';
-      return '${widget.texts.lifeHtml}$src';
-    }
-
-    final b = StringBuffer();
-    void block(String csl, String trans) {
-      if (csl.isEmpty) return;
-      final i = csl.indexOf(': ');
-      if (i > 0 && i < 40) {
-        //b.write('<h3>${csl.substring(0, i)}</h3>');
-        b.write('<p class="prayerhead">${csl.substring(0, i)}</p>');
-        b.write('<p class="csl">${csl.substring(i + 2)}</p>');
-      } else {
-        b.write('<p class="csl">$csl</p>');
-      }
-      if (trans.isNotEmpty) {
-          b.write('<p class="trans"><span class="translabel">Превод:</span> $trans</p>');
-      } 
-    }
-
-    block(widget.texts.tropar, widget.texts.troparTrans);
-    block(widget.texts.tropar2, widget.texts.tropar2Trans);
-    block(widget.texts.kondak, widget.texts.kondakTrans);
-    block(widget.texts.kondak2, widget.texts.kondak2Trans);
-
-    if (widget.texts.source.isNotEmpty) {
-      b.write('<p class="source">Източник: '
-          '<a href="${widget.texts.source}">${widget.texts.source}</a></p>');
-    }
-    return b.toString();
-  }
+  // Съставянето на HTML, делението на буквица и региони, и декодирането на
+  // всеки регион вече са ТОП-НИВО функции (виж _buildHtmlFor/_splitDropCap/
+  // _prepareReaderContent по-горе) — изпълняват се ВЕДНЪЖ, във фонов isolate
+  // (compute(), стартиран от initState), вместо да текат синхронно при
+  // всеки build(). Виж коментара при полето _prepared по-долу.
 
   // ---------------------------------------------------------------
   // Линкове
@@ -948,6 +1326,35 @@ class _ReaderScreenState extends State<ReaderScreen>
   Color get _wine => _darkMode ? const Color(0xFFA0555B) : const Color(0xFFB83333);
   //Color get _wine => _darkMode ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
 
+  /// Показва се докато _prepared е null (isolate-ът още работи) — нарочно
+  /// евтин build (само лента + spinner), за да не забавя push-а на екрана.
+  Widget _buildLoadingScaffold(BuildContext context, String title) {
+    return Scaffold(
+      backgroundColor: AppColors.toolbar,
+      body: SafeArea(
+        top: true,
+        child: Container(
+          color: _bg,
+          child: Column(
+            children: [
+              AppBar(
+                primary: false,
+                backgroundColor: AppColors.toolbar,
+                toolbarHeight: 44,
+                title: Text(title),
+              ),
+              Expanded(
+                child: Center(
+                  child: CircularProgressIndicator(color: _dim),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final title = widget._mode == _ReaderMode.life
@@ -955,27 +1362,23 @@ class _ReaderScreenState extends State<ReaderScreen>
         : widget._mode == _ReaderMode.sluzhba
             ? 'Служба'
             : prayersTitleFor(widget.texts);
-    final isLife = widget._mode == _ReaderMode.life;
 
-    final html = _buildHtml();
-    final (beforeHtml, dropCap, firstP, afterHtml) =
-        isLife ? _splitDropCap(html) : (html, '', '', '');
-
-    // Житието има ли собствено заглавие (<h1>..<h6> преди първия абзац)?
-    // Ако да — нашето име отгоре е излишно и се пропуска, за да няма
-    // два почти еднакви заглавни реда един под друг.
-    // isLife: в режима с молитвите beforeHtml съдържа целия HTML (вкл.
-    // заглавията на тропарите), затова проверката важи само за житието.
-    final hasOwnTitle =
-        (isLife || widget._mode == _ReaderMode.sluzhba) &&
-            RegExp(r'<h[1-6]\b').hasMatch(beforeHtml);
+    // Тежката подготовка (HTML, буквица, региони — виж _prepareReaderContent)
+    // още работи във фонов isolate — показваме лек spinner, вместо да
+    // блокираме push-а на екрана и анимацията на тапа, докато чакаме.
+    final prepared = _prepared;
+    if (prepared == null) {
+      return _buildLoadingScaffold(context, title);
+    }
+    final hasOwnTitle = prepared.hasOwnTitle;
+    final dropCap = prepared.dropCap;
+    final regions = prepared.regions;
+    final hasGap = prepared.hasGap;
 
     // Височина на водещата буква ≈ 5–6 реда основен текст.
     final lineHeightPx = _fontSize * _lineHeight; //1.5;
     final dropCapSize = lineHeightPx * 5.5 * 0.82; // корекция за ascender
 
-    // Региони за търсене/скролиране — виж _computeRegions().
-    final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
     }
@@ -994,14 +1397,16 @@ class _ReaderScreenState extends State<ReaderScreen>
       _measuring = false;
     }
     // Кумулативни оценени височини — виж _estimateRegionHeight() и
-    // _EstimatingListDelegate по-долу.
+    // _EstimatingListDelegate по-долу. Плоският текст/броят линкове идват
+    // вече кеширани от _prepared (изчислени веднъж, във фоновия isolate) —
+    // тук остава само евтината аритметика, затова е безопасно да тече на
+    // всеки build() (тема, търсене, смяна на шрифт).
     _cumulativeHeights = List.filled(regions.length, 0.0);
     double running = 0;
     for (int i = 0; i < regions.length; i++) {
-      final plain = _plainTextOf(regions[i].content);
-      final linkCount = 'href='.allMatches(regions[i].content).length;
-      running += _estimateRegionHeight(plain, _fontSize, _lineHeight, _viewportWidth,
-          linkCount: linkCount);
+      running += _estimateRegionHeight(
+          prepared.regionPlainTexts[i], _fontSize, _lineHeight, _viewportWidth,
+          linkCount: prepared.regionLinkCounts[i]);
       _cumulativeHeights[i] = running;
     }
     final foldedQuery =
@@ -1048,8 +1453,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
       matchOffset += count;
     }
-    // Разстояние след заглавната част (преди буквицата), ако имаше before-блок.
-    final hasGap = dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty;
+    // Разстояние след заглавната част (преди буквицата), ако имаше before-блок
+    // (hasGap идва вече от _prepared — виж горе).
     if (hasGap) {
       regionWidgets.insert(1, const SizedBox(height: _titleGap));
     }
@@ -1225,12 +1630,12 @@ class _ReaderScreenState extends State<ReaderScreen>
               size: _btnSize,
             ),
             const SizedBox(width: 18), // Разстояние между (+) и отметката
-            // Отметка — плосък стил (като лупата). TODO: истинско
-            // запазване/зареждане на позицията; засега само визуален toggle.
+            // Отметка — плосък стил (като лупата). Виж _toggleBookmark и
+            // _BookmarkStore по-горе.
             Tooltip(
               message: _isBookmarked ? 'Премахни отметката' : 'Отметни тук',
               child: InkWell(
-                onTap: () => setState(() => _isBookmarked = !_isBookmarked),
+                onTap: _toggleBookmark,
                 customBorder: const CircleBorder(),
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 150),
@@ -1272,7 +1677,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               ],
               onSelected: (value) {},
             ),
-            const SizedBox(width: 12), // Разстояние до десния край
+            const SizedBox(width: 2), // Разстояние до десния край
           ];
 
     // Търсещата лента (плъзгаща се отгоре-надолу с анимация) — обща за двата
@@ -1408,20 +1813,47 @@ class _ReaderScreenState extends State<ReaderScreen>
           )
         : buildScrollableBody(includeHeaderSliver: true);
 
-    return Scaffold(
-      backgroundColor: AppColors.toolbar,
-      body: SafeArea(
-        // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
-        // SafeArea я поеме и той, отстъпът горе се удвоява.
-        top: true,
-        child: Container(
-          color: _bg,
-          child: Stack(
-            children: [
-              mainContent,
-              if (measurementTree != null) measurementTree,
-              _buildMatchTicksOverlay(context),
-            ],
+    return PopScope(
+      // Прихваща момента на самото натискане на "назад" — синхронно, преди
+      // анимацията на прехода изобщо да е започнала. dispose() (виж по-горе)
+      // също чисти SnackBar-а, но той се изпълнява едва СЛЕД анимацията;
+      // тук го правим веднага, за да няма никакъв прозорец, в който
+      // SnackBar-ът да увисне "осиротял" по време на прехода.
+      onPopInvokedWithResult: (didPop, result) {
+        _scaffoldMessenger?.removeCurrentSnackBar();
+      },
+      child: Scaffold(
+        backgroundColor: AppColors.toolbar,
+        body: SafeArea(
+          // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
+          // SafeArea я поеме и той, отстъпът горе се удвоява.
+          top: true,
+          child: Container(
+            color: _bg,
+            child: Stack(
+              children: [
+                mainContent,
+                if (measurementTree != null) measurementTree,
+                _buildMatchTicksOverlay(context),
+                if (_showResumePrompt)
+                  Positioned(
+                    left: 16,
+                    right: 16,
+                    bottom: 16,
+                    child: SafeArea(
+                      top: false,
+                      child: _ResumePrompt(
+                        background: AppColors.backgroundCard,
+                        ink: _ink,
+                        dim: _dim,
+                        onJump: _onResumePromptJump,
+                        onDeleted: _onResumePromptDeleted,
+                        onClosed: _onResumePromptClosed,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -1673,6 +2105,224 @@ class _DropCapParagraph extends StatelessWidget {
         ],
       );
     });
+  }
+}
+
+/// Долна подкана "продължи от последната позиция" — показва се при отваряне
+/// на четиво със запазена отметка. Две състояния:
+///  - "пълно": обяснение + брояч 5→0 + бутон "иди" + бутон "пауза" (ако
+///    броячът стигне 0 без реакция, автоматично скача на позицията);
+///  - "slim" (на пауза): един ред, полупрозрачен, безсрочен, само бутоните.
+/// Swipe на "пълно" пита за потвърждение преди да изтрие отметката; swipe
+/// на "slim" просто се "събужда" обратно към пълно с пресен брояч.
+class _ResumePrompt extends StatefulWidget {
+  final Color background;
+  final Color ink;
+  final Color dim;
+  final VoidCallback onJump;
+  final VoidCallback onDeleted;
+  final VoidCallback onClosed;
+
+  const _ResumePrompt({
+    required this.background,
+    required this.ink,
+    required this.dim,
+    required this.onJump,
+    required this.onDeleted,
+    required this.onClosed,
+  });
+
+  @override
+  State<_ResumePrompt> createState() => _ResumePromptState();
+}
+
+class _ResumePromptState extends State<_ResumePrompt> {
+  static const int _countdownStart = 10;
+  int _secondsLeft = _countdownStart;
+  bool _paused = false;
+  Timer? _timer;
+  bool _closing = false; // пази от двойно извикване на onJump/onClosed
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
+  }
+
+  void _tick(Timer t) {
+    if (!mounted) {
+      t.cancel();
+      return;
+    }
+    if (_secondsLeft <= 0) {
+      t.cancel();
+      _jump();
+      return;
+    }
+    setState(() => _secondsLeft--);
+  }
+
+  void _startCountdown() {
+    _timer?.cancel();
+    setState(() => _secondsLeft = _countdownStart);
+    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
+  }
+
+  void _togglePause() {
+    setState(() => _paused = !_paused);
+    if (_paused) {
+      _timer?.cancel();
+    } else {
+      _startCountdown();
+    }
+  }
+
+  void _jump() {
+    if (_closing) return;
+    _closing = true;
+    _timer?.cancel();
+    widget.onJump();
+    widget.onClosed();
+  }
+
+  Future<bool> _confirmDelete() async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Заличаване на отметката', style: TextStyle(fontSize: 20)),
+        content: const Text(
+            'Наистина ли искате да ЗАЛИЧИТЕ запазената отметка за това четиво?',
+            style: TextStyle(fontSize: 16)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Не', style: TextStyle(fontSize: 20)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Да', style: TextStyle(fontSize: 20)),
+          ),
+        ],
+      ),
+    );
+    return result ?? false;
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  Widget _circleButton({
+    required IconData icon,
+    required VoidCallback onTap,
+    bool active = false,
+  }) {
+    return InkWell(
+      onTap: onTap,
+      customBorder: const CircleBorder(),
+      child: Container(
+        width: 34,
+        height: 34,
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: active ? widget.ink : Colors.transparent,
+          border: Border.all(color: widget.ink, width: 1.3),
+        ),
+        child: Icon(icon, size: 18, color: active ? widget.background : widget.ink),
+      ),
+    );
+  }
+
+  Widget _buildFull() {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                'Имате запазена позиция в това четиво.',
+                style: TextStyle(color: widget.ink, fontSize: 18),
+              ),
+            ),
+            const SizedBox(width: 8),
+            _circleButton(icon: Icons.arrow_forward, onTap: _jump),
+          ],
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: Text('Отваря се след $_secondsLeft…',
+                  style: TextStyle(color: widget.dim, fontSize: 13)),
+            ),
+            Text('Изчакай', style: TextStyle(color: widget.dim, fontSize: 13)),
+            const SizedBox(width: 6),
+            _circleButton(icon: Icons.pause, onTap: _togglePause),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildSlim() {
+    return Row(
+      children: [
+        _circleButton(icon: Icons.pause, onTap: _togglePause, active: true),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text('Отиди на отметката',
+              textAlign: TextAlign.right,
+              style: TextStyle(color: widget.ink, fontSize: 14)),
+        ),
+        const SizedBox(width: 10),
+        _circleButton(icon: Icons.arrow_forward, onTap: _jump),
+      ],
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final card = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: widget.background,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 2)),
+        ],
+      ),
+      child: _paused ? _buildSlim() : _buildFull(),
+    );
+
+    return Dismissible(
+      key: ValueKey(_paused ? 'resume-slim' : 'resume-full'),
+      direction: DismissDirection.horizontal,
+      confirmDismiss: (_) async {
+        if (_paused) {
+          // Swipe на slim = "събуди се" — обратно към пълно с пресен брояч.
+          _togglePause();
+          return false;
+        }
+        // Спираме брояча веднага — иначе докато диалогът за потвърждение
+        // виси, той продължава да тече във фонов режим и може да "скочи"
+        // към отметката точно докато потребителят чете диалога.
+        _timer?.cancel();
+        final confirmed = await _confirmDelete();
+        if (confirmed) {
+          widget.onDeleted();
+          widget.onClosed();
+          return true;
+        }
+        _startCountdown(); // "Не" -> нулира брояча отначало
+        return false;
+      },
+      child: card,
+    );
   }
 }
 
