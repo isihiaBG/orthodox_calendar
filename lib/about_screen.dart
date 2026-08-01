@@ -167,10 +167,10 @@ class _AboutScreenState extends State<AboutScreen> {
                     children: [
                       _firstLineIndent,
                       const TextSpan(
-                          text: 'Моля за прошка, ако се натъкнете на неточност '
-                              'или неудобство. С благодарност приемам '
+                          text: 'Моля за прошка, ако се натъкнете тук на неточност '
+                              'или неудобство. С благодарност бих приел '
                               'забележки и препоръки за подобряване '
-                              'на приложението на адрес: '),
+                              'на приложението на адрес: \n'),
                       _linkSpan(_feedbackEmail, _emailTap),
                     ],
                   ),
@@ -183,7 +183,8 @@ class _AboutScreenState extends State<AboutScreen> {
                     children: [
                       _firstLineIndent,
                       const TextSpan(
-                          text: 'Можете свободно да разгледате изходния код на приложението на: '),
+                          text: 'Можете свободно да разгледате изходния код '
+                          'на приложението на адрес: \n'),
                       _linkSpan('github.com/isihiaBG/orthodox_calendar', _githubTap),
                     ],
                   ),
