@@ -8,9 +8,12 @@
 
 import 'package:flutter/material.dart';
 
+import 'app_drawer.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'saint_expandable_tile.dart'
+    show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
 
 const String _titleFamily = 'TamburinModern';
 const String _bodyFamily = 'Cambria';
@@ -54,7 +57,7 @@ const List<_FeastSpec> _feasts = [
   _FeastSpec('РОЖДЕСТВО НА ПРЕСВЕТА БОГОРОДИЦА', true, 'Рождество на Пресвета Богородица (Малка Богородица)', _FeastCategory.fixed12),
   _FeastSpec('ВЪЗДВИЖЕНИЕ НА ЧЕСТНИЯ', true, 'Въздвижение на Светия Кръст Господен (Кръстовден)', _FeastCategory.fixed12),
   _FeastSpec('ВЪВЕДЕНИЕ БОГОРОДИЧНО', true, 'Въведение Богородично (Ден на християнското семейство)', _FeastCategory.fixed12),
-  _FeastSpec('РОЖДЕСТВО ХРИСТОВО', true, 'Рождество Христово (Коледа)', _FeastCategory.fixed12),
+  _FeastSpec('РОЖДЕСТВО ХРИСТОВО', true, 'Рождество Христово', _FeastCategory.fixed12),
   _FeastSpec('БОГОЯВЛЕНИЕ', true, 'Богоявление (Йордановден)', _FeastCategory.fixed12),
   _FeastSpec('СРЕТЕНИЕ НА ГОСПОДА', true, 'Сретение Господне', _FeastCategory.fixed12),
   _FeastSpec('БЛАГОВЕЩЕНИЕ НА ПРЕСВЕТА', true, 'Благовещение', _FeastCategory.fixed12),
@@ -77,11 +80,29 @@ const List<_FeastSpec> _feasts = [
 class _FeastResult {
   final _FeastSpec spec;
   final DateTime civilDate; // датата от базата (номерация по нов стил)
-  const _FeastResult(this.spec, this.civilDate);
+  final int? id;
+  final String? slug;
+  final int rank;
+  final bool hasTropar;
+  final bool hasKondak;
+  final bool hasLife;
+  final bool hasSluzhba;
+  const _FeastResult(
+    this.spec,
+    this.civilDate, {
+    this.id,
+    this.slug,
+    required this.rank,
+    this.hasTropar = false,
+    this.hasKondak = false,
+    this.hasLife = false,
+    this.hasSluzhba = false,
+  });
 }
 
 class HolidaysScreen extends StatefulWidget {
-  const HolidaysScreen({super.key});
+  final SaintLookup lookup;
+  const HolidaysScreen({super.key, required this.lookup});
 
   @override
   State<HolidaysScreen> createState() => _HolidaysScreenState();
@@ -115,18 +136,42 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
 
   Future<void> _loadYear(int year) async {
     if (mounted) setState(() => _loading = true);
+    try {
+      await _loadYearInner(year);
+    } catch (e) {
+      // Без този catch една провалена заявка оставяше _loading = true
+      // завинаги — екранът висеше на въртящ се спинър, без никакъв знак
+      // какво е станало.
+      debugPrint('[holidays] грешка при зареждане на година $year: $e');
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadYearInner(int year) async {
     final db = await DatabaseHelper.database;
     final startDate = '$year-01-14';
     final endDate = '${year + 1}-01-13';
     final results = <_FeastResult>[];
     for (final spec in _feasts) {
-      final rows = await db.rawQuery(
-        'SELECT date FROM saints WHERE date BETWEEN ? AND ? AND name LIKE ?'
-        '${spec.requireRank1 ? ' AND rank = 1' : ''} LIMIT 1',
-        [startDate, endDate, '%${spec.pattern}%'],
-      );
+      // Същата заявка (id, slug, флагове за тропар/кондак/житие/служба),
+      // каквато дневният изглед ползва за SaintExpandableTile — виж
+      // main.dart._loadDay. Така редовете тук се разгъват по идентични
+      // условия.
+      final rows = await db.rawQuery('''
+        SELECT s.id, s.date, s.rank, s.slug,
+              (l.tropar  IS NOT NULL AND l.tropar  != '') AS has_tropar,
+              (l.kondak  IS NOT NULL AND l.kondak  != '') AS has_kondak,
+              (l.life    IS NOT NULL AND l.life    != '') AS has_life,
+              (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
+        FROM saints s
+        LEFT JOIN lives.texts l ON l.slug = s.slug
+        WHERE s.date BETWEEN ? AND ? AND s.name LIKE ?
+        ${spec.requireRank1 ? ' AND s.rank = 1' : ''}
+        LIMIT 1
+      ''', [startDate, endDate, '%${spec.pattern}%']);
       if (rows.isEmpty) continue;
-      final dateStr = rows.first['date'] as String;
+      final row = rows.first;
+      final dateStr = row['date'] as String;
       results.add(_FeastResult(
         spec,
         DateTime.utc(
@@ -134,6 +179,13 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
           int.parse(dateStr.substring(5, 7)),
           int.parse(dateStr.substring(8, 10)),
         ),
+        id: row['id'] as int?,
+        slug: row['slug'] as String?,
+        rank: row['rank'] as int? ?? 6,
+        hasTropar: (row['has_tropar'] as int? ?? 0) == 1,
+        hasKondak: (row['has_kondak'] as int? ?? 0) == 1,
+        hasLife: (row['has_life'] as int? ?? 0) == 1,
+        hasSluzhba: (row['has_sluzhba'] as int? ?? 0) == 1,
       ));
     }
     if (!mounted) return;
@@ -153,7 +205,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   /// разделителя "/") — по-бледа. Иконките са НАРОЧНО малко по-големи от
   /// текста, за да не изглеждат дребни/незабележими до него.
   List<InlineSpan> _dateSpans(DateTime civilDate, double fontSize) {
-    final iconSize = fontSize + 6;
+    final iconSize = fontSize + 4;
     final leadStyle = TextStyle(
         color: _ink, fontFamily: _bodyFamily, fontSize: fontSize, fontWeight: FontWeight.w600);
     final dimStyle = TextStyle(
@@ -196,17 +248,66 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
     ];
   }
 
+  /// Обвива collapsedRow в SaintExpandableTile — СЪЩИЯТ компонент, ползван
+  /// в дневния изглед (виж main.dart._loadDay), със същите условия за
+  /// разгъване (тропар/кондак/житие/служба). Стрелката за разгъване идва
+  /// от самия компонент — нарочно НЕ пипаме нейния отстъп тук, за да не
+  /// разминем визуалния вид с дневния изглед.
+  /// Пълните текстове на ЕДИН конкретен календарен ред (по id) — същата
+  /// заявка, ползвана от дневния изглед (main.dart._loadSaintTexts).
+  Future<SaintTexts?> _loadTextsById(int? id) async {
+    if (id == null) return null;
+    final db = await DatabaseHelper.database;
+    final r = await db.rawQuery('''
+      SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
+             l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
+             l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
+             l.life, l.sluzhba, l.source, s.slug
+      FROM saints s
+      LEFT JOIN lives.texts l ON l.slug = s.slug
+      WHERE s.id = ?
+      LIMIT 1
+    ''', [id]);
+    if (r.isEmpty) return null;
+    return SaintTexts.fromMap(r.first);
+  }
+
+  Widget _expandableWrap(_FeastResult r, Widget collapsedRow) {
+    return SaintExpandableTile(
+      collapsedRow: collapsedRow,
+      hasTropar: r.hasTropar,
+      hasKondak: r.hasKondak,
+      hasLife: r.hasLife,
+      hasSluzhba: r.hasSluzhba,
+      lifeLabel: lifeLabelFor(rank: r.rank, name: r.spec.displayName),
+      // По id на КОНКРЕТНИЯ ред, не по slug: предпразненство/попразненство
+      // споделят slug-а на самия празник, така че търсене по slug връща
+      // произволен от тях (наблюдавано: "Предпразненство на Въздвижение"
+      // вместо самия празник). id-то се чете живо при всяко отваряне на
+      // екрана и никъде не се запазва, затова е безопасно спрямо бъдещи
+      // промени в базата.
+      loadTexts: () => _loadTextsById(r.id),
+      lookup: widget.lookup,
+      // По-тесен слот за стрелката — редовете тук са по-дълги (дата + име)
+      // и при естествената ѝ широчина често се пренасяха на трети ред.
+      arrowSlotWidth: 6,
+    );
+  }
+
   Widget _feastRow(_FeastResult r) {
     const nameStyle = TextStyle(fontFamily: _bodyFamily, fontSize: 17, color: _ink, height: 1.35);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
-      child: Text.rich(
-        TextSpan(
-          children: [
-            ..._dateSpans(r.civilDate, 17),
-            const TextSpan(text: '  –  ', style: TextStyle(color: _dim)),
-            TextSpan(text: r.spec.displayName, style: nameStyle),
-          ],
+      child: _expandableWrap(
+        r,
+        Text.rich(
+          TextSpan(
+            children: [
+              ..._dateSpans(r.civilDate, 17),
+              const TextSpan(text: '  –  ', style: TextStyle(color: _dim)),
+              TextSpan(text: r.spec.displayName, style: nameStyle),
+            ],
+          ),
         ),
       ),
     );
@@ -217,23 +318,26 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   Widget _paschaRow(_FeastResult r) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 20),
-      child: Column(
-        children: [
-          Text(
-            r.spec.displayName,
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-                fontFamily: _bodyFamily,
-                fontSize: 20,
-                fontWeight: FontWeight.bold,
-                color: _headingRed),
-          ),
-          const SizedBox(height: 6),
-          Text.rich(
-            TextSpan(children: _dateSpans(r.civilDate, 20)),
-            textAlign: TextAlign.center,
-          ),
-        ],
+      child: _expandableWrap(
+        r,
+        Column(
+          children: [
+            Text(
+              r.spec.displayName,
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                  fontFamily: _bodyFamily,
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: _headingRed),
+            ),
+            const SizedBox(height: 6),
+            Text.rich(
+              TextSpan(children: _dateSpans(r.civilDate, 20)),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -273,8 +377,11 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppColors.toolbar,
+      // Меню вместо стрелка "назад" — виж коментара в about_screen.dart.
+      drawer: const AppDrawer(),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
+        toolbarHeight: 44,
         title: const Text('Празници'),
       ),
       body: SafeArea(
@@ -283,7 +390,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
           child: _loading
               ? const Center(child: CircularProgressIndicator())
               : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
+                  padding: const EdgeInsets.fromLTRB(24, 6, 24, 40),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [

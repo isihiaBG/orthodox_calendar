@@ -14,6 +14,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'database_helper.dart';
 import 'reader_screen.dart';
 
 /// Текстовете на един светия (ред от таблицата saints с новите колони).
@@ -65,6 +66,36 @@ class SaintTexts {
 
 /// Търсене по слъг — за saint:// линковете в житията.
 typedef SaintLookup = Future<SaintTexts?> Function(String slug);
+
+/// Реализацията на SaintLookup — за saint:// линковете в житията, а и за
+/// всяко друго място, нуждаещо се от пълните текстове по слъг (напр.
+/// HolidaysScreen). Стои ТУК, до SaintTexts, а не в някой екран, за да е
+/// достъпна отвсякъде без кръстосани зависимости между екраните.
+///
+/// ТУК Е ПЕЧАЛБАТА ОТ ОТДЕЛНАТА БАЗА: тръгва се от lives.texts, не от
+/// календара. Иначе линк към светия без календарен ред казваше "няма
+/// запис" — а такива са стотици: светогорците, които се честват само на
+/// подвижния съборен ден, и всички, към които житията препращат, без да
+/// са в тазгодишния календар.
+///
+/// Календарът се закача отляво САМО за името: ако светията има ред в
+/// него, показваме българското име; ако няма — падаме към името от
+/// lives (то е руското от azbyka и затова се превежда).
+Future<SaintTexts?> lookupBySlug(String slug) async {
+  final db = await DatabaseHelper.database;
+  final r = await db.rawQuery('''
+    SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
+           l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
+           l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
+           l.life, l.sluzhba, l.source, l.slug
+    FROM lives.texts l
+    LEFT JOIN saints s ON s.slug = l.slug
+    WHERE l.slug = ?
+    LIMIT 1
+  ''', [slug]);
+  if (r.isEmpty) return null;
+  return SaintTexts.fromMap(r.first);
+}
 
 /// Кой раздел се отваря при тап върху секция.
 enum _Section { prayers, life, sluzhba }
@@ -119,6 +150,12 @@ class SaintExpandableTile extends StatefulWidget {
   /// Търсене по слъг за вътрешните линкове (подава се на четеца).
   final SaintLookup lookup;
 
+  /// Колко хоризонтално място да заема стрелката. null = естествената ѝ
+  /// широчина (дневният изглед). По-малка стойност я издърпва вдясно и
+  /// оставя повече място на текста — ползва се в екрана с празниците,
+  /// където по-широкият ред иначе би се пренасял на трети ред.
+  final double? arrowSlotWidth;
+
   const SaintExpandableTile({
     super.key,
     required this.collapsedRow,
@@ -129,6 +166,7 @@ class SaintExpandableTile extends StatefulWidget {
     this.lifeLabel = 'Житие',
     required this.loadTexts,
     required this.lookup,
+    this.arrowSlotWidth,
   });
 
   @override
@@ -181,13 +219,34 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
               if (_hasAnything)
                 Padding(
                   padding: const EdgeInsets.only(top: 6),
-                  child: AnimatedRotation(
-                    turns: _expanded ? 0.25 : 0.0, // ▸ → ▾
-                    duration: const Duration(milliseconds: 180),
-                    child: Icon(
-                      Icons.arrow_right,
-                      size: 20,
-                      color: Theme.of(context).hintColor,
+                  // ВАЖНО: и двете измерения са ИЗРИЧНИ. OverflowBox се
+                  // оразмерява по МАКСИМУМА на входящите ограничения, а тук
+                  // височината идва неограничена (редът живее в скролируем
+                  // Column) — без явната height той приема безкрайна
+                  // височина и чупи цялото подреждане на екрана.
+                  child: SizedBox(
+                    width: widget.arrowSlotWidth ?? 20,
+                    height: 20,
+                    // Иконата се рисува в ПЪЛЕН размер, но заема само
+                    // arrowSlotWidth хоризонтално място — излишъкът излиза
+                    // надясно, в отстъпа на екрана.
+                    child: OverflowBox(
+                      maxWidth: 20,
+                      maxHeight: 20,
+                      // centerLeft (не centerRight!): иконата тръгва от
+                      // ЛЕВИЯ ръб на слота и стърчи НАДЯСНО, в отстъпа на
+                      // екрана. С centerRight тя стърчеше наляво и лягаше
+                      // върху текста.
+                      alignment: Alignment.centerLeft,
+                      child: AnimatedRotation(
+                        turns: _expanded ? 0.25 : 0.0, // ▸ → ▾
+                        duration: const Duration(milliseconds: 180),
+                        child: Icon(
+                          Icons.arrow_right,
+                          size: 20,
+                          color: Theme.of(context).hintColor,
+                        ),
+                      ),
                     ),
                   ),
                 ),
