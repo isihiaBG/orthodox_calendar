@@ -35,7 +35,7 @@ const String _closingParagraph =
     'Приятно и спасително прекарване на времето с вдъхновяващите разкази '
     'от житията и възпоменанията за нашите хубави православни празници!';
 
-const String _feedbackEmail = 'orthodox.calendar.bulgarian@gmail.com';
+const String _feedbackEmail = 'isihiaBG.orthodox.calendar@gmail.com';
 const String _githubUrl = 'https://github.com/isihiaBG/orthodox_calendar';
 
 /// Лек отстъп само на ПЪРВИЯ ред на абзац (като Tab) — Flutter няма вграден
