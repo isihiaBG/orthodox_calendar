@@ -6,12 +6,18 @@
 // динамично от текущо избраната календарна база (calendar_old.db /
 // calendar_new.db — вижте DatabaseHelper), за избраната година.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'app_drawer.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+import 'settings_screen.dart';
+import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
 
@@ -109,6 +115,25 @@ class HolidaysScreen extends StatefulWidget {
 }
 
 class _HolidaysScreenState extends State<HolidaysScreen> {
+  // БАЗОВ размер на шрифта — всички размери в екрана са производни от
+  // него (виж _fs), за да реагират ВСИЧКИ на бутоните -/+ ; никъде не
+  // бива да остава фиксирана стойност, иначе тя няма да се променя.
+  // static: пази се за сесията; на диска се записва с debounce (виж
+  // _scheduleFontSizeSave), както в четеца.
+  static double _baseFont = 17.0;
+  static const double _fontStep = 1.0;
+  static const double _fontMin = 13.0;
+  static const double _fontMax = 26.0;
+  static const String _fontKey = 'holidays_font_size';
+  static bool _fontLoadedFromDisk = false;
+  static double? _lastSavedFont;
+  Timer? _fontSaveTimer;
+
+  /// Размер спрямо базовия — единственият начин за задаване на шрифт тук.
+  double _fs(double delta) => _baseFont + delta;
+
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
   List<int> _availableYears = const [];
   int? _selectedYear;
   List<_FeastResult>? _results;
@@ -117,7 +142,54 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   @override
   void initState() {
     super.initState();
+    _loadPersistedFontOnce().then((_) {
+      if (mounted) setState(() {});
+    });
     _init();
+  }
+
+  static Future<void> _loadPersistedFontOnce() async {
+    if (_fontLoadedFromDisk) return;
+    _fontLoadedFromDisk = true;
+    final prefs = await SharedPreferences.getInstance();
+    final saved = prefs.getDouble(_fontKey);
+    if (saved != null) {
+      _baseFont = saved.clamp(_fontMin, _fontMax);
+      _lastSavedFont = _baseFont;
+    }
+  }
+
+  /// Записът чака 3 сек. покой (потребителят обикновено цъка няколко пъти,
+  /// докато намери размера) и се случва само при реална промяна.
+  void _scheduleFontSave() {
+    _fontSaveTimer?.cancel();
+    _fontSaveTimer = Timer(const Duration(seconds: 3), _flushFontSave);
+  }
+
+  void _flushFontSave() {
+    _fontSaveTimer = null;
+    if (_lastSavedFont == _baseFont) return;
+    _lastSavedFont = _baseFont;
+    SharedPreferences.getInstance()
+        .then((prefs) => prefs.setDouble(_fontKey, _baseFont));
+  }
+
+  void _bumpFont(double delta) {
+    setState(() {
+      _baseFont = (_baseFont + delta).clamp(_fontMin, _fontMax);
+    });
+    _scheduleFontSave();
+  }
+
+  @override
+  void dispose() {
+    // Недовършил своите 3 секунди запис — пускаме го веднага, иначе
+    // промяната би се загубила при излизане от екрана.
+    if (_fontSaveTimer != null) {
+      _fontSaveTimer!.cancel();
+      _flushFontSave();
+    }
+    super.dispose();
   }
 
   Future<void> _init() async {
@@ -295,7 +367,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   }
 
   Widget _feastRow(_FeastResult r) {
-    const nameStyle = TextStyle(fontFamily: _bodyFamily, fontSize: 17, color: _ink, height: 1.35);
+    final nameStyle = TextStyle(fontFamily: _bodyFamily, fontSize: _fs(1), color: _ink, height: 1.35);
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: _expandableWrap(
@@ -303,7 +375,7 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
         Text.rich(
           TextSpan(
             children: [
-              ..._dateSpans(r.civilDate, 17),
+              ..._dateSpans(r.civilDate, _fs(1)),
               const TextSpan(text: '  –  ', style: TextStyle(color: _dim)),
               TextSpan(text: r.spec.displayName, style: nameStyle),
             ],
@@ -325,15 +397,15 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
             Text(
               r.spec.displayName,
               textAlign: TextAlign.center,
-              style: const TextStyle(
+              style: TextStyle(
                   fontFamily: _bodyFamily,
-                  fontSize: 20,
+                  fontSize: _fs(2),
                   fontWeight: FontWeight.bold,
                   color: _headingRed),
             ),
             const SizedBox(height: 6),
             Text.rich(
-              TextSpan(children: _dateSpans(r.civilDate, 20)),
+              TextSpan(children: _dateSpans(r.civilDate, _fs(3))),
               textAlign: TextAlign.center,
             ),
           ],
@@ -345,9 +417,9 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   Widget _h2(String text) => Padding(
         padding: const EdgeInsets.only(top: 20, bottom: 6),
         child: Text(text,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: _bodyFamily,
-                fontSize: 22,
+                fontSize: _fs(5),
                 fontWeight: FontWeight.bold,
                 color: _headingRed)),
       );
@@ -356,9 +428,9 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   Widget _hint(String text) => Padding(
         padding: const EdgeInsets.only(bottom: 12),
         child: Text(text,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: _bodyFamily,
-                fontSize: 17,
+                fontSize: _fs(0),
                 fontStyle: FontStyle.italic,
                 color: _dim)),
       );
@@ -366,9 +438,9 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   Widget _h3(String text) => Padding(
         padding: const EdgeInsets.only(top: 8, bottom: 8),
         child: Text(text,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: _bodyFamily,
-                fontSize: 19,
+                fontSize: _fs(2),
                 fontWeight: FontWeight.bold,
                 color: _headingRed)),
       );
@@ -376,13 +448,52 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      key: _scaffoldKey,
       backgroundColor: AppColors.toolbar,
       // Меню вместо стрелка "назад" — виж коментара в about_screen.dart.
       drawer: const AppDrawer(),
+      // Настройките — 1:1 както в дневния изглед (виж main.dart): същият
+      // endDrawer, същият бутон. onEndDrawerChanged + hook-ът правят
+      // промените видими ЖИВО зад отворения drawer.
+      onEndDrawerChanged: (isOpen) {
+        if (!isOpen) setState(() {});
+      },
+      endDrawer: SettingsDrawer(onChanged: (styleChanged) {
+        appSettingsChangedHook?.call(styleChanged);
+        if (mounted) setState(() {}); // датите зависят от стила → преначертаваме
+      }),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 44,
         title: const Text('Празници'),
+        actions: [
+          // Същите бутони като в четеца — общият RoundIconButton, същият
+          // размер и разстояние помежду им (виж reader_screen.dart).
+          RoundIconButton(
+            icon: Icons.remove,
+            tooltip: 'По-дребен шрифт',
+            enabled: _baseFont > _fontMin,
+            onTap: () => _bumpFont(-_fontStep),
+            size: 22,
+          ),
+          const SizedBox(width: 18),
+          RoundIconButton(
+            icon: Icons.add,
+            tooltip: 'По-едър шрифт',
+            enabled: _baseFont < _fontMax,
+            onTap: () => _bumpFont(_fontStep),
+            size: 22,
+          ),
+          const SizedBox(width: 14),
+          // ================ Настройки =================
+          IconButton(
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
+            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+          ),
+          const SizedBox(width: 8),
+        ],
       ),
       body: SafeArea(
         child: Container(
@@ -394,19 +505,22 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
+                      Text(
                         'Църковни празници',
                         textAlign: TextAlign.center,
                         style: TextStyle(
-                            fontFamily: _titleFamily, fontSize: 40, height: 1.25, color: _ink),
+                            fontFamily: _titleFamily,
+                            fontSize: _fs(23),
+                            height: 1.25,
+                            color: _ink),
                       ),
-                      const SizedBox(height: 15),
-                      const Text(
+                      const SizedBox(height: 10),
+                      Text(
                         'изберете година',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                             fontFamily: _bodyFamily,
-                            fontSize: 18,
+                            fontSize: _fs(2),
                             fontStyle: FontStyle.italic,
                             color: _dim),
                       ),
@@ -416,8 +530,8 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
                           value: _selectedYear,
                           dropdownColor: AppColors.toolbar,
                           underline: const SizedBox.shrink(),
-                          style: const TextStyle(
-                              fontFamily: _titleFamily, fontSize: 40, color: _ink),
+                          style: TextStyle(
+                              fontFamily: _titleFamily, fontSize: _fs(23), color: _ink),
                           items: _availableYears
                               .map((y) => DropdownMenuItem(value: y, child: Text('$y')))
                               .toList(),

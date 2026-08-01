@@ -31,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart'
     show SaintTexts, SaintLookup, prayersTitleFor;
 
@@ -1421,7 +1422,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           ),
           const SizedBox(width: 12),
-          _RoundIconButton(
+          RoundIconButton(
             icon: Icons.search,
             tooltip: 'Старт на търсенето',
             enabled: true,
@@ -1429,7 +1430,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             size: _searchBtnSize,
           ),
           const SizedBox(width: 16),
-          _RoundIconButton(
+          RoundIconButton(
             icon: Icons.chevron_left,
             tooltip: 'Предишно съвпадение',
             enabled: _totalMatches > 0,
@@ -1437,7 +1438,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             size: _searchBtnSize,
           ),
           const SizedBox(width: 16),
-          _RoundIconButton(
+          RoundIconButton(
             icon: Icons.chevron_right,
             tooltip: 'Следващо съвпадение',
             enabled: _totalMatches > 0,
@@ -1826,7 +1827,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               ),
             ),
             const SizedBox(width: 18), // Разстояние между Тогъл и (-)
-            _RoundIconButton(
+            RoundIconButton(
               icon: Icons.remove,
               tooltip: 'По-дребен шрифт',
               enabled: _fontSize > _min,
@@ -1834,7 +1835,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               size: _btnSize,
             ),
             const SizedBox(width: 18), // Разстояние между (-) и (+)
-            _RoundIconButton(
+            RoundIconButton(
               icon: Icons.add,
               tooltip: 'По-едър шрифт',
               enabled: _fontSize < _max,
@@ -2540,47 +2541,6 @@ class _ResumePromptState extends State<_ResumePrompt> {
         return false;
       },
       child: card,
-    );
-  }
-}
-
-/// Кръгло бутонче с икона за лентата (+ / −).
-class _RoundIconButton extends StatelessWidget {
-  final IconData icon;
-  final String tooltip;
-  final bool enabled;
-  final VoidCallback onTap;
-  final double size;
-
-  const _RoundIconButton({
-    required this.icon,
-    required this.tooltip,
-    required this.enabled,
-    required this.onTap,
-    this.size = 26,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final color = enabled
-        ? (AppBarTheme.of(context).foregroundColor ?? Colors.white)
-        : Colors.white38;
-    return Tooltip(
-      message: tooltip,
-      child: InkWell(
-        onTap: enabled ? onTap : null,
-        customBorder: const CircleBorder(),
-        child: Container(
-          width: size,
-          height: size,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: color, width: 1.3),
-          ),
-          child: Icon(icon, size: size * 0.72, color: color),
-        ),
-      ),
     );
   }
 }
