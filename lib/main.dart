@@ -9,7 +9,13 @@ import 'search_screen.dart';
 import 'day_screen.dart';
 import 'month_screen.dart';
 
-void main() {
+void main() async {
+  // Настройките се четат ПРЕДИ първия кадър: DatabaseHelper избира базата
+  // (стар/нов стил) по AppSettings.isOldStyle, така че стойността трябва
+  // да е налична още преди приложението да е тръгнало — иначе стартира с
+  // подразбирането и после би се наложило да превключва базата.
+  WidgetsFlutterBinding.ensureInitialized();
+  await AppSettings.load();
   runApp(const OrthodoxCalendarApp());
 }
 
