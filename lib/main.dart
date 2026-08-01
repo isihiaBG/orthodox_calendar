@@ -6,6 +6,7 @@ import 'app_settings.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'settings_screen.dart';
 import 'about_screen.dart';
+import 'holidays_screen.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'month_screen.dart';
@@ -246,7 +247,12 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           _drawerItem(Icons.auto_stories, 'Молитвослов', () {}),
           _drawerItem(Icons.book, 'Библия', () {}),
           _drawerItem(Icons.menu_book, 'Месецослов', () {}),
-          _drawerItem(Icons.church, 'Празници', () {}),
+          _drawerItem(Icons.church, 'Празници', () {
+            Navigator.pop(context);
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const HolidaysScreen(),
+            ));
+          }),
           _drawerItemSvg('assets/icons/candle.svg', 'Дни за помени', () {}),
           _drawerItem(Icons.no_meals, 'Пости', () {}),
           _drawerItem(Icons.info_outline, 'Справочник', () {}),
