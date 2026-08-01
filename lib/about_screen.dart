@@ -10,6 +10,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'app_drawer.dart';
 import 'app_theme.dart';
 
 const String _titleFamily = 'TamburinModern';
@@ -107,6 +108,9 @@ class _AboutScreenState extends State<AboutScreen> {
 
     return Scaffold(
       backgroundColor: AppColors.toolbar,
+      // Меню вместо стрелка "назад" — от всеки екран потребителят може да
+      // скочи направо в друг раздел, без да минава обратно през календара.
+      drawer: const AppDrawer(),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         title: const Text('За приложението'),
