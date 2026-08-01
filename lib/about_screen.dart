@@ -85,6 +85,7 @@ class _AboutScreenState extends State<AboutScreen> {
       style: const TextStyle(
         color: AppColors.sectionTitle,
         decoration: TextDecoration.none,
+        fontSize: _fontSize - 4,
       ),
     );
   }
@@ -166,8 +167,10 @@ class _AboutScreenState extends State<AboutScreen> {
                     children: [
                       _firstLineIndent,
                       const TextSpan(
-                          text: 'С благодарност приемаме препоръки и забележки за '
-                              'подобряване на приложението на адрес: '),
+                          text: 'Моля за прошка, ако се натъкнете на неточност '
+                              'или неудобство. С благодарност приемам '
+                              'забележки и препоръки за подобряване '
+                              'на приложението на адрес: '),
                       _linkSpan(_feedbackEmail, _emailTap),
                     ],
                   ),
@@ -180,7 +183,7 @@ class _AboutScreenState extends State<AboutScreen> {
                     children: [
                       _firstLineIndent,
                       const TextSpan(
-                          text: 'Можете да разгледате изходния код на приложението на: '),
+                          text: 'Можете свободно да разгледате изходния код на приложението на: '),
                       _linkSpan('github.com/isihiaBG/orthodox_calendar', _githubTap),
                     ],
                   ),
