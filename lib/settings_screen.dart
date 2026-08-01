@@ -55,6 +55,7 @@ class _SettingsContentState extends State<SettingsContent> {
                 _isOldStyle = newIsOldStyle;
                 AppSettings.isOldStyle = newIsOldStyle;
               });
+              await AppSettings.save();
               await DatabaseHelper.resetDatabase();
               await DatabaseHelper.database;
               widget.onChanged?.call(true);
@@ -122,6 +123,7 @@ class _SettingsContentState extends State<SettingsContent> {
                               _oldStyleFirst = !value.first;
                               AppSettings.oldStyleFirst = !value.first;
                             });
+                            AppSettings.save();
                             widget.onChanged?.call(false);
                           },
                         ),
