@@ -11,6 +11,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 
 import 'about_screen.dart';
 import 'app_theme.dart';
+import 'fasts_screen.dart';
 import 'holidays_screen.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'settings_screen.dart';
@@ -77,7 +78,9 @@ class AppDrawer extends StatelessWidget {
             _openScreen(context, (_) => const HolidaysScreen(lookup: lookupBySlug));
           }),
           _itemSvg('assets/icons/candle.svg', 'Дни за помени', () {}),
-          _item(Icons.no_meals, 'Пости', () {}),
+          _item(Icons.no_meals, 'Пости', () {
+            _openScreen(context, (_) => const FastsScreen(lookup: lookupBySlug));
+          }),
           _item(Icons.info_outline, 'Справочник', () {}),
           const Divider(color: AppColors.drawerDivider),
           const Padding(
