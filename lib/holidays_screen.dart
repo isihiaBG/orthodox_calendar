@@ -163,7 +163,6 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
 
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
-  List<int> _availableYears = const [];
   int? _selectedYear;
   List<_FeastResult>? _results;
   bool _loading = true;
@@ -223,10 +222,8 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
 
   Future<void> _init() async {
     // Годините вече НЕ зависят от обхвата на базата — датите се смятат
-    // (виж _loadYearInner), затова обхватът е същият като в "Пости".
-    final now = DateTime.now().year;
-    _availableYears = [for (int y = now - 10; y <= now + 20; y++) y];
-    await _loadYear(now);
+    // (виж _loadYearInner), а изборът е решетка (виж year_selector.dart).
+    await _loadYear(DateTime.now().year);
   }
 
   Future<void> _loadYear(int year) async {
@@ -425,11 +422,17 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
       // endDrawer, същият бутон. onEndDrawerChanged + hook-ът правят
       // промените видими ЖИВО зад отворения drawer.
       onEndDrawerChanged: (isOpen) {
-        if (!isOpen) setState(() {});
+        // При затваряне също преизчисляваме — стилът може да е сменен, а
+        // датите тук са кеширани (виж бележката при endDrawer).
+        if (!isOpen && mounted) _loadYear(_selectedYear ?? DateTime.now().year);
       },
       endDrawer: SettingsDrawer(onChanged: (styleChanged) {
         appSettingsChangedHook?.call(styleChanged);
-        if (mounted) setState(() {}); // датите зависят от стила → преначертаваме
+        // ВАЖНО: тук датите са ИЗЧИСЛЕНИ ВЕДНЪЖ и кеширани в _results, за
+        // разлика от "Пости", където се смятат при всяко рисуване. Затова
+        // при смяна на стила не стига преначертаване — трябва пълно
+        // преизчисляване, иначе остават стойности от предишния режим.
+        if (mounted) _loadYear(_selectedYear ?? DateTime.now().year);
       }),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
@@ -497,7 +500,6 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
                       Center(
                         child: YearSelector(
                           value: _selectedYear ?? DateTime.now().year,
-                          years: _availableYears,
                           onChanged: _loadYear,
                           fontSize: _fs(23),
                           fontFamily: _titleFamily,

@@ -95,7 +95,7 @@ const List<_FastSpec> _singleDayFasts = [
       fixedFrom: (8, 29),
       singleDay: true),
   _FastSpec(
-      name: 'Въздвижение на Светия Кръст Господен',
+      name: 'Въздвижение на Честния и Животворящ Кръст Господен',
       fixedFrom: (9, 14),
       singleDay: true),
 ];
@@ -104,14 +104,14 @@ const List<_FastSpec> _singleDayFasts = [
 // Всички без Светките са подвижни и се смятат от Пасха.
 const List<_FastSpec> _fastFreeWeeks = [
   _FastSpec(
-      name: 'Светки',
+      name: 'След Рождество Христово',
       fixedFrom: (12, 25),
       fixedTo: (1, 4),
       startsPrevYear: true),
   _FastSpec(name: 'На Митаря и фарисея', fromPascha: -69, toPascha: -63),
-  _FastSpec(name: 'Сирна (Масленица)', fromPascha: -55, toPascha: -49),
+  _FastSpec(name: 'Сирна седмица', fromPascha: -55, toPascha: -49),
   _FastSpec(name: 'Пасхална (Светла)', fromPascha: 1, toPascha: 7),
-  _FastSpec(name: 'Троицка', fromPascha: 50, toPascha: 56),
+  _FastSpec(name: 'След Петдесетница', fromPascha: 50, toPascha: 56),
 ];
 
 /// Петровден — 29 юни по църковен календар.
@@ -153,7 +153,6 @@ class _FastsScreenState extends State<FastsScreen> {
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
   late int _selectedYear;
-  late List<int> _availableYears;
   // Флагове дали за даден слъг има текстове — попълва се само за записите
   // със slug (засега няма такива).
   final Map<String, _TextFlags> _flags = {};
@@ -162,9 +161,6 @@ class _FastsScreenState extends State<FastsScreen> {
   void initState() {
     super.initState();
     final now = DateTime.now().year;
-    // Пасхалията се смята, не се чете от базата, затова обхватът не е
-    // ограничен от нея — потребителят може да гледа години назад и напред.
-    _availableYears = [for (int y = now - 10; y <= now + 20; y++) y];
     _selectedYear = now;
     _loadPersistedFontOnce().then((_) {
       if (mounted) setState(() {});
@@ -280,7 +276,7 @@ class _FastsScreenState extends State<FastsScreen> {
     if (spec.name == 'Петров пост') {
       final range = _petrovRange(_selectedYear);
       if (range == null) {
-        note = 'през тази година не се случва — Пасха е твърде късна';
+        note = 'няма в тази година — Пасха е по-късна';
       } else {
         start = range.start;
         end = range.end;
@@ -330,7 +326,7 @@ class _FastsScreenState extends State<FastsScreen> {
 
   Widget _singleDayRow(_FastSpec spec) {
     final nameStyle =
-        TextStyle(fontFamily: _bodyFamily, fontSize: _fs(0), color: _ink, height: 1.35);
+        TextStyle(fontFamily: _bodyFamily, fontSize: _fs(1), color: _ink, height: 1.35);
     final date = _resolveFixed(spec.fixedFrom, _selectedYear)!;
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -443,7 +439,6 @@ class _FastsScreenState extends State<FastsScreen> {
                 Center(
                   child: YearSelector(
                     value: _selectedYear,
-                    years: _availableYears,
                     onChanged: (y) => setState(() => _selectedYear = y),
                     fontSize: _fs(23),
                     fontFamily: _titleFamily,
