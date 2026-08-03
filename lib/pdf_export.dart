@@ -34,7 +34,7 @@ const PdfColor _wine = PdfColor.fromInt(0xFF8C2F39);
 const PdfColor _dim = PdfColor.fromInt(0xFF555555);
 /// Синьото на връзките — същото, с което са оцветени и в четеца
 /// (AppColors.sectionTitle, виж 'a' в _htmlStyles там).
-const PdfColor _linkBlue = PdfColor.fromInt(0xFF8A9BB0);
+const PdfColor _linkBlue = PdfColor.fromInt(0xFF4673AA); //(0xFF8A9BB0);
 
 /// Вътрешните препратки между житията са saint://<слъг> — те имат смисъл
 /// само вътре в приложението. В PDF-а водят към същата страница в мрежата,
