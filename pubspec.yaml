@@ -46,6 +46,8 @@ dependencies:
   flutter_svg: ^2.3.0
   logger: ^2.7.0
   shared_preferences: ^2.5.5
+  printing: ^5.15.0
+  pdf: ^3.13.0
 
 dev_dependencies:
   flutter_test:
@@ -107,6 +109,8 @@ flutter:
         - asset: assets/fonts/cambria.ttf
         - asset: assets/fonts/cambriai.ttf
           style: italic
+        - asset: assets/fonts/cambriab.ttf
+          weight: 700
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package
