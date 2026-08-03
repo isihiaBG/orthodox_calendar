@@ -23,6 +23,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/material.dart';
@@ -41,39 +42,42 @@ const String _titleFamily = 'TamburinModern'; // заглавието на жи�
 const String _dropCapFamily = 'Bukvica';      // орнаментираният инициал
 const String _bodyFamily = 'Cambria';         // основният текст и молитвите
 
-
 /// Разкодира HTML entity-тата (&ndash; &nbsp; &laquo; …) в истински символи.
 /// Нужна е за обтичащата зона около буквицата, където текстът се рендва
 /// като чист Text, а не през flutter_html (той си ги разкодира сам).
 String _decodeEntities(String s) {
   const named = {
-    '&ndash;' : '\u2013',   // –
-    '&mdash;' : '\u2014',   // —
-    '&nbsp;'  : '\u00A0',
-    '&laquo;' : '\u00AB',   // «
-    '&raquo;' : '\u00BB',   // »
-    '&bdquo;' : '\u201E',   // „
-    '&ldquo;' : '\u201C',   // “
-    '&rdquo;' : '\u201D',   // ”
-    '&lsquo;' : '\u2018',
-    '&rsquo;' : '\u2019',
+    '&ndash;': '\u2013', // –
+    '&mdash;': '\u2014', // —
+    '&nbsp;': '\u00A0',
+    '&laquo;': '\u00AB', // «
+    '&raquo;': '\u00BB', // »
+    '&bdquo;': '\u201E', // „
+    '&ldquo;': '\u201C', // “
+    '&rdquo;': '\u201D', // ”
+    '&lsquo;': '\u2018',
+    '&rsquo;': '\u2019',
     '&hellip;': '\u2026',  // …
     '&middot;': '\u00B7',
-    '&deg;'   : '\u00B0',
+    '&deg;': '\u00B0',
     '&dagger;': '\u2020',  // † кръст
-    '&amp;'   : '&',
-    '&lt;'    : '<',
-    '&gt;'    : '>',
-    '&quot;'  : '"',
-    '&apos;'  : "'",
+    '&amp;': '&',
+    '&lt;': '<',
+    '&gt;': '>',
+    '&quot;': '"',
+    '&apos;': "'",
   };
   var out = s;
   named.forEach((k, v) => out = out.replaceAll(k, v));
   // Числови: &#1234; и &#x04D1;
-  out = out.replaceAllMapped(RegExp(r'&#(\d+);'),
-      (m) => String.fromCharCode(int.parse(m.group(1)!)));
-  out = out.replaceAllMapped(RegExp(r'&#[xX]([0-9a-fA-F]+);'),
-      (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)));
+  out = out.replaceAllMapped(
+    RegExp(r'&#(\d+);'),
+    (m) => String.fromCharCode(int.parse(m.group(1)!)),
+  );
+  out = out.replaceAllMapped(
+    RegExp(r'&#[xX]([0-9a-fA-F]+);'),
+    (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)),
+  );
   return out;
 }
 
@@ -149,15 +153,18 @@ List<InlineSpan> _highlightPlain(
     final origEnd = folded.origIndex[endFoldedIdx] + 1;
     if (origStart > lastEnd) {
       spans.add(
-          TextSpan(text: text.substring(lastEnd, origStart), style: baseStyle));
+        TextSpan(text: text.substring(lastEnd, origStart), style: baseStyle),
+      );
     }
     final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-    spans.add(TextSpan(
+    spans.add(
+      TextSpan(
       text: text.substring(origStart, origEnd),
       style: baseStyle.copyWith(
         backgroundColor: isCurrent ? hitCurrentBg : hitBg,
       ),
-    ));
+      ),
+    );
     lastEnd = origEnd;
     local++;
     from = endFoldedIdx + 1;
@@ -217,8 +224,11 @@ String _highlightHtml(
     }
   }
 
-  final anchorRe = RegExp(r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>',
-      caseSensitive: false, dotAll: true);
+  final anchorRe = RegExp(
+    r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>',
+    caseSensitive: false,
+    dotAll: true,
+  );
   int cursor = 0;
   for (final am in anchorRe.allMatches(html)) {
     if (am.start > cursor) {
@@ -294,8 +304,11 @@ int _highlightAnchorText(
 /// за да можем да скролваме прецизно до региона с текущото съвпадение.
 List<String> _splitBlocks(String html) {
   final blocks = <String>[];
-  final re =
-      RegExp(r'<(p|h[1-6])\b[^>]*>.*?</\1>', dotAll: true, caseSensitive: false);
+  final re = RegExp(
+    r'<(p|h[1-6])\b[^>]*>.*?</\1>',
+    dotAll: true,
+    caseSensitive: false,
+  );
   int cursor = 0;
   for (final m in re.allMatches(html)) {
     if (m.start > cursor) {
@@ -314,9 +327,9 @@ List<String> _splitBlocks(String html) {
 
 /// Чист текст без тагове — същата формула, ползвана и в _DropCapParagraph.
 String _plainTextOf(String innerHtml) {
-  return _decodeEntities(innerHtml.replaceAll(RegExp(r'<[^>]+>'), ''))
-      .replaceAll(RegExp(r'\s+'), ' ')
-      .trim();
+  return _decodeEntities(
+    innerHtml.replaceAll(RegExp(r'<[^>]+>'), ''),
+  ).replaceAll(RegExp(r'\s+'), ' ').trim();
 }
 
 /// Груба приблизителна оценка на височината (в пиксели) на един регион по
@@ -414,7 +427,11 @@ class _Region {
 }
 
 List<_Region> _computeRegions(
-    String beforeHtml, String dropCap, String firstP, String afterHtml) {
+  String beforeHtml,
+  String dropCap,
+  String firstP,
+  String afterHtml,
+) {
   final regions = <_Region>[];
   if (dropCap.isNotEmpty) {
     if (beforeHtml.trim().isNotEmpty) regions.add(_Region.html(beforeHtml));
@@ -496,7 +513,9 @@ String _prayersBlocksHtml(SaintTexts texts, {String firstClassExtra = ''}) {
       b.write('<p class="csl">$csl</p>');
     }
     if (trans.isNotEmpty) {
-      b.write('<p class="trans"><span class="translabel">Превод:</span> $trans</p>');
+      b.write(
+        '<p class="trans"><span class="translabel">Превод:</span> $trans</p>',
+      );
     }
   }
 
@@ -625,15 +644,17 @@ class _PreparedContent {
 _PreparedContent _prepareReaderContent(_PrepareArgs args) {
   final html = _buildHtmlFor(args.mode, args.texts);
   final isLife = args.mode == _ReaderMode.life;
-  final (beforeHtml, dropCap, firstP, afterHtml) =
-      isLife ? _splitDropCap(html) : (html, '', '', '');
+  final (beforeHtml, dropCap, firstP, afterHtml) = isLife
+      ? _splitDropCap(html)
+      : (html, '', '', '');
 
   // Житието има ли собствено заглавие (<h1>..<h6> преди първия абзац)? Ако
   // да — нашето име отгоре е излишно и се пропуска, за да няма два почти
   // еднакви заглавни реда един под друг. isLife: в режима с молитвите
   // beforeHtml съдържа целия HTML (вкл. заглавията на тропарите), затова
   // проверката важи само за житието.
-  final hasOwnTitle = (isLife || args.mode == _ReaderMode.sluzhba) &&
+  final hasOwnTitle =
+      (isLife || args.mode == _ReaderMode.sluzhba) &&
       RegExp(r'<h[1-6]\b').hasMatch(beforeHtml);
 
   final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
@@ -743,7 +764,10 @@ class _BookmarkStore {
   }
 
   static Future<void> save(
-      String slug, _ReaderMode mode, _BookmarkRecord record) async {
+    String slug,
+    _ReaderMode mode,
+    _BookmarkRecord record,
+  ) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_key(slug, mode), jsonEncode(record.toJson()));
   }
@@ -773,8 +797,9 @@ class _BookmarkStore {
       try {
         final raw = prefs.getString(key);
         if (raw == null) continue;
-        final record =
-            _BookmarkRecord.fromJson(jsonDecode(raw) as Map<String, dynamic>);
+        final record = _BookmarkRecord.fromJson(
+          jsonDecode(raw) as Map<String, dynamic>,
+        );
         if (record != null) result.add((_BookmarkId(slug, mode), record));
       } catch (_) {
         // Несъвместим/повреден стар запис — трием го при засичане.
@@ -797,6 +822,7 @@ class ReaderScreen extends StatefulWidget {
   final SaintTexts texts;
   final SaintLookup lookup;
   final _ReaderMode _mode;
+
   /// "Житие" или "Сказание" — виж lifeLabelFor(). Ако е null, пада към
   /// "Житие" (напр. при saint:// вътрешен линк, където няма rank).
   final String? lifeTitle;
@@ -834,7 +860,8 @@ class _ReaderScreenState extends State<ReaderScreen>
   // static: пази се за сесията, обща за всички екрани на четеца.
   static bool _darkMode = true;   // по подразбиране тъмна
 
-  static double _fontSize = 22.0; //Първоначален размер на шрифта по подразбиране
+  static double _fontSize =
+      22.0; //Първоначален размер на шрифта по подразбиране
   // Персистиране на размера в потребителските настройки (SharedPreferences),
   // за да оцелее и след рестарт на приложението (_fontSize сам по себе си е
   // само сесиен). Зареждаме от диска ЕДНОКРАТНО на сесия (виж
@@ -848,11 +875,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   static const String _fontSizeKey = 'reader_font_size';
   static const double _step = 1.5;
   static const double _btnSize = 22.0;   // еднакъв размер и за трите бутона
-  static const double _searchBtnSize = _btnSize + 6; // старт/</>  в search лентата
+  static const double _searchBtnSize =
+      _btnSize + 6; // старт/</>  в search лентата
   static const double _min = 13.0;
   static const double _max = 30.0;
   static const double _lineHeight = 1.25;
-  static const double _titleGap = 30.0;  // константно разстояние заглавие → текст
+  static const double _titleGap =
+      30.0; // константно разстояние заглавие → текст
   static const double _scrollThumb = 10.0;  // дебелина на палеца на скролбара
 
   // Резултатът от еднократната тежка текстова подготовка (виж
@@ -890,8 +919,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     _fontSizeSaveTimer = null;
     if (_lastSavedFontSize == _fontSize) return;
     _lastSavedFontSize = _fontSize;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_fontSizeKey, _fontSize));
+    SharedPreferences.getInstance().then(
+      (prefs) => prefs.setDouble(_fontSizeKey, _fontSize),
+    );
   }
 
   // Captured в didChangeDependencies() (безопасно място за ScaffoldMessenger.of),
@@ -919,8 +949,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     // все пак строи екрана синхронно веднъж при push (за анимацията), но
     // тъй като ТОЗИ (първият) build() е вече евтин (само spinner, виж
     // build() по-долу), push-ът вече не засича/блокира анимацията на тапа.
-    compute(_prepareReaderContent, _PrepareArgs(mode: widget._mode, texts: widget.texts))
-        .then((result) async {
+    compute(
+      _prepareReaderContent,
+      _PrepareArgs(mode: widget._mode, texts: widget.texts),
+    ).then((result) async {
       if (!mounted) return;
       setState(() => _prepared = result);
       // Има ли вече запазена позиция за това четиво? Ако да — показваме
@@ -1035,8 +1067,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// прехвърли безшумно офсета към новото Scrollable (виж коментара на
   /// _scrollController).
   void _reanchorScrollController() {
-    final offset =
-        _scrollController.hasClients ? _scrollController.position.pixels : 0.0;
+    final offset = _scrollController.hasClients
+        ? _scrollController.position.pixels
+        : 0.0;
     _scrollController.dispose();
     _scrollController = ScrollController(initialScrollOffset: offset)
       ..addListener(_onScrollForBookmark);
@@ -1064,7 +1097,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   void _onScrollForBookmark() {
     if (!_isBookmarked || _awaitingBookmarkDecision) return;
     _bookmarkIdleTimer?.cancel();
-    _bookmarkIdleTimer = Timer(const Duration(seconds: 3), _saveBookmarkIfStillIdle);
+    _bookmarkIdleTimer = Timer(
+      const Duration(seconds: 3),
+      _saveBookmarkIfStillIdle,
+    );
   }
 
   void _saveBookmarkIfStillIdle() {
@@ -1173,8 +1209,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final estimateRaw = regionIndex > 0 && regionIndex - 1 < cumulative.length
         ? cumulative[regionIndex - 1]
         : 0.0;
-    final estimate =
-        estimateRaw.clamp(position.minScrollExtent, position.maxScrollExtent);
+    final estimate = estimateRaw.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
     position.jumpTo(estimate);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -1320,8 +1358,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final estimateRaw = regionIdx > 0 && regionIdx - 1 < cumulative.length
         ? cumulative[regionIdx - 1]
         : 0.0;
-    final estimate =
-        estimateRaw.clamp(position.minScrollExtent, position.maxScrollExtent);
+    final estimate = estimateRaw.clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
     position.jumpTo(estimate);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.delayed(const Duration(milliseconds: 100), () {
@@ -1340,7 +1380,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       final ctx = _titleMeasureKey.currentContext;
       if (ctx == null) {
         WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap));
+          (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap),
+        );
         return;
       }
       titleHeight = (ctx.findRenderObject() as RenderBox).size.height;
@@ -1350,7 +1391,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       final ctx = _measureKeys[i].currentContext;
       if (ctx == null) {
         WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap));
+          (_) => _finishMeasuring(regionCount, hasOwnTitle, hasGap),
+        );
         return;
       }
       regionHeights.add((ctx.findRenderObject() as RenderBox).size.height);
@@ -1453,8 +1495,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                 isDense: true,
                 hintText: 'Търсене в текста…',
                 hintStyle: TextStyle(color: fg.withOpacity(0.5)),
-                contentPadding:
-                    const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                contentPadding: const EdgeInsets.symmetric(
+                  vertical: 8,
+                  horizontal: 10,
+                ),
                 filled: true,
                 fillColor: Colors.black.withOpacity(0.15),
                 border: OutlineInputBorder(
@@ -1547,11 +1591,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         );
         return;
       }
-      Navigator.of(context).push(MaterialPageRoute(
+      Navigator.of(context).push(
+        MaterialPageRoute(
         builder: (_) => target.hasLife
             ? ReaderScreen.life(texts: target, lookup: widget.lookup)
             : ReaderScreen.prayers(texts: target, lookup: widget.lookup),
-      ));
+        ),
+      );
       return;
     }
 
@@ -1560,9 +1606,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (uri == null) return;
     final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Не може да се отвори: $url')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Не може да се отвори: $url')));
     }
     // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
   }
@@ -1591,7 +1637,8 @@ class _ReaderScreenState extends State<ReaderScreen>
           curve: Curves.easeOutCubic,
           reverseCurve: Curves.easeInCubic,
         );
-        return Stack(children: [
+        return Stack(
+          children: [
           Positioned(
             top: topInset + 44,
             right: 6,
@@ -1622,17 +1669,30 @@ class _ReaderScreenState extends State<ReaderScreen>
                             customBorder: const CircleBorder(),
                             child: const Padding(
                               padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
-                              child: Icon(Icons.arrow_forward,
-                                  size: 22, color: AppColors.textSecondary),
+                                child: Icon(
+                                  Icons.arrow_forward,
+                                  size: 22,
+                                  color: AppColors.textSecondary,
+                                ),
                             ),
                           ),
                         ),
                         const Divider(
-                            height: 1, color: AppColors.sectionDivider),
-                        _moreMenuItem(ctx, Icons.bookmarks_outlined,
-                            'Списък с отметки', 'bookmarks'),
-                        _moreMenuItem(ctx, Icons.picture_as_pdf_outlined,
-                            'Сподели като PDF', 'share_pdf'),
+                            height: 1,
+                            color: AppColors.sectionDivider,
+                          ),
+                          _moreMenuItem(
+                            ctx,
+                            Icons.bookmarks_outlined,
+                            'Списък с отметки',
+                            'bookmarks',
+                          ),
+                          _moreMenuItem(
+                            ctx,
+                            Icons.picture_as_pdf_outlined,
+                            'Сподели като PDF',
+                            'share_pdf',
+                          ),
                       ],
                     ),
                   ),
@@ -1640,21 +1700,28 @@ class _ReaderScreenState extends State<ReaderScreen>
               ),
             ),
           ),
-        ]);
+          ],
+        );
       },
     );
     if (!mounted || selected == null) return;
     if (selected == 'bookmarks') {
-      Navigator.of(context).push(MaterialPageRoute(
+      Navigator.of(context).push(
+        MaterialPageRoute(
         builder: (_) => BookmarksListScreen(lookup: widget.lookup),
-      ));
+        ),
+      );
     } else if (selected == 'share_pdf') {
       _shareAsPdf();
     }
   }
 
   Widget _moreMenuItem(
-      BuildContext ctx, IconData icon, String label, String value) {
+    BuildContext ctx,
+    IconData icon,
+    String label,
+    String value,
+  ) {
     return InkWell(
       onTap: () => Navigator.of(ctx).pop(value),
       child: Padding(
@@ -1665,9 +1732,13 @@ class _ReaderScreenState extends State<ReaderScreen>
             // — това също е меню, не дребен списъчен ред.
             Icon(icon, size: 22, color: AppColors.textSecondary),
             const SizedBox(width: 12),
-            Text(label,
+            Text(
+              label,
                 style: const TextStyle(
-                    color: AppColors.textPrimary, fontSize: 16)),
+                color: AppColors.textPrimary,
+                fontSize: 16,
+              ),
+            ),
           ],
         ),
       ),
@@ -1706,10 +1777,14 @@ class _ReaderScreenState extends State<ReaderScreen>
           : prayersTitleFor(widget.texts);
 
   // Палитрата на четеца — независима от темата на приложението.
-  Color get _bg   => _darkMode ? const Color(0xFF121212) : const Color(0xFFF5E6C5);
-  Color get _ink  => _darkMode ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
-  Color get _dim  => _darkMode ? const Color(0xFF9A948A) : const Color(0xFF6B675F);
-  Color get _wine => _darkMode ? const Color(0xFFA0555B) : const Color(0xFFB83333);
+  Color get _bg =>
+      _darkMode ? const Color(0xFF121212) : const Color(0xFFF5E6C5);
+  Color get _ink =>
+      _darkMode ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
+  Color get _dim =>
+      _darkMode ? const Color(0xFF9A948A) : const Color(0xFF6B675F);
+  Color get _wine =>
+      _darkMode ? const Color(0xFFA0555B) : const Color(0xFFB83333);
   //Color get _wine => _darkMode ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
 
   /// Показва се докато _prepared е null (isolate-ът още работи) — нарочно
@@ -1730,9 +1805,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                 title: Text(title),
               ),
               Expanded(
-                child: Center(
-                  child: CircularProgressIndicator(color: _dim),
-                ),
+                child: Center(child: CircularProgressIndicator(color: _dim)),
               ),
             ],
           ),
@@ -1787,34 +1860,46 @@ class _ReaderScreenState extends State<ReaderScreen>
     double running = 0;
     for (int i = 0; i < regions.length; i++) {
       running += _estimateRegionHeight(
-          prepared.regionPlainTexts[i], _fontSize, _lineHeight, _viewportWidth,
-          linkCount: prepared.regionLinkCounts[i]);
+        prepared.regionPlainTexts[i],
+        _fontSize,
+        _lineHeight,
+        _viewportWidth,
+        linkCount: prepared.regionLinkCounts[i],
+      );
       _cumulativeHeights[i] = running;
     }
-    final foldedQuery =
-        _committedQuery.isEmpty ? '' : _fold(_committedQuery).text;
+    final foldedQuery = _committedQuery.isEmpty
+        ? ''
+        : _fold(_committedQuery).text;
 
     int matchOffset = 0;
     final regionWidgets = <Widget>[];
     for (int i = 0; i < regions.length; i++) {
       final r = regions[i];
-      final count =
-          i < _regionMatchCounts.length ? _regionMatchCounts[i] : 0;
+      final count = i < _regionMatchCounts.length ? _regionMatchCounts[i] : 0;
       final key = _regionKeys[i];
       if (r.isHtml) {
         final data = foldedQuery.isEmpty
             ? r.content
-            : _highlightHtml(r.content, foldedQuery, matchOffset, _currentMatch);
-        regionWidgets.add(KeyedSubtree(
+            : _highlightHtml(
+                r.content,
+                foldedQuery,
+                matchOffset,
+                _currentMatch,
+              );
+        regionWidgets.add(
+          KeyedSubtree(
           key: key,
           child: Html(
             data: data,
             onLinkTap: (url, attributes, element) => _onLinkTap(url),
             style: _htmlStyles(context),
           ),
-        ));
+          ),
+        );
       } else {
-        regionWidgets.add(KeyedSubtree(
+        regionWidgets.add(
+          KeyedSubtree(
           key: key,
           child: _DropCapParagraph(
             dropCap: dropCap,
@@ -1831,7 +1916,8 @@ class _ReaderScreenState extends State<ReaderScreen>
             hitColor: _hitColor,
             hitCurrentColor: _hitCurrentColor,
           ),
-        ));
+          ),
+        );
       }
       matchOffset += count;
     }
@@ -1873,7 +1959,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!_measuring) {
         _measuring = true;
         WidgetsBinding.instance.addPostFrameCallback(
-            (_) => _finishMeasuring(regions.length, hasOwnTitle, hasGap));
+          (_) => _finishMeasuring(regions.length, hasOwnTitle, hasGap),
+        );
       }
       final measureChildren = <Widget>[
         if (titleWidget != null)
@@ -1882,12 +1969,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       for (int i = 0; i < regions.length; i++) {
         final r = regions[i];
         if (r.isHtml) {
-          measureChildren.add(KeyedSubtree(
+          measureChildren.add(
+            KeyedSubtree(
             key: _measureKeys[i],
             child: Html(data: r.content, style: _htmlStyles(context)),
-          ));
+            ),
+          );
         } else {
-          measureChildren.add(KeyedSubtree(
+          measureChildren.add(
+            KeyedSubtree(
             key: _measureKeys[i],
             child: _DropCapParagraph(
               dropCap: dropCap,
@@ -1899,12 +1989,15 @@ class _ReaderScreenState extends State<ReaderScreen>
               capColor: _wine,
               inkColor: _ink,
             ),
-          ));
+            ),
+          );
         }
       }
       if (hasGap) {
         measureChildren.insert(
-            titleWidget != null ? 2 : 1, const SizedBox(height: _titleGap));
+          titleWidget != null ? 2 : 1,
+          const SizedBox(height: _titleGap),
+        );
       }
       measurementTree = Offstage(
         offstage: true,
@@ -1960,16 +2053,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: _searchOpen
-                        ? (AppBarTheme.of(context).foregroundColor ??
-                                Colors.white)
+                  ? (AppBarTheme.of(context).foregroundColor ?? Colors.white)
                             .withOpacity(0.28)
                         : Colors.transparent,
                   ),
                   child: Icon(
                     Icons.search,
                     size: 24,
-                    color:
-                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
+              color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
                   ),
                 ),
               ),
@@ -1988,8 +2079,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                   child: CustomPaint(
                     size: const Size(_btnSize - 0, _btnSize - 0),
                     painter: _HalfMoonPainter(
-                      outline: AppBarTheme.of(context).foregroundColor ??
-                          Colors.white,
+                outline:
+                    AppBarTheme.of(context).foregroundColor ?? Colors.white,
                     ),
                   ),
                 ),
@@ -2027,16 +2118,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
                     color: _isBookmarked
-                        ? (AppBarTheme.of(context).foregroundColor ??
-                                Colors.white)
+                  ? (AppBarTheme.of(context).foregroundColor ?? Colors.white)
                             .withOpacity(0.28)
                         : Colors.transparent,
                   ),
                   child: Icon(
                     _isBookmarked ? Icons.bookmark : Icons.bookmark_border,
                     size: 24,
-                    color:
-                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
+              color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
                   ),
                 ),
               ),
@@ -2057,8 +2146,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   child: Icon(
                     Icons.more_vert,
                     size: 24,
-                    color:
-                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
+              color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
                   ),
                 ),
               ),
@@ -2252,14 +2340,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       // браузърни подразбирания за margin/padding. Тях ги нулираме, за да
       // ляга HTML текстът точно на същата ширина като първия абзац (той се
       // рендва ръчно в _DropCapParagraph и няма такива отстъпи).
-      'html': Style(
-        margin: Margins.zero,
-        padding: HtmlPaddings.zero,
-      ),
-      'body': Style(
-        margin: Margins.zero,
-        padding: HtmlPaddings.zero,
-      ),
+      'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+      'body': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
       'p': Style(
         fontFamily: _bodyFamily,
         fontSize: FontSize(_fontSize),
@@ -2269,12 +2351,15 @@ class _ReaderScreenState extends State<ReaderScreen>
         color: _ink,
       ),
       'h3': Style(
-        fontFamily: _titleFamily , // _bodyFamily,
+        fontFamily: _titleFamily, // _bodyFamily,
         fontSize: FontSize(_fontSize + 10),
         lineHeight: const LineHeight(_lineHeight),
         fontWeight: FontWeight.normal,
         textAlign: TextAlign.center,
-        margin: Margins.only(top: 18, bottom: 0), // bottom се управлява от _titleGap
+        margin: Margins.only(
+          top: 18,
+          bottom: 0,
+        ), // bottom се управлява от _titleGap
         color: _ink,
       ),
       // В службата <strong> носи богослужебните указания ("На велицей
@@ -2316,21 +2401,15 @@ class _ReaderScreenState extends State<ReaderScreen>
         margin: Margins.only(top: 24),
       ),
       // Курсивен абзац, пропуснат за буквица (виж _splitDropCap) — центриран.
-      '.italic-center': Style(
-        textAlign: TextAlign.center,
-      ),
+      '.italic-center': Style(textAlign: TextAlign.center),
       // Линковете: синьото на секциите от дневния изглед, не лилаво.
       'a': Style(
         color: AppColors.sectionTitle,
         textDecoration: TextDecoration.none,
       ),
       // Маркиране на съвпаденията от търсенето — виж _highlightHtml().
-      '.hit': Style(
-        backgroundColor: _hitColor,
-      ),
-      '.hit-current': Style(
-        backgroundColor: _hitCurrentColor,
-      ),
+      '.hit': Style(backgroundColor: _hitColor),
+      '.hit-current': Style(backgroundColor: _hitCurrentColor),
     };
   }
 }
@@ -2376,7 +2455,8 @@ class _DropCapParagraph extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
       final capWidth = dropCapSize * 0.40; // приблизителна ширина на глифа
       const gap = 4.0;
       final narrowWidth = constraints.maxWidth - capWidth - gap;
@@ -2392,23 +2472,28 @@ class _DropCapParagraph extends StatelessWidget {
       // Махаме таговете, после разкодираме entity-тата (&ndash; и др.),
       // за да не се виждат като суров код в обтичащата зона.
       final plain = _decodeEntities(
-              firstParagraph.replaceAll(RegExp(r'<[^>]+>'), ''))
-          .replaceAll(RegExp(r'\s+'), ' ')
-          .trim();
+          firstParagraph.replaceAll(RegExp(r'<[^>]+>'), ''),
+        ).replaceAll(RegExp(r'\s+'), ' ').trim();
 
       // Колко знака се побират в capLines реда при narrowWidth?
       final tp = TextPainter(
         text: TextSpan(
           text: plain,
           style: TextStyle(
-              fontFamily: _bodyFamily, fontSize: fontSize, height: lineFactor),
+              fontFamily: _bodyFamily,
+              fontSize: fontSize,
+              height: lineFactor,
+            ),
         ),
         textDirection: TextDirection.ltr,
         maxLines: capLines,
       )..layout(maxWidth: narrowWidth);
       int cut = tp.didExceedMaxLines
-          ? tp.getPositionForOffset(
-              Offset(narrowWidth, capLines * lineHeight - 1)).offset
+            ? tp
+                  .getPositionForOffset(
+                    Offset(narrowWidth, capLines * lineHeight - 1),
+                  )
+                  .offset
           : plain.length;
 
       // Режем на граница на дума, за да не разполовим дума.
@@ -2426,8 +2511,9 @@ class _DropCapParagraph extends StatelessWidget {
         height: lineFactor,
         color: inkColor,
       );
-      final wrapCount =
-          searchQuery.isEmpty ? 0 : _countMatchesPlain(wrapText, searchQuery);
+        final wrapCount = searchQuery.isEmpty
+            ? 0
+            : _countMatchesPlain(wrapText, searchQuery);
 
       // Забележка: обтичащата зона и остатъкът се рендват като ЧИСТ ТЕКСТ
       // (Html таговете на първия абзац се губят при измерването; на практика
@@ -2457,12 +2543,22 @@ class _DropCapParagraph extends StatelessWidget {
               const SizedBox(width: gap),
               Expanded(
                 child: searchQuery.isEmpty
-                    ? Text(wrapText, textAlign: TextAlign.justify, style: baseStyle)
+                      ? Text(
+                          wrapText,
+                          textAlign: TextAlign.justify,
+                          style: baseStyle,
+                        )
                     : Text.rich(
                         TextSpan(
-                          children: _highlightPlain(wrapText, searchQuery,
-                              firstGlobalMatchIndex, currentGlobalMatch,
-                              baseStyle, hitColor, hitCurrentColor),
+                            children: _highlightPlain(
+                              wrapText,
+                              searchQuery,
+                              firstGlobalMatchIndex,
+                              currentGlobalMatch,
+                              baseStyle,
+                              hitColor,
+                              hitCurrentColor,
+                            ),
                         ),
                         textAlign: TextAlign.justify,
                       ),
@@ -2473,7 +2569,11 @@ class _DropCapParagraph extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: searchQuery.isEmpty
-                  ? Text(restText, textAlign: TextAlign.justify, style: baseStyle)
+                    ? Text(
+                        restText,
+                        textAlign: TextAlign.justify,
+                        style: baseStyle,
+                      )
                   : Text.rich(
                       TextSpan(
                         children: _highlightPlain(
@@ -2483,14 +2583,16 @@ class _DropCapParagraph extends StatelessWidget {
                             currentGlobalMatch,
                             baseStyle,
                             hitColor,
-                            hitCurrentColor),
+                            hitCurrentColor,
+                          ),
                       ),
                       textAlign: TextAlign.justify,
                     ),
             ),
         ],
       );
-    });
+      },
+    );
   }
 }
 
@@ -2575,10 +2677,14 @@ class _ResumePromptState extends State<_ResumePrompt> {
     final result = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Заличаване на отметката', style: TextStyle(fontSize: 20)),
+        title: const Text(
+          'Заличаване на отметката',
+          style: TextStyle(fontSize: 20),
+        ),
         content: const Text(
             'Наистина ли искате да ЗАЛИЧИТЕ запазената отметка за това четиво?',
-            style: TextStyle(fontSize: 16)),
+          style: TextStyle(fontSize: 16),
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -2617,7 +2723,11 @@ class _ResumePromptState extends State<_ResumePrompt> {
           color: active ? widget.ink : Colors.transparent,
           border: Border.all(color: widget.ink, width: 1.3),
         ),
-        child: Icon(icon, size: 18, color: active ? widget.background : widget.ink),
+        child: Icon(
+          icon,
+          size: 18,
+          color: active ? widget.background : widget.ink,
+        ),
       ),
     );
   }
@@ -2643,8 +2753,10 @@ class _ResumePromptState extends State<_ResumePrompt> {
         Row(
           children: [
             Expanded(
-              child: Text('Отваря се след $_secondsLeft…',
-                  style: TextStyle(color: widget.dim, fontSize: 13)),
+              child: Text(
+                'Отваря се след $_secondsLeft…',
+                style: TextStyle(color: widget.dim, fontSize: 13),
+              ),
             ),
             Text('Изчакай', style: TextStyle(color: widget.dim, fontSize: 13)),
             const SizedBox(width: 6),
@@ -2661,9 +2773,11 @@ class _ResumePromptState extends State<_ResumePrompt> {
         _circleButton(icon: Icons.pause, onTap: _togglePause, active: true),
         const SizedBox(width: 10),
         Expanded(
-          child: Text('Отиди на отметката',
+          child: Text(
+            'Отиди на отметката',
               textAlign: TextAlign.right,
-              style: TextStyle(color: widget.ink, fontSize: 14)),
+            style: TextStyle(color: widget.ink, fontSize: 14),
+          ),
         ),
         const SizedBox(width: 10),
         _circleButton(icon: Icons.arrow_forward, onTap: _jump),
@@ -2744,8 +2858,7 @@ class _HalfMoonPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _HalfMoonPainter old) =>
-      old.outline != outline;
+  bool shouldRepaint(covariant _HalfMoonPainter old) => old.outline != outline;
 }
 
 /// Чертички за позициите на съвпаденията върху лентата (виж
@@ -2771,7 +2884,10 @@ class _MatchTicksPainter extends CustomPainter {
       ..strokeWidth = 2;
     // Първо всички жълти чертички...
     for (int i = 0; i < ratios.length; i++) {
-      final y = (ratios[i].clamp(0.0, 1.0) * size.height).clamp(0.0, size.height);
+      final y = (ratios[i].clamp(0.0, 1.0) * size.height).clamp(
+        0.0,
+        size.height,
+      );
       canvas.drawLine(Offset(0, y), Offset(size.width, y), hitPaint);
     }
     // ...после ОТДЕЛНО оранжевата, рисувана НАПОСЛЕДЪК — гарантирано най-
@@ -2781,8 +2897,10 @@ class _MatchTicksPainter extends CustomPainter {
       final currentPaint = Paint()
         ..color = currentColor
         ..strokeWidth = 3;
-      final y = (ratios[currentIndex].clamp(0.0, 1.0) * size.height)
-          .clamp(0.0, size.height);
+      final y = (ratios[currentIndex].clamp(0.0, 1.0) * size.height).clamp(
+        0.0,
+        size.height,
+      );
       canvas.drawLine(Offset(0, y), Offset(size.width, y), currentPaint);
     }
   }
@@ -2806,23 +2924,70 @@ class BookmarksListScreen extends StatefulWidget {
   State<BookmarksListScreen> createState() => _BookmarksListScreenState();
 }
 
-class _BookmarksListScreenState extends State<BookmarksListScreen> {
+class _BookmarksListScreenState extends State<BookmarksListScreen>
+    with SingleTickerProviderStateMixin {
   List<(_BookmarkId, _BookmarkRecord)>? _items;
 
-  /// Избраните редове. Празното множество Е изходът от режима "избиране" —
-  /// така отмятането на последния ред връща списъка в обичайния му вид,
-  /// без да се пази отделен флаг, който да се разсинхронизира.
+  /// Избраните редове. Режимът "избиране" се пази с ОТДЕЛЕН флаг, а не се
+  /// познава по това дали има избрани: докосването върху маркиран ред го
+  /// размаркира, та човек лесно стига до нула избрани насред работата си —
+  /// а тогава изхвърлянето от режима значи ново задържане на пръста.
+  /// Излиза се само нарочно: с ✕, с "назад" или след изтриване.
   final _selected = <_BookmarkId>{};
-  bool get _selectionMode => _selected.isNotEmpty;
+  bool _selectionMode = false;
 
-  void _toggle(_BookmarkId id) => setState(() {
+  /// Копчето горе не сменя иконката си, когато влезем в режим "избиране" —
+  /// вместо това тя леко се разтърсва и наедрява. Подсещането се повтаря,
+  /// ако човек се позамисли и не предприеме нищо: таймерът се вдига наново
+  /// при всяко докосване, така че разтърсването идва само след затишие.
+  late final AnimationController _nudge = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 700),
+  );
+  Timer? _nudgeTimer;
+  static const _nudgePause = Duration(seconds: 4);
+
+  void _toggle(_BookmarkId id) {
+    setState(() {
+      _selectionMode = true;
         if (!_selected.remove(id)) _selected.add(id);
       });
+    _restartNudge();
+  }
+
+  void _clearSelection() {
+    setState(() {
+      _selected.clear();
+      _selectionMode = false;
+    });
+    _restartNudge(); // спира таймера — вече няма какво да подсеща
+  }
+
+  void _restartNudge() {
+    _nudgeTimer?.cancel();
+    // Няма какво да подсеща, докато не е избрано поне едно.
+    if (!_selectionMode || _selected.isEmpty) {
+      _nudge.stop();
+      return;
+    }
+    _nudge.forward(from: 0);
+    _nudgeTimer = Timer.periodic(_nudgePause, (_) {
+      if (!mounted || !_selectionMode || _selected.isEmpty) return;
+      _nudge.forward(from: 0);
+    });
+  }
 
   @override
   void initState() {
     super.initState();
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _nudgeTimer?.cancel();
+    _nudge.dispose();
+    super.dispose();
   }
 
   Future<void> _reload() async {
@@ -2882,7 +3047,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
       await _BookmarkStore.clear(id.slug, id.mode);
     }
     if (!mounted) return;
-    setState(_selected.clear);
+    _clearSelection();
     _reload();
   }
 
@@ -2895,15 +3060,24 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
       );
       return;
     }
-    Navigator.of(context).push(MaterialPageRoute(
+    Navigator.of(context).push(
+      MaterialPageRoute(
       builder: (_) => switch (id.mode) {
-        _ReaderMode.life => ReaderScreen.life(texts: texts, lookup: widget.lookup),
-        _ReaderMode.prayers =>
-          ReaderScreen.prayers(texts: texts, lookup: widget.lookup),
-        _ReaderMode.sluzhba =>
-          ReaderScreen.sluzhba(texts: texts, lookup: widget.lookup),
+          _ReaderMode.life => ReaderScreen.life(
+            texts: texts,
+            lookup: widget.lookup,
+          ),
+          _ReaderMode.prayers => ReaderScreen.prayers(
+            texts: texts,
+            lookup: widget.lookup,
+          ),
+          _ReaderMode.sluzhba => ReaderScreen.sluzhba(
+            texts: texts,
+            lookup: widget.lookup,
+          ),
       },
-    ));
+      ),
+    );
   }
 
   @override
@@ -2914,7 +3088,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
       // екрана — иначе човек губи списъка вместо избора си.
       canPop: !_selectionMode,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) setState(_selected.clear);
+        if (!didPop) _clearSelection();
       },
       child: _buildScaffold(items),
     );
@@ -2925,16 +3099,35 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
       backgroundColor: AppColors.toolbar,
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
-        leading: _selectionMode
-            ? IconButton(
-                icon: const Icon(Icons.close),
-                tooltip: 'Отказ',
-                onPressed: () => setState(_selected.clear),
+        // В режим "избиране" на мястото на стрелката "назад" стои изричен
+        // "Отказ" — думата се чете еднозначно, докато ✕ оставя съмнение
+        // дали ще затвори екрана, или само ще изчисти избора.
+        leading: _selectionMode ? const SizedBox.shrink() : null,
+        leadingWidth: _selectionMode ? 0 : null,
+        title: _selectionMode
+            ? Row(
+                children: [
+                  TextButton.icon(
+                    onPressed: _clearSelection,
+                    icon: const Icon(Icons.close, size: 20),
+                    label: const Text('Отказ', style: TextStyle(fontSize: 16)),
+                    style: TextButton.styleFrom(
+                      foregroundColor: AppColors.textPrimary,
+                      padding: const EdgeInsets.symmetric(horizontal: 10),
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  // Броячът отстъпва пръв, ако мястото не стигне — по-важно
+                  // е изходът от режима да се вижда изцяло.
+                  Flexible(
+                    child: Text(
+                      'Избрани: ${_selected.length}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
               )
-            : null,
-        title: Text(_selectionMode
-            ? 'Избрани: ${_selected.length}'
-            : 'Списък с отметки'),
+            : const Text('Списък с отметки'),
         // actionsPadding: нула, за да МАХНЕМ вградения отстъп на AppBar-а и
         // сами да контролираме десния отстъп (виж contentPadding на
         // ListTile-овете долу) — за да легнат кошчетата едно точно под
@@ -2946,25 +3139,33 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Tooltip(
-                message:
-                    _selectionMode ? 'Изтрий избраните' : 'Изтрий всички',
+                message: _selectionMode ? 'Изтрий избраните' : 'Изтрий всички',
                 child: IconButton(
-                  // Едно и също копче, но с друга задача — затова смяната
-                  // на иконката е с превъртане, за да се види, че бутонът
-                  // се е ПРЕВЪРНАЛ в "изтрий избраните", а не е нов.
-                  icon: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 220),
-                    transitionBuilder: (child, anim) => RotationTransition(
-                      turns: Tween<double>(begin: 0.6, end: 1).animate(anim),
-                      child: ScaleTransition(scale: anim, child: child),
+                  // Едно и също копче с две задачи. Иконката не се сменя —
+                  // че режимът е друг, се вижда от заглавието и от лекото
+                  // разтърсване, което се повтаря през няколко секунди.
+                  icon: AnimatedBuilder(
+                    animation: _nudge,
+                    builder: (context, child) {
+                      final t = _nudge.value;
+                      if (t == 0) return child!;
+                      // Затихващо махало: люлее се все по-слабо, а
+                      // наедряването върви и обратно, за да не "подскочи"
+                      // иконката в края.
+                      final angle = math.sin(t * math.pi * 6) * 0.28 * (1 - t);
+                      final scale = 1 + math.sin(t * math.pi) * 0.22;
+                      return Transform.rotate(
+                        angle: angle,
+                        child: Transform.scale(scale: scale, child: child),
+                      );
+                    },
+                    child: const Icon(Icons.delete_sweep_outlined),
                     ),
-                    child: _selectionMode
-                        ? const Icon(Icons.delete_outline,
-                            key: ValueKey('sel'))
-                        : const Icon(Icons.delete_sweep_outlined,
-                            key: ValueKey('all')),
-                  ),
-                  onPressed: _selectionMode ? _deleteSelected : _deleteAll,
+                  // Без избрани копчето е угасено — така се вижда, че
+                  // чака избор, вместо да изтрие всичко по погрешка.
+                  onPressed: _selectionMode
+                      ? (_selected.isEmpty ? null : _deleteSelected)
+                      : _deleteAll,
                 ),
               ),
             ),
@@ -2979,33 +3180,41 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
                   ? const Center(
                       child: Text(
                         'Няма запазени отметки.',
-                        style: TextStyle(color: AppColors.textSecondary, fontSize: 16),
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: 16,
+                    ),
                       ),
                     )
                   : ListView.separated(
                       itemCount: items.length,
-                      separatorBuilder: (_, _) => const Divider(
-                        height: 1,
-                        color: AppColors.sectionDivider,
-                      ),
+                  separatorBuilder: (_, _) =>
+                      const Divider(height: 1, color: AppColors.sectionDivider),
                       itemBuilder: (context, i) {
                         final (id, record) = items[i];
                         final picked = _selected.contains(id);
-                        return ListTile(
+                    // Фонът се рисува от НАС, а не през ListTile.
+                    // selectedTileColor минава през Ink и в този вложен
+                    // списък не се появяваше изобщо.
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 160),
+                      color: picked
+                          ? AppColors.rowSelected
+                          : Colors.transparent,
+                      child: ListTile(
                           // Десен отстъп = точно колкото добавихме на
                           // "Изтрий всички" в лентата отгоре (виж
                           // AppBar.actionsPadding по-горе) — за да легне
                           // кошчето точно под него.
-                          contentPadding:
-                              const EdgeInsets.only(left: 16, right: 16),
-                          selected: picked,
-                          selectedTileColor: AppColors.appBarWeekday,
+                        contentPadding: const EdgeInsets.only(
+                          left: 16,
+                          right: 16,
+                        ),
                           // Задържане отваря режима за избиране; след това
                           // обикновеното докосване вече не отваря четивото,
                           // а добавя/маха реда от избора.
                           onLongPress: () => _toggle(id),
-                          onTap: () =>
-                              _selectionMode ? _toggle(id) : _open(id),
+                        onTap: () => _selectionMode ? _toggle(id) : _open(id),
                           title: Text(
                             record.name,
                             style: const TextStyle(
@@ -3033,9 +3242,12 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
                                       : AppColors.textMuted,
                                 )
                               : IconButton(
-                                  icon: const Icon(Icons.delete_outline,
-                                      color: AppColors.textSecondary),
+                                icon: const Icon(
+                                  Icons.delete_outline,
+                                  color: AppColors.textSecondary,
+                                ),
                                   onPressed: () => _deleteOne(id),
+                              ),
                                 ),
                         );
                       },
