@@ -708,6 +708,15 @@ class _BookmarkId {
   final String slug;
   final _ReaderMode mode;
   const _BookmarkId(this.slug, this.mode);
+
+  // Стойностно сравнение — списъкът с отметки държи избраните редове в Set
+  // и след всяко презареждане получава НОВИ обекти за същите отметки.
+  @override
+  bool operator ==(Object other) =>
+      other is _BookmarkId && other.slug == slug && other.mode == mode;
+
+  @override
+  int get hashCode => Object.hash(slug, mode);
 }
 
 class _BookmarkStore {
@@ -2800,6 +2809,16 @@ class BookmarksListScreen extends StatefulWidget {
 class _BookmarksListScreenState extends State<BookmarksListScreen> {
   List<(_BookmarkId, _BookmarkRecord)>? _items;
 
+  /// Избраните редове. Празното множество Е изходът от режима "избиране" —
+  /// така отмятането на последния ред връща списъка в обичайния му вид,
+  /// без да се пази отделен флаг, който да се разсинхронизира.
+  final _selected = <_BookmarkId>{};
+  bool get _selectionMode => _selected.isNotEmpty;
+
+  void _toggle(_BookmarkId id) => setState(() {
+        if (!_selected.remove(id)) _selected.add(id);
+      });
+
   @override
   void initState() {
     super.initState();
@@ -2853,6 +2872,20 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
     _reload();
   }
 
+  Future<void> _deleteSelected() async {
+    final confirmed = await _confirm(
+      'Изтриване на избраните отметки',
+      'Наистина ли искате да изтриете избраните отметки?',
+    );
+    if (!confirmed) return;
+    for (final id in _selected) {
+      await _BookmarkStore.clear(id.slug, id.mode);
+    }
+    if (!mounted) return;
+    setState(_selected.clear);
+    _reload();
+  }
+
   Future<void> _open(_BookmarkId id) async {
     final texts = await widget.lookup(id.slug);
     if (!mounted) return;
@@ -2876,11 +2909,32 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
   @override
   Widget build(BuildContext context) {
     final items = _items;
+    return PopScope(
+      // Докато има избрани редове, "назад" излиза от режима, а не от
+      // екрана — иначе човек губи списъка вместо избора си.
+      canPop: !_selectionMode,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) setState(_selected.clear);
+      },
+      child: _buildScaffold(items),
+    );
+  }
+
+  Widget _buildScaffold(List<(_BookmarkId, _BookmarkRecord)>? items) {
     return Scaffold(
       backgroundColor: AppColors.toolbar,
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
-        title: const Text('Списък с отметки'),
+        leading: _selectionMode
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: 'Отказ',
+                onPressed: () => setState(_selected.clear),
+              )
+            : null,
+        title: Text(_selectionMode
+            ? 'Избрани: ${_selected.length}'
+            : 'Списък с отметки'),
         // actionsPadding: нула, за да МАХНЕМ вградения отстъп на AppBar-а и
         // сами да контролираме десния отстъп (виж contentPadding на
         // ListTile-овете долу) — за да легнат кошчетата едно точно под
@@ -2892,10 +2946,25 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
             Padding(
               padding: const EdgeInsets.only(right: 16),
               child: Tooltip(
-                message: 'Изтрий всички',
+                message:
+                    _selectionMode ? 'Изтрий избраните' : 'Изтрий всички',
                 child: IconButton(
-                  icon: const Icon(Icons.delete_sweep_outlined),
-                  onPressed: _deleteAll,
+                  // Едно и също копче, но с друга задача — затова смяната
+                  // на иконката е с превъртане, за да се види, че бутонът
+                  // се е ПРЕВЪРНАЛ в "изтрий избраните", а не е нов.
+                  icon: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 220),
+                    transitionBuilder: (child, anim) => RotationTransition(
+                      turns: Tween<double>(begin: 0.6, end: 1).animate(anim),
+                      child: ScaleTransition(scale: anim, child: child),
+                    ),
+                    child: _selectionMode
+                        ? const Icon(Icons.delete_outline,
+                            key: ValueKey('sel'))
+                        : const Icon(Icons.delete_sweep_outlined,
+                            key: ValueKey('all')),
+                  ),
+                  onPressed: _selectionMode ? _deleteSelected : _deleteAll,
                 ),
               ),
             ),
@@ -2921,6 +2990,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
                       ),
                       itemBuilder: (context, i) {
                         final (id, record) = items[i];
+                        final picked = _selected.contains(id);
                         return ListTile(
                           // Десен отстъп = точно колкото добавихме на
                           // "Изтрий всички" в лентата отгоре (виж
@@ -2928,7 +2998,14 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
                           // кошчето точно под него.
                           contentPadding:
                               const EdgeInsets.only(left: 16, right: 16),
-                          onTap: () => _open(id),
+                          selected: picked,
+                          selectedTileColor: AppColors.appBarWeekday,
+                          // Задържане отваря режима за избиране; след това
+                          // обикновеното докосване вече не отваря четивото,
+                          // а добавя/маха реда от избора.
+                          onLongPress: () => _toggle(id),
+                          onTap: () =>
+                              _selectionMode ? _toggle(id) : _open(id),
                           title: Text(
                             record.name,
                             style: const TextStyle(
@@ -2943,11 +3020,23 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
                               fontSize: 13,
                             ),
                           ),
-                          trailing: IconButton(
-                            icon: const Icon(Icons.delete_outline,
-                                color: AppColors.textSecondary),
-                            onPressed: () => _deleteOne(id),
-                          ),
+                          // В режим "избиране" кошчето на реда отстъпва
+                          // мястото си на отметка за избора — изтриването
+                          // вече минава през копчето горе.
+                          trailing: _selectionMode
+                              ? Icon(
+                                  picked
+                                      ? Icons.check_circle
+                                      : Icons.circle_outlined,
+                                  color: picked
+                                      ? AppColors.textPrimary
+                                      : AppColors.textMuted,
+                                )
+                              : IconButton(
+                                  icon: const Icon(Icons.delete_outline,
+                                      color: AppColors.textSecondary),
+                                  onPressed: () => _deleteOne(id),
+                                ),
                         );
                       },
                     ),
