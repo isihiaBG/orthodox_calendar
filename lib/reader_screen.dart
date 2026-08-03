@@ -31,6 +31,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'pdf_export.dart';
 import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart'
     show SaintTexts, SaintLookup, prayersTitleFor;
@@ -466,6 +467,24 @@ String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
     return '${texts.lifeHtml}$src';
   }
 
+  final prayers = _prayersBlocksHtml(texts);
+  final src = texts.source.isEmpty
+      ? ''
+      : '<p class="source">Източник: '
+          '<a href="${texts.source}">${texts.source}</a></p>';
+  return '$prayers$src';
+}
+
+/// Тропарите и кондаците като HTML — БЕЗ източника отдолу.
+///
+/// Изнесено отделно, защото същите блокове се ползват на две места: в
+/// екрана "Тропари и кондаци" и накрая на PDF-а с житието. Форматирането
+/// (prayerhead / csl / trans) трябва да е едно и също и на двете места.
+///
+/// [firstClassExtra] лепва допълнителен клас на ПЪРВИЯ блок — така
+/// pdf_export може да разпознае къде започват молитвите и да остави
+/// по-голямо отстояние над тях.
+String _prayersBlocksHtml(SaintTexts texts, {String firstClassExtra = ''}) {
   final b = StringBuffer();
   void block(String csl, String trans) {
     if (csl.isEmpty) return;
@@ -486,11 +505,26 @@ String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
   block(texts.kondak, texts.kondakTrans);
   block(texts.kondak2, texts.kondak2Trans);
 
-  if (texts.source.isNotEmpty) {
-    b.write('<p class="source">Източник: '
-        '<a href="${texts.source}">${texts.source}</a></p>');
+  var out = b.toString();
+  if (out.isNotEmpty && firstClassExtra.isNotEmpty) {
+    out = out.replaceFirst('class="', 'class="$firstClassExtra ');
   }
-  return b.toString();
+  return out;
+}
+
+/// HTML специално за PDF-а. Различава се от четеца само в едно: под
+/// житието/сказанието се добавят и тропарите с кондаците (ако ги има),
+/// и чак след тях идва източникът — веднъж, накрая, без нищо след себе си.
+/// Службата остава сама, а екранът "Тропари и кондаци" — какъвто си е.
+String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
+  if (mode != _ReaderMode.life) return _buildHtmlFor(mode, texts);
+
+  final prayers = _prayersBlocksHtml(texts, firstClassExtra: 'pdfgap');
+  final src = texts.source.isEmpty
+      ? ''
+      : '<p class="source">Източник: <a href="${texts.source}">'
+          '${texts.source}</a></p>';
+  return '${texts.lifeHtml}$prayers$src';
 }
 
 /// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
@@ -1530,6 +1564,132 @@ class _ReaderScreenState extends State<ReaderScreen>
   // където се решава. Записва се в отметката такова, каквото е (виж
   // _BookmarkRecord.typeLabel), за да не се пресмята повторно в списъка
   // с отметки.
+  /// Менюто "Още" — плъзва се отгоре надясно и се прибира по същия начин.
+  /// Написано е ръчно (showGeneralDialog + SlideTransition), защото
+  /// вграденият PopupMenuButton не позволява смяна на вида на анимацията.
+  Future<void> _showMoreMenu() async {
+    final topInset = MediaQuery.of(context).padding.top;
+    final selected = await showGeneralDialog<String>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'Затвори менюто',
+      barrierColor: Colors.black26,
+      transitionDuration: const Duration(milliseconds: 240),
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+      transitionBuilder: (ctx, anim, _, _) {
+        final curved = CurvedAnimation(
+          parent: anim,
+          curve: Curves.easeOutCubic,
+          reverseCurve: Curves.easeInCubic,
+        );
+        return Stack(children: [
+          Positioned(
+            top: topInset + 44,
+            right: 6,
+            child: SlideTransition(
+              position: Tween<Offset>(
+                begin: const Offset(0, -0.35),
+                end: Offset.zero,
+              ).animate(curved),
+              child: FadeTransition(
+                opacity: curved,
+                child: Material(
+                  color: AppColors.backgroundCard,
+                  elevation: 8,
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.antiAlias,
+                  child: IntrinsicWidth(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Лента за затваряне най-отгоре — менюто се
+                        // прибира и с тап встрани, но стрелката прави
+                        // изхода очевиден.
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: InkWell(
+                            onTap: () => Navigator.of(ctx).pop(),
+                            customBorder: const CircleBorder(),
+                            child: const Padding(
+                              padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
+                              child: Icon(Icons.arrow_forward,
+                                  size: 22, color: AppColors.textSecondary),
+                            ),
+                          ),
+                        ),
+                        const Divider(
+                            height: 1, color: AppColors.sectionDivider),
+                        _moreMenuItem(ctx, Icons.bookmarks_outlined,
+                            'Списък с отметки', 'bookmarks'),
+                        _moreMenuItem(ctx, Icons.picture_as_pdf_outlined,
+                            'Сподели като PDF', 'share_pdf'),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ]);
+      },
+    );
+    if (!mounted || selected == null) return;
+    if (selected == 'bookmarks') {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookmarksListScreen(lookup: widget.lookup),
+      ));
+    } else if (selected == 'share_pdf') {
+      _shareAsPdf();
+    }
+  }
+
+  Widget _moreMenuItem(
+      BuildContext ctx, IconData icon, String label, String value) {
+    return InkWell(
+      onTap: () => Navigator.of(ctx).pop(value),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(
+          children: [
+            // Пропорция икона/текст като в главното меню (app_drawer.dart)
+            // — това също е меню, не дребен списъчен ред.
+            Icon(icon, size: 22, color: AppColors.textSecondary),
+            const SizedBox(width: 12),
+            Text(label,
+                style: const TextStyle(
+                    color: AppColors.textPrimary, fontSize: 16)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Сглобява PDF (A4) от същия HTML, който се показва в четеца, и отваря
+  /// стандартния диалог за споделяне. Виж pdf_export.dart за оформлението.
+  Future<void> _shareAsPdf() async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      // Заглавието идва от името на светията, а тялото — от вече готовия
+      // HTML; така PDF-ът съдържа точно това, което потребителят чете.
+      await sharePdf(
+        title: widget.texts.name,
+        bodyHtml: _buildPdfHtmlFor(widget._mode, widget.texts),
+        fileName: '${_typeLabel.toLowerCase()} - ${widget.texts.name}.pdf',
+        // Буквица САМО за житието — точно както в четеца. Тропарите,
+        // кондаците и службата започват без водеща заглавна буква.
+        withDropCap: widget._mode == _ReaderMode.life,
+        strongIsWine: widget._mode == _ReaderMode.sluzhba,
+        prayerLike: widget._mode != _ReaderMode.life,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      messenger.showSnackBar(
+        SnackBar(content: Text('Неуспешно създаване на PDF: $e')),
+      );
+    }
+  }
+
   String get _typeLabel => widget._mode == _ReaderMode.life
       ? (widget.lifeTitle ?? 'Житие')
       : widget._mode == _ReaderMode.sluzhba
@@ -1875,26 +2035,24 @@ class _ReaderScreenState extends State<ReaderScreen>
             const SizedBox(width: 10), // По-тясно — менюто е "приятел" на отметката
             // Контекстно меню — най-вдясно. TODO: истинско съдържание
             // (списъци с отметки, преименуване и т.н.).
-            PopupMenuButton<String>(
-              tooltip: 'Още',
-              icon: Icon(
-                Icons.more_vert,
-                size: 24,
-                color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
-              ),
-              itemBuilder: (context) => const [
-                PopupMenuItem(
-                  value: 'bookmarks',
-                  child: Text('Списък с отметки'),
+            // Собствено меню вместо PopupMenuButton: искахме то да се
+            // ПЛЪЗГА (както drawer), а вграденият popup има само своята
+            // анимация на разрастване, която не се сменя.
+            Tooltip(
+              message: 'Още',
+              child: InkWell(
+                onTap: _showMoreMenu,
+                customBorder: const CircleBorder(),
+                child: Padding(
+                  padding: const EdgeInsets.all(6),
+                  child: Icon(
+                    Icons.more_vert,
+                    size: 24,
+                    color:
+                        AppBarTheme.of(context).foregroundColor ?? Colors.white,
+                  ),
                 ),
-              ],
-              onSelected: (value) {
-                if (value == 'bookmarks') {
-                  Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => BookmarksListScreen(lookup: widget.lookup),
-                  ));
-                }
-              },
+              ),
             ),
             const SizedBox(width: 2), // Разстояние до десния край
           ];
