@@ -50,6 +50,11 @@ class AppColors {
   static const todayBg       = Color(0x33BBBBBA); //Color.fromARGB(51, 187, 187, 186);
   static const todayFlash    = Color(0x859E9984); //Color.fromARGB(133, 158, 153, 132);
 
+  // ─── Избран ред (списък с отметки, режим "избиране") ──────────────────
+  // Индигото на лентата от дневния изглед, но изсветлено — на тъмния фон
+  // самото appBarWeekday се сливаше и избраните редове се откриваха трудно.
+  static const rowSelected = Color(0xFF44597A);
+
   // Неделя — днес
   static const sundayTodayBg = Color(0xff7b002c);
   static const sundayFlash   = Color(0xB8944B65); // Color.fromARGB(184, 148, 75, 101);
