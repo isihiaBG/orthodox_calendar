@@ -389,8 +389,15 @@ class _ExactListDelegate extends SliverChildListDelegate {
 class _Region {
   final bool isHtml;
   final String content;
-  const _Region.html(this.content) : isHtml = true;
-  const _Region.dropcapPlain(this.content) : isHtml = false;
+  /// САМО за региона с буквицата: следващият абзац, който може да влезе
+  /// вдясно от нея, ако първият не запълва петте реда. Той се маха от
+  /// списъка с обикновени региони, за да не се изпише два пъти.
+  final String second;
+  const _Region.html(this.content)
+      : isHtml = true,
+        second = '';
+  const _Region.dropcapPlain(this.content, {this.second = ''})
+      : isHtml = false;
 }
 
 List<_Region> _computeRegions(
@@ -402,8 +409,21 @@ List<_Region> _computeRegions(
   final regions = <_Region>[];
   if (dropCap.isNotEmpty) {
     if (beforeHtml.trim().isNotEmpty) regions.add(_Region.html(beforeHtml));
-    regions.add(_Region.dropcapPlain(firstP));
-    for (final block in _splitBlocks(afterHtml)) {
+    final blocks = _splitBlocks(afterHtml);
+    // Следващият блок отива при буквицата САМО ако е обикновен абзац:
+    // заглавие или центриран курсив не бива да се притиска в тясната
+    // колона. Ако не потрябва, кутията си го изписва под буквицата — на
+    // мястото, където би стоял и без това.
+    var second = '';
+    if (blocks.isNotEmpty) {
+      final m = RegExp(r'^<p>(.*)</p>$', dotAll: true).firstMatch(blocks.first);
+      if (m != null) {
+        second = m.group(1)!;
+        blocks.removeAt(0);
+      }
+    }
+    regions.add(_Region.dropcapPlain(firstP, second: second));
+    for (final block in blocks) {
       regions.add(_Region.html(block));
     }
   } else {
@@ -415,9 +435,11 @@ List<_Region> _computeRegions(
 }
 
 int _countInRegion(_Region r, String foldedQuery) {
-  return r.isHtml
-      ? _countMatchesHtml(r.content, foldedQuery)
-      : _countMatchesPlain(_plainTextOf(r.content), foldedQuery);
+  if (r.isHtml) return _countMatchesHtml(r.content, foldedQuery);
+  return _countMatchesPlain(_plainTextOf(r.content), foldedQuery) +
+      (r.second.isEmpty
+          ? 0
+          : _countMatchesPlain(_plainTextOf(r.second), foldedQuery));
 }
 
 enum _ReaderMode { life, prayers, sluzhba }
@@ -1959,6 +1981,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             lineHeight: lineHeightPx,
             lineFactor: _lineHeight,
             firstParagraph: r.content,
+            secondParagraph: r.second,
             fontSize: _fontSize,
             capColor: _wine,
             inkColor: _ink,
@@ -2039,6 +2062,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               lineHeight: lineHeightPx,
               lineFactor: _lineHeight,
               firstParagraph: r.content,
+              secondParagraph: r.second,
               fontSize: _fontSize,
               capColor: _wine,
               inkColor: _ink,
@@ -2516,6 +2540,9 @@ class _DropCapParagraph extends StatefulWidget {
   final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
   final double lineFactor;   // коефициентът за TextStyle.height (напр. 1.25)
   final String firstParagraph; // HTML съдържанието на първия <p> (без буквата)
+  /// Следващият абзац. Влиза вдясно от буквицата, ако първият не запълва
+  /// петте реда; иначе се изписва под нея, както би стоял и без това.
+  final String secondParagraph;
   final double fontSize;
   final Color capColor;
   final Color inkColor;
@@ -2534,6 +2561,7 @@ class _DropCapParagraph extends StatefulWidget {
     required this.lineHeight,
     required this.lineFactor,
     required this.firstParagraph,
+    required this.secondParagraph,
     required this.fontSize,
     required this.capColor,
     required this.inkColor,
@@ -2589,6 +2617,14 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
         final runs = _htmlRuns(widget.firstParagraph);
         final plain = runs.map((r) => r.text).join();
         final matches = _matchRanges(plain, widget.searchQuery);
+        // Вторият абзац — може да влезе вдясно от буквицата, ако първият
+        // не стигне до петия ред. Съвпаденията му продължават номерацията
+        // на първия, за да не се разминат броячите.
+        final runs2 = widget.secondParagraph.isEmpty
+            ? const <_Run>[]
+            : _htmlRuns(widget.secondParagraph);
+        final plain2 = runs2.map((r) => r.text).join();
+        final matches2 = _matchRanges(plain2, widget.searchQuery);
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от
@@ -2609,10 +2645,11 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
         // Парчетата от [from, to) — с оформлението си, с връзките си и с
         // маркировката от търсенето. Номерата на съвпаденията са ГЛОБАЛНИ,
         // затова двете кутии не се разминават в броенето.
-        List<InlineSpan> spansIn(int from, int to) {
+        List<InlineSpan> spansOf(List<_Run> src, String text,
+            List<(int, int)> hits, int matchBase, int from, int to) {
           final out = <InlineSpan>[];
           var pos = 0;
-          for (final run in runs) {
+          for (final run in src) {
             final start = pos;
             final end = pos + run.text.length;
             pos = end;
@@ -2635,21 +2672,20 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
 
             // Парчето се насича допълнително по границите на съвпаденията.
             var cursor = lo;
-            for (var i = 0; i < matches.length; i++) {
-              final (ms, me) = matches[i];
+            for (var i = 0; i < hits.length; i++) {
+              final (ms, me) = hits[i];
               if (me <= cursor || ms >= hi) continue;
               final s0 = ms < cursor ? cursor : ms;
               final e0 = me > hi ? hi : me;
               if (s0 > cursor) {
                 out.add(TextSpan(
-                    text: plain.substring(cursor, s0),
+                    text: text.substring(cursor, s0),
                     style: style,
                     recognizer: tap));
               }
-              final isCurrent =
-                  widget.firstGlobalMatchIndex + i == widget.currentGlobalMatch;
+              final isCurrent = matchBase + i == widget.currentGlobalMatch;
               out.add(TextSpan(
-                text: plain.substring(s0, e0),
+                text: text.substring(s0, e0),
                 style: style.copyWith(
                     backgroundColor:
                         isCurrent ? widget.hitCurrentColor : widget.hitColor),
@@ -2659,7 +2695,7 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
             }
             if (cursor < hi) {
               out.add(TextSpan(
-                  text: plain.substring(cursor, hi),
+                  text: text.substring(cursor, hi),
                   style: style,
                   recognizer: tap));
             }
@@ -2667,33 +2703,93 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
           return out;
         }
 
-        final headSpans = spansIn(0, plain.length);
+        final base2 = widget.firstGlobalMatchIndex + matches.length;
+        final spans1 = spansOf(runs, plain, matches,
+            widget.firstGlobalMatchIndex, 0, plain.length);
 
-        // Мярката е със СЪЩИТЕ парчета, ширина и maxLines, с които после
-        // рисува Text.rich — затова отрязването пада точно там, докъдето
-        // стига видимото.
-        final tp = TextPainter(
-          text: TextSpan(style: base, children: headSpans),
-          textDirection: TextDirection.ltr,
-          textScaler: scaler,
-          textAlign: TextAlign.justify,
-          maxLines: capLines,
-        )..layout(maxWidth: narrowWidth);
-
-        int cut;
-        if (tp.didExceedMaxLines) {
+        /// Докъде стига текстът, ако му дадем най-много [limit] реда, и
+        /// колко реда всъщност заема. Мярката е със СЪЩИТЕ парчета, ширина
+        /// и maxLines, с които после рисува Text.rich — затова отрязването
+        /// пада точно там, докъдето стига видимото.
+        ({int cut, int lines}) fit(List<InlineSpan> spans, int limit,
+            int textLength) {
+          final tp = TextPainter(
+            text: TextSpan(style: base, children: spans),
+            textDirection: TextDirection.ltr,
+            textScaler: scaler,
+            textAlign: TextAlign.justify,
+            maxLines: limit,
+          )..layout(maxWidth: narrowWidth);
           final metrics = tp.computeLineMetrics();
-          final last = metrics[
-              (capLines < metrics.length ? capLines : metrics.length) - 1];
-          cut = tp
-              .getPositionForOffset(Offset(narrowWidth, last.baseline))
-              .offset;
-        } else {
-          cut = plain.length;
+          if (!tp.didExceedMaxLines) {
+            return (cut: textLength, lines: metrics.length);
+          }
+          final last =
+              metrics[(limit < metrics.length ? limit : metrics.length) - 1];
+          return (
+            cut: tp
+                .getPositionForOffset(Offset(narrowWidth, last.baseline))
+                .offset,
+            lines: limit,
+          );
         }
 
-        final restSpans =
-            cut < plain.length ? spansIn(cut, plain.length) : <InlineSpan>[];
+        final f1 = fit(spans1, capLines, plain.length);
+
+        // Отстоянието между два абзаца — същото, каквото дава flutter_html
+        // на останалите (8 отдолу + 8 отгоре).
+        const paraGap = 16.0;
+        final lineHeightPx = scaler.scale(widget.fontSize) * widget.lineFactor;
+
+        // Вторият абзац влиза вдясно САМО ако след първия остава място за
+        // поне един негов ред заедно с отстоянието помежду им.
+        var spans2 = <InlineSpan>[];
+        var lines2 = 0;
+        var cut2 = 0;
+        if (runs2.isNotEmpty && f1.cut >= plain.length) {
+          final freeLines =
+              capLines - f1.lines - (paraGap / lineHeightPx).ceil();
+          if (freeLines >= 1) {
+            spans2 = spansOf(runs2, plain2, matches2, base2, 0, plain2.length);
+            final f2 = fit(spans2, freeLines, plain2.length);
+            lines2 = f2.lines;
+            cut2 = f2.cut;
+          }
+        }
+
+        // Какво остава ПОД буквицата. Трите случая се изключват взаимно:
+        // или първият абзац е пресечен (тогава вторият изобщо не е влизал),
+        // или е влязла част от втория, или вторият стои цял отдолу.
+        final tail = <Widget>[];
+        if (f1.cut < plain.length) {
+          tail.add(Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text.rich(
+              TextSpan(
+                  style: base,
+                  children: spansOf(runs, plain, matches,
+                      widget.firstGlobalMatchIndex, f1.cut, plain.length)),
+              textAlign: TextAlign.justify,
+            ),
+          ));
+        }
+        if (runs2.isNotEmpty) {
+          final startsAt = lines2 > 0 ? cut2 : 0;
+          if (startsAt < plain2.length) {
+            tail.add(Padding(
+              // Продължение на започнат абзац или съвсем нов — оттам и
+              // различното отстояние отгоре.
+              padding: EdgeInsets.only(top: lines2 > 0 ? 2 : paraGap / 2),
+              child: Text.rich(
+                TextSpan(
+                    style: base,
+                    children: spansOf(runs2, plain2, matches2, base2, startsAt,
+                        plain2.length)),
+                textAlign: TextAlign.justify,
+              ),
+            ));
+          }
+        }
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -2718,25 +2814,31 @@ class _DropCapParagraphState extends State<_DropCapParagraph> {
                 ),
                 const SizedBox(width: gap),
                 Expanded(
-                  // maxLines реже точно там, където мярката е казала — и
-                  // понеже текстът продължава отвъд, последният видим ред
-                  // не е "последен за абзаца" и се разпъва като другите.
-                  child: Text.rich(
-                    TextSpan(style: base, children: headSpans),
-                    maxLines: capLines,
-                    textAlign: TextAlign.justify,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      // maxLines реже точно там, където мярката е казала —
+                      // и когато текстът продължава отвъд, последният видим
+                      // ред не е "последен за абзаца" и се разпъва.
+                      Text.rich(
+                        TextSpan(style: base, children: spans1),
+                        maxLines: f1.lines,
+                        textAlign: TextAlign.justify,
+                      ),
+                      if (lines2 > 0) ...[
+                        const SizedBox(height: paraGap),
+                        Text.rich(
+                          TextSpan(style: base, children: spans2),
+                          maxLines: lines2,
+                          textAlign: TextAlign.justify,
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
             ),
-            if (restSpans.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 2),
-                child: Text.rich(
-                  TextSpan(style: base, children: restSpans),
-                  textAlign: TextAlign.justify,
-                ),
-              ),
+            ...tail,
           ],
         );
       },
