@@ -305,7 +305,6 @@ class _MonthPageState extends State<_MonthPage>
 
   // Скролира до конкретна дата в 2:1 позиция (горна:долна)
 	void scrollToDate(DateTime date, {bool animated = true}) {
-	  print('scrollToDate: $date, animated: $animated');
     if (_loading) {
 		// Запазваме датата и скролираме след зареждане
 		_pendingScrollDate = date;
