@@ -26,6 +26,7 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -60,6 +61,16 @@ String _decodeEntities(String s) {
     '&hellip;': '\u2026',  // …
     '&middot;': '\u00B7',
     '&deg;': '\u00B0',
+    // Гръцки букви — срещат се в цитирани оригинални имена.
+    '&Alpha;': '\u0391', '&Epsilon;': '\u0395',
+    '&zeta;': '\u03B6', '&eta;': '\u03B7',
+    '&theta;': '\u03B8', '&iota;': '\u03B9',
+    '&kappa;': '\u03BA', '&lambda;': '\u03BB',
+    '&nu;': '\u03BD', '&xi;': '\u03BE',
+    '&omicron;': '\u03BF', '&rho;': '\u03C1',
+    '&sigma;': '\u03C3', '&sigmaf;': '\u03C2',
+    '&tau;': '\u03C4', '&omega;': '\u03C9',
+    '&egrave;': '\u00E8',
     '&dagger;': '\u2020',  // † кръст
     '&amp;': '&',
     '&lt;': '<',
@@ -129,50 +140,6 @@ int _countMatchesHtml(String html, String foldedQuery) {
     count += _countMatchesPlain(piece, foldedQuery);
   }
   return count;
-}
-
-/// Маркира съвпаденията в чист текст (за буквицата) — връща TextSpan-ове.
-List<InlineSpan> _highlightPlain(
-  String text,
-  String foldedQuery,
-  int firstGlobalIndex,
-  int currentGlobalIndex,
-  TextStyle baseStyle,
-  Color hitBg,
-  Color hitCurrentBg,
-) {
-  if (foldedQuery.isEmpty) return [TextSpan(text: text, style: baseStyle)];
-  final folded = _fold(text);
-  final spans = <InlineSpan>[];
-  int from = 0, lastEnd = 0, local = 0;
-  while (true) {
-    final at = folded.text.indexOf(foldedQuery, from);
-    if (at < 0) break;
-    final origStart = folded.origIndex[at];
-    final endFoldedIdx = at + foldedQuery.length - 1;
-    final origEnd = folded.origIndex[endFoldedIdx] + 1;
-    if (origStart > lastEnd) {
-      spans.add(
-        TextSpan(text: text.substring(lastEnd, origStart), style: baseStyle),
-      );
-    }
-    final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-    spans.add(
-      TextSpan(
-      text: text.substring(origStart, origEnd),
-      style: baseStyle.copyWith(
-        backgroundColor: isCurrent ? hitCurrentBg : hitBg,
-      ),
-      ),
-    );
-    lastEnd = origEnd;
-    local++;
-    from = endFoldedIdx + 1;
-  }
-  if (lastEnd < text.length) {
-    spans.add(TextSpan(text: text.substring(lastEnd), style: baseStyle));
-  }
-  return spans;
 }
 
 /// Маркира съвпаденията в HTML — обвива всяко в <span class="hit(-current)">.
@@ -603,6 +570,85 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
   // Няма подходящ абзац за буквица — връщаме html, но със запазени
   // центрирания за курсивните абзаци, засечени дотук.
   return (before.toString() + html.substring(cursor), '', '', '');
+}
+
+/// Едно парче текст с еднакво оформление — резултатът от разлагането на
+/// HTML-а на началния абзац.
+///
+/// Наборът тагове там е ЗАКРИТ и проверен по цялата база: <a href>,
+/// <strong>, <em> и <br>. Друг таг и друг атрибут не се срещат, затова
+/// разборът е нарочно плосък, без дърво.
+class _Run {
+  final String text;
+  final bool bold;
+  final bool italic;
+  final String? href;
+  const _Run(this.text, {this.bold = false, this.italic = false, this.href});
+}
+
+/// Разлага HTML на парчета, като разкодира entity-тата и слепва поредните
+/// интервали — точно както го прави и чистият текст, по който се мери.
+List<_Run> _htmlRuns(String html) {
+  final runs = <_Run>[];
+  var bold = 0;
+  var italic = 0;
+  final hrefs = <String>[];
+  var lastWasSpace = true; // началните интервали отпадат, както при trim
+  final hrefRe = RegExp(r'href="([^"]*)"', caseSensitive: false);
+
+  void push(String t) {
+    if (t.isEmpty) return;
+    runs.add(_Run(t,
+        bold: bold > 0,
+        italic: italic > 0,
+        href: hrefs.isEmpty ? null : hrefs.last));
+  }
+
+  for (final m in RegExp(r'<[^>]*>|[^<]+').allMatches(html)) {
+    final piece = m.group(0)!;
+    if (piece.startsWith('<')) {
+      final t = piece.toLowerCase();
+      if (t.startsWith('<strong') || t.startsWith('<b>')) {
+        bold++;
+      } else if (t.startsWith('</strong') || t.startsWith('</b>')) {
+        if (bold > 0) bold--;
+      } else if (t.startsWith('<em') || t.startsWith('<i>')) {
+        italic++;
+      } else if (t.startsWith('</em') || t.startsWith('</i>')) {
+        if (italic > 0) italic--;
+      } else if (t.startsWith('<a')) {
+        hrefs.add(hrefRe.firstMatch(piece)?.group(1) ?? '');
+      } else if (t.startsWith('</a')) {
+        if (hrefs.isNotEmpty) hrefs.removeLast();
+      } else if (t.startsWith('<br')) {
+        push('\n');
+        lastWasSpace = true;
+      }
+      continue;
+    }
+    var text = _decodeEntities(piece).replaceAll(RegExp(r'\s+'), ' ');
+    if (lastWasSpace) text = text.trimLeft();
+    if (text.isEmpty) continue;
+    lastWasSpace = text.endsWith(' ');
+    push(text);
+  }
+  return runs;
+}
+
+/// Началото и краят на всяко съвпадение в чистия текст.
+List<(int, int)> _matchRanges(String text, String foldedQuery) {
+  if (foldedQuery.isEmpty) return const [];
+  final folded = _fold(text);
+  final out = <(int, int)>[];
+  var from = 0;
+  while (true) {
+    final at = folded.text.indexOf(foldedQuery, from);
+    if (at < 0) break;
+    final endIdx = at + foldedQuery.length - 1;
+    out.add((folded.origIndex[at], folded.origIndex[endIdx] + 1));
+    from = endIdx + 1;
+  }
+  return out;
 }
 
 /// Аргументи за _prepareReaderContent — трябва да са "sendable" (само данни,
@@ -1837,7 +1883,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
     }
-    _viewportWidth = MediaQuery.sizeOf(context).width;
+    // Ширината на СЪДЪРЖАНИЕТО, а не на екрана: текстът стои в SafeArea и
+    // в хоризонтално положение изрезът на камерата отнема лента отстрани.
+    // Без това измерването на височините ставаше на по-широко от реалното,
+    // текстът поемаше ред повече и не се събираше в отредената си кутия
+    // (жълтата лента "BOTTOM OVERFLOWED" при смяна на шрифта в landscape).
+    _viewportWidth = MediaQuery.sizeOf(context).width -
+        MediaQuery.paddingOf(context).horizontal;
     // Реалните измервания важат само за ширината, при която са направени
     // (напр. завъртане на устройството би променила пренасянето на реда).
     // Толеранс, не точно равенство — MediaQuery може да върне
@@ -1910,6 +1962,8 @@ class _ReaderScreenState extends State<ReaderScreen>
             fontSize: _fontSize,
             capColor: _wine,
             inkColor: _ink,
+            linkColor: AppColors.sectionTitle,
+            onLinkTap: _onLinkTap,
             searchQuery: foldedQuery,
             firstGlobalMatchIndex: matchOffset,
             currentGlobalMatch: _currentMatch,
@@ -1988,6 +2042,8 @@ class _ReaderScreenState extends State<ReaderScreen>
               fontSize: _fontSize,
               capColor: _wine,
               inkColor: _ink,
+              linkColor: AppColors.sectionTitle,
+              onLinkTap: _onLinkTap,
             ),
             ),
           );
@@ -2350,6 +2406,26 @@ class _ReaderScreenState extends State<ReaderScreen>
         textAlign: TextAlign.justify,
         color: _ink,
       ),
+      // Двете кутии около буквицата: като обикновен абзац, но без полета —
+      // отстоянията там се мерят в редове и се задават отвън.
+      '.dropcap': Style(
+        fontFamily: _bodyFamily,
+        fontSize: FontSize(_fontSize),
+        lineHeight: const LineHeight(_lineHeight),
+        margin: Margins.zero,
+        padding: HtmlPaddings.zero,
+        textAlign: TextAlign.justify,
+        color: _ink,
+      ),
+      '.dropcap-rest': Style(
+        fontFamily: _bodyFamily,
+        fontSize: FontSize(_fontSize),
+        lineHeight: const LineHeight(_lineHeight),
+        margin: Margins.only(top: 2),
+        padding: HtmlPaddings.zero,
+        textAlign: TextAlign.justify,
+        color: _ink,
+      ),
       'h3': Style(
         fontFamily: _titleFamily, // _bodyFamily,
         fontSize: FontSize(_fontSize + 10),
@@ -2421,7 +2497,20 @@ class _ReaderScreenState extends State<ReaderScreen>
 /// ширина (екран минус буквата). Тази част се рендва вдясно от буквата;
 /// всичко останало — на пълна ширина отдолу. Линковете в обтичащата зона
 /// се пазят, защото тя се рендва пак като Html.
-class _DropCapParagraph extends StatelessWidget {
+/// Първият абзац на житието — с орнаментирана водеща буква, около която
+/// текстът обтича.
+///
+/// Текстът тук се изписва с Text.rich, а НЕ с flutter_html като останалите
+/// региони. Причината е измерването: трябва да знаем къде свършва петият
+/// ред, за да продължим остатъка под буквицата, а flutter_html не казва
+/// къде чупи редовете си. Мерихме с TextPainter и рисувахме с него — двата
+/// подреждаха малко различно и на границата между двете кутии изчезваше по
+/// дума-две. Сега мерещият и рисуващият са един и същ двигател, тъй че
+/// разминаване няма по построение, а maxLines сам отрязва.
+///
+/// Таговете, които се срещат в началните абзаци, са проверени по цялата
+/// база и са само четири (виж _htmlRuns).
+class _DropCapParagraph extends StatefulWidget {
   final String dropCap;
   final double dropCapSize;
   final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
@@ -2430,12 +2519,14 @@ class _DropCapParagraph extends StatelessWidget {
   final double fontSize;
   final Color capColor;
   final Color inkColor;
+  final Color linkColor;
   // Търсене: празен searchQuery = няма активно търсене.
   final String searchQuery;
   final int firstGlobalMatchIndex;
   final int currentGlobalMatch;
   final Color hitColor;
   final Color hitCurrentColor;
+  final void Function(String?) onLinkTap;
 
   const _DropCapParagraph({
     required this.dropCap,
@@ -2446,6 +2537,8 @@ class _DropCapParagraph extends StatelessWidget {
     required this.fontSize,
     required this.capColor,
     required this.inkColor,
+    required this.linkColor,
+    required this.onLinkTap,
     this.searchQuery = '',
     this.firstGlobalMatchIndex = 0,
     this.currentGlobalMatch = -1,
@@ -2454,145 +2547,211 @@ class _DropCapParagraph extends StatelessWidget {
   });
 
   @override
+  State<_DropCapParagraph> createState() => _DropCapParagraphState();
+}
+
+class _DropCapParagraphState extends State<_DropCapParagraph> {
+  // Разпознавателите на тап живеят колкото кадъра, в който са създадени.
+  // Старите се освобождават СЛЕД кадъра — докато той се рисува, все още са
+  // закачени за spans-овете.
+  List<TapGestureRecognizer> _recognizers = [];
+
+  @override
+  void dispose() {
+    for (final r in _recognizers) {
+      r.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
+    final fresh = <TapGestureRecognizer>[];
+
+    final widgetTree = LayoutBuilder(
       builder: (context, constraints) {
-      final capWidth = dropCapSize * 0.40; // приблизителна ширина на глифа
-      const gap = 4.0;
-      final narrowWidth = constraints.maxWidth - capWidth - gap;
+        final capWidth = widget.dropCapSize * 0.40; // приблизителна ширина
+        const gap = 4.0;
+        final narrowWidth = constraints.maxWidth - capWidth - gap;
 
-      // Букви с descender (опашка под базовата линия) заемат повече
-      // височина от останалите — обтичащата зона им дава още един ред,
-      // за да не застъпи глифът първия ред под буквицата.
-      const descenderCaps = {'Ч', 'Д', 'Ц', 'Щ', 'У', 'Р'};
-      final extraLine = descenderCaps.contains(dropCap) ? 1 : 0;
-      final capLines = (dropCapSize / lineHeight).ceil() + extraLine;
+        // Системната настройка за едър шрифт увеличава изписвания текст —
+        // измерването трябва да я знае, иначе бърка броя редове.
+        final scaler = MediaQuery.textScalerOf(context);
 
-      // Чист текст (без тагове) за измерването.
-      // Махаме таговете, после разкодираме entity-тата (&ndash; и др.),
-      // за да не се виждат като суров код в обтичащата зона.
-      final plain = _decodeEntities(
-          firstParagraph.replaceAll(RegExp(r'<[^>]+>'), ''),
-        ).replaceAll(RegExp(r'\s+'), ' ').trim();
+        // Букви с descender (опашка под базовата линия) заемат повече
+        // височина от останалите — обтичащата зона им дава още един ред,
+        // за да не застъпи глифът първия ред под буквицата.
+        const descenderCaps = {'Ч', 'Д', 'Ц', 'Щ', 'У', 'Р'};
+        final extraLine = descenderCaps.contains(widget.dropCap) ? 1 : 0;
+        final capLines =
+            (widget.dropCapSize / widget.lineHeight).ceil() + extraLine;
 
-      // Колко знака се побират в capLines реда при narrowWidth?
-      final tp = TextPainter(
-        text: TextSpan(
-          text: plain,
-          style: TextStyle(
-              fontFamily: _bodyFamily,
-              fontSize: fontSize,
-              height: lineFactor,
-            ),
-        ),
-        textDirection: TextDirection.ltr,
-        maxLines: capLines,
-      )..layout(maxWidth: narrowWidth);
-      int cut = tp.didExceedMaxLines
-            ? tp
-                  .getPositionForOffset(
-                    Offset(narrowWidth, capLines * lineHeight - 1),
-                  )
-                  .offset
-          : plain.length;
+        final runs = _htmlRuns(widget.firstParagraph);
+        final plain = runs.map((r) => r.text).join();
+        final matches = _matchRanges(plain, widget.searchQuery);
 
-      // Режем на граница на дума, за да не разполовим дума.
-      if (cut < plain.length) {
-        final sp = plain.lastIndexOf(' ', cut);
-        if (sp > 0) cut = sp;
-      }
+        // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
+        // зададени, а не оставени празни. Празно поле се попълва от
+        // околния DefaultTextStyle при изписването, но не и при мерещия
+        // TextPainter, който няма такъв — и двата подреждаха различно,
+        // заради което между двете кутии се губеше по дума.
+        final base = TextStyle(
+          fontFamily: _bodyFamily,
+          fontSize: widget.fontSize,
+          height: widget.lineFactor,
+          color: widget.inkColor,
+          fontWeight: FontWeight.w400,
+          fontStyle: FontStyle.normal,
+          letterSpacing: 0,
+          wordSpacing: 0,
+        );
 
-      final wrapText = plain.substring(0, cut).trim();
-      final restText = plain.substring(cut).trim();
+        // Парчетата от [from, to) — с оформлението си, с връзките си и с
+        // маркировката от търсенето. Номерата на съвпаденията са ГЛОБАЛНИ,
+        // затова двете кутии не се разминават в броенето.
+        List<InlineSpan> spansIn(int from, int to) {
+          final out = <InlineSpan>[];
+          var pos = 0;
+          for (final run in runs) {
+            final start = pos;
+            final end = pos + run.text.length;
+            pos = end;
+            final lo = start < from ? from : start;
+            final hi = end > to ? to : end;
+            if (lo >= hi) continue;
 
-      final baseStyle = TextStyle(
-        fontFamily: _bodyFamily,
-        fontSize: fontSize,
-        height: lineFactor,
-        color: inkColor,
-      );
-        final wrapCount = searchQuery.isEmpty
-            ? 0
-            : _countMatchesPlain(wrapText, searchQuery);
+            final style = base.copyWith(
+              fontWeight: run.bold ? FontWeight.w600 : FontWeight.w400,
+              fontStyle:
+                  run.italic ? FontStyle.italic : FontStyle.normal,
+              color: run.href != null ? widget.linkColor : widget.inkColor,
+            );
+            TapGestureRecognizer? tap;
+            if (run.href != null && run.href!.isNotEmpty) {
+              tap = TapGestureRecognizer()
+                ..onTap = () => widget.onLinkTap(run.href);
+              fresh.add(tap);
+            }
 
-      // Забележка: обтичащата зона и остатъкът се рендват като ЧИСТ ТЕКСТ
-      // (Html таговете на първия абзац се губят при измерването; на практика
-      // първият абзац на житията е почти винаги плоски изречения, а
-      // линковете в него — рядкост; следващите абзаци са си пълен Html).
-      return Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              SizedBox(
-                width: capWidth,
-                child: Transform.translate(
-                  offset: const Offset(0, 2),
-                  child: Text(
-                    dropCap,
-                    style: TextStyle(
-                      fontFamily: _dropCapFamily,
-                      fontSize: dropCapSize,
-                      height: 1.0,
-                      color: capColor,
+            // Парчето се насича допълнително по границите на съвпаденията.
+            var cursor = lo;
+            for (var i = 0; i < matches.length; i++) {
+              final (ms, me) = matches[i];
+              if (me <= cursor || ms >= hi) continue;
+              final s0 = ms < cursor ? cursor : ms;
+              final e0 = me > hi ? hi : me;
+              if (s0 > cursor) {
+                out.add(TextSpan(
+                    text: plain.substring(cursor, s0),
+                    style: style,
+                    recognizer: tap));
+              }
+              final isCurrent =
+                  widget.firstGlobalMatchIndex + i == widget.currentGlobalMatch;
+              out.add(TextSpan(
+                text: plain.substring(s0, e0),
+                style: style.copyWith(
+                    backgroundColor:
+                        isCurrent ? widget.hitCurrentColor : widget.hitColor),
+                recognizer: tap,
+              ));
+              cursor = e0;
+            }
+            if (cursor < hi) {
+              out.add(TextSpan(
+                  text: plain.substring(cursor, hi),
+                  style: style,
+                  recognizer: tap));
+            }
+          }
+          return out;
+        }
+
+        final headSpans = spansIn(0, plain.length);
+
+        // Мярката е със СЪЩИТЕ парчета, ширина и maxLines, с които после
+        // рисува Text.rich — затова отрязването пада точно там, докъдето
+        // стига видимото.
+        final tp = TextPainter(
+          text: TextSpan(style: base, children: headSpans),
+          textDirection: TextDirection.ltr,
+          textScaler: scaler,
+          textAlign: TextAlign.justify,
+          maxLines: capLines,
+        )..layout(maxWidth: narrowWidth);
+
+        int cut;
+        if (tp.didExceedMaxLines) {
+          final metrics = tp.computeLineMetrics();
+          final last = metrics[
+              (capLines < metrics.length ? capLines : metrics.length) - 1];
+          cut = tp
+              .getPositionForOffset(Offset(narrowWidth, last.baseline))
+              .offset;
+        } else {
+          cut = plain.length;
+        }
+
+        final restSpans =
+            cut < plain.length ? spansIn(cut, plain.length) : <InlineSpan>[];
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                SizedBox(
+                  width: capWidth,
+                  child: Transform.translate(
+                    offset: const Offset(0, 2),
+                    child: Text(
+                      widget.dropCap,
+                      style: TextStyle(
+                        fontFamily: _dropCapFamily,
+                        fontSize: widget.dropCapSize,
+                        height: 1.0,
+                        color: widget.capColor,
+                      ),
                     ),
                   ),
                 ),
-              ),
-              const SizedBox(width: gap),
-              Expanded(
-                child: searchQuery.isEmpty
-                      ? Text(
-                          wrapText,
-                          textAlign: TextAlign.justify,
-                          style: baseStyle,
-                        )
-                    : Text.rich(
-                        TextSpan(
-                            children: _highlightPlain(
-                              wrapText,
-                              searchQuery,
-                              firstGlobalMatchIndex,
-                              currentGlobalMatch,
-                              baseStyle,
-                              hitColor,
-                              hitCurrentColor,
-                            ),
-                        ),
-                        textAlign: TextAlign.justify,
-                      ),
-              ),
-            ],
-          ),
-          if (restText.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: searchQuery.isEmpty
-                    ? Text(
-                        restText,
-                        textAlign: TextAlign.justify,
-                        style: baseStyle,
-                      )
-                  : Text.rich(
-                      TextSpan(
-                        children: _highlightPlain(
-                            restText,
-                            searchQuery,
-                            firstGlobalMatchIndex + wrapCount,
-                            currentGlobalMatch,
-                            baseStyle,
-                            hitColor,
-                            hitCurrentColor,
-                          ),
-                      ),
-                      textAlign: TextAlign.justify,
-                    ),
+                const SizedBox(width: gap),
+                Expanded(
+                  // maxLines реже точно там, където мярката е казала — и
+                  // понеже текстът продължава отвъд, последният видим ред
+                  // не е "последен за абзаца" и се разпъва като другите.
+                  child: Text.rich(
+                    TextSpan(style: base, children: headSpans),
+                    maxLines: capLines,
+                    textAlign: TextAlign.justify,
+                  ),
+                ),
+              ],
             ),
-        ],
-      );
+            if (restSpans.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text.rich(
+                  TextSpan(style: base, children: restSpans),
+                  textAlign: TextAlign.justify,
+                ),
+              ),
+          ],
+        );
       },
     );
+
+    final old = _recognizers;
+    _recognizers = fresh;
+    if (old.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        for (final r in old) {
+          r.dispose();
+        }
+      });
+    }
+    return widgetTree;
   }
 }
 

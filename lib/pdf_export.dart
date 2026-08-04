@@ -257,6 +257,35 @@ List<pw.TextSpan> _inlineSpans(
   return spans;
 }
 
+/// Вярно, ако единствените тагове в абзаца са връзки (<a>). Тогава
+/// шрифтът е един и същ по цялата дължина и мярката на редовете излиза
+/// точна — а без това правилото за самотните редове не може да се приложи
+/// безопасно.
+bool _onlyLinkTags(String inner) =>
+    !RegExp(r'<(?!/?a\b)[^>]*>', caseSensitive: false).hasMatch(inner);
+
+/// Същите парчета, но без първите [skip] знака — с непокътнати цветове и
+/// връзки. Така остатъкът от абзаца не се сглобява наново от HTML-а.
+List<pw.TextSpan> _spansAfter(List<pw.TextSpan> spans, int skip) {
+  final out = <pw.TextSpan>[];
+  var left = skip;
+  for (final s in spans) {
+    final t = s.text ?? '';
+    if (left >= t.length) {
+      left -= t.length;
+      continue;
+    }
+    final cut = left > 0 ? t.substring(left) : t;
+    left = 0;
+    // Пренесеният ред не бива да започва с интервала от мястото на къса.
+    final text = out.isEmpty ? cut.trimLeft() : cut;
+    if (text.isEmpty) continue;
+    out.add(pw.TextSpan(
+        text: text, style: s.style, annotation: s.annotation));
+  }
+  return out;
+}
+
 /// Кой абзац заслужава буквица — същите правила като в четеца
 /// (_splitDropCap): пропускат се редакторски бележки в скоби, цитати,
 /// курсивни акценти и всичко, което не започва с истинска буква. Търси се
@@ -269,12 +298,41 @@ bool _eligibleForDropCap(_Block b) {
   return RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(first);
 }
 
-/// Първият абзац с водеща буква. pdf пакетът няма CSS float, затова
-/// обтичането се прави като в четеца: буквата отляво, а до нея — толкова
-/// текст, колкото се събира в няколко реда (оценка по средна ширина на
-/// знак; тук точността не е критична, за разлика от скролирането).
-List<pw.Widget> _dropCapWidgets(
-    String text, double pageWidth, PdfFont measureFont) {
+/// Колко реда заема текстът при дадена ширина.
+int _countLines(String text, double width, PdfFont font, double fontSize) {
+  var lines = 1;
+  var current = '';
+  for (final w in text.split(' ')) {
+    final candidate = current.isEmpty ? w : '$current $w';
+    if (font.stringMetrics(candidate).width * fontSize <= width ||
+        current.isEmpty) {
+      current = candidate;
+    } else {
+      lines++;
+      current = w;
+    }
+  }
+  return lines;
+}
+
+/// Началото на четивото с водеща буква. pdf пакетът няма CSS float, затова
+/// обтичането се прави като в четеца: буквата отляво, а вдясно от нея —
+/// пет реда текст.
+///
+/// Тези пет реда се пълнят от КОЛКОТО АБЗАЦА ПОТРЯБВАТ, а не само от
+/// първия. Иначе, ако първият абзац е кратък, вдясно от буквицата зейваше
+/// празнина, а следващият абзац чакаше чак под нея. Абзаците след първия
+/// получават обичайния си отстъп на първия ред и по-широко отстояние
+/// отгоре — за да личи, че са нови абзаци, а не пренесени редове.
+///
+/// Връща и колко блока е поел, за да ги прескочи главният цикъл.
+({List<pw.Widget> widgets, int consumed}) _dropCapWidgets(
+  List<_Block> blocks,
+  int start,
+  double pageWidth,
+  PdfFont measureFont, {
+  required PdfColor strongColor,
+}) {
   const capLines = 5;
   final lineHeightPt = _bodySize * _lineHeight;
   final lineSpacing = _bodySize * 0.45;
@@ -297,72 +355,128 @@ List<pw.Widget> _dropCapWidgets(
   final capShift = _bodySize * 1.8;
 
   final narrowWidth = pageWidth - capWidth - 8;
-
-  // Текстът до буквицата се РАЗДЕЛЯ ТОЧНО, чрез измерване на реалната
-  // ширина на думите (PdfFont.stringMetrics), а не по средна ширина на
-  // знак. Заради това петте реда се запълват докрай, без празнина в края
-  // и без риск да прелеят на шести ред с една самотна дума — при всяко
-  // житие, независимо от дължината на думите му.
-  final body = text.length <= 1 ? '' : text.substring(1);
-  // Текстът до буквицата се РАЗДЕЛЯ ТОЧНО, чрез измерване на реалната
-  // ширина на думите — така петте реда се запълват докрай, без празнина
-  // в края и без риск да прелеят на шести ред с една самотна дума.
-  final split =
-      _splitLines(body, narrowWidth, measureFont, _bodySize, capLines);
-  final beside = split.head;
-  final rest = split.rest;
+  const paraGap = 20.0; // същото отстояние като между абзаците по-долу
+  final indentWidth = _bodySize * 1.6;
 
   final style = pw.TextStyle(
-      font: _body,
-      fontSize: _bodySize,
-      lineSpacing: lineSpacing,
-      color: _ink);
+      font: _body, fontSize: _bodySize, lineSpacing: lineSpacing, color: _ink);
 
-  // Два ОТДЕЛНИ widget-а, не общ Column: Column в pdf пакета не се дели
-  // между страници. Редът с буквицата НЕ е с фиксирана височина — ако
-  // съседният текст поеме ред повече от очакваното, редът просто пораства,
-  // вместо съдържанието да се застъпи.
-  return [
-    pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
-      pw.SizedBox(
-        // Височината е ИЗРИЧНА (точно колкото са редовете до буквицата).
-        // Bukvica има високи горни/долни израстъци и без това ограничение
-        // редът се раздуваше повече от текста, оставяйки празен ред след
-        // блока. Глифът просто "виси" извън кутията — точно каквото искаме.
-        width: capWidth,
-        height: capLines * lineHeightPt,
-        child: pw.Transform.translate(
-          // Положителна стойност = НАГОРЕ (проверено емпирично:
-          // отрицателната свали буквата върху следващия ред).
-          offset: PdfPoint(0, capShift),
-          child: pw.Text(text.isEmpty ? '' : text.substring(0, 1),
-              style: pw.TextStyle(
-                  font: _dropCapFont, fontSize: capFontSize, color: _wine)),
+  final beside = <pw.Widget>[]; // фрагментите вдясно от буквицата
+  final tail = <pw.Widget>[]; // онова, което продължава под нея
+  var consumed = 0;
+  var budget = capLines.toDouble(); // остатък в редове
+  final gapLines = paraGap / lineHeightPt;
+
+  var idx = start;
+  var isFirst = true;
+  while (idx < blocks.length && budget >= 1) {
+    final b = blocks[idx];
+    if (!isFirst) {
+      // Вдясно от буквицата влизат само обикновени абзаци: заглавие или
+      // курсивен акцент там би изглеждал притиснат.
+      if (b.isHeading || b.isItalic || !_onlyLinkTags(b.inner)) break;
+      if (budget - gapLines < 1) break;
+      budget -= gapLines;
+    }
+
+    var spans = _inlineSpans(b.inner.isEmpty ? b.text : b.inner, style,
+        strongColor: strongColor);
+    // Първата буква вече е нарисувана като буквица.
+    if (isFirst) spans = _spansAfter(spans, 1);
+    final plain = spans.map((x) => x.text ?? '').join();
+    if (plain.isEmpty) break;
+
+    final maxLines = budget.floor();
+    final indent = isFirst
+        ? null
+        : pw.WidgetSpan(child: pw.SizedBox(width: indentWidth));
+    final needed = _countLines(plain, narrowWidth, measureFont, _bodySize);
+
+    if (beside.isNotEmpty) beside.add(pw.SizedBox(height: paraGap));
+
+    if (needed <= maxLines) {
+      // Целият абзац се събира вдясно от буквицата. Последният му ред е
+      // истински край на абзац — затова НЕ се разпъва, точно както трябва.
+      beside.add(pw.RichText(
+        textAlign: pw.TextAlign.justify,
+        text: pw.TextSpan(
+            style: style,
+            children: [if (indent != null) indent, ...spans]),
+      ));
+      budget -= needed;
+      consumed++;
+      idx++;
+      isFirst = false;
+      continue;
+    }
+
+    // Абзацът се пресича: вдясно остават maxLines реда, останалото минава
+    // под буквицата. Подава се ЦЕЛИЯТ абзац с maxLines — така последният
+    // от тези редове не е "последен за widget-а" и се разпъва наравно с
+    // другите (виж бележката при абзаците в sharePdf).
+    final split = _splitLines(
+        plain, narrowWidth, measureFont, _bodySize, maxLines,
+        firstIndent: indent != null ? indentWidth : 0);
+    beside.add(pw.RichText(
+      textAlign: pw.TextAlign.justify,
+      maxLines: maxLines,
+      text: pw.TextSpan(
+          style: style, children: [if (indent != null) indent, ...spans]),
+    ));
+    tail
+      ..add(pw.SizedBox(height: lineSpacing))
+      ..add(pw.RichText(
+        textAlign: pw.TextAlign.justify,
+        // Без overflow.span текстът НЕ се пренася между страници (виж
+        // RichText.canSpan в pdf пакета).
+        overflow: pw.TextOverflow.span,
+        text: pw.TextSpan(
+            style: style,
+            children: _spansAfter(spans, split.head.length)),
+      ));
+    consumed++;
+    budget = 0;
+    break;
+  }
+
+  final letter = blocks[start].text;
+  return (
+    consumed: consumed == 0 ? 1 : consumed,
+    widgets: [
+      // Два ОТДЕЛНИ widget-а, не общ Column: Column в pdf пакета не се дели
+      // между страници. Редът с буквицата НЕ е с фиксирана височина — ако
+      // съседният текст поеме ред повече от очакваното, редът просто
+      // пораства, вместо съдържанието да се застъпи.
+      pw.Row(crossAxisAlignment: pw.CrossAxisAlignment.start, children: [
+        pw.SizedBox(
+          // Височината е ИЗРИЧНА (точно колкото са редовете до буквицата).
+          // Bukvica има високи горни/долни израстъци и без това ограничение
+          // редът се раздуваше повече от текста, оставяйки празен ред след
+          // блока. Глифът просто "виси" извън кутията — точно каквото искаме.
+          width: capWidth,
+          height: capLines * lineHeightPt,
+          child: pw.Transform.translate(
+            // Положителна стойност = НАГОРЕ (проверено емпирично:
+            // отрицателната свали буквата върху следващия ред).
+            offset: PdfPoint(0, capShift),
+            child: pw.Text(letter.isEmpty ? '' : letter.substring(0, 1),
+                style: pw.TextStyle(
+                    font: _dropCapFont, fontSize: capFontSize, color: _wine)),
+          ),
         ),
-      ),
-      pw.SizedBox(width: 8),
-      pw.Expanded(
-        child: pw.Padding(
-          padding: pw.EdgeInsets.only(top: capRise),
-          child: pw.Text(beside,
-              style: style,
-              textAlign: pw.TextAlign.justify,
-              overflow: pw.TextOverflow.span),
+        pw.SizedBox(width: 8),
+        pw.Expanded(
+          child: pw.Padding(
+            padding: pw.EdgeInsets.only(top: capRise),
+            child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+                children: beside),
+          ),
         ),
-      ),
-    ]),
-    if (rest.isNotEmpty) ...[
-      // Междуредието важи само ВЪТРЕ в един текстов блок; между двата тук
-      // го добавяме ръчно, за да продължи текстът по същия ритъм.
-      pw.SizedBox(height: lineSpacing),
-      pw.Text(rest,
-          style: style,
-          textAlign: pw.TextAlign.justify,
-          // Без overflow.span текстът НЕ се пренася между страници (виж
-          // RichText.canSpan в pdf пакета).
-          overflow: pw.TextOverflow.span),
+      ]),
+      ...tail,
     ],
-  ];
+  );
 }
 
 /// Сглобява PDF-а и отваря стандартния диалог за споделяне.
@@ -457,8 +571,13 @@ Future<void> sharePdf({
               _eligibleForDropCap(b);
           if (useDropCap) {
             dropCapUsed = true;
-            widgets.addAll(_dropCapWidgets(
-                blockText, contentWidth, _body!.getFont(context)));
+            final dc = _dropCapWidgets(
+                blocks, i, contentWidth, _body!.getFont(context),
+                strongColor: strongIsWine ? _wine : _ink);
+            widgets.addAll(dc.widgets);
+            // Буквицата може да е погълнала няколко абзаца — цикълът
+            // прескача точно тях.
+            i += dc.consumed - 1;
           } else {
             // Кой е следващият блок и ще носи ли той буквица — от това
             // зависи дали може да бъде "залепен" за заглавието над него.
@@ -508,14 +627,19 @@ Future<void> sharePdf({
                     children: [
                       headingWidget,
                       pw.SizedBox(height: mainHeadingGap ?? (prayerLike ? 34 : 24)),
-                      pw.Text(split.head,
+                      // Целият абзац с maxLines: 2 — виж бележката при
+                      // абзаците долу защо не подаваме само двата реда.
+                      pw.RichText(
                           textAlign: pw.TextAlign.justify,
-                          style: pw.TextStyle(
-                            font: _body,
-                            fontSize: _bodySize,
-                            lineSpacing: _bodySize * 0.45,
-                            color: _ink,
-                          )),
+                          maxLines: 2,
+                          text: pw.TextSpan(
+                              text: next.text,
+                              style: pw.TextStyle(
+                                font: _body,
+                                fontSize: _bodySize,
+                                lineSpacing: _bodySize * 0.45,
+                                color: _ink,
+                              ))),
                     ],
                   ),
                 ));
@@ -573,6 +697,14 @@ Future<void> sharePdf({
                       isTrans)
                   ? null
                   : pw.WidgetSpan(child: pw.SizedBox(width: _bodySize * 1.6));
+              final bodySpans = _inlineSpans(
+                  blockText != b.text
+                      ? blockText
+                      : (b.inner.isEmpty ? b.text : b.inner),
+                  style,
+                  strongColor: strongIsWine ? _wine : _ink,
+                  baseBold: isPrayerHead,
+                  baseItalic: b.isItalic);
               final paragraph = pw.RichText(
                 textAlign: pw.TextAlign.justify,
                 // Без това дългите абзаци не могат да се разделят на страници.
@@ -581,14 +713,7 @@ Future<void> sharePdf({
                   style: style,
                   children: [
                     if (indent != null) indent,
-                    ..._inlineSpans(
-                        blockText != b.text
-                            ? blockText
-                            : (b.inner.isEmpty ? b.text : b.inner),
-                        style,
-                        strongColor: strongIsWine ? _wine : _ink,
-                        baseBold: isPrayerHead,
-                        baseItalic: b.isItalic),
+                    ...bodySpans,
                   ],
                 ),
               );
@@ -606,43 +731,68 @@ Future<void> sharePdf({
                     children: [
                       paragraph,
                       pw.SizedBox(height: 12),
-                      pw.Text(split.head,
+                      pw.RichText(
                           textAlign: pw.TextAlign.justify,
-                          style: pw.TextStyle(
-                            font: _body,
-                            fontSize: _bodySize + 0.5,
-                            lineSpacing: _bodySize * 0.45,
-                            color: _ink,
-                          )),
+                          maxLines: 2,
+                          text: pw.TextSpan(
+                              text: next.text,
+                              style: pw.TextStyle(
+                                font: _body,
+                                fontSize: _bodySize + 0.5,
+                                lineSpacing: _bodySize * 0.45,
+                                color: _ink,
+                              ))),
                     ],
                   ),
                 ));
-              } else if (!b.inner.contains('<') &&
+              } else if (_onlyLinkTags(b.inner) &&
                   !isSourceLine &&
                   blockText.isNotEmpty) {
                 // Самотен пръв ред в дъното на страницата не е добър вид:
                 // първите ДВА реда на абзаца се държат заедно (Inseparable),
                 // а остатъкът тече свободно и може да се пренася.
+                //
+                // Мери се СГЛОБЕНИЯТ от парчетата текст, не b.text: така
+                // отрязването и изписването броят едни и същи знаци.
+                // Връзките не сменят шрифта (само цвета), затова мярката с
+                // _body важи и за тях; абзаци с курсив или получер текст
+                // остават извън правилото — там сметката би се разминала.
+                final plain = bodySpans.map((x) => x.text ?? '').join();
                 final split = _splitLines(
-                    blockText, contentWidth, _body!.getFont(context), fontSize, 2,
+                    plain, contentWidth, _body!.getFont(context), fontSize, 2,
                     firstIndent: indent != null ? _bodySize * 1.6 : 0);
                 if (split.rest.isEmpty) {
-                  widgets.add(paragraph);
+                  // Абзац до два реда — няма какво да се дели, но пък може
+                  // да се разполови на границата на страницата и пак да
+                  // остави самотен ред. Затова цял отива на следващата.
+                  widgets.add(pw.Inseparable(child: paragraph));
                 } else {
+                  // Подава се ЦЕЛИЯТ абзац с maxLines: 2, а не отрязаните
+                  // два реда. Причината е в pdf пакета: последният ред на
+                  // текст НЕ се разпъва между полетата (така се пише всеки
+                  // край на абзац). Ако тук подадем само двата реда, вторият
+                  // им е "последен" и остава скъсен — а това си личеше на
+                  // всеки абзац в документа. При maxLines изходът от
+                  // подредбата става веднага след добавения ред, който вече
+                  // е записан като разпънат.
                   widgets.add(pw.Inseparable(
                     child: pw.RichText(
                       textAlign: pw.TextAlign.justify,
+                      maxLines: 2,
                       text: pw.TextSpan(style: style, children: [
                         if (indent != null) indent,
-                        pw.TextSpan(text: split.head),
+                        ...bodySpans,
                       ]),
                     ),
                   ));
                   widgets.add(pw.SizedBox(height: fontSize * 0.45));
-                  widgets.add(pw.Text(split.rest,
+                  widgets.add(pw.RichText(
                       textAlign: pw.TextAlign.justify,
-                      style: style,
-                      overflow: pw.TextOverflow.span));
+                      overflow: pw.TextOverflow.span,
+                      text: pw.TextSpan(
+                        style: style,
+                        children: _spansAfter(bodySpans, split.head.length),
+                      )));
                 }
               } else {
                 widgets.add(paragraph);
