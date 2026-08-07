@@ -122,22 +122,54 @@ def _base_type(date: datetime.date, year: int, weekday: int, period: int) -> int
     return 0  # период 0 — блажи се
 
 
-def _fixed_day_type(date: datetime.date, year: int, old_style: bool,
-                     period: int) -> int | None:
+def _base_key(date: datetime.date, year: int, weekday: int, period: int) -> str:
+    """Ключът на Слой 1 — паралелен на _base_type, виж него за смисъла на
+    всеки клон."""
+    if period == 2:
+        return 'lent_weekend' if weekday in (_WD['sat'], _WD['sun']) else 'lent_weekday'
+    if period == 3:
+        if weekday in (_WD['sat'], _WD['sun']):
+            return 'petrov_weekend'
+        if weekday in (_WD['tue'], _WD['thu']):
+            return 'petrov_tue_thu'
+        return 'petrov_weekday'
+    if period == 5:
+        if weekday in (_WD['sat'], _WD['sun']):
+            return 'nativity_weekend'
+        if weekday in (_WD['tue'], _WD['thu']):
+            return 'nativity_tue_thu'
+        return 'nativity_weekday'
+    if period == 4:
+        return 'dormition_weekend' if weekday in (_WD['sat'], _WD['sun']) else 'dormition_weekday'
+    if period == 1:
+        offset = (date - pascha_civil(year)).days
+        if 7 <= offset <= 49:
+            return 'antipascha_pentecost'
+        return 'ordinary_weekday'
+    return 'free'
+
+
+def _fixed_day_detail(date: datetime.date, year: int, old_style: bool,
+                       period: int) -> tuple[int, str] | None:
     """Слой 2 — именувани дни с точно предписан тип, независимо от Слой 1.
-    Връща None ако денят не е сред тях (тогава важи Слой 1 + Слой 3)."""
+    Връща (type, key) или None ако денят не е сред тях (тогава важи Слой
+    1 + Слой 3). `key` е стабилен низ, идентифициращ ТОЧНО кое правило от
+    Устава определи резултата — служи за външен ключ в fast_explanations
+    (вместо да се гадае по (period,type), които могат да съвпаднат за
+    няколко различни правила, напр. четири различни поводи за "Велик пост
+    с олио")."""
     p = pascha_civil(year)
     offset = (date - p).days
 
     FIXED_PASCHA_OFFSETS = {
-        -48: 9,  # 1-ви ден на Велики пост — пълно въздържание
-        -43: 4,  # Тодорова събота
-        -17: 4,  # четвъртък на 5-та седмица (Мариино стоене)
-        -8: 3,   # Лазарова събота — хайвер
-        -7: 2,   # Цветница — риба
-        -3: 4,   # Велики четвъртък
-        -2: 9,   # Велики петък — пълно въздържание
-        -1: 8,   # Велика събота — хляб/зеленчуци/вино
+        -48: (9, 'full_abstinence'),      # 1-ви ден на Велики пост
+        -43: (4, 'lent_weekend'),         # Тодорова събота — вече е събота
+        -17: (4, 'lent_week5_thursday'),  # четвъртък на 5-та седм. (Мариино стоене)
+        -8: (3, 'lazarus_saturday'),      # Лазарова събота — хайвер
+        -7: (2, 'lent_fish'),             # Цветница — риба
+        -3: (4, 'lent_holy_thursday'),    # Велики четвъртък
+        -2: (9, 'full_abstinence'),       # Велики петък — пълно въздържание
+        -1: (8, 'holy_saturday'),         # Велика събота — хляб/зеленчуци/вино
     }
     if offset in FIXED_PASCHA_OFFSETS:
         return FIXED_PASCHA_OFFSETS[offset]
@@ -145,33 +177,38 @@ def _fixed_day_type(date: datetime.date, year: int, old_style: bool,
     # Благовещение (25.III църковно): риба, ОСВЕН ако падне в Страстната
     # седмица (тогава маслo — потвърдено от бележката за 2026 в текста).
     if civil_from_church(year, 3, 25, old_style) == date:
-        return 4 if -6 <= offset <= -1 else 2
+        return (4, 'annunciation_holy_week') if -6 <= offset <= -1 else (2, 'lent_fish')
 
-    # Обретение главата на Йоан Предтеча (24.II църковно, Първо и второ
-    # намиране) — олио, само ако падне В РАМКИТЕ на Велики пост тази
-    # година (иначе Слой 1/3 не важат тук изобщо).
+    # Обретение главата на Йоан Предтеча (24.II църковно) и Св. 40 мчч.
+    # Севастийски (9.III църковно) — олио, само ако падат В РАМКИТЕ на
+    # Велики пост тази година (иначе Слой 1/3 не важат тук изобщо). Ако
+    # денят се падне в събота/неделя, общото правило за уикенда вече дава
+    # същото олио — светията тогава практически не променя нищо, затова
+    # ключът остава 'lent_weekend', а не се приписва на него.
     if period == 2 and civil_from_church(year, 2, 24, old_style) == date:
-        return 4
+        return (4, 'lent_weekend') if date.weekday() in (5, 6) else (4, 'lent_obretenie_40mch')
+    if period == 2 and civil_from_church(year, 3, 9, old_style) == date:
+        return (4, 'lent_weekend') if date.weekday() in (5, 6) else (4, 'lent_obretenie_40mch')
 
     # Въздвижение и Преображение са Господски празници, но НЕ се блажат —
     # и двата остават постни дори в самия си ден (различно от другите 6
     # Господски). Фиксирано тук, за да не влизат в общото "Господски ->
     # блажи се" правило по-долу.
     if civil_from_church(year, 9, 14, old_style) == date:
-        return 4  # Въздвижение — олио
+        return (4, 'exaltation_cross')  # Въздвижение — олио
     if civil_from_church(year, 8, 6, old_style) == date:
-        return 2  # Преображение — риба (вътре в Успенския пост)
+        return (2, 'transfiguration')  # Преображение — риба (в Успенския пост)
 
     # Навечерие Рождество Христово (24.XII църковно) — олио след вечерня,
     # ЗАВИНАГИ същия тип, без значение от деня на седмицата.
     if civil_from_church(year, 12, 24, old_style) == date:
-        return 5
+        return (5, 'nativity_eve')
 
     # Денят преди Навечерието (23.XII църковно) — изрично указание в
     # Типикона: сухоядение (7), по-строго от общото "без олио" на
     # предпразненството. Единственото място, където 7 не се заменя с 6.
     if civil_from_church(year, 12, 23, old_style) == date:
-        return 7
+        return (7, 'day_before_nativity_eve')
 
     return None
 
@@ -225,8 +262,18 @@ def _is_theotokos(saints_today: list[tuple[int, str]]) -> bool:
     return any(rank == 1 for rank, _ in saints_today)
 
 
-def fast_type(date: datetime.date, year: int, old_style: bool,
-              period: int, saints_today: list[tuple[int, str]]) -> int:
+def _period_relax_key(period: int) -> str:
+    return {3: 'petrov_relax', 4: 'dormition_relax', 5: 'nativity_relax'}[period]
+
+
+def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
+                       period: int, saints_today: list[tuple[int, str]]
+                       ) -> tuple[int, str]:
+    """Връща (type, key). `key` е стабилен низ, показващ ТОЧНО кое правило
+    от Устава определи резултата — служи за пряк външен ключ в
+    fast_explanations.key, вместо (period,type) сами по себе си (които не
+    са достатъчни: и четирите повода за "Велик пост с олио" например
+    делят едно и също (2,4))."""
     if period == 0:
         # Сирната седмица е особен случай сред петте свободни седмици:
         # НЕ е напълно свободна — забранено е месото, но млечно/яйца са
@@ -234,10 +281,10 @@ def fast_type(date: datetime.date, year: int, old_style: bool,
         # реда за нея в Указания за постите.txt.
         p = pascha_civil(year)
         if p + datetime.timedelta(days=-55) <= date <= p + datetime.timedelta(days=-49):
-            return 1
-        return 0  # блажи се — няма какво да омекотяваме
+            return 1, 'cheese_week'
+        return 0, 'free'  # блажи се — няма какво да омекотяваме
 
-    fixed = _fixed_day_type(date, year, old_style, period)
+    fixed = _fixed_day_detail(date, year, old_style, period)
     if fixed is not None:
         return fixed  # Слой 2 винаги печели — 1-ва седмица/Страстна не се пипат
 
@@ -246,9 +293,10 @@ def fast_type(date: datetime.date, year: int, old_style: bool,
     # Слой 2 вече покрива изрично именуваните изключения (Цветница,
     # Благовещение); извън тях Великият пост никога не се "блажи".
     if _is_lordly(date, year, old_style) and period != 2:
-        return 0
+        return 0, 'lordly_free'
 
     base = _base_type(date, year, weekday, period)
+    base_key = _base_key(date, year, weekday, period)
 
     # Предпразненство на Рождество (20-24.XII църковно вкл., до самото
     # Навечерие): рибата и хайверът СПИРАТ, но постът не се усилва отвъд
@@ -259,15 +307,19 @@ def fast_type(date: datetime.date, year: int, old_style: bool,
         d22 = civil_from_church(year, 12, 22, old_style)  # 23/24 покрити от Слой 2
         if d20 <= date <= d22 and base in (2, 3):
             base = 4
+            base_key = 'nativity_forefeast'
 
     # Богородичен празник на сряда/петък извън Велики пост — риба, не пълно
-    # освобождаване.
+    # освобождаване. (Забележка: по-рано тук пишеше `max(base, 2)`, но
+    # base никога не е под 2 в тези периоди, значи max() никога не
+    # променяше нищо — правилото реално не действаше. Върнато е директно
+    # 2, каквото е било намерението според бележката по-горе.)
     if period != 2 and weekday in (_WD['wed'], _WD['fri']) and \
             _is_theotokos(saints_today):
-        return max(base, 2) if base else 2
+        return 2, 'theotokos_wed_fri'
 
     if not _has_feast(saints_today):
-        return base
+        return base, base_key
 
     # ── Има подходящ светия (ECUMENICAL/BG, бдение/полиелей/славословие) ──
 
@@ -275,7 +327,7 @@ def fast_type(date: datetime.date, year: int, old_style: bool,
     # Типикона (Слой 2, вече проверен по-горе) правят изключение. Базовият
     # ритъм на седмицата важи непроменен през целия пост.
     if period == 2:
-        return base
+        return base, base_key
 
     # Рождественски пост, велики дати: вт/чет риба вместо хайвер, пон/сряда/
     # пет олио вместо без олио. НЕ важи в прозореца на предпразненството
@@ -285,24 +337,34 @@ def fast_type(date: datetime.date, year: int, old_style: bool,
         if weekday in (_WD['tue'], _WD['thu']):
             # base==4 значи вече сме в прозореца на предпразненството
             # (рибата спряна) — там великата дата не я връща обратно.
-            return 4 if base == 4 else 2
+            return (4, 'nativity_relax') if base == 4 else (2, 'nativity_great_date_fish')
         if weekday in (_WD['mon'], _WD['wed'], _WD['fri']):
-            return 4
-        return base
+            return 4, 'nativity_relax'
+        return base, base_key
 
     # Петров/Успенски/Рождественски (общо правило): пон/сряда/пет без олио
     # -> олио. Останалите дни (вт/чет с базово олио, съб/нед с базова риба)
     # си остават непроменени — омекотяването няма какво да добави там.
     if period in (3, 4, 5) and weekday in (_WD['mon'], _WD['wed'], _WD['fri']):
-        return 4
+        return 4, _period_relax_key(period)
 
     # Обикновен постен ден (сряда/петък извън поста): без олио -> олио.
     # Ако вече е олио (периода Томина неделя-Петдесетница), няма какво
     # повече да омекоти.
     if period == 1 and base == 6:
-        return 4
+        return 4, 'relax_ordinary_wed_fri'
 
-    return base
+    return base, base_key
+
+
+def fast_type(date: datetime.date, year: int, old_style: bool,
+              period: int, saints_today: list[tuple[int, str]]) -> int:
+    return _fast_type_detail(date, year, old_style, period, saints_today)[0]
+
+
+def fast_explanation_key(date: datetime.date, year: int, old_style: bool,
+                          period: int, saints_today: list[tuple[int, str]]) -> str:
+    return _fast_type_detail(date, year, old_style, period, saints_today)[1]
 
 
 def _nativity_great_dates_this_year(year: int, old_style: bool) -> set[tuple[int, int]]:

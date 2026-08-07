@@ -2,6 +2,7 @@ class CalendarDay {
   final String date;
   final int tone;
   final int fastType;
+  final String fastExplanationKey;
   final int fastPeriod;
   final int? weekId;
   final int? sundayId;
@@ -14,6 +15,7 @@ class CalendarDay {
     required this.date,
     required this.tone,
     required this.fastType,
+    required this.fastExplanationKey,
     required this.fastPeriod,
     this.weekId,
     this.sundayId,
@@ -28,6 +30,7 @@ class CalendarDay {
       date: map['date'],
       tone: map['tone'] ?? 0,
       fastType: map['fast_type'] ?? 0,
+      fastExplanationKey: map['fast_explanation_key'] ?? '',
       fastPeriod: map['fast_period'] ?? 0,
       weekId: map['week_id'],
       sundayId: map['sunday_id'],
