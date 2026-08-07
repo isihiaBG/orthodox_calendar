@@ -15,6 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'fast_explanation_sheet.dart';
 import 'models/day_model.dart';
 import 'saint_expandable_tile.dart';
 import 'typikon_legend_sheet.dart';
@@ -394,10 +395,17 @@ class _DayScreenState extends State<DayScreen> {
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 16),
             ),
             const SizedBox(height: 2),
-            Text(
-              _fastText(_day!),
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: AppColors.fastText, fontSize: 16),
+            InkWell(
+              onTap: () => showFastExplanationSheet(
+                context,
+                day: _day!,
+                saintsToday: _saints,
+              ),
+              child: Text(
+                _fastText(_day!),
+                textAlign: TextAlign.center,
+                style: const TextStyle(color: AppColors.fastText, fontSize: 16),
+              ),
             ),
           ],
         ],

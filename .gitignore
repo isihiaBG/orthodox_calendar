@@ -44,3 +44,12 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 assets/db/*.db
+
+# Произведената база се прави наново от tools/calendar_gen — не се пази.
+tools/calendar_gen/out/
+
+# Изходната база (семето за генератора) — копие на assets/db/calendar_old.db,
+# пазено отделно, за да можем да презаписваме assets/db/ с генерирани
+# резултати, без да губим оригинала. Самата input/ папка (вкл. текстовия
+# файл с правилата за поста) си остава в git — само базата в нея не.
+tools/calendar_gen/input/db/*.db

@@ -59,19 +59,21 @@ class Saint {
   final String date;
   final String name;
   final int rank;
+  final String? groupCode;
   final String? sign;
   final String? signColor;
   final bool hasTropar;
   final bool hasKondak;
   final bool hasLife;
   final bool hasSluzhba;
-  
+
 
   Saint({
     required this.id,
     required this.date,
     required this.name,
     required this.rank,
+    this.groupCode,
     this.sign,
     this.signColor,
     this.hasTropar  = false,
@@ -86,6 +88,7 @@ class Saint {
       date: map['date'],
       name: map['name'],
       rank: map['rank'] ?? 4,
+      groupCode: map['group_code'],
       sign: map['sign'],
       signColor: map['sign_color'],
       hasTropar:  (map['has_tropar']  ?? 0) == 1,
