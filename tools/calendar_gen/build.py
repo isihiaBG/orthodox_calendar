@@ -93,7 +93,8 @@ def build_calendar_days(saints: list[tuple], year: int, old_style: bool):
         period = fasts.fast_period(d, year, old_style)
         st = saints_by_date.get(date_s, [])
         ftype = fasts.fast_type(d, year, old_style, period, st)
-        cd_rows.append((date_s, tone, period, ftype, week_id, sunday_id))
+        key = fasts.fast_explanation_key(d, year, old_style, period, st)
+        cd_rows.append((date_s, tone, period, ftype, key, week_id, sunday_id))
 
     return cd_rows, weeks_rows, sundays_rows
 
@@ -106,7 +107,7 @@ def write_db(path: str, saints, cd_rows, weeks_rows, sundays_rows, src_db):
     conn.execute('''
         CREATE TABLE saints (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            date TEXT, name TEXT, rank TEXT, group_code TEXT,
+            date TEXT, name TEXT, rank INTEGER, group_code TEXT,
             sign TEXT, slug TEXT
         )
     ''')
@@ -129,12 +130,13 @@ def write_db(path: str, saints, cd_rows, weeks_rows, sundays_rows, src_db):
     conn.execute('''
         CREATE TABLE calendar_days (
             date TEXT PRIMARY KEY, tone INTEGER, fast_period INTEGER,
-            fast_type INTEGER, week_id INTEGER, sunday_id INTEGER, note TEXT
+            fast_type INTEGER, fast_explanation_key TEXT,
+            week_id INTEGER, sunday_id INTEGER, note TEXT
         )
     ''')
     conn.executemany(
-        'INSERT INTO calendar_days (date,tone,fast_period,fast_type,week_id,sunday_id) '
-        'VALUES (?,?,?,?,?,?)', cd_rows)
+        'INSERT INTO calendar_days (date,tone,fast_period,fast_type,fast_explanation_key,week_id,sunday_id) '
+        'VALUES (?,?,?,?,?,?,?)', cd_rows)
 
     # ── статични/копирани таблици — директно от изходната база ──
     for table in STATIC_TABLES + COPY_AS_IS_TABLES:

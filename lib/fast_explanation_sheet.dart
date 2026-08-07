@@ -1,12 +1,17 @@
 // fast_explanation_sheet.dart
 //
-// Справка за поста на деня — обяснение по Типика за конкретната
-// комбинация (fast_period, fast_type) от таблицата fast_explanations,
-// плюс изречение, сочещо кой светия причинява послаблението, ако денят е
-// такъв случай (колоната relaxation). Отваря се от тап върху текста на
-// поста в заглавната лента на дневния изглед — виж
-// showFastExplanationSheet(). Изградена върху общия info_sheet.dart
-// инструмент, по аналогия на typikon_legend_sheet.dart.
+// Справка за поста на деня — обяснение по Типика за конкретното правило,
+// определило поста днес (calendar_days.fast_explanation_key), плюс
+// изречение, сочещо кой светия причинява послаблението — само за
+// ключовете, отбелязани с relaxation в fast_explanations. Ключът се
+// избира еднозначно в build.py (fasts.fast_explanation_key), защото
+// няколко различни правила на Устава могат да делят едно и също
+// (fast_period, fast_type) — напр. четирите повода за "Велик пост с
+// олио" (събота/неделя, Обретение/40 мчч., Велики четвъртък, четвъртък
+// на 5-та седмица). Отваря се от тап върху текста на поста в заглавната
+// лента на дневния изглед — виж showFastExplanationSheet(). Изградена
+// върху общия info_sheet.dart инструмент, по аналогия на
+// typikon_legend_sheet.dart.
 
 import 'package:flutter/material.dart';
 
@@ -15,9 +20,9 @@ import 'database_helper.dart';
 import 'info_sheet.dart';
 import 'models/day_model.dart';
 
-// Само тези рангове и групи омекотяват пост извън Велики пост — виж
-// FEAST_RANKS/FEAST_GROUPS в tools/calendar_gen/fasts.py (същата логика,
-// пренесена тук за да познаем кой светия е причината).
+// Само тези рангове и групи омекотяват пост — виж FEAST_RANKS/FEAST_GROUPS
+// в tools/calendar_gen/fasts.py (същата логика, пренесена тук за да
+// познаем кой светия е причината).
 const Set<int> _feastRanks = {1, 2, 3, 4};
 const Set<String> _feastGroups = {'ECUMENICAL', 'BG'};
 
@@ -57,8 +62,8 @@ Future<void> showFastExplanationSheet(
   final db = await DatabaseHelper.database;
   final rows = await db.query(
     'fast_explanations',
-    where: 'fast_period = ? AND fast_type = ?',
-    whereArgs: [day.fastPeriod, day.fastType],
+    where: 'key = ?',
+    whereArgs: [day.fastExplanationKey],
     limit: 1,
   );
 
