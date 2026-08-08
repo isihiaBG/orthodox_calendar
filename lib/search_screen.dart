@@ -235,9 +235,8 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   ///  • двете, водещ нов стил  → нов отгоре; отдолу посивено /стар с църквица
   ///  • двете, водещ стар стил → стар отгоре с църквица; отдолу /нов с телевизор
   ///
-  /// ЗАБЕЛЕЖКА: тук се предполага, че AppSettings.isOldStyle значи
-  /// "показвай и двата стила", а AppSettings.oldStyleFirst — "старият води".
-  /// Ако имената/смисълът при теб са други, смени САМО двата реда по-долу.
+  /// AppSettings.isOldStyle значи "показвай и двата стила", а
+  /// AppSettings.oldStyleFirst — "старият води" (потвърдено).
   Widget _buildDateCell(String dateStr) {
     final DateTime newDate;
     try {
@@ -248,8 +247,8 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
     }
     final oldDate = _toOldStyle(newDate);
 
-    final bool showBoth = AppSettings.isOldStyle;      // ← провери
-    final bool oldFirst = !AppSettings.oldStyleFirst;  // ← провери
+    final bool showBoth = AppSettings.isOldStyle;
+    final bool oldFirst = AppSettings.oldStyleFirst;
 
     // Режим "само нов стил": една-единствена дата
     if (!showBoth) {

@@ -426,8 +426,8 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
         // датите тук са кеширани (виж бележката при endDrawer).
         if (!isOpen && mounted) _loadYear(_selectedYear ?? DateTime.now().year);
       },
-      endDrawer: SettingsDrawer(onChanged: (styleChanged) {
-        appSettingsChangedHook?.call(styleChanged);
+      endDrawer: SettingsDrawer(onChanged: (styleChanged, [capturedMiddleDate]) {
+        appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
         // ВАЖНО: тук датите са ИЗЧИСЛЕНИ ВЕДНЪЖ и кеширани в _results, за
         // разлика от "Пости", където се смятат при всяко рисуване. Затова
         // при смяна на стила не стига преначертаване — трябва пълно

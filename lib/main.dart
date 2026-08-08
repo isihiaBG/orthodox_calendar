@@ -121,6 +121,11 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // настройките обаче живее ТУК (нуждае се от състоянието на календара —
     // страници, контролер), затова я регистрираме като hook.
     appSettingsChangedHook = _onSettingsChanged;
+    // Вика се от settings_screen.dart ПРЕДИ да смени isOldStyle — за да
+    // запомним кой ден потребителят гледа в момента (виж
+    // AppSettings.captureMonthMiddleDate).
+    AppSettings.captureMonthMiddleDate =
+        () => _isMonthView ? _monthScreenKey.currentState?.getMiddleDate() : null;
   }
 
   Future<void> _refineDateBoundsFromDatabase() async {
@@ -183,7 +188,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   // Изчислява целевата страница при смяна на стила
   // При смяна стар→нов: +13 дни; нов→стар: -13 дни
   // При смяна само на oldStyleFirst: без промяна
-  void _onSettingsChanged(bool styleChanged) {
+  void _onSettingsChanged(bool styleChanged, [DateTime? capturedMiddleDate]) {
     if (styleChanged) {
 			final date = _dateForPage(AppSettings.currentPage);
       int targetPage;
@@ -201,24 +206,36 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       });
       // Презареждаме месечния изглед с новата база — без да губим
       // скрол позицията и без премигване (старите данни се виждат
-      // докато новите се заредят в кеша).
-      _monthScreenKey.currentState?.refreshAfterSettingsChange();
+      // докато новите се заредят в кеша). Ако имаме уловен "среден ден"
+      // (значи бяхме в месечен изглед) — изчакваме презареждането да
+      // приключи, после навигираме+флашваме точно до него и синхронизираме
+      // _currentDate, за да отвори точно този ден при преминаване към
+      // дневен изглед. Без уловен ден просто презареждаме — потребителят
+      // не е в месечен изглед в момента.
+      if (capturedMiddleDate != null) {
+        _monthScreenKey.currentState?.refreshAfterSettingsChange().then((_) {
+          if (!mounted) return;
+          setState(() => _currentDate = capturedMiddleDate);
+          _monthScreenKey.currentState?.navigateToDate(capturedMiddleDate, flash: true);
+        });
+      } else {
+        _monthScreenKey.currentState?.refreshAfterSettingsChange();
+      }
       // Преизчисляваме границите за новата база (стар/нов стил могат
       // да имат различен реален обхват от данни).
       _refineDateBoundsFromDatabase();
     } else {
-      // Смяна на oldStyleFirst — запазваме средния ден на екрана
-      // и навигираме до съответния ден по новия водещ стил (без флаш)
-      if (_isMonthView) {
-        final middleDate = _monthScreenKey.currentState?.getMiddleDate();
-        setState(() {
-          if (middleDate != null) _currentDate = middleDate;
+      // Смяна на oldStyleFirst — средният ден е УЛОВЕН ОТВЪН (в
+      // settings_screen.dart), ПРЕДИ мутацията. Тук НЕ бива да викаме
+      // getMiddleDate() наново — AppSettings.oldStyleFirst вече е новата
+      // стойност, а текущо показаните редове са построени/тълкувани при
+      // старата; повторно улавяне СЕГА би конвертирало през грешната
+      // настройка и би дало двойно изместена (грешна) дата.
+      if (_isMonthView && capturedMiddleDate != null) {
+        setState(() => _currentDate = capturedMiddleDate);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _monthScreenKey.currentState?.navigateToDate(capturedMiddleDate, flash: true);
         });
-        if (middleDate != null) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _monthScreenKey.currentState?.navigateToDate(middleDate, flash: true);
-          });
-        }
       } else {
         setState(() {});
       }
@@ -267,7 +284,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       key: _scaffoldKey,
       drawer: const AppDrawer(),
       onEndDrawerChanged: (isOpen) {
-        if (!isOpen) setState(() {});
+        if (!isOpen) {
+          setState(() {});
+          AppSettings.saveNow();
+        }
       },
       endDrawer: SettingsDrawer(onChanged: _onSettingsChanged),
       appBar: AppBar(
@@ -356,7 +376,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
             onPressed: () async {
               final picked = await showDatePicker(
                 context: context,
-                helpText: AppSettings.isOldStyle && !AppSettings.oldStyleFirst
+                helpText: AppSettings.isOldStyle && AppSettings.oldStyleFirst
                     ? 'Изберете дата по нов стил'
                     : null,
                 initialDate: _currentDate,

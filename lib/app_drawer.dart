@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'about_screen.dart';
+import 'app_settings.dart';
 import 'app_theme.dart';
 import 'fasts_screen.dart';
 import 'holidays_screen.dart';
@@ -20,7 +21,8 @@ import 'settings_screen.dart';
 /// живее в състоянието на CalendarPageView — то се регистрира тук при
 /// стартиране (виж main.dart). Така менюто може да я задейства и когато е
 /// отворено от вторичен екран, без да има пряка връзка с календара.
-typedef SettingsChangedHook = void Function(bool styleChanged);
+typedef SettingsChangedHook = void Function(bool styleChanged,
+    [DateTime? capturedMiddleDate]);
 SettingsChangedHook? appSettingsChangedHook;
 
 class AppDrawer extends StatelessWidget {
@@ -34,12 +36,14 @@ class AppDrawer extends StatelessWidget {
   }
 
   /// Затваря менюто, връща се до календара и оттам отваря новия екран —
-  /// така стекът не расте безкрайно при разходка между разделите.
-  void _openScreen(BuildContext context, WidgetBuilder builder) {
+  /// така стекът не расте безкрайно при разходка между разделите. Връща
+  /// Future-а на push-а, за да може извикващият да реагира на затварянето
+  /// на новия екран (виж употребата при "Настройки").
+  Future<void> _openScreen(BuildContext context, WidgetBuilder builder) {
     Navigator.pop(context); // менюто
     final navigator = Navigator.of(context);
     navigator.popUntil((route) => route.isFirst);
-    navigator.push(MaterialPageRoute(builder: builder));
+    return navigator.push(MaterialPageRoute(builder: builder));
   }
 
   @override
@@ -93,7 +97,7 @@ class AppDrawer extends StatelessWidget {
             _openScreen(
               context,
               (_) => SettingsScreen(onChanged: appSettingsChangedHook),
-            );
+            ).then((_) => AppSettings.saveNow());
           }),
           _itemText('❈', 'Оцени приложението', () {}),
           SafeArea(

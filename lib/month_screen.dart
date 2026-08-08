@@ -58,7 +58,7 @@ class MonthScreenState extends State<MonthScreen> {
 	  final index = _pageController.page?.round() ?? _currentMonthIndex;
 	  final monthDate = _indexToMonth(index - 100);
 	  // При водещ стар стил — конвертираме към нов стил за датепикъра
-	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  if (AppSettings.isOldStyle && oldIsLeading) {
 		return DateTime(monthDate.year, monthDate.month, 1)
 			.add(const Duration(days: 13));
@@ -86,7 +86,7 @@ class MonthScreenState extends State<MonthScreen> {
 	void navigateToDate(DateTime date, {bool flash = true, bool animated = true}) {
 	  // date е винаги по нов стил
 	  // При водещ стар стил — навигираме до месеца по стар стил
-	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
 		  ? date.subtract(const Duration(days: 13))  // конвертираме към стар стил
 		  : date;
@@ -120,10 +120,13 @@ class MonthScreenState extends State<MonthScreen> {
   // Извиква се при смяна на стар/нов стил от настройките.
   // Презарежда данните на всички заредени месеци БЕЗ да пресъздава
   // widget-ите — така скрол позицията се запазва (без премигване).
-  void refreshAfterSettingsChange() {
-    for (final key in _pageKeys.values) {
-      key.currentState?.reloadKeepingScroll();
-    }
+  // Връща Future, за да може извикващият да изчака реалното презареждане,
+  // преди да навигира до конкретен ден (виж main.dart._onSettingsChanged).
+  Future<void> refreshAfterSettingsChange() {
+    return Future.wait([
+      for (final key in _pageKeys.values)
+        if (key.currentState != null) key.currentState!.reloadKeepingScroll(),
+    ]);
   }
 
   @override
@@ -289,7 +292,7 @@ class _MonthPageState extends State<_MonthPage>
     if (flash == null) return;
 
     // Конвертираме flash датата към водещия стил за сравнение
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
     final DateTime leadingFlash = (AppSettings.isOldStyle && oldIsLeading)
         ? _toOldStyle(flash)
         : flash;
@@ -338,7 +341,7 @@ class _MonthPageState extends State<_MonthPage>
   }
 
 	void _doScroll(DateTime date, {bool animated = true}) {
-	  final bool oldIsLeading = !AppSettings.oldStyleFirst;
+	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
 		  ? _toOldStyle(date)
 		  : date;
@@ -533,7 +536,7 @@ class _MonthPageState extends State<_MonthPage>
   }
 
   String _cacheKey(DateTime day) {
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
     final DateTime newStyleDate = (AppSettings.isOldStyle && oldIsLeading)
         ? _toNewStyle(day)
         : day;
@@ -541,7 +544,7 @@ class _MonthPageState extends State<_MonthPage>
   }
 
   DateTime _refDate(DateTime day) {
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
     if (AppSettings.isOldStyle && oldIsLeading) {
       return _toNewStyle(day);
     } else if (AppSettings.isOldStyle && !oldIsLeading) {
@@ -552,7 +555,7 @@ class _MonthPageState extends State<_MonthPage>
 
   // Определя фона на реда
   Color _rowBackground(DateTime day, bool isSunday) {
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
     final DateTime dbDate = (AppSettings.isOldStyle && oldIsLeading)
         ? _toNewStyle(day)
         : day;
@@ -620,7 +623,7 @@ class _MonthPageState extends State<_MonthPage>
   // многодневен пост (2-5) или един от трите еднодневни строги поста.
   bool _isFastStripeDay(DateTime day) {
     if (_multiDayFastId(day) != null) return true;
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
     final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
         ? _toNewStyle(day)
         : day;
@@ -650,7 +653,7 @@ class _MonthPageState extends State<_MonthPage>
     // Еднодневните строги пости — период от един ред с текст "пост"
     for (int i = 0; i < days.length; i++) {
       if (_multiDayFastId(days[i]) != null) continue; // вече покрит
-      final bool oldIsLeading = !AppSettings.oldStyleFirst;
+      final bool oldIsLeading = AppSettings.oldStyleFirst;
       final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
           ? _toNewStyle(days[i])
           : days[i];
@@ -665,7 +668,7 @@ class _MonthPageState extends State<_MonthPage>
   @override
   Widget build(BuildContext context) {
     final bool showOldStyle = AppSettings.isOldStyle;
-    final bool oldIsLeading = !AppSettings.oldStyleFirst;
+    final bool oldIsLeading = AppSettings.oldStyleFirst;
 
     final String leftLabel  = showOldStyle ? (oldIsLeading ? 'стар' : 'нов') : '';
     final String leftLabel2 = showOldStyle ? 'стил' : '';

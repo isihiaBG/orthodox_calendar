@@ -51,7 +51,7 @@ List<InlineSpan> dualDateSpans(
   }
 
   final oldStyleDate = civilDate.subtract(const Duration(days: 13));
-  final oldIsLeading = !AppSettings.oldStyleFirst;
+  final oldIsLeading = AppSettings.oldStyleFirst;
 
   WidgetSpan iconSpan(IconData icon, Color color) => WidgetSpan(
         alignment: PlaceholderAlignment.middle,
@@ -114,7 +114,7 @@ List<InlineSpan> dualDateRangeSpans(
 
   final oldStart = civilStart.subtract(const Duration(days: 13));
   final oldEnd = civilEnd.subtract(const Duration(days: 13));
-  final oldIsLeading = !AppSettings.oldStyleFirst;
+  final oldIsLeading = AppSettings.oldStyleFirst;
 
   WidgetSpan iconSpan(IconData icon, Color color) => WidgetSpan(
         alignment: PlaceholderAlignment.middle,
