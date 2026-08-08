@@ -5,7 +5,7 @@ import 'database_helper.dart';
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
 class SettingsContent extends StatefulWidget {
-  final Function(bool styleChanged)? onChanged;
+  final Function(bool styleChanged, [DateTime? capturedMiddleDate])? onChanged;
   const SettingsContent({super.key, this.onChanged});
 
   @override
@@ -51,14 +51,20 @@ class _SettingsContentState extends State<SettingsContent> {
             selected: {_isOldStyle},
             onSelectionChanged: (value) async {
               final newIsOldStyle = value.first;
+              // Улавяме КОЯ дата в момента е "по средата" на месечния
+              // изглед ПРЕДИ да мутираме isOldStyle — виж докстринга на
+              // AppSettings.captureMonthMiddleDate за причината редът да
+              // има значение.
+              final capturedMiddleDate =
+                  AppSettings.captureMonthMiddleDate?.call();
               setState(() {
                 _isOldStyle = newIsOldStyle;
                 AppSettings.isOldStyle = newIsOldStyle;
               });
-              await AppSettings.save();
+              AppSettings.scheduleSave();
               await DatabaseHelper.resetDatabase();
               await DatabaseHelper.database;
-              widget.onChanged?.call(true);
+              widget.onChanged?.call(true, capturedMiddleDate);
             },
           ),
         ),
@@ -117,14 +123,24 @@ class _SettingsContentState extends State<SettingsContent> {
                               icon: Icon(Icons.today, size: 16),
                             ),
                           ],
-                          selected: {!_oldStyleFirst},
+                          selected: {_oldStyleFirst},
                           onSelectionChanged: (value) {
+                            // Улавяме СРЕДНИЯ ден ПРЕДИ мутацията — виж
+                            // докстринга на AppSettings.captureMonthMiddleDate.
+                            // Тук е особено важно: текущо показаните редове
+                            // на екрана се тълкуват през призмата на СТАРАТА
+                            // (все още активна) стойност на oldStyleFirst.
+                            // Ако уловим датата СЛЕД мутацията, тя ще се
+                            // конвертира през НОВАТА настройка върху редове,
+                            // построени при СТАРАТА — двойно изместване.
+                            final capturedMiddleDate =
+                                AppSettings.captureMonthMiddleDate?.call();
                             setState(() {
-                              _oldStyleFirst = !value.first;
-                              AppSettings.oldStyleFirst = !value.first;
+                              _oldStyleFirst = value.first;
+                              AppSettings.oldStyleFirst = value.first;
                             });
-                            AppSettings.save();
-                            widget.onChanged?.call(false);
+                            AppSettings.scheduleSave();
+                            widget.onChanged?.call(false, capturedMiddleDate);
                           },
                         ),
                       ),
@@ -137,8 +153,8 @@ class _SettingsContentState extends State<SettingsContent> {
                         ),
                         child: Text(
                           _oldStyleFirst
-                              ? 'Гражданската дата (нов стил) е на преден план вляво.'
-                              : 'Църковната дата (стар стил) е на преден план вляво.',
+                              ? 'Църковната дата (стар стил) е на преден план вляво.'
+                              : 'Гражданската дата (нов стил) е на преден план вляво.',
                           style: TextStyle(
                             color: AppColors.textSecondary,
                             fontSize: 13,
@@ -158,7 +174,7 @@ class _SettingsContentState extends State<SettingsContent> {
 
 // ─── Пълен екран (от менюто) ─────────────────────────────────────────────
 class SettingsScreen extends StatelessWidget {
-  final Function(bool styleChanged)? onChanged;
+  final Function(bool styleChanged, [DateTime? capturedMiddleDate])? onChanged;
   const SettingsScreen({super.key, this.onChanged});
 
   @override
@@ -182,7 +198,7 @@ class SettingsScreen extends StatelessWidget {
 
 // ─── Десен Drawer (от toolbar) ───────────────────────────────────────────
 class SettingsDrawer extends StatelessWidget {
-  final Function(bool styleChanged)? onChanged;
+  final Function(bool styleChanged, [DateTime? capturedMiddleDate])? onChanged;
   const SettingsDrawer({super.key, this.onChanged});
 
   @override

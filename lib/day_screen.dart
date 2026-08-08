@@ -241,7 +241,7 @@ class _DayScreenState extends State<DayScreen> {
     
     // Определяме лява и дясна дата според oldStyleFirst
     final bool showOldStyle = AppSettings.isOldStyle;
-    final bool oldFirst = AppSettings.oldStyleFirst;
+    final bool oldFirst = !AppSettings.oldStyleFirst;
     
     // Лява дата = водещата
     final DateTime leftDate  = (showOldStyle && !oldFirst) ? oldDate : date;

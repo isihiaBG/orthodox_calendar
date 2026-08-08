@@ -375,8 +375,8 @@ class _FastsScreenState extends State<FastsScreen> {
       onEndDrawerChanged: (isOpen) {
         if (!isOpen) setState(() {});
       },
-      endDrawer: SettingsDrawer(onChanged: (styleChanged) {
-        appSettingsChangedHook?.call(styleChanged);
+      endDrawer: SettingsDrawer(onChanged: (styleChanged, [capturedMiddleDate]) {
+        appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
         if (mounted) setState(() {}); // датите зависят от стила
       }),
       appBar: AppBar(
