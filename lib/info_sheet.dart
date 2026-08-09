@@ -55,22 +55,27 @@ class RoundIconButton extends StatelessWidget {
 }
 
 /// Един ред от справочния панел: лидираща икона/буква + заглавие + текст.
+/// `leading` и `title` са незадължителни — панел с един-единствен елемент
+/// (напр. fast_explanation_sheet.dart) ги пропуска и текстът тече от край
+/// до край, без булет.
 class InfoSheetItem {
-  final Widget leading;
-  final String title;
+  final Widget? leading;
+  final String? title;
   final String description;
 
   const InfoSheetItem({
-    required this.leading,
-    required this.title,
+    this.leading,
+    this.title,
     required this.description,
   });
 }
 
+/// `subtitle` е незадължително — когато заглавието само по себе си казва
+/// всичко, подзаглавието се пропуска, за да не се дублира.
 void showInfoSheet({
   required BuildContext context,
   required String title,
-  required String subtitle,
+  String? subtitle,
   required List<InfoSheetItem> items,
 }) {
   showModalBottomSheet(
@@ -83,12 +88,12 @@ void showInfoSheet({
 
 class _InfoSheet extends StatefulWidget {
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final List<InfoSheetItem> items;
 
   const _InfoSheet({
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     required this.items,
   });
 
@@ -111,6 +116,7 @@ class _InfoSheetState extends State<_InfoSheet> {
   @override
   Widget build(BuildContext context) {
     final screenHeight = MediaQuery.of(context).size.height;
+    final hasSubtitle = (widget.subtitle ?? '').isNotEmpty;
 
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: screenHeight * 0.85),
@@ -168,9 +174,11 @@ class _InfoSheetState extends State<_InfoSheet> {
               ),
             ),
             // Заглавието — отделено под лентата с инструменти, за да не се
-            // асоциира визуално с бутоните.
+            // асоциира визуално с бутоните. Размерът е фиксиран (спрямо
+            // текущия шрифт на панела) — дългите титли просто се пренасят
+            // на следващ ред, без да се смаляват.
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              padding: EdgeInsets.fromLTRB(16, 8, 16, hasSubtitle ? 0 : 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
@@ -179,24 +187,26 @@ class _InfoSheetState extends State<_InfoSheet> {
                     color: AppColors.textPrimary,
                     fontSize: _fontSize + 4,
                     fontWeight: FontWeight.w600,
+                    height: 1.25,
                   ),
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  widget.subtitle,
-                  style: TextStyle(
-                    color: AppColors.textSecondary,
-                    fontSize: _fontSize - 1,
-                    height: 1.4,
+            if (hasSubtitle)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    widget.subtitle!,
+                    style: TextStyle(
+                      color: AppColors.textSecondary,
+                      fontSize: _fontSize - 1,
+                      height: 1.4,
+                    ),
                   ),
                 ),
               ),
-            ),
             Divider(color: AppColors.sectionDivider, height: 1),
             Flexible(
               child: ListView.separated(
@@ -206,22 +216,27 @@ class _InfoSheetState extends State<_InfoSheet> {
                 separatorBuilder: (_, __) => const SizedBox(height: 14),
                 itemBuilder: (context, index) {
                   final e = widget.items[index];
+                  final hasTitle = (e.title ?? '').isNotEmpty;
                   return Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      SizedBox(width: 26, height: 26, child: e.leading),
-                      const SizedBox(width: 12),
+                      if (e.leading != null) ...[
+                        SizedBox(width: 26, height: 26, child: e.leading),
+                        const SizedBox(width: 12),
+                      ],
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Text(e.title,
-                                style: TextStyle(
-                                  color: AppColors.textPrimary,
-                                  fontSize: _fontSize + 2,
-                                  fontWeight: FontWeight.w600,
-                                )),
-                            const SizedBox(height: 2),
+                            if (hasTitle) ...[
+                              Text(e.title!,
+                                  style: TextStyle(
+                                    color: AppColors.textPrimary,
+                                    fontSize: _fontSize + 2,
+                                    fontWeight: FontWeight.w600,
+                                  )),
+                              const SizedBox(height: 2),
+                            ],
                             Text(e.description,
                                 style: TextStyle(
                                   color: AppColors.textSecondary,

@@ -15,7 +15,6 @@
 
 import 'package:flutter/material.dart';
 
-import 'app_theme.dart';
 import 'database_helper.dart';
 import 'info_sheet.dart';
 import 'models/day_model.dart';
@@ -45,15 +44,6 @@ Saint? _causingSaint(List<Saint> saintsToday) {
   return null;
 }
 
-Widget _dot(Color color) => Center(
-      child: Text('•',
-          style: TextStyle(
-            color: color,
-            fontSize: 22,
-            fontWeight: FontWeight.bold,
-          )),
-    );
-
 Future<void> showFastExplanationSheet(
   BuildContext context, {
   required CalendarDay day,
@@ -67,14 +57,18 @@ Future<void> showFastExplanationSheet(
     limit: 1,
   );
 
-  final periodName = DatabaseHelper.fastPeriods[day.fastPeriod] ?? '';
-  final typeName = DatabaseHelper.fastTypes[day.fastType] ?? '';
-  final subtitle = typeName.isEmpty ? periodName : '$periodName ($typeName)';
-
+  // Заглавието на панела е титлата на самото правило от базата (напр.
+  // „Велик пост — с олио (Обретение и свв. 40 мчч.)") — тя вече съдържа
+  // и това, което пише в хедъра на дневния изглед, но по-подробно, затова
+  // под чертата остава само поясняващият текст, без повторения.
+  // Резервен вариант, ако правилото липсва в базата — текстът от хедъра
+  // (същият, който day_screen._fastText сглобява).
   String title;
   String text;
   if (rows.isEmpty) {
-    title = subtitle;
+    final periodName = DatabaseHelper.fastPeriods[day.fastPeriod] ?? '';
+    final typeName = DatabaseHelper.fastTypes[day.fastType] ?? '';
+    title = typeName.isEmpty ? periodName : '$periodName ($typeName)';
     text = 'Няма запазено пояснение за тази комбинация.';
   } else {
     title = rows.first['title'] as String;
@@ -94,14 +88,9 @@ Future<void> showFastExplanationSheet(
 
   showInfoSheet(
     context: context,
-    title: 'Пост',
-    subtitle: subtitle,
+    title: title,
     items: [
-      InfoSheetItem(
-        leading: _dot(AppColors.fastText),
-        title: title,
-        description: text,
-      ),
+      InfoSheetItem(description: text),
     ],
   );
 }

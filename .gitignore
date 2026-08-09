@@ -43,7 +43,10 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
-assets/db/*.db
+# Базите на приложението — цялата папка, не само *.db: там падат и
+# автоматичните бекъпи (lives.db.bak-ГГГГММДД-ЧЧММСС), които са десетки
+# мегабайта и нямат работа в хранилището.
+assets/db/
 
 # Произведената база се прави наново от tools/calendar_gen — не се пази.
 tools/calendar_gen/out/
