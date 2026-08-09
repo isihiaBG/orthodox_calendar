@@ -2,10 +2,16 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "flutter-web",
-      "runtimeExecutable": "flutter",
-      "runtimeArgs": ["run", "-d", "web-server", "--web-port", "8765", "--web-hostname", "0.0.0.0"],
-      "port": 8765
+      "name": "epub-preview",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8099",
+        "--directory",
+        "tools/Translate_lives/work/09(сен)/build/OEBPS"
+      ],
+      "port": 8099
     }
   ]
 }

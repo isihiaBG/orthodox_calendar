@@ -272,8 +272,21 @@ def _is_theotokos(saints_today: list[tuple[int, str]]) -> bool:
     return any(rank == 1 for rank, _ in saints_today)
 
 
+def _is_bdenny(saints_today: list[tuple[int, str]]) -> bool:
+    # rank=2 "Бдение" — по-висок ранг от полиелей/славословна (3-4), но
+    # по-нисък от "Бдение на голям празник" (1, Господски/Богородични).
+    # Виж УСТАВ О ТРАПЕЗЕ.txt: "бденных святых" разрешава риба навсякъде,
+    # за разлика от "среден празник" (ранг 3-4), който разрешава риба само
+    # пон/вт/чет, а сряда/петък — само олио.
+    return any(rank == 2 and group in FEAST_GROUPS for rank, group in saints_today)
+
+
 def _period_relax_key(period: int) -> str:
     return {3: 'petrov_relax', 4: 'dormition_relax', 5: 'nativity_relax'}[period]
+
+
+def _period_fish_key(period: int) -> str:
+    return {3: 'petrov_feast_fish', 5: 'nativity_feast_fish'}[period]
 
 
 def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
@@ -319,11 +332,8 @@ def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
             base = 4
             base_key = 'nativity_forefeast'
 
-    # Богородичен празник на сряда/петък извън Велики пост — риба, не пълно
-    # освобождаване. (Забележка: по-рано тук пишеше `max(base, 2)`, но
-    # base никога не е под 2 в тези периоди, значи max() никога не
-    # променяше нищо — правилото реално не действаше. Върнато е директно
-    # 2, каквото е било намерението според бележката по-горе.)
+    # Богородичен празник (ранг 1) на сряда/петък извън Велики пост —
+    # риба, не пълно освобождаване. Има превес пред всичко по-долу.
     if period != 2 and weekday in (_WD['wed'], _WD['fri']) and \
             _is_theotokos(saints_today):
         return 2, 'theotokos_wed_fri'
@@ -339,23 +349,39 @@ def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
     if period == 2:
         return base, base_key
 
-    # Рождественски пост, велики дати: вт/чет риба вместо хайвер, пон/сряда/
-    # пет олио вместо без олио. НЕ важи в прозореца на предпразненството
-    # (base вече е ограничен до максимум олио по-горе — там рибата пак е
-    # спряна дори на велика дата).
+    # Обикновена сряда/петък извън поста: бденен светия (ранг 2) — риба.
+    # "Среден" (полиелей/славословна, ранг 3-4) на сряда/петък си остава
+    # само на олио — виж клона по-долу.
+    if period == 1 and weekday in (_WD['wed'], _WD['fri']) and \
+            _is_bdenny(saints_today):
+        return 2, 'bdenny_wed_fri'
+
+    # Рождественски пост, велики дати (фиксиран списък от Типикона,
+    # независимо от ранга на конкретния светия тази година) — има превес
+    # пред общото рангово правило по-долу. НЕ важи в прозореца на
+    # предпразненството (base вече е ограничен до олио по-горе).
     if period == 5 and (date.month, date.day) in _nativity_great_dates_this_year(year, old_style):
         if weekday in (_WD['tue'], _WD['thu']):
-            # base==4 значи вече сме в прозореца на предпразненството
-            # (рибата спряна) — там великата дата не я връща обратно.
             return (4, 'nativity_relax') if base == 4 else (2, 'nativity_great_date_fish')
         if weekday in (_WD['mon'], _WD['wed'], _WD['fri']):
             return 4, 'nativity_relax'
         return base, base_key
 
-    # Петров/Успенски/Рождественски (общо правило): пон/сряда/пет без олио
-    # -> олио. Останалите дни (вт/чет с базово олио, съб/нед с базова риба)
-    # си остават непроменени — омекотяването няма какво да добави там.
-    if period in (3, 4, 5) and weekday in (_WD['mon'], _WD['wed'], _WD['fri']):
+    # Петров/Рождественски (стъпаловидност по ранг на светията):
+    #   ранг 2 (бденен)           -> риба, кой да е ден от седмицата
+    #   ранг 3-4 (полиелей/слав.) -> риба пон/вт/чет, олио сряда/петък
+    if period in (3, 5):
+        if _is_bdenny(saints_today):
+            return 2, _period_fish_key(period)
+        if weekday in (_WD['mon'], _WD['tue'], _WD['thu']):
+            return 2, _period_fish_key(period)
+        if weekday in (_WD['wed'], _WD['fri']):
+            return 4, _period_relax_key(period)
+        return base, base_key
+
+    # Успенски (само общото правило — потвърдено да остане без риба от
+    # светия): пон/сряда/пет без олио -> олио.
+    if period == 4 and weekday in (_WD['mon'], _WD['wed'], _WD['fri']):
         return 4, _period_relax_key(period)
 
     # Обикновен постен ден (сряда/петък извън поста): без олио -> олио.
