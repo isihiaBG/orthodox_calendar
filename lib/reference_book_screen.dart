@@ -22,7 +22,7 @@ import 'section_header.dart';
 import 'reference_text.dart';
 import 'saint_expandable_tile.dart' show SaintTexts, lookupBySlug;
 
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 
 class _RefArticle {
   final int id;

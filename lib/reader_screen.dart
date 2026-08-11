@@ -42,7 +42,7 @@ import 'saint_expandable_tile.dart'
 // Шрифтовете (family имената от pubspec.yaml):
 const String _titleFamily = 'TamburinModern'; // заглавието на житието
 const String _dropCapFamily = 'Bukvica';      // орнаментираният инициал
-const String _bodyFamily = 'Cambria';         // основният текст и молитвите
+const String _bodyFamily = 'CharisSIL';       // основният текст и молитвите
 
 /// Разкодира HTML entity-тата (&ndash; &nbsp; &laquo; …) в истински символи.
 /// Нужна е за обтичащата зона около буквицата, където текстът се рендва
@@ -318,7 +318,7 @@ double _estimateRegionHeight(
 }) {
   if (plainText.isEmpty) return 24.0;
   final availableWidth = (viewportWidth - 32).clamp(100.0, 2000.0);
-  // Грубо средна широчина на знак спрямо fontSize за серифния шрифт Cambria.
+  // Грубо средна широчина на знак спрямо fontSize за серифния шрифт Charis SIL.
   final avgCharWidth = fontSize * 0.52;
   final charsPerLine = (availableWidth / avgCharWidth).floor().clamp(10, 300);
   final lines = (plainText.length / charsPerLine).ceil().clamp(1, 2000);

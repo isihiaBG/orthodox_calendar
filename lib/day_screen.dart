@@ -16,6 +16,7 @@ import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'fast_explanation_sheet.dart';
+import 'mini_reader.dart';
 import 'models/day_model.dart';
 import 'saint_expandable_tile.dart';
 import 'typikon_legend_sheet.dart';
@@ -537,9 +538,14 @@ class _DayScreenState extends State<DayScreen> {
                 ExpandableSection(
                   title: '📜  МИСЛИ ОТ ТЕОФАН ЗАТВОРНИК',
                   isSunday: isSunday,
-                  content: const Text(
-                    'Тук ще се показват мислите на Св. Теофан Затворник за деня.',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.6),
+                  // Заявката тръгва при разгъване, не тук — MiniReader
+                  // зарежда в initState, а ExpandableSection монтира
+                  // съдържанието си чак когато е разгънато.
+                  content: MiniReader(
+                    load: () => DatabaseHelper.teofanThought(date),
+                    emptyMessage:
+                        'За този ден няма записани мисли от свт. Теофан '
+                        'Затворник.',
                   ),
                 ),
                 ExpandableSection(

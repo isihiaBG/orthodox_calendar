@@ -104,13 +104,26 @@ flutter:
         - asset: "assets/fonts/Tamburin Modern.ttf"
   #       - asset: fonts/TrajanPro_Bold.ttf
   #         weight: 700
-    - family: Cambria
-      fonts: 
-        - asset: assets/fonts/cambria.ttf
-        - asset: assets/fonts/cambriai.ttf
+    # Основният текст — жития, служби, справочник, PDF-ът.
+    #
+    # Тук стоеше Cambria. Тя е на Microsoft („© Microsoft Corporation. All
+    # rights reserved") и лицензът ѝ разрешава употреба ВЪРХУ лицензиран
+    # продукт на Microsoft — не разпространяване на самия файл в чуждо
+    # приложение и в публично хранилище. Затова отпадна.
+    #
+    # Charis SIL е под SIL Open Font License 1.1 (виж OFL-CharisSIL.txt до
+    # шрифтовете) — свободна за пакетиране, включително в търговски продукт,
+    # и не влиза в спор с GPL-3.0 на хранилището.
+    - family: CharisSIL
+      fonts:
+        - asset: assets/fonts/CharisSIL-Regular.ttf
+        - asset: assets/fonts/CharisSIL-Italic.ttf
           style: italic
-        - asset: assets/fonts/cambriab.ttf
+        - asset: assets/fonts/CharisSIL-Bold.ttf
           weight: 700
+        - asset: assets/fonts/CharisSIL-BoldItalic.ttf
+          weight: 700
+          style: italic
   #
   # For details regarding fonts from package dependencies,
   # see https://flutter.dev/to/font-from-package

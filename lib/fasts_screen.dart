@@ -31,7 +31,7 @@ import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup;
 
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
 const Color _headingRed = Color(0xFFBB8C9C);

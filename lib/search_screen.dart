@@ -451,8 +451,16 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
     // ограничение височината ставаше sheetHeight + клавиатурата, което при
     // много резултати надхвърляше екрана и полето за въвеждане се качваше
     // върху часовника и батерията.
+    // Двете ограничения работят заедно и НЕ се дублират:
+    //   useSafeArea в _showSearch (main.dart) е твърдата граница — панелът
+    //     физически не може да влезе под системната лента;
+    //   сметката тук е просветът НАД тази граница, за да не изглежда залепен.
+    // Затова topInset се вади и тук: screenHeight е цялата височина на
+    // екрана, не остатъкът след SafeArea. Без него исканата височина излиза
+    // по-голяма от позволената, SafeArea я отрязва и просветът изчезва.
     final topInset = MediaQuery.of(context).padding.top;
-    final available = screenHeight - keyboardHeight - topInset - 8;
+    const topGap = 48.0;
+    final available = screenHeight - keyboardHeight - topInset - topGap;
     final cap = screenHeight * 0.80;
     var maxHeight = available < cap ? available : cap;
     if (maxHeight < 80.0) maxHeight = 80.0;
@@ -510,6 +518,23 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                     onChanged: _search,
                   ),
                 ),
+                // Броячът на намереното — само числото, без дума след него:
+                // тя изяждаше ширина от полето за въвеждане, а и не казваше
+                // нищо, което мястото ѝ да не подсказва. Показва се само при
+                // поне един резултат; при нула мълчи, защото празният списък
+                // отдолу вече е отговорът.
+                if (_results.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(right: 10),
+                    child: Text(
+                      '${_results.length}',
+                      style: const TextStyle(
+                        color: AppColors.sectionTitle,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
                 if (_controller.text.isNotEmpty)
                   GestureDetector(
                     onTap: () {

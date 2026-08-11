@@ -15,7 +15,7 @@ import 'app_theme.dart';
 
 const String _titleFamily = 'TamburinModern';
 const String _dropCapFamily = 'Bukvica';
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 const Color _ink = AppColors.textPrimary;
 const Color _wine = Color(0xFFA0555B);
 

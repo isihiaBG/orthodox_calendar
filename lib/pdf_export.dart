@@ -9,7 +9,7 @@
 //
 // Предимства на този подход: истински номера на страници (MultiPage.footer)
 // и правилно вграждане на шрифтовете — pdf пакетът ги ОРЯЗВА до реално
-// ползваните знаци (виж TtfWriter.withChars), затова Cambria не надува
+// ползваните знаци (виж TtfWriter.withChars), затова Charis SIL не надува
 // файла и основният текст е със същия шрифт като в четеца.
 
 import 'package:flutter/services.dart' show rootBundle;
@@ -22,9 +22,9 @@ pw.Font? _body, _bodyItalic, _bodyBold, _title, _dropCapFont;
 
 Future<void> _ensureFonts() async {
   if (_body != null) return;
-  _body = pw.Font.ttf(await rootBundle.load('assets/fonts/cambria.ttf'));
-  _bodyItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/cambriai.ttf'));
-  _bodyBold = pw.Font.ttf(await rootBundle.load('assets/fonts/cambriab.ttf'));
+  _body = pw.Font.ttf(await rootBundle.load('assets/fonts/CharisSIL-Regular.ttf'));
+  _bodyItalic = pw.Font.ttf(await rootBundle.load('assets/fonts/CharisSIL-Italic.ttf'));
+  _bodyBold = pw.Font.ttf(await rootBundle.load('assets/fonts/CharisSIL-Bold.ttf'));
   _title = pw.Font.ttf(await rootBundle.load('assets/fonts/Tamburin Modern.ttf'));
   _dropCapFont = pw.Font.ttf(await rootBundle.load('assets/fonts/bukvica.ttf'));
 }
@@ -164,7 +164,7 @@ List<_Block> _parseBlocks(String html) {
 /// традиция в червено), и за превода, чийто етикет "Превод:" е получер и
 /// прав, за разлика от курсивния текст около него — точно както в четеца.
 ///
-/// Удебеляването е с ИСТИНСКИ получер шрифт (cambriab.ttf). Опитът да се
+/// Удебеляването е с ИСТИНСКИ получер шрифт (CharisSIL-Bold.ttf). Опитът да се
 /// симулира с PdfTextRenderingMode.fillAndStroke се провали: pdf пакетът
 /// изписва режима, но никога не го връща обратно (graphics.dart:538 —
 /// пише само когато режимът е различен от "запълване"), затова

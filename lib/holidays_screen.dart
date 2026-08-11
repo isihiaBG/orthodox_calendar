@@ -20,7 +20,7 @@ import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
 
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
 // Заглавията на категориите (h2/h3) — червени, за разлика от основното

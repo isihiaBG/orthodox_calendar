@@ -268,6 +268,12 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      // Без това панелът има право да влезе ПОД системната лента и при много
+      // резултати полето за въвеждане се качва върху часовника и батерията.
+      // Сметка отвътре (в SearchBottomSheet) не стига: isScrollControlled му
+      // дава цялата височина на екрана, тъй че ограничението трябва да дойде
+      // оттук, от самото отваряне.
+      useSafeArea: true,
       backgroundColor: Colors.transparent,
       builder: (_) => SearchBottomSheet(
         onDateSelected: (date) {

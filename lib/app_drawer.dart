@@ -66,8 +66,12 @@ class AppDrawer extends StatelessWidget {
                 Image.asset('assets/icon_trans.png', width: 100, height: 100),
                 const SizedBox(height: 0),
                 const Text(
-                  'Православен Календар',
-                  style: TextStyle(color: AppColors.textPrimary, fontSize: 18),
+                  'Православен календар',
+                  style: TextStyle(
+                    fontFamily: 'TamburinModern',
+                    color: AppColors.textPrimary,
+                    fontSize: 22,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],

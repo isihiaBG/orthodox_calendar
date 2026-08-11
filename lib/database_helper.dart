@@ -162,6 +162,174 @@ class DatabaseHelper {
     return _referenceDatabase!;
   }
 
+  // ───────────────────────────────────────────────────────────────────────
+  // „Мисли от Теофан Затворник" — четвърта, отделна база.
+  //
+  // Не се ATTACH-ва, както и reference.db: не зависи нито от стила, нито от
+  // годината. Причината е, че поученията НЕ се адресират по дата, а по
+  // литургичен адрес — „Неделя на Митаря и Фарисея", „петък от седмица 12
+  // след Петдесетница", „6 януари". Свт. Теофан ги е писал за 1887 г., но
+  // самите адреси са вечни; коя дата им се пада, се смята при всяко
+  // отваряне на секцията.
+  // ───────────────────────────────────────────────────────────────────────
+  static const String _teofanDbName = 'teofan.db';
+  static Database? _teofanDatabase;
+
+  static Future<Database> get teofanDatabase async {
+    if (_teofanDatabase != null) return _teofanDatabase!;
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _teofanDbName);
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete(); // винаги презаписва — както другите бази
+    }
+    final data = await rootBundle.load('assets/db/$_teofanDbName');
+    await file.writeAsBytes(data.buffer.asUint8List());
+    _teofanDatabase = await openDatabase(path, readOnly: true);
+    return _teofanDatabase!;
+  }
+
+  /// Юлианската Пасха за годината, върната като ГРАЖДАНСКА (григорианска)
+  /// дата. Пасхалията е обща за двата стила, тъй че тази дата е една и съща
+  /// и в calendar_old.db, и в calendar_new.db.
+  static DateTime paschaOf(int year) {
+    final a = year % 4, b = year % 7, c = year % 19;
+    final d = (19 * c + 15) % 30;
+    final e = (2 * a + 4 * b - d + 34) % 7;
+    final month = (d + e + 114) ~/ 31;
+    final day = (d + e + 114) % 31 + 1;
+    // юлианска → григорианска, през юлианския ден (без твърдо „+13", за да
+    // не се счупи през 2100 г., когато разликата става 14 дни)
+    final aa = (14 - month) ~/ 12;
+    final yy = year + 4800 - aa;
+    final mm = month + 12 * aa - 3;
+    final jdn = day + (153 * mm + 2) ~/ 5 + 365 * yy + yy ~/ 4 - 32083;
+    return DateTime.utc(1970, 1, 1).add(Duration(days: jdn - 2440588));
+  }
+
+  /// Мисълта на свт. Теофан за деня — готово HTML тяло, или null.
+  ///
+  /// Книгата не покрива всеки ден от всяка година: тя има 353 поучения за
+  /// една конкретна църковна година, а броят на седмиците между
+  /// Петдесетница и Триода се мени (отстъпката). Затова null е нормален
+  /// отговор, не грешка.
+  static Future<String?> teofanThought(DateTime date) async {
+    final candidates = await _teofanCandidates(date);
+    if (candidates.isEmpty) return null;
+
+    final db = await teofanDatabase;
+    // Нарочно OR, а НЕ „(kind, key) IN ((?,?),…)". Ред-стойностите работят
+    // в sqlite3 на десктопа, но SQLite-ът на Android ги отхвърля с
+    // „row value misused" — а меродавен е той. Проверката трябва да е на
+    // устройството, не в конзолата.
+    final where = List.filled(candidates.length, '(kind=? AND key=?)')
+        .join(' OR ');
+    final args = <Object?>[];
+    for (final c in candidates) {
+      args..add(c.$1)..add(c.$2);
+    }
+    final rows = await db.rawQuery(
+      'SELECT kind, key, body FROM thoughts WHERE $where',
+      args,
+    );
+    if (rows.isEmpty) return null;
+
+    // Кандидатите вече са подредени по веригата на приоритета — връщаме
+    // първия, който е намерил ред.
+    for (final c in candidates) {
+      for (final row in rows) {
+        if (row['kind'] == c.$1 && row['key'] == c.$2) {
+          return row['body'] as String;
+        }
+      }
+    }
+    return null;
+  }
+
+  /// Адресите-кандидати за деня, подредени по веригата на приоритета:
+  ///
+  ///   1 Господски празник     печели над всичко, включително над неделята
+  ///   2 подвижен спрямо Пасха Триод и Пентикостар
+  ///   3 неделя                по Петдесетница или спрямо неподвижен празник
+  ///   4 Богородичен/светийски под неделята — всяка неделя е малка Пасха
+  ///   5 делник по седмица     броене напред от Петдесетница
+  static Future<List<(String, String)>> _teofanCandidates(DateTime date) async {
+    final out = <(String, String)>[];
+
+    // Църковната дата. По нов стил съвпада с гражданската; по стар изостава
+    // с 13 дни (предпразненството на Рождество е 20.XII църковно = 2.I
+    // гражданско в calendar_old.db).
+    final church = AppSettings.isOldStyle
+        ? date.subtract(const Duration(days: 13))
+        : date;
+    final mmdd = '${church.month.toString().padLeft(2, '0')}-'
+        '${church.day.toString().padLeft(2, '0')}';
+
+    final pascha = paschaOf(date.year);
+    final offset = DateTime.utc(date.year, date.month, date.day)
+        .difference(DateTime.utc(pascha.year, pascha.month, pascha.day))
+        .inDays;
+
+    // ── 1. Господски празници ────────────────────────────────────────────
+    const lordly = {'01-01', '01-06', '02-02', '08-06', '09-14', '12-25'};
+    if (lordly.contains(mmdd)) out.add(('fixed', mmdd));
+    if (offset == 39) out.add(('pascha', '39')); // Възнесение
+
+    // ── 2. Подвижни спрямо Пасха ─────────────────────────────────────────
+    // От Митаря и Фарисея (-70) до съботата подир Всички светии (+62).
+    if (offset >= -70 && offset <= 62) out.add(('pascha', '$offset'));
+
+    // ── 3-5. Седмица, неделя и котвите — от календарната база ────────────
+    final key = '${date.year}-${date.month.toString().padLeft(2, '0')}'
+        '-${date.day.toString().padLeft(2, '0')}';
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT w.name AS week, s.name AS sunday,
+             (SELECT group_concat(name, '|') FROM saints WHERE date = d.date)
+               AS saints
+      FROM calendar_days d
+      LEFT JOIN weeks w ON w.id = d.week_id
+      LEFT JOIN sundays s ON s.id = d.sunday_id
+      WHERE d.date = ?
+      LIMIT 1
+    ''', [key]);
+    if (rows.isEmpty) return out;
+
+    final week = rows.first['week'] as String?;
+    final sunday = rows.first['sunday'] as String?;
+    final saints = (rows.first['saints'] as String?) ?? '';
+
+    // ── 3. Неделите и котвите ────────────────────────────────────────────
+    if (sunday != null) {
+      if (sunday.contains('преди Богоявление')) {
+        out.add(('anchor', 'sunday_before_theophany'));
+      } else if (sunday.contains('след Богоявление')) {
+        out.add(('anchor', 'sunday_after_theophany'));
+      }
+      if (sunday.contains('Праотци')) out.add(('anchor', 'forefathers'));
+      final n = RegExp(r'Неделя (\d+) след Петдесетница').firstMatch(sunday);
+      if (n != null) out.add(('pent', 'sunday:${n.group(1)}'));
+    }
+    if (saints.contains('Събота преди Богоявление')) {
+      out.add(('anchor', 'saturday_before_theophany'));
+    } else if (saints.contains('Събота след Богоявление')) {
+      out.add(('anchor', 'saturday_after_theophany'));
+    }
+
+    // ── 4. Богородичните и светийските неподвижни ────────────────────────
+    const lesser = {'01-07', '08-15', '11-21'};
+    if (lesser.contains(mmdd)) out.add(('fixed', mmdd));
+
+    // ── 5. Делник по седмица след Петдесетница ───────────────────────────
+    if (week != null && date.weekday >= DateTime.monday &&
+        date.weekday <= DateTime.saturday) {
+      final n = RegExp(r'Седмица (\d+) след Петдесетница').firstMatch(week);
+      if (n != null) out.add(('pent', '${n.group(1)}:${date.weekday}'));
+    }
+
+    return out;
+  }
+
   static Future<Database> _initDatabase() async {
     
     // print('_initDatabase started');

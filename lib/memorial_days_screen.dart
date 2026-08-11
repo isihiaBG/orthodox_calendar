@@ -22,7 +22,7 @@ import 'dual_date_text.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
 
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
 const Color _headingRed = Color(0xFFBB8C9C);

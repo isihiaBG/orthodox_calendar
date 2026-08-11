@@ -15,7 +15,7 @@ import 'app_theme.dart';
 import 'year_selector.dart';
 
 const String _titleFamily = 'TamburinModern';
-const String _bodyFamily = 'Cambria';
+const String _bodyFamily = 'CharisSIL';
 
 class SectionHeader extends StatelessWidget {
   final String title;
