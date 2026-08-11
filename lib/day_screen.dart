@@ -161,6 +161,11 @@ class _DayScreenState extends State<DayScreen> {
     ORDER BY sg.id ASC, s.rank ASC, s.id ASC
     ''', [dateStr]);
 
+    // Двете заявки по-горе са асинхронни — при бързо прелистване екранът
+    // може да е напуснат, докато траят. Без тази проверка setState гърми
+    // върху унищожен state ("setState() called after dispose()").
+    if (!mounted) return;
+
     setState(() {
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();

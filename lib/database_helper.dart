@@ -21,6 +21,13 @@ class DatabaseHelper {
   // както беше при празни колони.
   static const String _livesDbName = 'lives.db';
 
+  // Четивата за секцията "Справочник" (указания, пояснения, речник) —
+  // трета, отделна база. Не се ATTACH-ва към календарната: с нея няма
+  // какво да се JOIN-ва, а и не зависи нито от стила, нито от годината,
+  // тъй че живее на собствена връзка, отваряна при първа нужда.
+  static const String _referenceDbName = 'reference.db';
+  static Database? _referenceDatabase;
+
   // Кеш за периоди и типове пост
   static Map<int, String> fastPeriods = {};
   static Map<int, String> fastTypes = {};
@@ -137,6 +144,22 @@ class DatabaseHelper {
       await prefs.setString(_versionPrefKey(_livesDbName), assetVersion);
     }
     return path;
+  }
+
+  /// Базата на "Справочник" — копира се от assets при първо повикване,
+  /// по същия ред като lives.db, и остава отворена за сесията.
+  static Future<Database> get referenceDatabase async {
+    if (_referenceDatabase != null) return _referenceDatabase!;
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _referenceDbName);
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete(); // винаги презаписва — както другите бази
+    }
+    final data = await rootBundle.load('assets/db/$_referenceDbName');
+    await file.writeAsBytes(data.buffer.asUint8List());
+    _referenceDatabase = await openDatabase(path, readOnly: true);
+    return _referenceDatabase!;
   }
 
   static Future<Database> _initDatabase() async {

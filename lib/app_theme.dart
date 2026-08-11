@@ -19,6 +19,10 @@ class AppColors {
   // отделен хардкоднат нюанс) — за карти/табелки с пояснителен текст и
   // "изгасената" (невдигната) част на SegmentedButton в настройките.
   static final backgroundCard    = Color.lerp(toolbar, Colors.white, 0.08)!;
+  // Заглавната лента на разгъващо се поле (виж reference_book_screen.dart) —
+  // със същия похват, само придвижена по-нататък към бялото, за да се
+  // отличава от редовете вътре, щом полето се разгъне.
+  static final expansionHeader   = Color.lerp(toolbar, Colors.white, 0.18)!;
 
   static const sectionTitle      = Color(0xFF8A9BB0);
   static const sectionDivider    = Color(0xFF2A2A2A);
@@ -65,6 +69,16 @@ class AppColors {
   static const fastStripeTint   = Color(0xFF808080); // сивото, към което се придвижва
   static const fastStripeAmount = 0.48;               // сила на придвижването (0.0–1.0)
   static const fastStripeAmountToday = 0.57;    // по-слабо посивяване за днешния ден
+
+  // ─── Хедъри на справочните секции ─────────────────────────────────────
+  // Четирите секции от главното меню (виж reference_pager.dart) се
+  // различават по цвета на хедъра си — както делничният и неделният ден
+  // в дневния изглед. Оцветява се САМО блокът със заглавието и годината;
+  // горната лента остава toolbar навсякъде, пак както в дневния изглед.
+  static const sectionHolidays = appBarSundayBg;        // както неделите в месечния
+  static const sectionMemorial = appBarWeekday;         // както делничен ден
+  static const sectionFasts    = Color(0xFF565F34);     // тъмно маслено зелено
+  static const sectionBook     = Color(0xFF945503);     // тъмно оранжево
 
   // ─── Датепикър ────────────────────────────────────────────────────────
   // Цветовете на стандартния Material датепикър, обвързани с темата

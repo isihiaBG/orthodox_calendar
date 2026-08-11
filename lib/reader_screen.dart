@@ -29,6 +29,7 @@ import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -1968,6 +1969,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             data: data,
             onLinkTap: (url, attributes, element) => _onLinkTap(url),
             style: _htmlStyles(context),
+            extensions: _tipikonExtensions,
           ),
           ),
         );
@@ -2049,7 +2051,11 @@ class _ReaderScreenState extends State<ReaderScreen>
           measureChildren.add(
             KeyedSubtree(
             key: _measureKeys[i],
-            child: Html(data: r.content, style: _htmlStyles(context)),
+            child: Html(
+              data: r.content,
+              style: _htmlStyles(context),
+              extensions: _tipikonExtensions,
+            ),
             ),
           );
         } else {
@@ -2413,6 +2419,68 @@ class _ReaderScreenState extends State<ReaderScreen>
       ),
     );
   }
+
+  /// Знакът на Типикона се РИСУВА толкова пъти по-едро от текста…
+  static const double _tipikonSignScale = 1.4;
+
+  /// …но ЗАЕМА само толкова — точно колкото е височината на реда.
+  ///
+  /// Двете нарочно се различават. Вграден в абзаца, знакът е inline елемент:
+  /// ако кутията му е по-висока от реда, редът се разпъва и разстоянията
+  /// между абзаците излизат неравни (само редовете СЪС знак стават
+  /// по-високи). Затова кутията остава колкото реда, а рисунката се пуска да
+  /// излезе извън нея през OverflowBox — подредбата не забелязва нищо, а
+  /// знакът се вижда едър. Свободното място отгоре и отдолу го дават
+  /// полетата между абзаците.
+  static const double _tipikonSignBox = _lineHeight;
+
+  /// Знаците на Типикона, вградени в текста като `<znak n="1">`…`<znak n="5">`.
+  /// Ползват се в справочната статия "Знаците от Типикона": там оригиналът
+  /// ги описваше с текстови заместители ((+), +), +, (:· …), а два от петте
+  /// заместителя СЪВПАДАХА и се различаваха само по цвят — разликата се
+  /// губеше напълно. Тук се рисуват същите SVG-та, които стоят и до
+  /// светиите в календара (виж AppIcons.forRank), в цветовете на четеца.
+  List<HtmlExtension> get _tipikonExtensions => [
+        TagExtension(
+          tagsToExtend: {'znak'},
+          builder: (ctx) {
+            final rank = int.tryParse(
+                    ctx.attributes['n'] ?? '') ??
+                6;
+            final (path, _) = AppIcons.forRank(rank);
+            if (path == null) return const SizedBox.shrink();
+            // Ранг 5 (шестерична) е черният знак — останалите са червени.
+            final color = rank == 5 ? _ink : _wine;
+            // Двата размера са ВРЪЗАНИ за _fontSize, за да растат и намаляват
+            // заедно с текста от бутоните −/+ (виж _tipikonSignBox защо
+            // кутията е по-малка от рисунката).
+            final box = _fontSize * _tipikonSignBox;
+            final draw = _fontSize * _tipikonSignScale;
+            // Рисунката се излива извън кутията и НАСТРАНИ, не само нагоре и
+            // надолу — затова изяждаше интервала преди тирето след себе си.
+            // Отстъпът покрива преливането ((draw−box)/2) плюс нормалното
+            // разстояние между знак и дума, и расте заедно с шрифта.
+            final side = (draw - box) / 2 + _fontSize * 0.34;
+            return Padding(
+              padding: EdgeInsets.symmetric(horizontal: side),
+              child: SizedBox(
+                width: box,
+                height: box,
+                child: OverflowBox(
+                  maxWidth: draw,
+                  maxHeight: draw,
+                  child: SvgPicture.asset(
+                    path,
+                    width: draw,
+                    height: draw,
+                    colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ];
 
   Map<String, Style> _htmlStyles(BuildContext context) {
     return {

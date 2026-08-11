@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'reader_screen.dart';
+import 'reference_text.dart';
 
 /// Текстовете на един светия (ред от таблицата saints с новите колони).
 class SaintTexts {
@@ -82,6 +83,12 @@ typedef SaintLookup = Future<SaintTexts?> Function(String slug);
 /// него, показваме българското име; ако няма — падаме към името от
 /// lives (то е руското от azbyka и затова се превежда).
 Future<SaintTexts?> lookupBySlug(String slug) async {
+  // Справочните статии живеят в СВОЯ база (reference.db), не в lives.db.
+  // Проверката е тук, а не при извикващите, за да важи за всеки път, който
+  // разрешава слъг — включително списъка с отметки в четеца, който знае
+  // само слъга на запазеното четиво.
+  if (isReferenceSlug(slug)) return loadReferenceArticle(slug);
+
   final db = await DatabaseHelper.database;
   final r = await db.rawQuery('''
     SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,

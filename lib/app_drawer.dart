@@ -12,9 +12,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'about_screen.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
-import 'fasts_screen.dart';
-import 'holidays_screen.dart';
-import 'saint_expandable_tile.dart' show lookupBySlug;
+import 'reference_pager.dart';
 import 'settings_screen.dart';
 
 /// Реакцията на календара при промяна в настройките (смяна на стил и др.)
@@ -44,6 +42,13 @@ class AppDrawer extends StatelessWidget {
     final navigator = Navigator.of(context);
     navigator.popUntil((route) => route.isFirst);
     return navigator.push(MaterialPageRoute(builder: builder));
+  }
+
+  /// Справочните секции — само затваря менюто и оставя ReferencePager да
+  /// реши дали да прелисти (вече е отворен) или да бутне нов екран.
+  void _openSection(BuildContext context, ReferenceSection section) {
+    Navigator.pop(context); // менюто
+    ReferencePager.open(context, section);
   }
 
   @override
@@ -78,14 +83,19 @@ class AppDrawer extends StatelessWidget {
           _item(Icons.auto_stories, 'Молитвослов', () {}),
           _item(Icons.book, 'Библия', () {}),
           _item(Icons.menu_book, 'Месецослов', () {}),
-          _item(Icons.church, 'Празници', () {
-            _openScreen(context, (_) => const HolidaysScreen(lookup: lookupBySlug));
-          }),
-          _itemSvg('assets/icons/candle.svg', 'Дни за помени', () {}),
-          _item(Icons.no_meals, 'Пости', () {
-            _openScreen(context, (_) => const FastsScreen(lookup: lookupBySlug));
-          }),
-          _item(Icons.info_outline, 'Справочник', () {}),
+          // Четирите справочни секции живеят в ОБЩ екран с плъзгане
+          // настрани (reference_pager.dart). Менюто само посочва коя да е
+          // отгоре; ако екранът вече е отворен, ReferencePager.open просто
+          // прелиства до нея, вместо да го пресъздава — така избраната
+          // година оцелява при разходка между четирите.
+          _item(Icons.church, 'Празници',
+              () => _openSection(context, ReferenceSection.holidays)),
+          _itemSvg('assets/icons/candle.svg', 'Дни за помени',
+              () => _openSection(context, ReferenceSection.memorial)),
+          _item(Icons.no_meals, 'Пости',
+              () => _openSection(context, ReferenceSection.fasts)),
+          _item(Icons.info_outline, 'Справочник',
+              () => _openSection(context, ReferenceSection.book)),
           const Divider(color: AppColors.drawerDivider),
           const Padding(
             padding: EdgeInsets.only(left: 16, top: 4, bottom: 4),

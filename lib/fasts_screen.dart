@@ -1,10 +1,13 @@
 // fasts_screen.dart
 //
 // "Пости" — многодневните пости, еднодневните и седмиците, освободени от
-// пост. По устройство е близнак на holidays_screen.dart (същата лента с
-// инструменти, същото форматиране на датите според потребителските
-// предпочитания), но с една съществена разлика: тук НИЩО не се чете от
-// календарната база.
+// пост. Едно от четирите тела на reference_pager.dart: НЯМА собствен
+// Scaffold, лента и drawer — те са на домакина, за да не подскачат при
+// плъзгане между секциите. Оттам идват и годината, и размерът на шрифта.
+//
+// По устройство е близнак на holidays_screen.dart (същото форматиране на
+// датите според потребителските предпочитания), но с една съществена
+// разлика: тук НИЩО не се чете от календарната база.
 //
 // Всичко се ИЗЧИСЛЯВА:
 //  - подвижните периоди — от Пасха (виж paschalion.dart), с константни
@@ -18,23 +21,16 @@
 // добавени, редовете автоматично ще станат разгъващи се, без промяна тук
 // освен попълването на имената на слъговете.
 
-import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'dual_date_text.dart';
 import 'paschalion.dart';
-import 'round_icon_button.dart';
-import 'year_selector.dart';
+import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup;
-import 'settings_screen.dart';
 
-const String _titleFamily = 'TamburinModern';
 const String _bodyFamily = 'Cambria';
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
@@ -76,11 +72,11 @@ class _FastSpec {
 // Петров пост: започва в понеделника след Неделя на всички светии
 //   (Пасха + 57 дни) и свършва в деня преди Петровден. Дължината му
 //   затова е РАЗЛИЧНА всяка година — виж _petrovRange.
-// Успенски и Рождественски: изцяло неподвижни.
+// Богородичен и Рождественски: изцяло неподвижни.
 const List<_FastSpec> _multiDayFasts = [
   _FastSpec(name: 'Велик пост', fromPascha: -48, toPascha: -1),
   _FastSpec(name: 'Петров пост'), // специален случай — виж _petrovRange
-  _FastSpec(name: 'Успенски пост', fixedFrom: (8, 1), fixedTo: (8, 14)),
+  _FastSpec(name: 'Богородичен пост', fixedFrom: (8, 1), fixedTo: (8, 14)),
   _FastSpec(name: 'Рождественски пост', fixedFrom: (11, 15), fixedTo: (12, 24)),
 ];
 
@@ -128,31 +124,36 @@ DateTime _petrovden(int year) => civilFromChurch(year, 6, 29);
   return (start: start, end: end);
 }
 
-class FastsScreen extends StatefulWidget {
+class FastsSection extends StatefulWidget {
   final SaintLookup lookup;
-  const FastsScreen({super.key, required this.lookup});
+  final int year;
+  final ValueChanged<int> onYearChanged;
+  final double baseFont;
+
+  /// Расте при смяна на настройките (стар/нов стил) — тук датите се
+  /// смятат при всяко рисуване, тъй че самото преначертаване стига.
+  final int revision;
+
+  const FastsSection({
+    super.key,
+    required this.lookup,
+    required this.year,
+    required this.onYearChanged,
+    required this.baseFont,
+    required this.revision,
+  });
 
   @override
-  State<FastsScreen> createState() => _FastsScreenState();
+  State<FastsSection> createState() => _FastsSectionState();
 }
 
-class _FastsScreenState extends State<FastsScreen> {
-  // Базов размер на шрифта — всички размери са производни от него (_fs),
-  // за да реагират ВСИЧКИ на бутоните −/+ (виж holidays_screen.dart).
-  static double _baseFont = 17.0;
-  static const double _fontStep = 1.0;
-  static const double _fontMin = 13.0;
-  static const double _fontMax = 26.0;
-  static const String _fontKey = 'fasts_font_size';
-  static bool _fontLoadedFromDisk = false;
-  static double? _lastSavedFont;
-  Timer? _fontSaveTimer;
+class _FastsSectionState extends State<FastsSection> {
+  // Всички размери са производни от базовия (_fs), за да реагират ВСИЧКИ
+  // на бутоните −/+ в лентата на домакина.
+  double _fs(double delta) => widget.baseFont + delta;
 
-  double _fs(double delta) => _baseFont + delta;
+  int get _selectedYear => widget.year;
 
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  late int _selectedYear;
   // Флагове дали за даден слъг има текстове — попълва се само за записите
   // със slug (засега няма такива).
   final Map<String, _TextFlags> _flags = {};
@@ -160,41 +161,7 @@ class _FastsScreenState extends State<FastsScreen> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now().year;
-    _selectedYear = now;
-    _loadPersistedFontOnce().then((_) {
-      if (mounted) setState(() {});
-    });
     _loadFlags();
-  }
-
-  static Future<void> _loadPersistedFontOnce() async {
-    if (_fontLoadedFromDisk) return;
-    _fontLoadedFromDisk = true;
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getDouble(_fontKey);
-    if (saved != null) {
-      _baseFont = saved.clamp(_fontMin, _fontMax);
-      _lastSavedFont = _baseFont;
-    }
-  }
-
-  void _scheduleFontSave() {
-    _fontSaveTimer?.cancel();
-    _fontSaveTimer = Timer(const Duration(seconds: 3), _flushFontSave);
-  }
-
-  void _flushFontSave() {
-    _fontSaveTimer = null;
-    if (_lastSavedFont == _baseFont) return;
-    _lastSavedFont = _baseFont;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_fontKey, _baseFont));
-  }
-
-  void _bumpFont(double delta) {
-    setState(() => _baseFont = (_baseFont + delta).clamp(_fontMin, _fontMax));
-    _scheduleFontSave();
   }
 
   /// Проверява за кои слъгове ИМА текстове в lives.db. Докато слъгове не
@@ -224,15 +191,6 @@ class _FastsScreenState extends State<FastsScreen> {
       );
     }
     if (mounted) setState(() {});
-  }
-
-  @override
-  void dispose() {
-    if (_fontSaveTimer != null) {
-      _fontSaveTimer!.cancel();
-      _flushFontSave();
-    }
-    super.dispose();
   }
 
   DateTime? _resolveFixed((int, int)? md, int year, {bool prevYear = false}) {
@@ -368,84 +326,22 @@ class _FastsScreenState extends State<FastsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.toolbar,
-      drawer: const AppDrawer(),
-      onEndDrawerChanged: (isOpen) {
-        if (!isOpen) setState(() {});
-      },
-      endDrawer: SettingsDrawer(onChanged: (styleChanged, [capturedMiddleDate]) {
-        appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
-        if (mounted) setState(() {}); // датите зависят от стила
-      }),
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        toolbarHeight: 44,
-        title: const Text('Пости'),
-        actions: [
-          RoundIconButton(
-            icon: Icons.remove,
-            tooltip: 'По-дребен шрифт',
-            enabled: _baseFont > _fontMin,
-            onTap: () => _bumpFont(-_fontStep),
-            size: 22,
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionHeader(
+            title: 'Постни дни и периоди',
+            background: AppColors.sectionFasts,
+            baseFont: widget.baseFont,
+            year: _selectedYear,
+            onYearChanged: widget.onYearChanged,
           ),
-          const SizedBox(width: 18),
-          RoundIconButton(
-            icon: Icons.add,
-            tooltip: 'По-едър шрифт',
-            enabled: _baseFont < _fontMax,
-            onTap: () => _bumpFont(_fontStep),
-            size: 22,
-          ),
-          const SizedBox(width: 14),
-          IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
-      body: SafeArea(
-        child: Container(
-          color: AppColors.background,
-          child: SingleChildScrollView(
+          Padding(
             padding: const EdgeInsets.fromLTRB(24, 6, 24, 40),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                Text(
-                  'Постни дни и периоди',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontFamily: _titleFamily,
-                      fontSize: _fs(23),
-                      height: 1.25,
-                      color: _ink),
-                ),
-                const SizedBox(height: 15),
-                Text(
-                  'изберете година',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                      fontFamily: _bodyFamily,
-                      fontSize: _fs(2),
-                      fontStyle: FontStyle.italic,
-                      color: _dim),
-                ),
-                Center(
-                  child: YearSelector(
-                    value: _selectedYear,
-                    onChanged: (y) => setState(() => _selectedYear = y),
-                    fontSize: _fs(23),
-                    fontFamily: _titleFamily,
-                    color: _ink,
-                  ),
-                ),
-                const SizedBox(height: 12),
                 _h2('Многодневни пости'),
                 for (final f in _multiDayFasts) _periodRow(f),
                 _h2('Еднодневни пости'),
@@ -457,7 +353,7 @@ class _FastsScreenState extends State<FastsScreen> {
               ],
             ),
           ),
-        ),
+        ],
       ),
     );
   }

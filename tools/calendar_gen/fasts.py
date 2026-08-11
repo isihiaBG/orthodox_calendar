@@ -214,11 +214,18 @@ def _fixed_day_detail(date: datetime.date, year: int, old_style: bool,
     if civil_from_church(year, 12, 24, old_style) == date:
         return (5, 'nativity_eve')
 
-    # Денят преди Навечерието (23.XII църковно) — изрично указание в
-    # Типикона: сухоядение (7), по-строго от общото "без олио" на
-    # предпразненството. Единственото място, където 7 не се заменя с 6.
-    if civil_from_church(year, 12, 23, old_style) == date:
-        return (7, 'day_before_nativity_eve')
+    # ВНИМАНИЕ: тук стоеше правило за 23.XII църковно — "буквално
+    # сухоядение" (тип 7), уж по-строго от общото "без олио". Махнато на
+    # 10.08.2026 след сверка: НИТО един от двата справочни документа в
+    # input/ не предписва усилване на поста през предпразненството. И
+    # двата казват едно и също и само това — "с началото на
+    # Предпразненството разрешението за риба се отменя дори за съботните
+    # и неделните дни" (УСТАВ О ТРАПЕЗЕ.txt:100, Указания за
+    # постите.txt:119). За 23.XII специално няма нито дума. Седмичният
+    # ритъм на поста продължава непроменен, а отмяната на рибата се
+    # прилага в _fast_type_detail (прозорецът на предпразненството).
+    # Ако някога се появи цитат в обратната посока — правилото се връща
+    # тук, преди Навечерието.
 
     return None
 
@@ -289,6 +296,18 @@ def _period_fish_key(period: int) -> str:
     return {3: 'petrov_feast_fish', 5: 'nativity_feast_fish'}[period]
 
 
+def _in_nativity_forefeast(date: datetime.date, year: int,
+                           old_style: bool, period: int) -> bool:
+    """20-23.XII църковно вкл. — предпразненството на Рождество, без самото
+    Навечерие (24.XII), което си има собствен тип през Слой 2. Началото е
+    20.XII по Указания за постите.txt:119; УСТАВ О ТРАПЕЗЕ.txt:100 казва
+    21.XII — разлика от ден, потвърдено от потребителя да остане 20."""
+    if period != 5:
+        return False
+    return (civil_from_church(year, 12, 20, old_style) <= date
+            <= civil_from_church(year, 12, 23, old_style))
+
+
 def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
                        period: int, saints_today: list[tuple[int, str]]
                        ) -> tuple[int, str]:
@@ -297,6 +316,26 @@ def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
     fast_explanations.key, вместо (period,type) сами по себе си (които не
     са достатъчни: и четирите повода за "Велик пост с олио" например
     делят едно и също (2,4))."""
+    result = _fast_type_uncapped(date, year, old_style, period, saints_today)
+
+    # Предпразненството на Рождество отменя рибата — ЕДИНСТВЕНОТО, което
+    # Уставът предписва за тези дни: "с началото на Предпразненството
+    # разрешението за риба се отменя ДОРИ за съботните и неделните дни".
+    # Таванът се слага върху крайния резултат, а не върху базовия тип,
+    # защото послабленията от светия (напр. бденен български светия като
+    # прп. Наум Охридски на 23.XII) иначе го заобикалят и връщат риба
+    # обратно. Хайверът пада заедно с рибата — той е рибен продукт;
+    # това е наша преценка, не буквален цитат. Постът НЕ се затяга отвъд
+    # това: пон./сряда/петък си остават "без олио" както през целия пост.
+    if result[0] in (2, 3) and _in_nativity_forefeast(date, year, old_style, period):
+        return 4, 'nativity_forefeast'
+
+    return result
+
+
+def _fast_type_uncapped(date: datetime.date, year: int, old_style: bool,
+                        period: int, saints_today: list[tuple[int, str]]
+                        ) -> tuple[int, str]:
     if period == 0:
         # Сирната седмица е особен случай сред петте свободни седмици:
         # НЕ е напълно свободна — забранено е месото, но млечно/яйца са
@@ -321,16 +360,8 @@ def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
     base = _base_type(date, year, weekday, period)
     base_key = _base_key(date, year, weekday, period)
 
-    # Предпразненство на Рождество (20-24.XII църковно вкл., до самото
-    # Навечерие): рибата и хайверът СПИРАТ, но постът не се усилва отвъд
-    # това — просто пада до олио. Не се отнася за 23/24.XII, те вече
-    # излязоха с точния си тип през Слой 2 по-горе.
-    if period == 5:
-        d20 = civil_from_church(year, 12, 20, old_style)
-        d22 = civil_from_church(year, 12, 22, old_style)  # 23/24 покрити от Слой 2
-        if d20 <= date <= d22 and base in (2, 3):
-            base = 4
-            base_key = 'nativity_forefeast'
+    # (Отмяната на рибата през предпразненството на Рождество се прилага
+    # като таван върху крайния резултат — виж _fast_type_detail по-горе.)
 
     # Богородичен празник (ранг 1) на сряда/петък извън Велики пост —
     # риба, не пълно освобождаване. Има превес пред всичко по-долу.
@@ -358,8 +389,9 @@ def _fast_type_detail(date: datetime.date, year: int, old_style: bool,
 
     # Рождественски пост, велики дати (фиксиран списък от Типикона,
     # независимо от ранга на конкретния светия тази година) — има превес
-    # пред общото рангово правило по-долу. НЕ важи в прозореца на
-    # предпразненството (base вече е ограничен до олио по-горе).
+    # пред общото рангово правило по-долу. В прозореца на предпразненството
+    # рибата, която този клон би дал, се сваля до олио от тавана в
+    # _fast_type_detail.
     if period == 5 and (date.month, date.day) in _nativity_great_dates_this_year(year, old_style):
         if weekday in (_WD['tue'], _WD['thu']):
             return (4, 'nativity_relax') if base == 4 else (2, 'nativity_great_date_fish')

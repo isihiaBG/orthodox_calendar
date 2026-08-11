@@ -48,17 +48,50 @@ const Map<String, String> _contentSql = {
   'sluzhba': "(l.sluzhba IS NOT NULL AND l.sluzhba != '')",
 };
 
-/// Разложена заявка: думите за търсене, груповите филтри и филтрите
-/// по съдържание (наличие и липса) — поотделно.
+/// Интервал от години, изписан с #: #25, #2025, #25-27, #2025-2027.
+/// Затворен от двата края; една година е интервал от себе си до себе си.
+class _YearSpan {
+  final int from;
+  final int to;
+  const _YearSpan(this.from, this.to);
+}
+
+/// #25 / #2025 / #25-27 / #!26 / #!25-26 — годината или интервалът.
+final RegExp _reYearTag = RegExp(r'^#(!?)(\d{2}|\d{4})(?:-(\d{2}|\d{4}))?$');
+
+/// Двуцифрените се четат като 20xx.
+int _normYear(String s) => s.length == 2 ? 2000 + int.parse(s) : int.parse(s);
+
+/// Гражданските граници на църковната година. При СТАР стил годината върви
+/// от 14 януари до 13 януари следващата (така я генерира и build.py — виж
+/// обхвата на calendar_old.db); при нов стил съвпада с календарната.
+({String start, String end}) _civilWindow(_YearSpan span) {
+  final old = AppSettings.isOldStyle;
+  return (
+    start: old ? '${span.from}-01-14' : '${span.from}-01-01',
+    end: old ? '${span.to + 1}-01-13' : '${span.to}-12-31',
+  );
+}
+
+/// Разложена заявка: думите за търсене, груповите филтри, филтрите
+/// по съдържание (наличие и липса) и филтрите по година — поотделно.
 class _ParsedQuery {
   final List<String> words;
   final List<String> groups;         // group_code стойности
   final List<String> content;        // tropar / kondak / life / sluzhba — ИМА
   final List<String> excludeContent; // tropar / kondak / life / sluzhba — НЯМА
-  const _ParsedQuery(this.words, this.groups, this.content, this.excludeContent);
+  final List<_YearSpan> years;        // #25 — комбинират се с ИЛИ
+  final List<_YearSpan> excludeYears; // #!25 — комбинират се с И
+  const _ParsedQuery(this.words, this.groups, this.content, this.excludeContent,
+      this.years, this.excludeYears);
 
+  /// Филтри, които НЕ важат за недели и седмици (те нямат нито група, нито
+  /// текстове). Годините съзнателно не влизат тук — те стесняват периода,
+  /// а не вида на резултата, тъй че неделите си остават търсими.
   bool get hasFilters =>
       groups.isNotEmpty || content.isNotEmpty || excludeContent.isNotEmpty;
+
+  bool get hasYearFilter => years.isNotEmpty || excludeYears.isNotEmpty;
 }
 
 /// "иван #bg"       → words: [иван], groups: [BG]
@@ -72,8 +105,21 @@ _ParsedQuery _parseQuery(String raw) {
   final groups = <String>[];
   final content = <String>[];
   final excludeContent = <String>[];
+  final years = <_YearSpan>[];
+  final excludeYears = <_YearSpan>[];
   for (final token in raw.replaceAll('*', '%').trim().split(RegExp(r'\s+'))) {
     if (token.isEmpty) continue;
+
+    // Годините се проверяват ПЪРВИ: те са чисти числа и не могат да се
+    // объркат с псевдоним на група или на съдържание.
+    final ym = _reYearTag.firstMatch(token);
+    if (ym != null) {
+      final a = _normYear(ym.group(2)!);
+      final b = ym.group(3) != null ? _normYear(ym.group(3)!) : a;
+      final span = _YearSpan(a < b ? a : b, a < b ? b : a);
+      (ym.group(1) == '!' ? excludeYears : years).add(span);
+      continue;
+    }
 
     // Отрицателен филтър по съдържание: #!троп → липсва тропар.
     // Проверяваме го ПРЕДИ обикновения #, защото го съдържа като префикс.
@@ -103,7 +149,44 @@ _ParsedQuery _parseQuery(String raw) {
     }
     words.add(token);
   }
-  return _ParsedQuery(words, groups, content, excludeContent);
+  return _ParsedQuery(
+      words, groups, content, excludeContent, years, excludeYears);
+}
+
+/// Условието по година за дадена колона с дата. Връща null, ако няма какво
+/// да се ограничава.
+///
+/// Правилата (по искане на потребителя):
+///  • без нито един годишен хаштаг → само текущата година;
+///  • няколко положителни (#25 #27) → ИЛИ помежду им;
+///  • отрицателните (#!26) → И, тоест изваждат се едновременно;
+///  • само отрицателни → основата е "всички години", минус изваденото.
+/// Излишният обхват не се отсича изрично: ако поискаш #20-26, а в базата
+/// има само 2025-2027, BETWEEN просто няма какво да върне отвън.
+String? _yearCondition(String column, _ParsedQuery p, List<Object?> args) {
+  final parts = <String>[];
+
+  final spans = p.years.isNotEmpty
+      ? p.years
+      : (p.excludeYears.isEmpty
+          ? [_YearSpan(DateTime.now().year, DateTime.now().year)]
+          : const <_YearSpan>[]);
+
+  if (spans.isNotEmpty) {
+    final ors = <String>[];
+    for (final s in spans) {
+      final w = _civilWindow(s);
+      ors.add('$column BETWEEN ? AND ?');
+      args.addAll([w.start, w.end]);
+    }
+    parts.add('(${ors.join(' OR ')})');
+  }
+  for (final s in p.excludeYears) {
+    final w = _civilWindow(s);
+    parts.add('NOT ($column BETWEEN ? AND ?)');
+    args.addAll([w.start, w.end]);
+  }
+  return parts.isEmpty ? null : parts.join(' AND ');
 }
 
 class SearchBottomSheet extends StatefulWidget {
@@ -120,6 +203,8 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   final FocusNode _focusNode = FocusNode();
   List<Map<String, dynamic>> _results = [];
   bool _loading = false;
+  /// Има ли годишен хаштаг в текущата заявка — виж _buildDateCell.
+  bool _showYear = false;
 
   @override
   void initState() {
@@ -175,6 +260,10 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  final sql = _contentSql[c];
 		  if (sql != null) saintConds.add('NOT $sql');
 		}
+		// Периодът — НАКРАЯ, за да лягат новите аргументи след досегашните
+		// (sqflite ги свързва по ред на появяване в текста на заявката).
+		final saintYearCond = _yearCondition('s.date', parsed, saintArgs);
+		if (saintYearCond != null) saintConds.add(saintYearCond);
 		final saintsResults = await db.rawQuery(
 		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
 		  'FROM saints s '
@@ -188,21 +277,27 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		// извадили и всички недели, което няма смисъл).
 		if (!parsed.hasFilters && words.isNotEmpty) {
 		  // Недели
-		  final sundaysWhere = words.map((_) => 'sn.name LIKE ?').join(' AND ');
+		  final sundayArgs = <Object?>[...args];
+		  final sundayConds = words.map((_) => 'sn.name LIKE ?').toList();
+		  final sundayYear = _yearCondition('cd.date', parsed, sundayArgs);
+		  if (sundayYear != null) sundayConds.add(sundayYear);
 		  final sundaysResults = await db.rawQuery(
 		    'SELECT sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
 		    'FROM sundays sn JOIN calendar_days cd ON cd.sunday_id = sn.id '
-		    'WHERE $sundaysWhere ORDER BY cd.date ASC',
-		    args);
+		    'WHERE ${sundayConds.join(' AND ')} ORDER BY cd.date ASC',
+		    sundayArgs);
 		  allResults.addAll(sundaysResults);
 
 		  // Седмици
-		  final weeksWhere = words.map((_) => 'w.name LIKE ?').join(' AND ');
+		  final weekArgs = <Object?>[...args];
+		  final weekConds = words.map((_) => 'w.name LIKE ?').toList();
+		  final weekYear = _yearCondition('cd.date', parsed, weekArgs);
+		  if (weekYear != null) weekConds.add(weekYear);
 		  final weeksResults = await db.rawQuery(
 		    'SELECT w.name, cd.date, 0 as rank, \'week\' as result_type '
 		    'FROM weeks w JOIN calendar_days cd ON cd.week_id = w.id '
-		    'WHERE $weeksWhere ORDER BY cd.date ASC',
-		    args);
+		    'WHERE ${weekConds.join(' AND ')} ORDER BY cd.date ASC',
+		    weekArgs);
 		  allResults.addAll(weeksResults);
 		}
 
@@ -211,6 +306,9 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 
 		setState(() {
 		  _results = allResults;
+		  // Годината се изписва под датата само когато има годишен хаштаг —
+		  // иначе всичко е от текущата година и номерът само би шумял.
+		  _showYear = parsed.hasYearFilter;
 		  _loading = false;
 		});
 	}
@@ -252,9 +350,21 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 
     // Режим "само нов стил": една-единствена дата
     if (!showBoth) {
-      return Text(
-        _fmtShort(newDate),
-        style: const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
+      if (!_showYear) {
+        return Text(
+          _fmtShort(newDate),
+          style: const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
+        );
+      }
+      return Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          Text(_fmtShort(newDate),
+              style: const TextStyle(
+                  color: AppColors.sectionTitle, fontSize: 13)),
+          _yearLine(newDate),
+        ],
       );
     }
 
@@ -264,6 +374,14 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
     final IconData? leadIcon = oldFirst ? Icons.church : null;
     // Справочният ред: църквица за стар стил, телевизорче за нов.
     final IconData subIcon = oldFirst ? Icons.tv : Icons.church;
+
+    // Тринайсет дни в годината двата стила падат в РАЗЛИЧНИ години
+    // (новостилни 1–13 януари = старостилни 19–31 декември от предходната).
+    // Тогава един общ ред с годината отдолу би бил двусмислен — не се знае
+    // за коя от двете дати се отнася. В такъв случай годината се лепва до
+    // всяка дата поотделно и третият ред отпада. В обичайния случай
+    // (съвпадаща година) остава компактният вид с ред отдолу.
+    final bool splitYears = _showYear && lead.year != sub.year;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -277,7 +395,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
               const SizedBox(width: 3),
             ],
             Text(
-              _fmtShort(lead),
+              splitYears ? '${_fmtShort(lead)} ${lead.year}' : _fmtShort(lead),
               style: const TextStyle(
                   color: AppColors.sectionTitle, fontSize: 13),
             ),
@@ -289,15 +407,23 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
             Icon(subIcon, size: 12, color: AppColors.textMuted),
             const SizedBox(width: 2),
             Text(
-              '${_fmtShort(sub)}',
+              splitYears ? '${_fmtShort(sub)} ${sub.year}' : _fmtShort(sub),
               style: const TextStyle(
                   color: AppColors.textMuted, fontSize: 12),
             ),
           ],
         ),
+        // Общата година — трети ред, само когато двете дати са в една и
+        // съща година (иначе тя вече стои до всяка от тях).
+        if (_showYear && !splitYears) _yearLine(lead),
       ],
     );
   }
+
+  Widget _yearLine(DateTime d) => Text(
+        '${d.year}',
+        style: const TextStyle(color: AppColors.textMuted, fontSize: 12),
+      );
 
   DateTime _parseDate(String dateStr) {
     final parts = dateStr.split('-');
@@ -313,10 +439,23 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		final screenHeight = MediaQuery.of(context).size.height;
 		final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     
-    // Динамична височина: search field + резултати (max 80% от екрана)
-    final resultsHeight = _results.length * 56.0;
+    // Динамична височина: search field + резултати.
+    // Третият ред с годината прави редовете по-високи — иначе последният
+    // резултат остава отрязан долу.
+    final resultsHeight = _results.length * (_showYear ? 68.0 : 56.0);
     final contentHeight = 80.0 + (resultsHeight > 0 ? resultsHeight + 8 : 0);
-    final maxHeight = screenHeight * 0.80;
+
+    // Таванът е ДВОЕН. Освен старите 80% от екрана (за да се вижда нещо от
+    // календара отдолу), панелът трябва да се събере и в мястото, което
+    // остава НАД клавиатурата и ПОД лентата на телефона. Без второто
+    // ограничение височината ставаше sheetHeight + клавиатурата, което при
+    // много резултати надхвърляше екрана и полето за въвеждане се качваше
+    // върху часовника и батерията.
+    final topInset = MediaQuery.of(context).padding.top;
+    final available = screenHeight - keyboardHeight - topInset - 8;
+    final cap = screenHeight * 0.80;
+    var maxHeight = available < cap ? available : cap;
+    if (maxHeight < 80.0) maxHeight = 80.0;
     final sheetHeight = contentHeight.clamp(80.0, maxHeight);
 
     return AnimatedContainer(
@@ -363,7 +502,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       fontSize: 16,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Търси...  (#bg #ru #атон #троп #!кон)',
+                      hintText: 'Търси...  (#bg #троп #!кон #25 #25-27)',
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       isDense: true,
@@ -418,24 +557,40 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       ? AppColors.textPrimary
                       : AppColors.sectionTitle;
 
-                  return ListTile(
-                    dense: true,
-                    leading: leadingIcon,
-                    title: Text(
-                      name,
-                      style: TextStyle(
-                        color: textColor,
-                        fontSize: 15,
-                        fontStyle: resultType == 'saint'
-                            ? FontStyle.normal
-                            : FontStyle.italic,
-                      ),
-                    ),
-                    trailing: _buildDateCell(date),
+                  // Собствен ред вместо ListTile: ListTile НЕ включва
+                  // височината на trailing, когато мери реда — брои само
+                  // заглавието. С трети ред в клетката с датата (годината)
+                  // това преливаше с точно толкова, колкото е новият ред.
+                  return InkWell(
                     onTap: () {
                       Navigator.pop(context);
                       widget.onDateSelected(_parseDate(date));
                     },
+                    child: Padding(
+                      padding:
+                          const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(width: 24, child: Center(child: leadingIcon)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              name,
+                              style: TextStyle(
+                                color: textColor,
+                                fontSize: 15,
+                                fontStyle: resultType == 'saint'
+                                    ? FontStyle.normal
+                                    : FontStyle.italic,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          _buildDateCell(date),
+                        ],
+                      ),
+                    ),
                   );
                 },
               ),

@@ -5,25 +5,21 @@
 // (заглавия, категории, ред) е фиксирана в кода; ДАТИТЕ се вземат
 // динамично от текущо избраната календарна база (calendar_old.db /
 // calendar_new.db — вижте DatabaseHelper), за избраната година.
-
-import 'dart:async';
+//
+// Едно от четирите тела на reference_pager.dart: НЯМА собствен Scaffold,
+// лента и drawer — те са на домакина. Годината и размерът на шрифта също
+// идват отвън, за да са общи за четирите секции.
 
 import 'package:flutter/material.dart';
 
-import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'dual_date_text.dart';
 import 'paschalion.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-
-import 'settings_screen.dart';
-import 'round_icon_button.dart';
-import 'year_selector.dart';
+import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
 
-const String _titleFamily = 'TamburinModern';
 const String _bodyFamily = 'Cambria';
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
@@ -135,95 +131,53 @@ class _FeastResult {
   });
 }
 
-class HolidaysScreen extends StatefulWidget {
+class HolidaysSection extends StatefulWidget {
   final SaintLookup lookup;
-  const HolidaysScreen({super.key, required this.lookup});
+  final int year;
+  final ValueChanged<int> onYearChanged;
+  final double baseFont;
+
+  /// Расте при смяна на настройките (стар/нов стил). Тук датите са
+  /// ИЗЧИСЛЕНИ ВЕДНЪЖ и кеширани в _results, тъй че само преначертаване
+  /// не стига — при промяна се преизчислява целият списък.
+  final int revision;
+
+  const HolidaysSection({
+    super.key,
+    required this.lookup,
+    required this.year,
+    required this.onYearChanged,
+    required this.baseFont,
+    required this.revision,
+  });
 
   @override
-  State<HolidaysScreen> createState() => _HolidaysScreenState();
+  State<HolidaysSection> createState() => _HolidaysSectionState();
 }
 
-class _HolidaysScreenState extends State<HolidaysScreen> {
-  // БАЗОВ размер на шрифта — всички размери в екрана са производни от
-  // него (виж _fs), за да реагират ВСИЧКИ на бутоните -/+ ; никъде не
-  // бива да остава фиксирана стойност, иначе тя няма да се променя.
-  // static: пази се за сесията; на диска се записва с debounce (виж
-  // _scheduleFontSizeSave), както в четеца.
-  static double _baseFont = 17.0;
-  static const double _fontStep = 1.0;
-  static const double _fontMin = 13.0;
-  static const double _fontMax = 26.0;
-  static const String _fontKey = 'holidays_font_size';
-  static bool _fontLoadedFromDisk = false;
-  static double? _lastSavedFont;
-  Timer? _fontSaveTimer;
-
+class _HolidaysSectionState extends State<HolidaysSection> {
   /// Размер спрямо базовия — единственият начин за задаване на шрифт тук.
-  double _fs(double delta) => _baseFont + delta;
+  double _fs(double delta) => widget.baseFont + delta;
 
-  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
-
-  int? _selectedYear;
   List<_FeastResult>? _results;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadPersistedFontOnce().then((_) {
-      if (mounted) setState(() {});
-    });
-    _init();
-  }
-
-  static Future<void> _loadPersistedFontOnce() async {
-    if (_fontLoadedFromDisk) return;
-    _fontLoadedFromDisk = true;
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getDouble(_fontKey);
-    if (saved != null) {
-      _baseFont = saved.clamp(_fontMin, _fontMax);
-      _lastSavedFont = _baseFont;
-    }
-  }
-
-  /// Записът чака 3 сек. покой (потребителят обикновено цъка няколко пъти,
-  /// докато намери размера) и се случва само при реална промяна.
-  void _scheduleFontSave() {
-    _fontSaveTimer?.cancel();
-    _fontSaveTimer = Timer(const Duration(seconds: 3), _flushFontSave);
-  }
-
-  void _flushFontSave() {
-    _fontSaveTimer = null;
-    if (_lastSavedFont == _baseFont) return;
-    _lastSavedFont = _baseFont;
-    SharedPreferences.getInstance()
-        .then((prefs) => prefs.setDouble(_fontKey, _baseFont));
-  }
-
-  void _bumpFont(double delta) {
-    setState(() {
-      _baseFont = (_baseFont + delta).clamp(_fontMin, _fontMax);
-    });
-    _scheduleFontSave();
+    // Годините вече НЕ зависят от обхвата на базата — датите се смятат
+    // (виж _loadYearInner), а изборът е решетка (виж year_selector.dart).
+    _loadYear(widget.year);
   }
 
   @override
-  void dispose() {
-    // Недовършил своите 3 секунди запис — пускаме го веднага, иначе
-    // промяната би се загубила при излизане от екрана.
-    if (_fontSaveTimer != null) {
-      _fontSaveTimer!.cancel();
-      _flushFontSave();
+  void didUpdateWidget(covariant HolidaysSection old) {
+    super.didUpdateWidget(old);
+    // Смяна на годината ИЛИ на стила — и в двата случая кешираните дати
+    // вече не важат.
+    if (old.year != widget.year || old.revision != widget.revision) {
+      _loadYear(widget.year);
     }
-    super.dispose();
-  }
-
-  Future<void> _init() async {
-    // Годините вече НЕ зависят от обхвата на базата — датите се смятат
-    // (виж _loadYearInner), а изборът е решетка (виж year_selector.dart).
-    await _loadYear(DateTime.now().year);
   }
 
   Future<void> _loadYear(int year) async {
@@ -283,7 +237,6 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
     if (!mounted) return;
     setState(() {
       _results = results;
-      _selectedYear = year;
       _loading = false;
     });
   }
@@ -413,113 +366,43 @@ class _HolidaysScreenState extends State<HolidaysScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: _scaffoldKey,
-      backgroundColor: AppColors.toolbar,
-      // Меню вместо стрелка "назад" — виж коментара в about_screen.dart.
-      drawer: const AppDrawer(),
-      // Настройките — 1:1 както в дневния изглед (виж main.dart): същият
-      // endDrawer, същият бутон. onEndDrawerChanged + hook-ът правят
-      // промените видими ЖИВО зад отворения drawer.
-      onEndDrawerChanged: (isOpen) {
-        // При затваряне също преизчисляваме — стилът може да е сменен, а
-        // датите тук са кеширани (виж бележката при endDrawer).
-        if (!isOpen && mounted) _loadYear(_selectedYear ?? DateTime.now().year);
-      },
-      endDrawer: SettingsDrawer(onChanged: (styleChanged, [capturedMiddleDate]) {
-        appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
-        // ВАЖНО: тук датите са ИЗЧИСЛЕНИ ВЕДНЪЖ и кеширани в _results, за
-        // разлика от "Пости", където се смятат при всяко рисуване. Затова
-        // при смяна на стила не стига преначертаване — трябва пълно
-        // преизчисляване, иначе остават стойности от предишния режим.
-        if (mounted) _loadYear(_selectedYear ?? DateTime.now().year);
-      }),
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        toolbarHeight: 44,
-        title: const Text('Празници'),
-        actions: [
-          // Същите бутони като в четеца — общият RoundIconButton, същият
-          // размер и разстояние помежду им (виж reader_screen.dart).
-          RoundIconButton(
-            icon: Icons.remove,
-            tooltip: 'По-дребен шрифт',
-            enabled: _baseFont > _fontMin,
-            onTap: () => _bumpFont(-_fontStep),
-            size: 22,
+    // Хедърът стои над спинъра — при смяна на годината заглавието и
+    // самата година не бива да изчезват, докато датите се преизчисляват.
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          SectionHeader(
+            title: 'Църковни празници',
+            background: AppColors.sectionHolidays,
+            baseFont: widget.baseFont,
+            year: widget.year,
+            onYearChanged: widget.onYearChanged,
           ),
-          const SizedBox(width: 18),
-          RoundIconButton(
-            icon: Icons.add,
-            tooltip: 'По-едър шрифт',
-            enabled: _baseFont < _fontMax,
-            onTap: () => _bumpFont(_fontStep),
-            size: 22,
-          ),
-          const SizedBox(width: 14),
-          // ================ Настройки =================
-          IconButton(
-            padding: EdgeInsets.zero,
-            constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
-          ),
-          const SizedBox(width: 8),
+          if (_loading)
+            const Padding(
+              padding: EdgeInsets.only(top: 40),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 6, 24, 40),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final r in _byCategory(_FeastCategory.pascha)) _paschaRow(r),
+                  _h2('Дванадесетте Господски и Богородични празници'),
+                  _hint('(по хронология на църковната година, която започва от 1-ви септември)'),
+                  _h3(' - неподвижни (постоянни дати)'),
+                  for (final r in _byCategory(_FeastCategory.fixed12)) _feastRow(r),
+                  _h3(' - подвижни (променливи дати)'),
+                  for (final r in _byCategory(_FeastCategory.movable12)) _feastRow(r),
+                  _h2('Други големи празници (неподвижни):'),
+                  for (final r in _byCategory(_FeastCategory.otherGreat)) _feastRow(r),
+                ],
+              ),
+            ),
         ],
-      ),
-      body: SafeArea(
-        child: Container(
-          color: AppColors.background,
-          child: _loading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.fromLTRB(24, 6, 24, 40),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(
-                        'Църковни празници',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontFamily: _titleFamily,
-                            fontSize: _fs(23),
-                            height: 1.25,
-                            color: _ink),
-                      ),
-                      const SizedBox(height: 10),
-                      Text(
-                        'изберете година',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                            fontFamily: _bodyFamily,
-                            fontSize: _fs(2),
-                            fontStyle: FontStyle.italic,
-                            color: _dim),
-                      ),
-                      //const SizedBox(height: 0),
-                      Center(
-                        child: YearSelector(
-                          value: _selectedYear ?? DateTime.now().year,
-                          onChanged: _loadYear,
-                          fontSize: _fs(23),
-                          fontFamily: _titleFamily,
-                          color: _ink,
-                        ),
-                      ),
-                      const SizedBox(height: 12),
-                      for (final r in _byCategory(_FeastCategory.pascha)) _paschaRow(r),
-                      _h2('Дванадесетте Господски и Богородични празници'),
-                      _hint('(по хронология на църковната година, която започва от 1-ви септември)'),
-                      _h3(' - неподвижни (постоянни дати)'),
-                      for (final r in _byCategory(_FeastCategory.fixed12)) _feastRow(r),
-                      _h3(' - подвижни (променливи дати)'),
-                      for (final r in _byCategory(_FeastCategory.movable12)) _feastRow(r),
-                      _h2('Други големи празници (неподвижни):'),
-                      for (final r in _byCategory(_FeastCategory.otherGreat)) _feastRow(r),
-                    ],
-                  ),
-                ),
-        ),
       ),
     );
   }
