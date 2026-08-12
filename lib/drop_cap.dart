@@ -29,9 +29,17 @@ class _Run {
   final String text;
   final bool bold;
   final bool italic;
+  /// Горен индекс — номерът на бележка под линия. Рисува се смален и
+  /// повдигнат; виж коментара при [kSupScale].
+  final bool sup;
   final String? href;
-  const _Run(this.text, {this.bold = false, this.italic = false, this.href});
+  const _Run(this.text,
+      {this.bold = false, this.italic = false, this.sup = false, this.href});
 }
+
+/// Колко от размера на текста заема горният индекс. Същата стойност както в
+/// reader_styles.dart, за да изглеждат еднакво в двата начина на рисуване.
+const double kSupScale = 0.62;
 
 /// Разлага HTML на парчета, като разкодира entity-тата и слепва поредните
 /// интервали — точно както го прави и чистият текст, по който се мери.
@@ -39,6 +47,7 @@ List<_Run> _htmlRuns(String html) {
   final runs = <_Run>[];
   var bold = 0;
   var italic = 0;
+  var sup = 0;
   final hrefs = <String>[];
   var lastWasSpace = true; // началните интервали отпадат, както при trim
   final hrefRe = RegExp(r'href="([^"]*)"', caseSensitive: false);
@@ -48,6 +57,7 @@ List<_Run> _htmlRuns(String html) {
     runs.add(_Run(t,
         bold: bold > 0,
         italic: italic > 0,
+        sup: sup > 0,
         href: hrefs.isEmpty ? null : hrefs.last));
   }
 
@@ -67,6 +77,10 @@ List<_Run> _htmlRuns(String html) {
         hrefs.add(hrefRe.firstMatch(piece)?.group(1) ?? '');
       } else if (t.startsWith('</a')) {
         if (hrefs.isNotEmpty) hrefs.removeLast();
+      } else if (t.startsWith('<sup')) {
+        sup++;
+      } else if (t.startsWith('</sup')) {
+        if (sup > 0) sup--;
       } else if (t.startsWith('<br')) {
         push('\n');
         lastWasSpace = true;
@@ -229,8 +243,17 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // Парчетата от [from, to) — с оформлението си, с връзките си и с
         // маркировката от търсенето. Номерата на съвпаденията са ГЛОБАЛНИ,
         // затова двете кутии не се разминават в броенето.
+        /// [forMeasure] — при мерене с TextPainter горните индекси се
+        /// изписват като обикновен, но СМАЛЕН текст, вместо като WidgetSpan.
+        ///
+        /// Причината: TextPainter не може да оформи WidgetSpan, без да са му
+        /// подадени размерите на запълнителите (setPlaceholderDimensions), а
+        /// тук се мери само за да се реши докъде стига текстът до буквицата.
+        /// Ширината е ЕДНАКВА в двата случая (повдигането е чисто вертикално
+        /// отместване), тъй че резът пада на същото място.
         List<InlineSpan> spansOf(List<_Run> src, String text,
-            List<(int, int)> hits, int matchBase, int from, int to) {
+            List<(int, int)> hits, int matchBase, int from, int to,
+            {bool forMeasure = false}) {
           final out = <InlineSpan>[];
           var pos = 0;
           for (final run in src) {
@@ -241,17 +264,42 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             final hi = end > to ? to : end;
             if (lo >= hi) continue;
 
-            final style = base.copyWith(
+            var style = base.copyWith(
               fontWeight: run.bold ? FontWeight.w600 : FontWeight.w400,
               fontStyle:
                   run.italic ? FontStyle.italic : FontStyle.normal,
               color: run.href != null ? widget.linkColor : widget.inkColor,
             );
+            if (run.sup) {
+              style = style.copyWith(
+                  fontSize: (base.fontSize ?? widget.fontSize) * kSupScale);
+            }
             TapGestureRecognizer? tap;
             if (run.href != null && run.href!.isNotEmpty) {
               tap = TapGestureRecognizer()
                 ..onTap = () => widget.onLinkTap(run.href);
               fresh.add(tap);
+            }
+
+            // Горният индекс при РИСУВАНЕ е WidgetSpan с отместване нагоре
+            // — същият похват, който ползва и flutter_html за <sup> (виж
+            // VerticalAlignBuiltIn в пакета). Нарочно НЕ разчитаме на
+            // таблицата „sups" на шрифта: сменим ли го утре с такъв без нея,
+            // повдигането щеше да отпадне тихо.
+            //
+            // Не се насича по съвпаденията от търсенето: номерът на бележка
+            // не е текст, който човек търси.
+            if (run.sup && !forMeasure) {
+              out.add(WidgetSpan(
+                alignment: PlaceholderAlignment.baseline,
+                baseline: TextBaseline.alphabetic,
+                child: Transform.translate(
+                  offset: Offset(0, -(base.fontSize ?? widget.fontSize) * 0.34),
+                  child: Text(text.substring(lo, hi),
+                      style: style, textScaler: TextScaler.noScaling),
+                ),
+              ));
+              continue;
             }
 
             // Парчето се насича допълнително по границите на съвпаденията.
@@ -288,6 +336,8 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         }
 
         final base2 = widget.firstGlobalMatchIndex + matches.length;
+        final measure1 = spansOf(runs, plain, matches,
+            widget.firstGlobalMatchIndex, 0, plain.length, forMeasure: true);
         final spans1 = spansOf(runs, plain, matches,
             widget.firstGlobalMatchIndex, 0, plain.length);
 
@@ -318,7 +368,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
           );
         }
 
-        final f1 = fit(spans1, capLines, plain.length);
+        final f1 = fit(measure1, capLines, plain.length);
 
         // Отстоянието между два абзаца — същото, каквото дава flutter_html
         // на останалите (8 отдолу + 8 отгоре).
@@ -335,7 +385,11 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               capLines - f1.lines - (paraGap / lineHeightPx).ceil();
           if (freeLines >= 1) {
             spans2 = spansOf(runs2, plain2, matches2, base2, 0, plain2.length);
-            final f2 = fit(spans2, freeLines, plain2.length);
+            final f2 = fit(
+                spansOf(runs2, plain2, matches2, base2, 0, plain2.length,
+                    forMeasure: true),
+                freeLines,
+                plain2.length);
             lines2 = f2.lines;
             cut2 = f2.cut;
           }

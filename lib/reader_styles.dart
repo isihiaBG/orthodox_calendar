@@ -110,21 +110,33 @@ Map<String, Style> readerStyles({
     ),
     // Курсивен абзац, пропуснат за буквица — центриран.
     '.italic-center': Style(textAlign: TextAlign.center),
-    // Редът с паметта в началото на житие („Памет на 1 септември") — той е
-    // указание кога се чества светията, не част от разказа, затова стои
-    // отделно от текста и не носи буквицата.
+    // Редът с паметта в началото на житие („Памет на 1 септември").
+    //
+    // Той е указание кога се чества светията, не част от разказа, затова
+    // стои отделно и не носи буквицата. Оформен е като ПОДЗАГЛАВИЕ:
+    // центриран, близо до заглавието отгоре и с ясно поле към текста
+    // отдолу — така окото го чете заедно със заглавието, а не като първи
+    // ред на житието.
     '.memorydate': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize - 1),
       fontStyle: FontStyle.italic,
       color: dim,
-      textAlign: TextAlign.left,
-      margin: Margins.only(top: 0, bottom: 14),
+      textAlign: TextAlign.center,
+      margin: Margins.only(top: 2, bottom: 26),
     ),
     // Линковете: синьото на секциите от дневния изглед, не лилаво.
     'a': Style(
       color: AppColors.sectionTitle,
       textDecoration: TextDecoration.none,
+    ),
+    // Препратките към бележки под линия. В томовете от „Читанка" те са
+    // <sup> вътре в <a>, а flutter_html не ги повдига и не ги смалява сам —
+    // без това правило номерът стои наравно с текста и се чете като част
+    // от изречението („Декий1690").
+    'sup': Style(
+      fontSize: FontSize(fontSize * 0.62),
+      verticalAlign: VerticalAlign.sup,
     ),
     // Маркиране на съвпаденията от търсенето.
     '.hit': Style(backgroundColor: palette.hit),

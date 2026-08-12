@@ -20,6 +20,7 @@
 // приложението, а всяка глава тук е отделно житие.
 
 import 'package:flutter/material.dart';
+import 'package:path/path.dart' as p;
 import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -89,8 +90,8 @@ class _BookReaderState extends State<BookReader> {
 
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
-    // Вътрешните препратки (бележки под линия, връзки между жития) сочат
-    // файл в самия .epub. Външните — навън.
+
+    // Външните препратки (библейските към azbyka.ru) водят навън.
     if (url.startsWith('http')) {
       final uri = Uri.tryParse(url);
       if (uri != null) {
@@ -98,7 +99,35 @@ class _BookReaderState extends State<BookReader> {
       }
       return;
     }
-    // TODO(бележките): вътрешните препратки още не се отварят — предстои.
+
+    // Вътрешните сочат файл в самия .epub — най-често бележка под линия
+    // („../Text/note1690.xhtml#note1690"). Пътят е ОТНОСИТЕЛЕН спрямо
+    // текущата глава, затова се разрешава спрямо нейната папка.
+    final path = url.split('#').first;
+    if (path.isEmpty) return;
+    final full = p.normalize(p.join(p.dirname(_current.href), path));
+    final raw = widget.book.readFile(full);
+    if (raw == null) {
+      debugPrint('epub: няма $full');
+      return;
+    }
+    if (!mounted) return;
+
+    // Бележката се показва в изскачащ панел, а не на цял екран: те са
+    // стотици в том и четенето не бива да се прекъсва с нова страница за
+    // всяка. Заглавието на файла е самият номер — излишно е, текстът
+    // говори сам.
+    final body = _normalize(raw)
+        .replaceAll(RegExp(r'<h3\b[^>]*>.*?</h3>', dotAll: true), '')
+        .trim();
+    final palette = ReaderTheme.palette;
+    await showModalBottomSheet<void>(
+      context: context,
+      backgroundColor: palette.bg,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _NoteSheet(html: body, palette: palette),
+    );
   }
 
   Future<void> _showMoreMenu() async {
@@ -178,7 +207,14 @@ class _BookReaderState extends State<BookReader> {
     final fontSize = ReaderFontSize.value;
     final lineHeightPx = fontSize * kReaderLineHeight;
 
-    return SingleChildScrollView(
+    // Скролбарът е ВИДИМ винаги: в книга от 148 глави читателят иска да
+    // знае докъде е стигнал в главата, без да го търси с жест.
+    return Scrollbar(
+      controller: _scroll,
+      thumbVisibility: true,
+      thickness: 10,
+      radius: const Radius.circular(5),
+      child: SingleChildScrollView(
       controller: _scroll,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
@@ -205,6 +241,7 @@ class _BookReaderState extends State<BookReader> {
           if (afterHtml.trim().isNotEmpty)
             Html(data: afterHtml, style: styles, onLinkTap: (u, _, __) => _onLinkTap(u)),
         ],
+      ),
       ),
     );
   }
@@ -248,13 +285,27 @@ class _BookReaderState extends State<BookReader> {
       (m) => '<p>${m.group(1)}</p>',
     );
     // Заглавието на главата. h3 е стилът за заглавие в reader_styles.dart.
+    //
+    // Завършващият <br/> вътре в заглавието се маха: calibre го оставя в
+    // края на всеки <h1> и той добавя цял празен ред между заглавието и
+    // реда с паметта под него.
     body = body.replaceAllMapped(
       RegExp(r'<h1\b[^>]*>(.*?)</h1>', dotAll: true),
-      (m) => '<h3>${m.group(1)}</h3>',
+      (m) => '<h3>${m.group(1)!.replaceAll(RegExp(r'(<br\b[^>]*/?>\s*)+$'), '').trim()}</h3>',
     );
     // Празните котви на calibre (<a id="TOC_…"></a>) само шумят.
     body = body.replaceAll(
         RegExp(r'<a\s+(?![^>]*href)[^>]*>\s*</a>', dotAll: true), '');
+
+    // Препратките към бележки идват като <a …><sup>1690</sup></a>. Обръщаме
+    // вложеността на <sup><a …>1690</a></sup>, защото flutter_html рисува
+    // връзката като ЕДИН отрязък и не прилага повдигане на вложеното в нея —
+    // номерът излизаше наравно с текста и се четеше като част от думата
+    // („Траян1679"). Отвън ли е <sup>, правилото за него се хваща.
+    body = body.replaceAllMapped(
+      RegExp(r'<a\b([^>]*)>\s*<sup\b[^>]*>(.*?)</sup>\s*</a>', dotAll: true),
+      (m) => '<sup><a${m.group(1)}>${m.group(2)}</a></sup>',
+    );
     return body;
   }
 
@@ -361,6 +412,53 @@ class _TocSheet extends StatelessWidget {
                 ),
               );
             },
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Бележка под линия — изскачащ панел, не цял екран.
+///
+/// В един том има стотици бележки; ако всяка отваряше страница, четенето
+/// щеше да се накъсва. Панелът се плъзга обратно с един жест и оставя
+/// читателя точно там, където е бил.
+class _NoteSheet extends StatelessWidget {
+  final String html;
+  final ReaderPalette palette;
+
+  const _NoteSheet({required this.html, required this.palette});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          margin: const EdgeInsets.symmetric(vertical: 10),
+          width: 40,
+          height: 4,
+          decoration: BoxDecoration(
+            color: palette.dim,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        Flexible(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            child: Html(
+              data: html,
+              // Бележката е пояснение, не част от разказа: една степен
+              // по-дребна и в курсив, за да се различава от текста, от
+              // който току-що е дошъл читателят.
+              style: () {
+                final size = ReaderFontSize.value - ReaderFontSize.step;
+                final s = readerStyles(fontSize: size, palette: palette);
+                s['p'] = s['p']!.copyWith(fontStyle: FontStyle.italic);
+                return s;
+              }(),
+            ),
           ),
         ),
       ],
