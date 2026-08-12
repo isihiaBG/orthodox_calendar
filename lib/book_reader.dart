@@ -207,11 +207,12 @@ class _BookReaderState extends State<BookReader> {
     final fontSize = ReaderFontSize.value;
     final lineHeightPx = fontSize * kReaderLineHeight;
 
-    // Скролбарът е ВИДИМ винаги: в книга от 148 глави читателят иска да
-    // знае докъде е стигнал в главата, без да го търси с жест.
+    // Скролбарът се явява при плъзгане и ЗАГАСВА плавно, когато спре — при
+    // четене на дълъг текст постоянната лента отстрани отвлича окото.
+    // Затова без thumbVisibility: подразбиращото се поведение на Scrollbar
+    // е точно това.
     return Scrollbar(
       controller: _scroll,
-      thumbVisibility: true,
       thickness: 10,
       radius: const Radius.circular(5),
       child: SingleChildScrollView(

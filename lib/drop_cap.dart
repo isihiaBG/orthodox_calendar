@@ -290,13 +290,31 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             // Не се насича по съвпаденията от търсенето: номерът на бележка
             // не е текст, който човек търси.
             if (run.sup && !forMeasure) {
+              final label = Text(text.substring(lo, hi),
+                  style: style, textScaler: TextScaler.noScaling);
               out.add(WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
                 baseline: TextBaseline.alphabetic,
                 child: Transform.translate(
                   offset: Offset(0, -(base.fontSize ?? widget.fontSize) * 0.34),
-                  child: Text(text.substring(lo, hi),
-                      style: style, textScaler: TextScaler.noScaling),
+                  // Тапът се закача с GestureDetector, а НЕ с
+                  // TapGestureRecognizer: разпознавачът работи върху
+                  // TextSpan, а тук съдържанието е widget. Без това номерът
+                  // изглежда като връзка, но не се отваря.
+                  //
+                  // Зоната за докосване се разширява, защото повдигнатият
+                  // номер е дребен — иначе иска прицелване.
+                  child: run.href == null || run.href!.isEmpty
+                      ? label
+                      : GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: () => widget.onLinkTap(run.href),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 2, vertical: 4),
+                            child: label,
+                          ),
+                        ),
                 ),
               ));
               continue;
