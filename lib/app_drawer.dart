@@ -12,6 +12,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'about_screen.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
+import 'library_probe_screen.dart';
 import 'reference_pager.dart';
 import 'settings_screen.dart';
 
@@ -92,7 +93,16 @@ class AppDrawer extends StatelessWidget {
           _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
           _item(Icons.auto_stories, 'Молитвослов', () {}),
           _item(Icons.book, 'Библия', () {}),
-          _item(Icons.menu_book, 'Месецослов', () {}),
+          // „Читанка" — кътът за четене на книги. Засега води към временния
+          // изпитателен екран (виж library_probe_screen.dart); той доказва,
+          // че .epub се чете наживо, и ще бъде заменен от истинската
+          // библиотека.
+          _item(Icons.menu_book, 'Читанка', () {
+            Navigator.of(context).pop();
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const LibraryProbeScreen(),
+            ));
+          }),
           // Четирите справочни секции живеят в ОБЩ екран с плъзгане
           // настрани (reference_pager.dart). Менюто само посочва коя да е
           // отгоре; ако екранът вече е отворен, ReferencePager.open просто
