@@ -14,7 +14,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 
-import 'app_theme.dart';
 import 'reader_theme.dart';
 
 /// [strongInWine] — дали <strong> да е в виненочервено вместо мастилено.
@@ -125,9 +124,10 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.center,
       margin: Margins.only(top: 2, bottom: 26),
     ),
-    // Линковете: синьото на секциите от дневния изглед, не лилаво.
+    // Линковете следват ТЕМАТА НА ЧЕТЕЦА, не тази на приложението: на
+    // светлия кремав фон синьото на секциите избледнява (виж palette.link).
     'a': Style(
-      color: AppColors.sectionTitle,
+      color: palette.link,
       textDecoration: TextDecoration.none,
     ),
     // Препратките към бележки под линия. В томовете от „Читанка" те са

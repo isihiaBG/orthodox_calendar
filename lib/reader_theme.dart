@@ -34,6 +34,28 @@ class ReaderTheme {
   static ReaderPalette get palette => ReaderPalette(dark);
 }
 
+/// Дебелината на палеца на скролбара. Ползва се и от лентата с чертичките
+/// за намерените съвпадения, за да легнат точно върху него.
+const double kReaderScrollThumb = 10.0;
+
+/// Темата на скролбара при четене — ОБЩА за двата четеца.
+///
+/// Палецът следва темата на ЧЕТЕЦА, не на приложението. Изнесена е, защото
+/// зададена наум на две места веднага се разминава: в книгите отначало беше
+/// само дебелина и палецът излизаше видимо по-светъл.
+ScrollbarThemeData readerScrollbarTheme(ReaderPalette palette) {
+  return ScrollbarThemeData(
+    thumbColor: WidgetStatePropertyAll(palette.dim.withValues(alpha: 0.44)),
+    radius: const Radius.circular(5),
+    thickness: const WidgetStatePropertyAll(kReaderScrollThumb),
+    // Палецът не бива да става твърде къс при дълго четиво — иначе е
+    // неуловим с пръст.
+    minThumbLength: 48,
+    crossAxisMargin: 2,
+    mainAxisMargin: 4,
+  );
+}
+
 /// Цветовете при даден режим. Държат се заедно, за да не се задава някой от
 /// тях на ръка и да изпадне от съгласие с останалите.
 class ReaderPalette {
@@ -44,6 +66,15 @@ class ReaderPalette {
   Color get ink => dark ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
   Color get dim => dark ? const Color(0xFF9A948A) : const Color(0xFF6B675F);
   Color get wine => dark ? const Color(0xFFA0555B) : const Color(0xFFB83333);
+
+  /// Връзките и номерата на бележките.
+  ///
+  /// В тъмен режим това е синьото на секциите от дневния изглед. На светлия
+  /// кремав фон обаче то избледнява до нечетимост — там се ползва
+  /// по-наситено синьо, същото като в изнесените PDF-и (виж _linkBlue в
+  /// pdf_export.dart), за да е един и същ цветът на екрана и на хартия.
+  Color get link =>
+      dark ? const Color(0xFF8A9BB0) : const Color(0xFF2F5C8F);
 
   /// Фонът зад намерените съвпадения при търсене в текста.
   Color get hit => dark ? const Color(0xFF6B5B1E) : const Color(0xFFFFF176);

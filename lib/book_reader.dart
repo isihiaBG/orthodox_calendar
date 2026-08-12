@@ -29,6 +29,7 @@ import 'drop_cap.dart';
 import 'epub_source.dart';
 import 'reader_font_size.dart';
 import 'reader_styles.dart';
+import 'reader_sup_extension.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
 
@@ -45,6 +46,14 @@ class BookReader extends StatefulWidget {
 }
 
 class _BookReaderState extends State<BookReader> {
+  /// Долната лента със стрелките и брояча „4 / 129".
+  ///
+  /// Изключена засега по решение на потребителя (12.08.2026): тя яде ред от
+  /// текста, а прелистването между глави и без това е достъпно през
+  /// съдържанието. Кодът ѝ (_navBar) НЕ е махнат — ще потрябва, когато
+  /// решим как да изглежда преходът между главите.
+  static const bool _showNavBar = false;
+
   /// Главите — само тези, които са в СЪДЪРЖАНИЕТО, не целият spine.
   ///
   /// Spine-ът носи и стотиците файлове с бележки под линия (в септемврийския
@@ -163,36 +172,67 @@ class _BookReaderState extends State<BookReader> {
 
     return Scaffold(
       backgroundColor: palette.bg,
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        title: Text(
-          _current.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontSize: 15),
-        ),
-        // Същата лента като при четеца на жития — за потребителя това е
-        // един и същи четец. Разликата е само „Съдържание": то има смисъл
-        // при книга, не при отделно житие.
-        actions: readerToolbarActions(
-          context: context,
-          onShowContents: _showToc,
-          onThemeToggle: () => setState(() => ReaderTheme.dark = !ReaderTheme.dark),
-          onFontSmaller: () =>
-              setState(() => ReaderFontSize.nudge(-ReaderFontSize.step)),
-          onFontBigger: () =>
-              setState(() => ReaderFontSize.nudge(ReaderFontSize.step)),
-          // Търсенето и отметките в книга предстоят; менюто вече стои,
-          // защото и тук ще получи аналогични инструменти.
-          onMore: _showMoreMenu,
+      body: SafeArea(
+        bottom: false,
+        // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
+        // нагоре — същото поведение като в четеца на жития (SliverAppBar с
+        // floating+snap, без pinned). При четене на дълъг текст всеки
+        // изгубен ред се усеща.
+        child: ScrollbarTheme(
+          data: readerScrollbarTheme(palette),
+          child: Scrollbar(
+            controller: _scroll,
+            // Разрешава ВЛАЧЕНЕ на палеца с пръст; без него скролбарът е
+            // само показалец. Флагът разширява и зоната за докосване отвъд
+            // видимата ширина на палеца.
+            interactive: true,
+            child: CustomScrollView(
+              controller: _scroll,
+              slivers: [
+                SliverAppBar(
+                  primary: false,
+                  floating: true,
+                  snap: true,
+                  pinned: false,
+                  backgroundColor: AppColors.toolbar,
+                  toolbarHeight: 44,
+                  title: Text(
+                    _current.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 15),
+                  ),
+                  // Същата лента като при четеца на жития — за потребителя
+                  // това е един и същи четец. Разликата е само
+                  // „Съдържание": то има смисъл при книга, не при житие.
+                  actions: readerToolbarActions(
+                    context: context,
+                    onShowContents: _showToc,
+                    onThemeToggle: () =>
+                        setState(() => ReaderTheme.dark = !ReaderTheme.dark),
+                    onFontSmaller: () => setState(
+                        () => ReaderFontSize.nudge(-ReaderFontSize.step)),
+                    onFontBigger: () => setState(
+                        () => ReaderFontSize.nudge(ReaderFontSize.step)),
+                    // Търсенето и отметките предстоят; менюто вече стои,
+                    // защото и тук ще получи аналогични инструменти.
+                    onMore: _showMoreMenu,
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: raw == null
+                      ? Padding(
+                          padding: const EdgeInsets.all(24),
+                          child: Text('Няма ${_current.href}',
+                              style: TextStyle(color: palette.dim)))
+                      : _chapterBody(raw, palette),
+                ),
+              ],
+            ),
+          ),
         ),
       ),
-      body: raw == null
-          ? Center(
-              child: Text('Няма ${_current.href}',
-                  style: TextStyle(color: palette.dim)))
-          : _chapterBody(raw, palette),
-      bottomNavigationBar: _navBar(palette),
+      bottomNavigationBar: _showNavBar ? _navBar(palette) : null,
     );
   }
 
@@ -207,22 +247,20 @@ class _BookReaderState extends State<BookReader> {
     final fontSize = ReaderFontSize.value;
     final lineHeightPx = fontSize * kReaderLineHeight;
 
-    // Скролбарът се явява при плъзгане и ЗАГАСВА плавно, когато спре — при
-    // четене на дълъг текст постоянната лента отстрани отвлича окото.
-    // Затова без thumbVisibility: подразбиращото се поведение на Scrollbar
-    // е точно това.
-    return Scrollbar(
-      controller: _scroll,
-      thickness: 10,
-      radius: const Radius.circular(5),
-      child: SingleChildScrollView(
-      controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+    // Без долната лента текстът стига до края на екрана; отдолу се оставя
+    // само толкова, колкото заема системната лента за жестове.
+    final bottomInset = MediaQuery.of(context).padding.bottom;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(16, 12, 16, 24 + bottomInset),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (beforeHtml.trim().isNotEmpty)
-            Html(data: beforeHtml, style: styles, onLinkTap: (u, _, __) => _onLinkTap(u)),
+            Html(
+                data: beforeHtml,
+                style: styles,
+                extensions: const [ReaderSupExtension()],
+                onLinkTap: (u, _, __) => _onLinkTap(u)),
           if (dropCap.isNotEmpty)
             DropCapParagraph(
               dropCap: dropCap,
@@ -236,13 +274,16 @@ class _BookReaderState extends State<BookReader> {
               fontSize: fontSize,
               capColor: palette.wine,
               inkColor: palette.ink,
-              linkColor: AppColors.sectionTitle,
+              linkColor: palette.link,
               onLinkTap: _onLinkTap,
             ),
           if (afterHtml.trim().isNotEmpty)
-            Html(data: afterHtml, style: styles, onLinkTap: (u, _, __) => _onLinkTap(u)),
+            Html(
+                data: afterHtml,
+                style: styles,
+                extensions: const [ReaderSupExtension()],
+                onLinkTap: (u, _, __) => _onLinkTap(u)),
         ],
-      ),
       ),
     );
   }
@@ -450,6 +491,7 @@ class _NoteSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
             child: Html(
               data: html,
+              extensions: const [ReaderSupExtension()],
               // Бележката е пояснение, не част от разказа: една степен
               // по-дребна и в курсив, за да се различава от текста, от
               // който току-що е дошъл читателят.

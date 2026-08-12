@@ -39,6 +39,7 @@ import 'round_icon_button.dart';
 import 'drop_cap.dart';
 import 'reader_font_size.dart';
 import 'reader_styles.dart';
+import 'reader_sup_extension.dart';
 import 'reader_text_utils.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
@@ -759,7 +760,6 @@ class _ReaderScreenState extends State<ReaderScreen>
       _btnSize + 6; // старт/</>  в search лентата
   static const double _titleGap =
       30.0; // константно разстояние заглавие → текст
-  static const double _scrollThumb = 10.0;  // дебелина на палеца на скролбара
 
   // Резултатът от еднократната тежка текстова подготовка (виж
   // _prepareReaderContent по-горе) — null докато фоновият isolate работи.
@@ -1293,7 +1293,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (ratios.isEmpty) return const SizedBox.shrink();
     return Positioned(
       // Съвпада с геометрията на Scrollbar-а: crossAxisMargin: 2,
-      // mainAxisMargin: 4, thickness: _scrollThumb (10) — за да легнат
+      // mainAxisMargin: 4, thickness: kReaderScrollThumb (10) — за да легнат
       // чертичките точно върху палеца/лентата, не встрани от нея.
       right: 2,
       // Тази лента се вижда САМО докато търсенето е отворено — тогава
@@ -1304,7 +1304,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       // подравнят с реалната позиция на скролбара.
       top: 44 + 58 + 4,
       bottom: 4,
-      width: _scrollThumb,
+      width: kReaderScrollThumb,
       child: IgnorePointer(
         child: CustomPaint(
           painter: _MatchTicksPainter(
@@ -1760,7 +1760,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             fontSize: ReaderFontSize.value,
             capColor: _wine,
             inkColor: _ink,
-            linkColor: AppColors.sectionTitle,
+            linkColor: _p.link,
             onLinkTap: _onLinkTap,
             searchQuery: foldedQuery,
             firstGlobalMatchIndex: matchOffset,
@@ -1845,7 +1845,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               fontSize: ReaderFontSize.value,
               capColor: _wine,
               inkColor: _ink,
-              linkColor: AppColors.sectionTitle,
+              linkColor: _p.link,
               onLinkTap: _onLinkTap,
             ),
             ),
@@ -2079,16 +2079,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     Widget buildScrollableBody({required bool includeHeaderSliver}) {
       return ScrollbarTheme(
         // Палецът следва темата на ЧЕТЕЦА, не на приложението.
-        data: ScrollbarThemeData(
-          thumbColor: WidgetStatePropertyAll(_dim.withOpacity(0.44)),
-          radius: const Radius.circular(5),
-          thickness: const WidgetStatePropertyAll(_scrollThumb),
-          // Палецът не бива да става твърде къс при дълго житие —
-          // иначе е неуловим с пръст.
-          minThumbLength: 48,
-          crossAxisMargin: 2,
-          mainAxisMargin: 4,
-        ),
+        // Темата е ОБЩА с четеца на книги — виж readerScrollbarTheme.
+        data: readerScrollbarTheme(_p),
         child: Scrollbar(
           controller: _scrollController,
           // Постоянно видим палец, докато ИМА чертички за гледане —
@@ -2214,6 +2206,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// губеше напълно. Тук се рисуват същите SVG-та, които стоят и до
   /// светиите в календара (виж AppIcons.forRank), в цветовете на четеца.
   List<HtmlExtension> get _tipikonExtensions => [
+        // Горният индекс — общ с четеца на книги, за да не подскача
+        // номерът на бележка между двата начина на рисуване.
+        const ReaderSupExtension(),
         TagExtension(
           tagsToExtend: {'znak'},
           builder: (ctx) {
