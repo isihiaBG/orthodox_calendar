@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -791,6 +792,19 @@ class _ReaderScreenState extends State<ReaderScreen>
     ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+
+    // ПЪЛЕН ЕКРАН ЗА ЦЯЛОТО ЧЕТЕНЕ — същото както в четеца на книги (виж
+    // book_reader.dart). Включва се веднъж тук, изключва се веднъж в
+    // dispose, и между тях режимът НЕ се пипа.
+    //
+    // Урокът дойде оттам: смяната на системния режим преоразмерява
+    // прозореца ВЕДНЪЖ. Като състояние всеки режим е спокоен — неспокойни
+    // са преходите. Затова режимът се сменя при влизане и излизане от
+    // екран, никога при плъзгане.
+    //
+    // immersiveSticky: при жест отгоре лентата наднича и сама се скрива
+    // пак, без да ни връща в друг режим.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     // Стартираме тежката подготовка ВЕДНАГА, но във фонов isolate — Navigator
     // все пак строи екрана синхронно веднъж при push (за анимацията), но
     // тъй като ТОЗИ (първият) build() е вече евтин (само spinner, виж
@@ -1398,6 +1412,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     // нарочно, за да изчезне мигновено, без анимация на излизане.
     _scaffoldMessenger?.removeCurrentSnackBar();
     _bookmarkIdleTimer?.cancel();
+    // ЗАДЪЛЖИТЕЛНО: режимът важи за цялото приложение, не за екрана. Без
+    // това дневният изглед остава без системна лента след затваряне на
+    // четивото.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
     // Ако имаше чакащ (недовършил 3-те си секунди) запис на шрифта, го
     // пускаме веднага сега — иначе промяната би се изгубила при излизане.
     ReaderFontSize.flush();
