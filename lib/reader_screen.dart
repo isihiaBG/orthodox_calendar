@@ -36,91 +36,29 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_theme.dart';
 import 'pdf_export.dart';
 import 'round_icon_button.dart';
+import 'drop_cap.dart';
+import 'reader_font_size.dart';
+import 'reader_styles.dart';
+import 'reader_text_utils.dart';
+import 'reader_theme.dart';
 import 'saint_expandable_tile.dart'
     show SaintTexts, SaintLookup, prayersTitleFor;
 
 // Шрифтовете (family имената от pubspec.yaml):
-const String _titleFamily = 'TamburinModern'; // заглавието на житието
-const String _dropCapFamily = 'Bukvica';      // орнаментираният инициал
-const String _bodyFamily = 'CharisSIL';       // основният текст и молитвите
+const String kTitleFamily = 'TamburinModern'; // заглавието на житието
+const String kDropCapFamily = 'Bukvica';      // орнаментираният инициал
+const String kBodyFamily = 'CharisSIL';       // основният текст и молитвите
 
-/// Разкодира HTML entity-тата (&ndash; &nbsp; &laquo; …) в истински символи.
-/// Нужна е за обтичащата зона около буквицата, където текстът се рендва
-/// като чист Text, а не през flutter_html (той си ги разкодира сам).
-String _decodeEntities(String s) {
-  const named = {
-    '&ndash;': '\u2013', // –
-    '&mdash;': '\u2014', // —
-    '&nbsp;': '\u00A0',
-    '&laquo;': '\u00AB', // «
-    '&raquo;': '\u00BB', // »
-    '&bdquo;': '\u201E', // „
-    '&ldquo;': '\u201C', // “
-    '&rdquo;': '\u201D', // ”
-    '&lsquo;': '\u2018',
-    '&rsquo;': '\u2019',
-    '&hellip;': '\u2026',  // …
-    '&middot;': '\u00B7',
-    '&deg;': '\u00B0',
-    // Гръцки букви — срещат се в цитирани оригинални имена.
-    '&Alpha;': '\u0391', '&Epsilon;': '\u0395',
-    '&zeta;': '\u03B6', '&eta;': '\u03B7',
-    '&theta;': '\u03B8', '&iota;': '\u03B9',
-    '&kappa;': '\u03BA', '&lambda;': '\u03BB',
-    '&nu;': '\u03BD', '&xi;': '\u03BE',
-    '&omicron;': '\u03BF', '&rho;': '\u03C1',
-    '&sigma;': '\u03C3', '&sigmaf;': '\u03C2',
-    '&tau;': '\u03C4', '&omega;': '\u03C9',
-    '&egrave;': '\u00E8',
-    '&dagger;': '\u2020',  // † кръст
-    '&amp;': '&',
-    '&lt;': '<',
-    '&gt;': '>',
-    '&quot;': '"',
-    '&apos;': "'",
-  };
-  var out = s;
-  named.forEach((k, v) => out = out.replaceAll(k, v));
-  // Числови: &#1234; и &#x04D1;
-  out = out.replaceAllMapped(
-    RegExp(r'&#(\d+);'),
-    (m) => String.fromCharCode(int.parse(m.group(1)!)),
-  );
-  out = out.replaceAllMapped(
-    RegExp(r'&#[xX]([0-9a-fA-F]+);'),
-    (m) => String.fromCharCode(int.parse(m.group(1)!, radix: 16)),
-  );
-  return out;
-}
 
 // ---------------------------------------------------------------
 // Търсене: диакритик- и регистър-неутрално сравнение
 // ---------------------------------------------------------------
 
-/// "Изчистен" текст за търсене (малки букви, без ударения над буквите:
-/// U+0300–U+036F — комбиниращи диакритични знаци) + карта на позициите,
-/// за да можем да маркираме точно оригиналния (с ударения) откъс.
-class _Folded {
-  final String text;
-  final List<int> origIndex;
-  const _Folded(this.text, this.origIndex);
-}
 
-_Folded _fold(String s) {
-  final buf = StringBuffer();
-  final idx = <int>[];
-  for (int i = 0; i < s.length; i++) {
-    final code = s.codeUnitAt(i);
-    if (code >= 0x0300 && code <= 0x036F) continue; // ударение/диакритика
-    buf.write(s[i].toLowerCase());
-    idx.add(i);
-  }
-  return _Folded(buf.toString(), idx);
-}
 
 int _countMatchesPlain(String text, String foldedQuery) {
   if (foldedQuery.isEmpty) return 0;
-  final f = _fold(text).text;
+  final f = fold(text).text;
   int count = 0, from = 0;
   while (true) {
     final at = f.indexOf(foldedQuery, from);
@@ -171,7 +109,7 @@ String _highlightHtml(
         buf.write(piece);
         continue;
       }
-      final folded = _fold(piece);
+      final folded = fold(piece);
       int from = 0, lastEnd = 0;
       while (true) {
         final at = folded.text.indexOf(foldedQuery, from);
@@ -234,7 +172,7 @@ int _highlightAnchorText(
   StringBuffer buf,
 ) {
   final hrefAttr = 'href="$href"';
-  final folded = _fold(innerText);
+  final folded = fold(innerText);
   int from = 0, lastEnd = 0, local = localStart;
   while (true) {
     final at = folded.text.indexOf(foldedQuery, from);
@@ -295,7 +233,7 @@ List<String> _splitBlocks(String html) {
 
 /// Чист текст без тагове — същата формула, ползвана и в _DropCapParagraph.
 String _plainTextOf(String innerHtml) {
-  return _decodeEntities(
+  return decodeEntities(
     innerHtml.replaceAll(RegExp(r'<[^>]+>'), ''),
   ).replaceAll(RegExp(r'\s+'), ' ').trim();
 }
@@ -595,84 +533,8 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
   return (before.toString() + html.substring(cursor), '', '', '');
 }
 
-/// Едно парче текст с еднакво оформление — резултатът от разлагането на
-/// HTML-а на началния абзац.
-///
-/// Наборът тагове там е ЗАКРИТ и проверен по цялата база: <a href>,
-/// <strong>, <em> и <br>. Друг таг и друг атрибут не се срещат, затова
-/// разборът е нарочно плосък, без дърво.
-class _Run {
-  final String text;
-  final bool bold;
-  final bool italic;
-  final String? href;
-  const _Run(this.text, {this.bold = false, this.italic = false, this.href});
-}
 
-/// Разлага HTML на парчета, като разкодира entity-тата и слепва поредните
-/// интервали — точно както го прави и чистият текст, по който се мери.
-List<_Run> _htmlRuns(String html) {
-  final runs = <_Run>[];
-  var bold = 0;
-  var italic = 0;
-  final hrefs = <String>[];
-  var lastWasSpace = true; // началните интервали отпадат, както при trim
-  final hrefRe = RegExp(r'href="([^"]*)"', caseSensitive: false);
 
-  void push(String t) {
-    if (t.isEmpty) return;
-    runs.add(_Run(t,
-        bold: bold > 0,
-        italic: italic > 0,
-        href: hrefs.isEmpty ? null : hrefs.last));
-  }
-
-  for (final m in RegExp(r'<[^>]*>|[^<]+').allMatches(html)) {
-    final piece = m.group(0)!;
-    if (piece.startsWith('<')) {
-      final t = piece.toLowerCase();
-      if (t.startsWith('<strong') || t.startsWith('<b>')) {
-        bold++;
-      } else if (t.startsWith('</strong') || t.startsWith('</b>')) {
-        if (bold > 0) bold--;
-      } else if (t.startsWith('<em') || t.startsWith('<i>')) {
-        italic++;
-      } else if (t.startsWith('</em') || t.startsWith('</i>')) {
-        if (italic > 0) italic--;
-      } else if (t.startsWith('<a')) {
-        hrefs.add(hrefRe.firstMatch(piece)?.group(1) ?? '');
-      } else if (t.startsWith('</a')) {
-        if (hrefs.isNotEmpty) hrefs.removeLast();
-      } else if (t.startsWith('<br')) {
-        push('\n');
-        lastWasSpace = true;
-      }
-      continue;
-    }
-    var text = _decodeEntities(piece).replaceAll(RegExp(r'\s+'), ' ');
-    if (lastWasSpace) text = text.trimLeft();
-    if (text.isEmpty) continue;
-    lastWasSpace = text.endsWith(' ');
-    push(text);
-  }
-  return runs;
-}
-
-/// Началото и краят на всяко съвпадение в чистия текст.
-List<(int, int)> _matchRanges(String text, String foldedQuery) {
-  if (foldedQuery.isEmpty) return const [];
-  final folded = _fold(text);
-  final out = <(int, int)>[];
-  var from = 0;
-  while (true) {
-    final at = folded.text.indexOf(foldedQuery, from);
-    if (at < 0) break;
-    final endIdx = at + foldedQuery.length - 1;
-    out.add((folded.origIndex[at], folded.origIndex[endIdx] + 1));
-    from = endIdx + 1;
-  }
-  return out;
-}
 
 /// Аргументи за _prepareReaderContent — трябва да са "sendable" (само данни,
 /// без closures), за да минат през границата на isolate-а с compute().
@@ -939,28 +801,19 @@ class _ReaderScreenState extends State<ReaderScreen>
   // на четеца. 17 е базата; стъпка 1.5; разумни граници.
   // Тема на четеца — НЕЗАВИСИМА от темата на приложението.
   // static: пази се за сесията, обща за всички екрани на четеца.
-  static bool _darkMode = true;   // по подразбиране тъмна
 
-  static double _fontSize =
-      22.0; //Първоначален размер на шрифта по подразбиране
+
   // Персистиране на размера в потребителските настройки (SharedPreferences),
-  // за да оцелее и след рестарт на приложението (_fontSize сам по себе си е
+  // за да оцелее и след рестарт на приложението (ReaderFontSize.value сам по себе си е
   // само сесиен). Зареждаме от диска ЕДНОКРАТНО на сесия (виж
   // _loadPersistedFontSizeOnce) — следващите ReaderScreen инстанции вече
   // виждат правилната стойност направо в статичното поле, без нов прочит.
-  static bool _fontSizeLoadedFromDisk = false;
   // Последно ЗАПИСАНАТА на диска стойност, пазена в паметта — сравняваме
   // с нея вместо да четем от диска всеки път, за да пропускаме излишни
   // записи (напр. потребителят увеличава и после пак намалява до същото).
-  static double? _lastSavedFontSize;
-  static const String _fontSizeKey = 'reader_font_size';
-  static const double _step = 1.5;
   static const double _btnSize = 22.0;   // еднакъв размер и за трите бутона
   static const double _searchBtnSize =
       _btnSize + 6; // старт/</>  в search лентата
-  static const double _min = 13.0;
-  static const double _max = 30.0;
-  static const double _lineHeight = 1.25;
   static const double _titleGap =
       30.0; // константно разстояние заглавие → текст
   static const double _scrollThumb = 10.0;  // дебелина на палеца на скролбара
@@ -970,40 +823,9 @@ class _ReaderScreenState extends State<ReaderScreen>
   // build() показва лек spinner дотогава, за да не блокира push-а на
   // екрана (виж коментара в initState).
   _PreparedContent? _prepared;
-  Timer? _fontSizeSaveTimer;
 
-  /// Зарежда персистирания размер на шрифта от диска — САМО веднъж на
-  /// сесия (виж _fontSizeLoadedFromDisk); следващи ReaderScreen инстанции
-  /// вече го виждат директно в статичното поле _fontSize.
-  static Future<void> _loadPersistedFontSizeOnce() async {
-    if (_fontSizeLoadedFromDisk) return;
-    _fontSizeLoadedFromDisk = true;
-    final prefs = await SharedPreferences.getInstance();
-    final saved = prefs.getDouble(_fontSizeKey);
-    if (saved != null) {
-      _fontSize = saved.clamp(_min, _max);
-      _lastSavedFontSize = _fontSize;
-    }
-  }
 
-  /// Рестартира 3-секундния debounce за запис на шрифта (извиква се при
-  /// всяко +/- натискане). Записваме едва когато измине покой от 3 сек —
-  /// потребителите почти никога не уцелват желания размер от първия тап.
-  void _scheduleFontSizeSave() {
-    _fontSizeSaveTimer?.cancel();
-    _fontSizeSaveTimer = Timer(const Duration(seconds: 3), _flushFontSizeSave);
-  }
 
-  /// Записва текущия _fontSize на диска — но само ако се различава от
-  /// последно запазената стойност (пазена в паметта, без препрочитане).
-  void _flushFontSizeSave() {
-    _fontSizeSaveTimer = null;
-    if (_lastSavedFontSize == _fontSize) return;
-    _lastSavedFontSize = _fontSize;
-    SharedPreferences.getInstance().then(
-      (prefs) => prefs.setDouble(_fontSizeKey, _fontSize),
-    );
-  }
 
   // Captured в didChangeDependencies() (безопасно място за ScaffoldMessenger.of),
   // за да можем да скрием евентуален висящ SnackBar в dispose() — там
@@ -1023,7 +845,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   void initState() {
     super.initState();
     _scrollController.addListener(_onScrollForBookmark);
-    _loadPersistedFontSizeOnce().then((_) {
+    ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
     // Стартираме тежката подготовка ВЕДНАГА, но във фонов isolate — Navigator
@@ -1053,7 +875,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _bump(double d) {
     setState(() {
-      _fontSize = (_fontSize + d).clamp(_min, _max);
+      ReaderFontSize.nudge(d);
       // Реалните измерени височини важат само за СТАРИЯ размер на шрифта —
       // със SliverVariedExtentList старите стойности биха ПРИНУДИЛИ новия
       // (различно висок) текст в грешна кутия (препълване, изрязване).
@@ -1063,7 +885,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _realItemExtents = null;
       _measuring = false;
     });
-    _scheduleFontSizeSave();
+    
     // Смяната на шрифта преформатира целия текст (различни височини на
     // абзаците) — ако има активно търсене, текущото съвпадение би могло
     // да "избяга" от изгледа; пренасочваме скрола към него отново.
@@ -1132,17 +954,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   List<double> get _effectiveCumulativeHeights =>
       _realCumulativeHeights ?? _cumulativeHeights;
 
-  Color get _hitColor =>
-      _darkMode ? const Color(0xFF6B5B1E) : const Color(0xFFFFF176);
-  Color get _hitCurrentColor =>
-      _darkMode ? const Color(0xFFCC8A2E) : const Color(0xFFFFA726);
+  Color get _hitColor => _p.hit;
+  Color get _hitCurrentColor => _p.hitCurrent;
 
   // Чертичките на скролбара имат СВОЙ цвят за светлата тема — светложълтото
   // на _hitColor (добро като фон зад маркиран текст) почти изчезва на тънка
   // линия върху кремавия фон (_bg = 0xFFF5E6C5), затова тук е по-тъмен,
   // по-наситен маслинено-кехлибарен нюанс само за тях.
-  Color get _tickHitColor => _darkMode ? _hitColor : const Color(0xFF9C7A1A);
-  Color get _tickCurrentColor => _hitCurrentColor;
+  Color get _tickHitColor => _p.tickHit;
+  Color get _tickCurrentColor => _p.tickCurrent;
 
   /// Пресъздава скрол-контролера със стартова позиция = текущата, за да
   /// прехвърли безшумно офсета към новото Scrollable (виж коментара на
@@ -1364,7 +1184,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
 
-    final foldedQuery = _fold(query).text;
+    final foldedQuery = fold(query).text;
     final counts = regions.map((r) => _countInRegion(r, foldedQuery)).toList();
     final total = counts.fold<int>(0, (a, b) => a + b);
     setState(() {
@@ -1637,10 +1457,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     _bookmarkIdleTimer?.cancel();
     // Ако имаше чакащ (недовършил 3-те си секунди) запис на шрифта, го
     // пускаме веднага сега — иначе промяната би се изгубила при излизане.
-    if (_fontSizeSaveTimer != null) {
-      _fontSizeSaveTimer!.cancel();
-      _flushFontSizeSave();
-    }
+    ReaderFontSize.flush();
     _searchAnim.dispose();
     _searchCtrl.dispose();
     _searchFocusNode.dispose();
@@ -1859,16 +1676,15 @@ class _ReaderScreenState extends State<ReaderScreen>
               ? 'Служба'
               : prayersTitleFor(widget.texts));
 
-  // Палитрата на четеца — независима от темата на приложението.
-  Color get _bg =>
-      _darkMode ? const Color(0xFF121212) : const Color(0xFFF5E6C5);
-  Color get _ink =>
-      _darkMode ? const Color(0xFFE6E1D8) : const Color(0xFF1A1A1A);
-  Color get _dim =>
-      _darkMode ? const Color(0xFF9A948A) : const Color(0xFF6B675F);
-  Color get _wine =>
-      _darkMode ? const Color(0xFFA0555B) : const Color(0xFFB83333);
-  //Color get _wine => _darkMode ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
+  // Палитрата на четеца живее в reader_theme.dart — обща с четеца на
+  // книги. Тукашните имена са запазени само за да не се пипат стотиците
+  // им употреби из екрана.
+  ReaderPalette get _p => ReaderTheme.palette;
+  Color get _bg => _p.bg;
+  Color get _ink => _p.ink;
+  Color get _dim => _p.dim;
+  Color get _wine => _p.wine;
+  //Color get _wine => ReaderTheme.dark ? const Color(0xFFA84444) : const Color(0xFF7A1F1F);
 
   /// Показва се докато _prepared е null (isolate-ът още работи) — нарочно
   /// евтин build (само лента + spinner), за да не забавя push-а на екрана.
@@ -1914,7 +1730,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     final hasGap = prepared.hasGap;
 
     // Височина на водещата буква ≈ 5–6 реда основен текст.
-    final lineHeightPx = _fontSize * _lineHeight; //1.5;
+    final lineHeightPx = ReaderFontSize.value * kReaderLineHeight; //1.5;
     final dropCapSize = lineHeightPx * 5.5 * 0.82; // корекция за ascender
 
     if (_regionKeys.length != regions.length) {
@@ -1950,8 +1766,8 @@ class _ReaderScreenState extends State<ReaderScreen>
     for (int i = 0; i < regions.length; i++) {
       running += _estimateRegionHeight(
         prepared.regionPlainTexts[i],
-        _fontSize,
-        _lineHeight,
+        ReaderFontSize.value,
+        kReaderLineHeight,
         _viewportWidth,
         linkCount: prepared.regionLinkCounts[i],
       );
@@ -1959,7 +1775,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
     final foldedQuery = _committedQuery.isEmpty
         ? ''
-        : _fold(_committedQuery).text;
+        : fold(_committedQuery).text;
 
     int matchOffset = 0;
     final regionWidgets = <Widget>[];
@@ -1991,14 +1807,14 @@ class _ReaderScreenState extends State<ReaderScreen>
         regionWidgets.add(
           KeyedSubtree(
           key: key,
-          child: _DropCapParagraph(
+          child: DropCapParagraph(
             dropCap: dropCap,
             dropCapSize: dropCapSize,
             lineHeight: lineHeightPx,
-            lineFactor: _lineHeight,
+            lineFactor: kReaderLineHeight,
             firstParagraph: r.content,
             secondParagraph: r.second,
-            fontSize: _fontSize,
+            fontSize: ReaderFontSize.value,
             capColor: _wine,
             inkColor: _ink,
             linkColor: AppColors.sectionTitle,
@@ -2028,8 +1844,8 @@ class _ReaderScreenState extends State<ReaderScreen>
               widget.texts.name,
               textAlign: TextAlign.center,
               style: TextStyle(
-                fontFamily: _titleFamily,
-                fontSize: _fontSize + 9,
+                fontFamily: kTitleFamily,
+                fontSize: ReaderFontSize.value + 9,
                 height: 1.25,
                 color: _ink,
               ),
@@ -2076,14 +1892,14 @@ class _ReaderScreenState extends State<ReaderScreen>
           measureChildren.add(
             KeyedSubtree(
             key: _measureKeys[i],
-            child: _DropCapParagraph(
+            child: DropCapParagraph(
               dropCap: dropCap,
               dropCapSize: dropCapSize,
               lineHeight: lineHeightPx,
-              lineFactor: _lineHeight,
+              lineFactor: kReaderLineHeight,
               firstParagraph: r.content,
               secondParagraph: r.second,
-              fontSize: _fontSize,
+              fontSize: ReaderFontSize.value,
               capColor: _wine,
               inkColor: _ink,
               linkColor: AppColors.sectionTitle,
@@ -2170,7 +1986,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             Tooltip(
               message: 'Светла/тъмна тема',
               child: InkWell(
-                onTap: () => setState(() => _darkMode = !_darkMode),
+                onTap: () => setState(() => ReaderTheme.dark = !ReaderTheme.dark),
                 customBorder: const CircleBorder(),
                 child: Container(
                   width: _btnSize,
@@ -2190,16 +2006,16 @@ class _ReaderScreenState extends State<ReaderScreen>
             RoundIconButton(
               icon: Icons.remove,
               tooltip: 'По-дребен шрифт',
-              enabled: _fontSize > _min,
-              onTap: () => _bump(-_step),
+              enabled: ReaderFontSize.value > ReaderFontSize.min,
+              onTap: () => _bump(-ReaderFontSize.step),
               size: _btnSize,
             ),
             const SizedBox(width: 18), // Разстояние между (-) и (+)
             RoundIconButton(
               icon: Icons.add,
               tooltip: 'По-едър шрифт',
-              enabled: _fontSize < _max,
-              onTap: () => _bump(_step),
+              enabled: ReaderFontSize.value < ReaderFontSize.max,
+              onTap: () => _bump(ReaderFontSize.step),
               size: _btnSize,
             ),
             const SizedBox(width: 18), // Разстояние между (+) и отметката
@@ -2446,7 +2262,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// излезе извън нея през OverflowBox — подредбата не забелязва нищо, а
   /// знакът се вижда едър. Свободното място отгоре и отдолу го дават
   /// полетата между абзаците.
-  static const double _tipikonSignBox = _lineHeight;
+  static const double _tipikonSignBox = kReaderLineHeight;
 
   /// Знаците на Типикона, вградени в текста като `<znak n="1">`…`<znak n="5">`.
   /// Ползват се в справочната статия "Знаците от Типикона": там оригиналът
@@ -2465,16 +2281,16 @@ class _ReaderScreenState extends State<ReaderScreen>
             if (path == null) return const SizedBox.shrink();
             // Ранг 5 (шестерична) е черният знак — останалите са червени.
             final color = rank == 5 ? _ink : _wine;
-            // Двата размера са ВРЪЗАНИ за _fontSize, за да растат и намаляват
+            // Двата размера са ВРЪЗАНИ за ReaderFontSize.value, за да растат и намаляват
             // заедно с текста от бутоните −/+ (виж _tipikonSignBox защо
             // кутията е по-малка от рисунката).
-            final box = _fontSize * _tipikonSignBox;
-            final draw = _fontSize * _tipikonSignScale;
+            final box = ReaderFontSize.value * _tipikonSignBox;
+            final draw = ReaderFontSize.value * _tipikonSignScale;
             // Рисунката се излива извън кутията и НАСТРАНИ, не само нагоре и
             // надолу — затова изяждаше интервала преди тирето след себе си.
             // Отстъпът покрива преливането ((draw−box)/2) плюс нормалното
             // разстояние между знак и дума, и расте заедно с шрифта.
-            final side = (draw - box) / 2 + _fontSize * 0.34;
+            final side = (draw - box) / 2 + ReaderFontSize.value * 0.34;
             return Padding(
               padding: EdgeInsets.symmetric(horizontal: side),
               child: SizedBox(
@@ -2496,448 +2312,19 @@ class _ReaderScreenState extends State<ReaderScreen>
         ),
       ];
 
-  Map<String, Style> _htmlStyles(BuildContext context) {
-    return {
-      // flutter_html обвива съдържанието в имплицитни <html> и <body> с
-      // браузърни подразбирания за margin/padding. Тях ги нулираме, за да
-      // ляга HTML текстът точно на същата ширина като първия абзац (той се
-      // рендва ръчно в _DropCapParagraph и няма такива отстъпи).
-      'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-      'body': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
-      'p': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize),
-        lineHeight: const LineHeight(_lineHeight),
-        margin: Margins.only(top: 8, bottom: 8),
-        textAlign: TextAlign.justify,
-        color: _ink,
-      ),
-      // Двете кутии около буквицата: като обикновен абзац, но без полета —
-      // отстоянията там се мерят в редове и се задават отвън.
-      '.dropcap': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize),
-        lineHeight: const LineHeight(_lineHeight),
-        margin: Margins.zero,
-        padding: HtmlPaddings.zero,
-        textAlign: TextAlign.justify,
-        color: _ink,
-      ),
-      '.dropcap-rest': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize),
-        lineHeight: const LineHeight(_lineHeight),
-        margin: Margins.only(top: 2),
-        padding: HtmlPaddings.zero,
-        textAlign: TextAlign.justify,
-        color: _ink,
-      ),
-      'h3': Style(
-        fontFamily: _titleFamily, // _bodyFamily,
-        fontSize: FontSize(_fontSize + 10),
-        lineHeight: const LineHeight(_lineHeight),
-        fontWeight: FontWeight.normal,
-        textAlign: TextAlign.center,
-        margin: Margins.only(
-          top: 18,
-          bottom: 0,
-        ), // bottom се управлява от _titleGap
-        color: _ink,
-      ),
-      // В службата <strong> носи богослужебните указания ("На велицей
-      // вечерни", "стихиры, глас 2", "Подобен:") — по традиция в червено.
-      // В житието същият таг е обикновено ударение → мастилен цвят.
-      'strong': Style(
-        color: widget._mode == _ReaderMode.sluzhba ? _wine : _ink,
-      ),
-      '.csl': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize + 0.5),
-        lineHeight: const LineHeight(1.3),
-        color: _ink,
-      ),
-      '.prayerhead': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize + 1),
-        fontWeight: FontWeight.w600,
-        margin: Margins.only(top: 18, bottom: 4),
-        color: _wine,
-      ),
-      '.trans': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize - 1),
-        fontStyle: FontStyle.italic,
-        color: _dim,
-        margin: Margins.only(bottom: 16),
-      ),
-      '.translabel': Style(
-        fontWeight: FontWeight.w600,
-        fontStyle: FontStyle.normal,
-        color: _dim, //_ink,
-      ),
-      '.source': Style(
-        fontFamily: _bodyFamily,
-        fontSize: FontSize(_fontSize - 2),
-        fontStyle: FontStyle.italic,
-        color: _dim,
-        margin: Margins.only(top: 24),
-      ),
-      // Курсивен абзац, пропуснат за буквица (виж _splitDropCap) — центриран.
-      '.italic-center': Style(textAlign: TextAlign.center),
-      // Линковете: синьото на секциите от дневния изглед, не лилаво.
-      'a': Style(
-        color: AppColors.sectionTitle,
-        textDecoration: TextDecoration.none,
-      ),
-      // Маркиране на съвпаденията от търсенето — виж _highlightHtml().
-      '.hit': Style(backgroundColor: _hitColor),
-      '.hit-current': Style(backgroundColor: _hitCurrentColor),
-    };
-  }
+  /// Стиловете живеят в reader_styles.dart — общи с четеца на книги.
+  /// Класовете (.csl, .trans, .prayerhead, .source, .dropcap…) идват от
+  /// самите текстове, тъй че двата четеца трябва да ги рисуват еднакво.
+  Map<String, Style> _htmlStyles(BuildContext context) => readerStyles(
+        fontSize: ReaderFontSize.value,
+        palette: _p,
+        // В службата <strong> носи богослужебните указания и по традиция
+        // се пише в червено; в житието същият таг е обикновено ударение.
+        strongInWine: widget._mode == _ReaderMode.sluzhba,
+      );
 }
 
-/// Абзац с водеща буква и ИСТИНСКО обтичане.
-///
-/// Механика: буквата заема N реда височина. С TextPainter измерваме колко
-/// от чистия текст на първия абзац се побира в N реда при СТЕСНЕНАТА
-/// ширина (екран минус буквата). Тази част се рендва вдясно от буквата;
-/// всичко останало — на пълна ширина отдолу. Линковете в обтичащата зона
-/// се пазят, защото тя се рендва пак като Html.
-/// Първият абзац на житието — с орнаментирана водеща буква, около която
-/// текстът обтича.
-///
-/// Текстът тук се изписва с Text.rich, а НЕ с flutter_html като останалите
-/// региони. Причината е измерването: трябва да знаем къде свършва петият
-/// ред, за да продължим остатъка под буквицата, а flutter_html не казва
-/// къде чупи редовете си. Мерихме с TextPainter и рисувахме с него — двата
-/// подреждаха малко различно и на границата между двете кутии изчезваше по
-/// дума-две. Сега мерещият и рисуващият са един и същ двигател, тъй че
-/// разминаване няма по построение, а maxLines сам отрязва.
-///
-/// Таговете, които се срещат в началните абзаци, са проверени по цялата
-/// база и са само четири (виж _htmlRuns).
-class _DropCapParagraph extends StatefulWidget {
-  final String dropCap;
-  final double dropCapSize;
-  final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
-  final double lineFactor;   // коефициентът за TextStyle.height (напр. 1.25)
-  final String firstParagraph; // HTML съдържанието на първия <p> (без буквата)
-  /// Следващият абзац. Влиза вдясно от буквицата, ако първият не запълва
-  /// петте реда; иначе се изписва под нея, както би стоял и без това.
-  final String secondParagraph;
-  final double fontSize;
-  final Color capColor;
-  final Color inkColor;
-  final Color linkColor;
-  // Търсене: празен searchQuery = няма активно търсене.
-  final String searchQuery;
-  final int firstGlobalMatchIndex;
-  final int currentGlobalMatch;
-  final Color hitColor;
-  final Color hitCurrentColor;
-  final void Function(String?) onLinkTap;
 
-  const _DropCapParagraph({
-    required this.dropCap,
-    required this.dropCapSize,
-    required this.lineHeight,
-    required this.lineFactor,
-    required this.firstParagraph,
-    required this.secondParagraph,
-    required this.fontSize,
-    required this.capColor,
-    required this.inkColor,
-    required this.linkColor,
-    required this.onLinkTap,
-    this.searchQuery = '',
-    this.firstGlobalMatchIndex = 0,
-    this.currentGlobalMatch = -1,
-    this.hitColor = const Color(0x00000000),
-    this.hitCurrentColor = const Color(0x00000000),
-  });
-
-  @override
-  State<_DropCapParagraph> createState() => _DropCapParagraphState();
-}
-
-class _DropCapParagraphState extends State<_DropCapParagraph> {
-  // Разпознавателите на тап живеят колкото кадъра, в който са създадени.
-  // Старите се освобождават СЛЕД кадъра — докато той се рисува, все още са
-  // закачени за spans-овете.
-  List<TapGestureRecognizer> _recognizers = [];
-
-  @override
-  void dispose() {
-    for (final r in _recognizers) {
-      r.dispose();
-    }
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final fresh = <TapGestureRecognizer>[];
-
-    final widgetTree = LayoutBuilder(
-      builder: (context, constraints) {
-        final capWidth = widget.dropCapSize * 0.40; // приблизителна ширина
-        const gap = 4.0;
-        final narrowWidth = constraints.maxWidth - capWidth - gap;
-
-        // Системната настройка за едър шрифт увеличава изписвания текст —
-        // измерването трябва да я знае, иначе бърка броя редове.
-        final scaler = MediaQuery.textScalerOf(context);
-
-        // Букви с descender (опашка под базовата линия) заемат повече
-        // височина от останалите — обтичащата зона им дава още един ред,
-        // за да не застъпи глифът първия ред под буквицата.
-        const descenderCaps = {'Ч', 'Д', 'Ц', 'Щ', 'У', 'Р'};
-        final extraLine = descenderCaps.contains(widget.dropCap) ? 1 : 0;
-        final capLines =
-            (widget.dropCapSize / widget.lineHeight).ceil() + extraLine;
-
-        final runs = _htmlRuns(widget.firstParagraph);
-        final plain = runs.map((r) => r.text).join();
-        final matches = _matchRanges(plain, widget.searchQuery);
-        // Вторият абзац — може да влезе вдясно от буквицата, ако първият
-        // не стигне до петия ред. Съвпаденията му продължават номерацията
-        // на първия, за да не се разминат броячите.
-        final runs2 = widget.secondParagraph.isEmpty
-            ? const <_Run>[]
-            : _htmlRuns(widget.secondParagraph);
-        final plain2 = runs2.map((r) => r.text).join();
-        final matches2 = _matchRanges(plain2, widget.searchQuery);
-
-        // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
-        // зададени, а не оставени празни. Празно поле се попълва от
-        // околния DefaultTextStyle при изписването, но не и при мерещия
-        // TextPainter, който няма такъв — и двата подреждаха различно,
-        // заради което между двете кутии се губеше по дума.
-        final base = TextStyle(
-          fontFamily: _bodyFamily,
-          fontSize: widget.fontSize,
-          height: widget.lineFactor,
-          color: widget.inkColor,
-          fontWeight: FontWeight.w400,
-          fontStyle: FontStyle.normal,
-          letterSpacing: 0,
-          wordSpacing: 0,
-        );
-
-        // Парчетата от [from, to) — с оформлението си, с връзките си и с
-        // маркировката от търсенето. Номерата на съвпаденията са ГЛОБАЛНИ,
-        // затова двете кутии не се разминават в броенето.
-        List<InlineSpan> spansOf(List<_Run> src, String text,
-            List<(int, int)> hits, int matchBase, int from, int to) {
-          final out = <InlineSpan>[];
-          var pos = 0;
-          for (final run in src) {
-            final start = pos;
-            final end = pos + run.text.length;
-            pos = end;
-            final lo = start < from ? from : start;
-            final hi = end > to ? to : end;
-            if (lo >= hi) continue;
-
-            final style = base.copyWith(
-              fontWeight: run.bold ? FontWeight.w600 : FontWeight.w400,
-              fontStyle:
-                  run.italic ? FontStyle.italic : FontStyle.normal,
-              color: run.href != null ? widget.linkColor : widget.inkColor,
-            );
-            TapGestureRecognizer? tap;
-            if (run.href != null && run.href!.isNotEmpty) {
-              tap = TapGestureRecognizer()
-                ..onTap = () => widget.onLinkTap(run.href);
-              fresh.add(tap);
-            }
-
-            // Парчето се насича допълнително по границите на съвпаденията.
-            var cursor = lo;
-            for (var i = 0; i < hits.length; i++) {
-              final (ms, me) = hits[i];
-              if (me <= cursor || ms >= hi) continue;
-              final s0 = ms < cursor ? cursor : ms;
-              final e0 = me > hi ? hi : me;
-              if (s0 > cursor) {
-                out.add(TextSpan(
-                    text: text.substring(cursor, s0),
-                    style: style,
-                    recognizer: tap));
-              }
-              final isCurrent = matchBase + i == widget.currentGlobalMatch;
-              out.add(TextSpan(
-                text: text.substring(s0, e0),
-                style: style.copyWith(
-                    backgroundColor:
-                        isCurrent ? widget.hitCurrentColor : widget.hitColor),
-                recognizer: tap,
-              ));
-              cursor = e0;
-            }
-            if (cursor < hi) {
-              out.add(TextSpan(
-                  text: text.substring(cursor, hi),
-                  style: style,
-                  recognizer: tap));
-            }
-          }
-          return out;
-        }
-
-        final base2 = widget.firstGlobalMatchIndex + matches.length;
-        final spans1 = spansOf(runs, plain, matches,
-            widget.firstGlobalMatchIndex, 0, plain.length);
-
-        /// Докъде стига текстът, ако му дадем най-много [limit] реда, и
-        /// колко реда всъщност заема. Мярката е със СЪЩИТЕ парчета, ширина
-        /// и maxLines, с които после рисува Text.rich — затова отрязването
-        /// пада точно там, докъдето стига видимото.
-        ({int cut, int lines}) fit(List<InlineSpan> spans, int limit,
-            int textLength) {
-          final tp = TextPainter(
-            text: TextSpan(style: base, children: spans),
-            textDirection: TextDirection.ltr,
-            textScaler: scaler,
-            textAlign: TextAlign.justify,
-            maxLines: limit,
-          )..layout(maxWidth: narrowWidth);
-          final metrics = tp.computeLineMetrics();
-          if (!tp.didExceedMaxLines) {
-            return (cut: textLength, lines: metrics.length);
-          }
-          final last =
-              metrics[(limit < metrics.length ? limit : metrics.length) - 1];
-          return (
-            cut: tp
-                .getPositionForOffset(Offset(narrowWidth, last.baseline))
-                .offset,
-            lines: limit,
-          );
-        }
-
-        final f1 = fit(spans1, capLines, plain.length);
-
-        // Отстоянието между два абзаца — същото, каквото дава flutter_html
-        // на останалите (8 отдолу + 8 отгоре).
-        const paraGap = 16.0;
-        final lineHeightPx = scaler.scale(widget.fontSize) * widget.lineFactor;
-
-        // Вторият абзац влиза вдясно САМО ако след първия остава място за
-        // поне един негов ред заедно с отстоянието помежду им.
-        var spans2 = <InlineSpan>[];
-        var lines2 = 0;
-        var cut2 = 0;
-        if (runs2.isNotEmpty && f1.cut >= plain.length) {
-          final freeLines =
-              capLines - f1.lines - (paraGap / lineHeightPx).ceil();
-          if (freeLines >= 1) {
-            spans2 = spansOf(runs2, plain2, matches2, base2, 0, plain2.length);
-            final f2 = fit(spans2, freeLines, plain2.length);
-            lines2 = f2.lines;
-            cut2 = f2.cut;
-          }
-        }
-
-        // Какво остава ПОД буквицата. Трите случая се изключват взаимно:
-        // или първият абзац е пресечен (тогава вторият изобщо не е влизал),
-        // или е влязла част от втория, или вторият стои цял отдолу.
-        final tail = <Widget>[];
-        if (f1.cut < plain.length) {
-          tail.add(Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Text.rich(
-              TextSpan(
-                  style: base,
-                  children: spansOf(runs, plain, matches,
-                      widget.firstGlobalMatchIndex, f1.cut, plain.length)),
-              textAlign: TextAlign.justify,
-            ),
-          ));
-        }
-        if (runs2.isNotEmpty) {
-          final startsAt = lines2 > 0 ? cut2 : 0;
-          if (startsAt < plain2.length) {
-            tail.add(Padding(
-              // Продължение на започнат абзац или съвсем нов — оттам и
-              // различното отстояние отгоре.
-              padding: EdgeInsets.only(top: lines2 > 0 ? 2 : paraGap / 2),
-              child: Text.rich(
-                TextSpan(
-                    style: base,
-                    children: spansOf(runs2, plain2, matches2, base2, startsAt,
-                        plain2.length)),
-                textAlign: TextAlign.justify,
-              ),
-            ));
-          }
-        }
-
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                SizedBox(
-                  width: capWidth,
-                  child: Transform.translate(
-                    offset: const Offset(0, 2),
-                    child: Text(
-                      widget.dropCap,
-                      style: TextStyle(
-                        fontFamily: _dropCapFamily,
-                        fontSize: widget.dropCapSize,
-                        height: 1.0,
-                        color: widget.capColor,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: gap),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // maxLines реже точно там, където мярката е казала —
-                      // и когато текстът продължава отвъд, последният видим
-                      // ред не е "последен за абзаца" и се разпъва.
-                      Text.rich(
-                        TextSpan(style: base, children: spans1),
-                        maxLines: f1.lines,
-                        textAlign: TextAlign.justify,
-                      ),
-                      if (lines2 > 0) ...[
-                        const SizedBox(height: paraGap),
-                        Text.rich(
-                          TextSpan(style: base, children: spans2),
-                          maxLines: lines2,
-                          textAlign: TextAlign.justify,
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            ...tail,
-          ],
-        );
-      },
-    );
-
-    final old = _recognizers;
-    _recognizers = fresh;
-    if (old.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        for (final r in old) {
-          r.dispose();
-        }
-      });
-    }
-    return widgetTree;
-  }
-}
 
 /// Долна подкана "продължи от последната позиция" — показва се при отваряне
 /// на четиво със запазена отметка. Две състояния:

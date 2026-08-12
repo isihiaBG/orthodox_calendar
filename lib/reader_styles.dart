@@ -1,0 +1,122 @@
+// reader_styles.dart
+//
+// Стиловете за flutter_html при четене — ОБЩИ за житията/службите
+// (reader_screen.dart) и за книгите от „Читанка" (book_reader.dart).
+//
+// Изнесено от reader_screen.dart. Класовете (.csl, .trans, .prayerhead,
+// .source, .dropcap…) идват от самите текстове в базите и в .epub-ите, тъй
+// че двата четеца трябва да ги рисуват ЕДНАКВО — иначе едно и също житие
+// би изглеждало различно според това откъде е отворено.
+//
+// Функцията е чиста: получава размер и палитра, връща картата. Няма
+// състояние и не знае нищо за светии, книги или екрани.
+
+import 'package:flutter/material.dart';
+import 'package:flutter_html/flutter_html.dart';
+
+import 'app_theme.dart';
+import 'reader_theme.dart';
+
+/// [strongInWine] — дали <strong> да е в виненочервено вместо мастилено.
+/// В службата този таг носи богослужебните указания („На велицей вечерни",
+/// „стихиры, глас 2", „Подобен:") и по традиция се пише в червено; в
+/// житието същият таг е обикновено ударение.
+Map<String, Style> readerStyles({
+  required double fontSize,
+  required ReaderPalette palette,
+  bool strongInWine = false,
+}) {
+  final ink = palette.ink;
+  final dim = palette.dim;
+  final wine = palette.wine;
+
+  return {
+    // flutter_html обвива съдържанието в имплицитни <html> и <body> с
+    // браузърни подразбирания за margin/padding. Тях ги нулираме, за да
+    // ляга HTML текстът точно на същата ширина като първия абзац (той се
+    // рендва ръчно в DropCapParagraph и няма такива отстъпи).
+    'html': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+    'body': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+    'p': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.only(top: 8, bottom: 8),
+      textAlign: TextAlign.justify,
+      color: ink,
+    ),
+    // Двете кутии около буквицата: като обикновен абзац, но без полета —
+    // отстоянията там се мерят в редове и се задават отвън.
+    '.dropcap': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.zero,
+      padding: HtmlPaddings.zero,
+      textAlign: TextAlign.justify,
+      color: ink,
+    ),
+    '.dropcap-rest': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.only(top: 2),
+      padding: HtmlPaddings.zero,
+      textAlign: TextAlign.justify,
+      color: ink,
+    ),
+    'h3': Style(
+      fontFamily: kTitleFamily,
+      fontSize: FontSize(fontSize + 10),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      fontWeight: FontWeight.normal,
+      textAlign: TextAlign.center,
+      // bottom се управлява от отстоянието заглавие → текст в четеца
+      margin: Margins.only(top: 18, bottom: 0),
+      color: ink,
+    ),
+    'strong': Style(color: strongInWine ? wine : ink),
+    '.csl': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize + 0.5),
+      lineHeight: const LineHeight(1.3),
+      color: ink,
+    ),
+    '.prayerhead': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize + 1),
+      fontWeight: FontWeight.w600,
+      margin: Margins.only(top: 18, bottom: 4),
+      color: wine,
+    ),
+    '.trans': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 1),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      margin: Margins.only(bottom: 16),
+    ),
+    '.translabel': Style(
+      fontWeight: FontWeight.w600,
+      fontStyle: FontStyle.normal,
+      color: dim,
+    ),
+    '.source': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 2),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      margin: Margins.only(top: 24),
+    ),
+    // Курсивен абзац, пропуснат за буквица — центриран.
+    '.italic-center': Style(textAlign: TextAlign.center),
+    // Линковете: синьото на секциите от дневния изглед, не лилаво.
+    'a': Style(
+      color: AppColors.sectionTitle,
+      textDecoration: TextDecoration.none,
+    ),
+    // Маркиране на съвпаденията от търсенето.
+    '.hit': Style(backgroundColor: palette.hit),
+    '.hit-current': Style(backgroundColor: palette.hitCurrent),
+  };
+}
