@@ -29,9 +29,13 @@ import 'app_theme.dart';
 import 'drop_cap.dart';
 import 'epub_source.dart';
 import 'reader_font_size.dart';
+import 'reader_match_ticks.dart';
+import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'reader_sup_extension.dart';
+import 'reader_text_utils.dart';
 import 'reader_theme.dart';
+import 'round_icon_button.dart';
 import 'reader_toolbar.dart';
 
 class BookReader extends StatefulWidget {
@@ -64,6 +68,25 @@ class _BookReaderState extends State<BookReader> {
 
   int _index = 0;
   final ScrollController _scroll = ScrollController();
+
+  // ── Търсене в главата ───────────────────────────────────────────────
+  //
+  // Търси се в ТЕКУЩАТА глава, не в целия том — точният аналог на четеца
+  // на жития. Търсенето из цялата книга е друг род задача (резултатът е
+  // списък с глави, а не движение в текста) и ще дойде отделно.
+  bool _searchOpen = false;
+  final TextEditingController _searchCtrl = TextEditingController();
+  final FocusNode _searchFocus = FocusNode();
+
+  /// Изгладеният низ за сравнение — без ударения и регистър (виж fold()).
+  String _query = '';
+
+  /// Делът от височината на текста, на който стои всяко съвпадение (0..1).
+  /// По тях се рисуват чертичките по скролбара.
+  List<double> _hitRatios = const [];
+
+  int _total = 0;
+  int _currentHit = -1;
 
   @override
   void initState() {
@@ -160,6 +183,90 @@ class _BookReaderState extends State<BookReader> {
     );
   }
 
+  // ── Търсене ─────────────────────────────────────────────────────────
+
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) {
+        _searchCtrl.clear();
+        _query = '';
+        _hitRatios = const [];
+        _total = 0;
+        _currentHit = -1;
+      }
+    });
+    if (_searchOpen) _searchFocus.requestFocus();
+  }
+
+  /// Преброява съвпаденията и смята дела им от височината на текста.
+  ///
+  /// Мярката е по ПОЗИЦИЯТА В ЧИСТИЯ ТЕКСТ, а не по действително измерена
+  /// височина. Главата е един непрекъснат блок с еднакъв шрифт, тъй че
+  /// знак от текста ≈ еднакъв дял от височината — за чертичките по
+  /// скролбара това е достатъчно точно и не иска мерене на всеки абзац.
+  /// (В четеца на жития е другояче: там четивото е разделено на региони с
+  /// различни шрифтове и височините се оценяват поотделно.)
+  void _runSearch(String raw) {
+    final q = fold(raw.trim()).text;
+    final plain =
+        _plainOf(_normalize(widget.book.readFile(_current.href) ?? ''));
+    final folded = fold(plain);
+    final ratios = <double>[];
+    if (q.isNotEmpty && folded.text.isNotEmpty) {
+      var from = 0;
+      while (true) {
+        final at = folded.text.indexOf(q, from);
+        if (at < 0) break;
+        ratios.add(folded.origIndex[at] / plain.length);
+        from = at + q.length;
+      }
+    }
+    setState(() {
+      _query = q;
+      _hitRatios = ratios;
+      _total = ratios.length;
+      _currentHit = ratios.isEmpty ? -1 : 0;
+    });
+    if (ratios.isNotEmpty) _scrollToHit(0);
+  }
+
+  /// Колко пъти се среща заявката в даден откъс HTML.
+  int _countHits(String html) {
+    if (_query.isEmpty) return 0;
+    final folded = fold(_plainOf(html));
+    var n = 0, from = 0;
+    while (true) {
+      final at = folded.text.indexOf(_query, from);
+      if (at < 0) break;
+      n++;
+      from = at + _query.length;
+    }
+    return n;
+  }
+
+  /// Чистият текст на главата — по него се броят и разполагат съвпаденията.
+  static String _plainOf(String html) => html
+      .replaceAll(RegExp(r'<[^>]+>'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  void _scrollToHit(int i) {
+    if (i < 0 || i >= _hitRatios.length || !_scroll.hasClients) return;
+    final max = _scroll.position.maxScrollExtent;
+    // Съвпадението се вкарва малко под горния ръб, а не залепено за него —
+    // така се вижда и редът преди него.
+    final target = (_hitRatios[i] * max - 80).clamp(0.0, max);
+    _scroll.animateTo(target,
+        duration: const Duration(milliseconds: 280), curve: Curves.easeOut);
+  }
+
+  void _stepHit(int delta) {
+    if (_total == 0) return;
+    setState(() => _currentHit = (_currentHit + delta + _total) % _total);
+    _scrollToHit(_currentHit);
+  }
+
   Future<void> _showMoreMenu() async {
     // TODO: същинско меню (отметки, преход към календара, споделяне).
     ScaffoldMessenger.of(context).showSnackBar(
@@ -193,7 +300,10 @@ class _BookReaderState extends State<BookReader> {
 
     return Scaffold(
       backgroundColor: palette.bg,
-      body: SafeArea(
+      // Чертичките за намереното стоят НАД скрола, затова е Stack: те са
+      // показалец, не част от текста.
+      body: Stack(children: [
+        SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
         // нагоре — същото поведение като в четеца на жития (SliverAppBar с
@@ -212,9 +322,12 @@ class _BookReaderState extends State<BookReader> {
               slivers: [
                 SliverAppBar(
                   primary: false,
-                  floating: true,
-                  snap: true,
-                  pinned: false,
+                  // При ТЪРСЕНЕ лентите остават заковани: иначе полето за
+                  // въвеждане и броячът изчезват при първото плъзгане към
+                  // намереното. Същото прави и четецът на жития.
+                  floating: !_searchOpen,
+                  snap: !_searchOpen,
+                  pinned: _searchOpen,
                   backgroundColor: AppColors.toolbar,
                   toolbarHeight: 44,
                   title: Text(
@@ -229,6 +342,8 @@ class _BookReaderState extends State<BookReader> {
                   actions: readerToolbarActions(
                     context: context,
                     onShowContents: _showToc,
+          onSearch: _toggleSearch,
+          searchOpen: _searchOpen,
                     onThemeToggle: () =>
                         setState(() => ReaderTheme.dark = !ReaderTheme.dark),
                     onFontSmaller: () => setState(
@@ -239,6 +354,7 @@ class _BookReaderState extends State<BookReader> {
                     // защото и тук ще получи аналогични инструменти.
                     onMore: _showMoreMenu,
                   ),
+                  bottom: _searchOpen ? _searchBar() : null,
                 ),
                 SliverToBoxAdapter(
                   child: raw == null
@@ -253,12 +369,27 @@ class _BookReaderState extends State<BookReader> {
           ),
         ),
       ),
+        // Отстъпът отгоре съвпада с височината на лентата (44) плюс тази
+        // за търсене (52) — за да легнат чертичките точно върху скролбара.
+        if (_searchOpen && _total > 0)
+          matchTicksOverlay(
+            ratios: _hitRatios,
+            currentIndex: _currentHit,
+            palette: palette,
+            top: 44 + 52 + 4,
+          ),
+      ]),
       bottomNavigationBar: _showNavBar ? _navBar(palette) : null,
     );
   }
 
   Widget _chapterBody(String raw, ReaderPalette palette) {
-    final body = _normalize(raw);
+    var body = _normalize(raw);
+    // Маркирането е ОБЩО с четеца на жития (виж reader_search.dart): то
+    // обвива намереното в <span class="hit">, а стиловете го оцветяват.
+    if (_query.isNotEmpty) {
+      body = highlightHtml(body, _query, 0, _currentHit);
+    }
     final (beforeHtml, dropCap, firstP, afterHtml) = splitDropCap(body);
     final styles = readerStyles(
       fontSize: ReaderFontSize.value,
@@ -296,6 +427,19 @@ class _BookReaderState extends State<BookReader> {
               capColor: palette.wine,
               inkColor: palette.ink,
               linkColor: palette.link,
+              // Първите редове се рисуват РЪЧНО (Text.rich), не през
+              // flutter_html — значи маркирането трябва да им се подаде
+              // отделно. Без това намереното в началото на главата оставаше
+              // неоцветено.
+              searchQuery: _query,
+              // Съвпаденията се броят ГЛОБАЛНО за цялата глава, а буквицата
+              // започва след beforeHtml (заглавието и реда с паметта).
+              // Затова ѝ се подава колко са намерени преди нея — иначе
+              // „текущото" би се оцветило на грешно място.
+              firstGlobalMatchIndex: _countHits(beforeHtml),
+              currentGlobalMatch: _currentHit,
+              hitColor: palette.hit,
+              hitCurrentColor: palette.hitCurrent,
               onLinkTap: _onLinkTap,
             ),
           if (afterHtml.trim().isNotEmpty)
@@ -370,6 +514,72 @@ class _BookReaderState extends State<BookReader> {
       (m) => '<sup><a${m.group(1)}>${m.group(2)}</a></sup>',
     );
     return body;
+  }
+
+  /// Лентата за търсене — ЕДНАКВА с тази в четеца на жития: същата
+  /// височина, същите отстояния, същото поле със заоблен тъмен фон и същите
+  /// кръгли бутони. За потребителя двата екрана са един и същи четец.
+  PreferredSizeWidget _searchBar() {
+    final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+    return PreferredSize(
+      preferredSize: const Size.fromHeight(58),
+      child: Container(
+        height: 58,
+        // Дясната страна е по-широка — броячът иначе се залепва за
+        // чертичките по скролбара, които стоят точно в тази зона.
+        padding: const EdgeInsets.fromLTRB(12, 6, 17, 6),
+        color: AppColors.toolbar,
+        child: Row(
+          children: [
+            Expanded(
+              child: TextField(
+                controller: _searchCtrl,
+                focusNode: _searchFocus,
+                style: TextStyle(color: fg, fontSize: 16),
+                textInputAction: TextInputAction.search,
+                onChanged: _runSearch,
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: 'Търсене в текста…',
+                  hintStyle: TextStyle(color: fg.withValues(alpha: 0.5)),
+                  contentPadding: const EdgeInsets.symmetric(
+                      vertical: 8, horizontal: 10),
+                  filled: true,
+                  fillColor: Colors.black.withValues(alpha: 0.15),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(8),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            RoundIconButton(
+              icon: Icons.chevron_left,
+              tooltip: 'Предишно съвпадение',
+              enabled: _total > 0,
+              onTap: () => _stepHit(-1),
+              size: kReaderBtnSize + 6,
+            ),
+            const SizedBox(width: 16),
+            RoundIconButton(
+              icon: Icons.chevron_right,
+              tooltip: 'Следващо съвпадение',
+              enabled: _total > 0,
+              onTap: () => _stepHit(1),
+              size: kReaderBtnSize + 6,
+            ),
+            const SizedBox(width: 12),
+            Text(
+              _total > 0 ? '${_currentHit + 1}/$_total' : '0/0',
+              maxLines: 1,
+              softWrap: false,
+              style: TextStyle(color: fg, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _navBar(ReaderPalette palette) {

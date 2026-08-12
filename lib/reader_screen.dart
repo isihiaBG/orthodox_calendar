@@ -39,6 +39,8 @@ import 'pdf_export.dart';
 import 'round_icon_button.dart';
 import 'drop_cap.dart';
 import 'reader_font_size.dart';
+import 'reader_match_ticks.dart';
+import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'reader_sup_extension.dart';
 import 'reader_text_utils.dart';
@@ -84,130 +86,7 @@ int _countMatchesHtml(String html, String foldedQuery) {
   return count;
 }
 
-/// Маркира съвпаденията в HTML — обвива всяко в <span class="hit(-current)">.
-///
-/// <a href="...">...</a> се третира като ЦЯЛОСТЕН блок, обработван ОТДЕЛНО
-/// от _highlightAnchorText — flutter_html принудително презаписва стила на
-/// ВСЕКИ вложен span вътре в котва със собствения стил на котвата (виж
-/// InteractiveElementBuiltIn._processInteractableChild в пакета), затова
-/// <span class="hit"> вътре в <a> губи жълтия си фон и изчезва визуално.
-/// Вместо да вмъкваме span, разделяме самата котва на съседни <a> тагове
-/// със същия href — само фрагментът със съвпадението носи class="hit",
-/// получавайки собствен смесен стил (синьо + жълт фон). Всичко останало
-/// продължава по старата таг/текст логика, непроменена.
-String _highlightHtml(
-  String html,
-  String foldedQuery,
-  int firstGlobalIndex,
-  int currentGlobalIndex,
-) {
-  if (foldedQuery.isEmpty) return html;
-  final buf = StringBuffer();
-  int local = 0;
 
-  void highlightPlainSegment(String segment) {
-    for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(segment)) {
-      final piece = m.group(0)!;
-      if (piece.startsWith('<')) {
-        buf.write(piece);
-        continue;
-      }
-      final folded = fold(piece);
-      int from = 0, lastEnd = 0;
-      while (true) {
-        final at = folded.text.indexOf(foldedQuery, from);
-        if (at < 0) break;
-        final origStart = folded.origIndex[at];
-        final endFoldedIdx = at + foldedQuery.length - 1;
-        final origEnd = folded.origIndex[endFoldedIdx] + 1;
-        buf.write(piece.substring(lastEnd, origStart));
-        final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-        buf.write('<span class="${isCurrent ? 'hit-current' : 'hit'}">');
-        buf.write(piece.substring(origStart, origEnd));
-        buf.write('</span>');
-        lastEnd = origEnd;
-        local++;
-        from = endFoldedIdx + 1;
-      }
-      buf.write(piece.substring(lastEnd));
-    }
-  }
-
-  final anchorRe = RegExp(
-    r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>',
-    caseSensitive: false,
-    dotAll: true,
-  );
-  int cursor = 0;
-  for (final am in anchorRe.allMatches(html)) {
-    if (am.start > cursor) {
-      highlightPlainSegment(html.substring(cursor, am.start));
-    }
-    local = _highlightAnchorText(
-      am.group(1)!,
-      am.group(2)!,
-      foldedQuery,
-      firstGlobalIndex,
-      local,
-      currentGlobalIndex,
-      buf,
-    );
-    cursor = am.end;
-  }
-  if (cursor < html.length) {
-    highlightPlainSegment(html.substring(cursor));
-  }
-  return buf.toString();
-}
-
-/// Маркиране на съвпадение ВЪТРЕ в линк (виж коментара на _highlightHtml).
-/// Приема, че вътрешността на <a> е чист текст (важи за всички линкове в
-/// това приложение — saint:// и източник-атрибуцията, без вложено
-/// форматиране). Връща новата стойност на local (брояча за "текущо"
-/// съвпадение), за да продължи броенето непрекъснато след котвата.
-int _highlightAnchorText(
-  String href,
-  String innerText,
-  String foldedQuery,
-  int firstGlobalIndex,
-  int localStart,
-  int currentGlobalIndex,
-  StringBuffer buf,
-) {
-  final hrefAttr = 'href="$href"';
-  final folded = fold(innerText);
-  int from = 0, lastEnd = 0, local = localStart;
-  while (true) {
-    final at = folded.text.indexOf(foldedQuery, from);
-    if (at < 0) break;
-    final origStart = folded.origIndex[at];
-    final endFoldedIdx = at + foldedQuery.length - 1;
-    final origEnd = folded.origIndex[endFoldedIdx] + 1;
-    if (origStart > lastEnd) {
-      buf.write('<a $hrefAttr>');
-      buf.write(innerText.substring(lastEnd, origStart));
-      buf.write('</a>');
-    }
-    final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-    buf.write('<a $hrefAttr class="${isCurrent ? 'hit-current' : 'hit'}">');
-    buf.write(innerText.substring(origStart, origEnd));
-    buf.write('</a>');
-    lastEnd = origEnd;
-    local++;
-    from = endFoldedIdx + 1;
-  }
-  if (lastEnd < innerText.length) {
-    buf.write('<a $hrefAttr>');
-    buf.write(innerText.substring(lastEnd));
-    buf.write('</a>');
-  } else if (lastEnd == 0) {
-    // Няма съвпадение в тази котва — оставяме я непроменена (един таг).
-    buf.write('<a $hrefAttr>');
-    buf.write(innerText);
-    buf.write('</a>');
-  }
-  return local;
-}
 
 /// Дели HTML на блокове по абзаци/заглавия — всеки получава свой GlobalKey,
 /// за да можем да скролваме прецизно до региона с текущото съвпадение.
@@ -1321,7 +1200,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       width: kReaderScrollThumb,
       child: IgnorePointer(
         child: CustomPaint(
-          painter: _MatchTicksPainter(
+          painter: MatchTicksPainter(
             ratios: ratios,
             currentIndex: _currentMatch,
             hitColor: _tickHitColor,
@@ -1748,7 +1627,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (r.isHtml) {
         final data = foldedQuery.isEmpty
             ? r.content
-            : _highlightHtml(
+            : highlightHtml(
                 r.content,
                 foldedQuery,
                 matchOffset,
@@ -2514,54 +2393,6 @@ class _ResumePromptState extends State<_ResumePrompt> {
 }
 
 
-/// Чертички за позициите на съвпаденията върху лентата (виж
-/// _buildMatchTicksOverlay). ratios са стойности 0..1 — дял от цялата
-/// (оценена) дължина на текста.
-class _MatchTicksPainter extends CustomPainter {
-  final List<double> ratios;
-  final int currentIndex;
-  final Color hitColor;
-  final Color currentColor;
-
-  const _MatchTicksPainter({
-    required this.ratios,
-    required this.currentIndex,
-    required this.hitColor,
-    required this.currentColor,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final hitPaint = Paint()
-      ..color = hitColor
-      ..strokeWidth = 2;
-    // Първо всички жълти чертички...
-    for (int i = 0; i < ratios.length; i++) {
-      final y = (ratios[i].clamp(0.0, 1.0) * size.height).clamp(
-        0.0,
-        size.height,
-      );
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), hitPaint);
-    }
-    // ...после ОТДЕЛНО оранжевата, рисувана НАПОСЛЕДЪК — гарантирано най-
-    // отгоре в z-реда, дори когато няколко жълти са плътно една до друга и
-    // иначе биха я скрили.
-    if (currentIndex >= 0 && currentIndex < ratios.length) {
-      final currentPaint = Paint()
-        ..color = currentColor
-        ..strokeWidth = 3;
-      final y = (ratios[currentIndex].clamp(0.0, 1.0) * size.height).clamp(
-        0.0,
-        size.height,
-      );
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), currentPaint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant _MatchTicksPainter old) =>
-      old.ratios != ratios || old.currentIndex != currentIndex;
-}
 
 /// Списък с всички запазени отметки в приложението (виж _BookmarkStore) —
 /// отваря се от менюто с трите точки в reader_screen. Всеки ред: заглавие
