@@ -20,6 +20,7 @@
 // приложението, а всяка глава тук е отделно житие.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -80,12 +81,32 @@ class _BookReaderState extends State<BookReader> {
     ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+
+    // ПЪЛЕН ЕКРАН ЗА ЦЯЛОТО ЧЕТЕНЕ — включва се веднъж тук и се изключва
+    // веднъж при излизане. Между тях режимът НЕ се пипа.
+    //
+    // Това е същината. По-рано системната лента се скриваше и връщаше
+    // според посоката на плъзгане, а всяка смяна на режима преоразмерява
+    // прозореца веднъж — тоест текстът подскачаше по няколко пъти в
+    // минута. Като състояние скритото беше спокойно; неспокойни бяха
+    // ПРЕХОДИТЕ. Затова сега преходи има само два.
+    //
+    // immersiveSticky, а не immersive: при жест отгоре лентата наднича и
+    // сама се скрива пак, без да ни връща в друг режим. Потребителят губи
+    // само часовника, а печели цялата височина — особено в хоризонтално
+    // положение, където тя отнема чувствителна част от екрана.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
   }
 
   @override
   void dispose() {
     ReaderFontSize.flush();
     _scroll.dispose();
+    // ЗАДЪЛЖИТЕЛНО: режимът важи за цялото приложение, не за екрана. Без
+    // това календарът остава без системна лента, след като човек затвори
+    // книгата.
+    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+        overlays: SystemUiOverlay.values);
     super.dispose();
   }
 
