@@ -60,6 +60,12 @@ class AppDrawer extends StatelessWidget {
         children: [
           DrawerHeader(
             decoration: const BoxDecoration(color: AppColors.toolbar),
+            // DrawerHeader е с фиксирана височина 160 и подразбиращо се
+            // поле 16 отгоре/отдолу. При надпис от 26 пункта иконата (100)
+            // и редът вече не се събират в оставащите 128 и излизаше
+            // „BOTTOM OVERFLOWED BY 3 PIXELS". Свиваме полето, вместо да
+            // смаляваме шрифта — той е нарочно едър.
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
@@ -70,7 +76,7 @@ class AppDrawer extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: 'TamburinModern',
                     color: AppColors.textPrimary,
-                    fontSize: 22,
+                    fontSize: 26,
                   ),
                   textAlign: TextAlign.center,
                 ),
