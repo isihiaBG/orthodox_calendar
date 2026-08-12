@@ -15,9 +15,9 @@
 // се изкуши някой да го остави.
 
 import 'package:flutter/material.dart';
-import 'package:flutter_html/flutter_html.dart';
 
 import 'app_theme.dart';
+import 'book_reader.dart';
 import 'epub_source.dart';
 
 const List<String> _books = [
@@ -163,7 +163,7 @@ class _TocProbeState extends State<_TocProbe> {
           onTap: entry.href.isEmpty
               ? null
               : () => Navigator.of(context).push(MaterialPageRoute(
-                    builder: (_) => _ChapterProbe(book: book, entry: entry),
+                    builder: (_) => BookReader(book: book, start: entry),
                   )),
           child: Padding(
             padding: EdgeInsets.fromLTRB(16.0 + depth * 20, 10, 16, 10),
@@ -180,65 +180,6 @@ class _TocProbeState extends State<_TocProbe> {
           ),
         );
       },
-    );
-  }
-}
-
-/// Една глава, показана сурово. Тук нарочно НЯМА буквица и стилове на
-/// четеца — те идват, когато извадим ReaderCore.
-class _ChapterProbe extends StatelessWidget {
-  final EpubBook book;
-  final EpubTocEntry entry;
-  const _ChapterProbe({required this.book, required this.entry});
-
-  @override
-  Widget build(BuildContext context) {
-    final raw = book.readFile(entry.href);
-    // Стиловете и шрифтовете на самата книга се ИГНОРИРАТ — иначе томът ще
-    // изглежда като чуждо тяло вътре в приложението. Взимаме само <body>.
-    final body = raw == null
-        ? null
-        : RegExp(r'<body[^>]*>(.*)</body>', dotAll: true)
-            .firstMatch(raw)
-            ?.group(1);
-
-    return Scaffold(
-      backgroundColor: AppColors.background,
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        title: Text(entry.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontSize: 15)),
-      ),
-      body: body == null
-          ? Center(
-              child: Text('Няма ${entry.href}',
-                  style: const TextStyle(color: AppColors.textSecondary)))
-          : SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Html(
-                data: body,
-                style: {
-                  'html': Style(
-                      margin: Margins.zero, padding: HtmlPaddings.zero),
-                  'body': Style(
-                      margin: Margins.zero, padding: HtmlPaddings.zero),
-                  'p': Style(
-                    fontFamily: 'CharisSIL',
-                    fontSize: FontSize(17),
-                    lineHeight: const LineHeight(1.5),
-                    textAlign: TextAlign.justify,
-                    color: AppColors.textPrimary,
-                  ),
-                  'h1': Style(
-                    fontFamily: 'TamburinModern',
-                    fontSize: FontSize(20),
-                    color: AppColors.sectionTitle,
-                  ),
-                },
-              ),
-            ),
     );
   }
 }

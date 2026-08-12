@@ -41,6 +41,7 @@ import 'reader_font_size.dart';
 import 'reader_styles.dart';
 import 'reader_text_utils.dart';
 import 'reader_theme.dart';
+import 'reader_toolbar.dart';
 import 'saint_expandable_tile.dart'
     show SaintTexts, SaintLookup, prayersTitleFor;
 
@@ -474,64 +475,6 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
   return '${texts.lifeHtml}$prayers$src';
 }
 
-/// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
-/// този абзац без буквата; останалият HTML).
-///
-/// Обхожда абзаците, докато намери такъв, който започва с истинска буква.
-/// Така редакторски бележки в скоби ("(не путать с …)"), стоящи между
-/// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
-/// буквицата пада върху първия същински абзац.
-(String, String, String, String) _splitDropCap(String html) {
-  // Абзац се ПРОПУСКА, ако същинският му текст започва с един от тези
-  // знаци — редакторски бележки, цитати, бележки под линия и др. —
-  // ИЛИ ако абзацът започва с курсивен таг (<em>/<i>): акцент/курсив
-  // не бива да носи буквица. Курсивните абзаци допълнително се
-  // центрират (клас .italic-center, виж _htmlStyles).
-  const skipChars = {'(', "'", '*', '/', '«', '"', '['};
-  final italicStart = RegExp(r'^\s*<(?:em|i)\b[^>]*>', caseSensitive: false);
-
-  int scanned = 0;
-  int cursor = 0; // докъдето е "преписан" html в before
-  final before = StringBuffer();
-
-  for (final m in RegExp(r'<p>(.*?)</p>', dotAll: true).allMatches(html)) {
-    if (++scanned > 3) break; // буквица само в началото, не насред текста
-    final inner = m.group(1)!;
-
-    // Пропускаме абзаци, започващи с курсивен таг, но ги центрираме.
-    if (italicStart.hasMatch(inner)) {
-      before.write(html.substring(cursor, m.start));
-      before.write('<p class="italic-center">$inner</p>');
-      cursor = m.end;
-      continue;
-    }
-
-    // Търсим първия ЗНАЧИМ символ, като прескачаме HTML таговете.
-    // Така заглавие в <strong>/<b> в началото на абзаца не пречи —
-    // буквицата пада върху първата истинска буква след тага.
-    final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)').firstMatch(inner);
-    if (cm == null) continue;
-    final ch = cm.group(1)!;
-
-    // Пропускаме абзаца при изрично изброените знаци.
-    if (skipChars.contains(ch)) continue;
-    // Пропускаме и ако не е буква (цифри, тирета и пр.).
-    if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
-
-    before.write(html.substring(cursor, m.start));
-    return (
-      before.toString(),
-      ch,
-      // Запазваме таговете преди буквата (напр. отварящ <strong>),
-      // за да не се загуби форматирането на останалия текст.
-      inner.substring(0, cm.start) + inner.substring(cm.end),
-      html.substring(m.end),
-    );
-  }
-  // Няма подходящ абзац за буквица — връщаме html, но със запазени
-  // центрирания за курсивните абзаци, засечени дотук.
-  return (before.toString() + html.substring(cursor), '', '', '');
-}
 
 
 
@@ -576,7 +519,7 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
   final html = _buildHtmlFor(args.mode, args.texts);
   final isLife = args.mode == _ReaderMode.life;
   final (beforeHtml, dropCap, firstP, afterHtml) = isLife
-      ? _splitDropCap(html)
+      ? splitDropCap(html)
       : (html, '', '', '');
 
   // Житието има ли собствено заглавие (<h1>..<h6> преди първия абзац)? Ако
@@ -1994,7 +1937,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                   alignment: Alignment.center,
                   child: CustomPaint(
                     size: const Size(_btnSize - 0, _btnSize - 0),
-                    painter: _HalfMoonPainter(
+                    painter: HalfMoonPainter(
                 outline:
                     AppBarTheme.of(context).foregroundColor ?? Colors.white,
                     ),
@@ -2556,40 +2499,6 @@ class _ResumePromptState extends State<_ResumePrompt> {
   }
 }
 
-/// Знак "първа четвъртина на луната": кръг с контур, вертикално разделен —
-/// едната половина плътна (бяла), другата празна.
-class _HalfMoonPainter extends CustomPainter {
-  final Color outline;
-  const _HalfMoonPainter({required this.outline});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final c = Offset(size.width / 2, size.height / 2);
-    final r = size.width / 2 - 1;
-
-    // Дясната половина — плътна
-    final fill = Paint()
-      ..color = outline
-      ..style = PaintingStyle.fill;
-    canvas.drawArc(
-      Rect.fromCircle(center: c, radius: r),
-      -1.5707963, // -90° (горе)
-      3.1415926,  // 180° по часовниковата → дясната половина
-      true,
-      fill,
-    );
-
-    // Контурът на целия кръг
-    final stroke = Paint()
-      ..color = outline
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.4;
-    canvas.drawCircle(c, r, stroke);
-  }
-
-  @override
-  bool shouldRepaint(covariant _HalfMoonPainter old) => old.outline != outline;
-}
 
 /// Чертички за позициите на съвпаденията върху лентата (виж
 /// _buildMatchTicksOverlay). ratios са стойности 0..1 — дял от цялата

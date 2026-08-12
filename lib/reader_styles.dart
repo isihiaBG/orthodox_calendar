@@ -110,6 +110,17 @@ Map<String, Style> readerStyles({
     ),
     // Курсивен абзац, пропуснат за буквица — центриран.
     '.italic-center': Style(textAlign: TextAlign.center),
+    // Редът с паметта в началото на житие („Памет на 1 септември") — той е
+    // указание кога се чества светията, не част от разказа, затова стои
+    // отделно от текста и не носи буквицата.
+    '.memorydate': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 1),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      textAlign: TextAlign.left,
+      margin: Margins.only(top: 0, bottom: 14),
+    ),
     // Линковете: синьото на секциите от дневния изглед, не лилаво.
     'a': Style(
       color: AppColors.sectionTitle,
