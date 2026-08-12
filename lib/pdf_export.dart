@@ -46,6 +46,27 @@ String _absoluteHref(String href) => href.startsWith('saint://')
 const double _bodySize = 20.0;
 const double _lineHeight = 1.45;
 
+/// Общият ред, който искаме — в кратни на размера на шрифта.
+///
+/// `lineSpacing` в pdf пакета е ДОБАВКА върху естествения ред на шрифта, а
+/// не замяна. Естественият ред се смята от вертикалните мерки на шрифта
+/// (ascender − descender) и е различен за всеки:
+///
+///     Cambria      1946 − (−455) = 1.172 em
+///     Charis SIL   2450 − (−900) = 1.636 em      ← с 40% повече
+///
+/// Затова твърда добавка не върши работа: при смяната Cambria → Charis SIL
+/// общият ред скочи от 1.62 на 2.09 em и житията станаха с една страница
+/// по-дълги. Стойността 1.62 е тази, която даваше Cambria (1.172 + 0.45) и
+/// се пази нарочно, за да не се промени видът на PDF-ите.
+const double _targetLineEm = 1.62;
+
+/// Добавката, която да подадем на pdf пакета, за да излезе общ ред
+/// [_targetLineEm]. СМЯТА СЕ ОТ САМИЯ ШРИФТ, тъй че смяна на шрифт не иска
+/// никаква промяна тук — точно това беше урокът от Cambria → Charis SIL.
+double _lineSpacing(PdfFont font, double fontSize) =>
+    (_targetLineEm - (font.ascent - font.descent)) * fontSize;
+
 /// HTML entity-тата, срещани в текстовете (същият списък като в четеца).
 String _decodeEntities(String s) {
   const named = {
@@ -335,7 +356,17 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
 }) {
   const capLines = 5;
   final lineHeightPt = _bodySize * _lineHeight;
-  final lineSpacing = _bodySize * 0.45;
+  // Отстъпът между блока с буквицата и остатъка от абзаца — там абзацът се
+  // пречупва на два widget-а и шевът личи, ако не се премери.
+  //
+  // Шевът е descender + blockGap + ascender, тъй че зависи от шрифта:
+  //     Cambria   4.44 + 9 + 19.00 = 32.4  → незабележим
+  //     Charis SIL 8.79 + 9 + 23.93 = 41.7  → зее насред абзаца
+  // Charis има с 4.9 пункта по-висок ascender и с 4.4 по-дълбок descender и
+  // те се събират точно тук. Затова тръгваме от същата поправка както при
+  // междуредието и добавяме малкото, което Cambria на практика имаше (~4),
+  // за да не се слепят двата блока.
+  final blockGap = _lineSpacing(measureFont, _bodySize) + 4;
 
   // Размерът е ЗАДАДЕН ПРЯКО (както в четеца), а не мащабиран през
   // FittedBox: там глифът се вписваше заедно с празните полета около себе
@@ -359,7 +390,8 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   final indentWidth = _bodySize * 1.6;
 
   final style = pw.TextStyle(
-      font: _body, fontSize: _bodySize, lineSpacing: lineSpacing, color: _ink);
+      font: _body, fontSize: _bodySize,
+      lineSpacing: _lineSpacing(measureFont, _bodySize), color: _ink);
 
   final beside = <pw.Widget>[]; // фрагментите вдясно от буквицата
   final tail = <pw.Widget>[]; // онова, което продължава под нея
@@ -424,7 +456,7 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
           style: style, children: [if (indent != null) indent, ...spans]),
     ));
     tail
-      ..add(pw.SizedBox(height: lineSpacing))
+      ..add(pw.SizedBox(height: blockGap))
       ..add(pw.RichText(
         textAlign: pw.TextAlign.justify,
         // Без overflow.span текстът НЕ се пренася между страници (виж
@@ -641,7 +673,8 @@ Future<void> sharePdf({
                               style: pw.TextStyle(
                                 font: _body,
                                 fontSize: _bodySize,
-                                lineSpacing: _bodySize * 0.45,
+                                lineSpacing: _lineSpacing(
+                                    _body!.getFont(context), _bodySize),
                                 color: _ink,
                               ))),
                     ],
@@ -660,6 +693,18 @@ Future<void> sharePdf({
               final isCsl = b.cls.contains('csl');
               final isTrans = b.cls.contains('trans');
               final isSourceLine = b.cls.contains('source');
+              // Изнесен в променлива, защото междуредието се смята СПРЯМО
+              // него — иначе преводът (с по-дребен шрифт) и славянският
+              // текст (с по-едър) щяха да получат реда на основния размер.
+              final blockFontSize = isPrayerHead
+                  ? _bodySize + 1
+                  : isCsl
+                      ? _bodySize + 0.5
+                      : isTrans
+                          ? _bodySize - 1
+                          : isSourceLine
+                              ? _bodySize - 3
+                              : _bodySize;
               final style = pw.TextStyle(
                 font: isPrayerHead
                     ? _bodyBold
@@ -670,16 +715,9 @@ Future<void> sharePdf({
                 fontBold: _bodyBold,
                 fontWeight:
                     isPrayerHead ? pw.FontWeight.bold : pw.FontWeight.normal,
-                fontSize: isPrayerHead
-                    ? _bodySize + 1
-                    : isCsl
-                        ? _bodySize + 0.5
-                        : isTrans
-                            ? _bodySize - 1
-                            : isSourceLine
-                                ? _bodySize - 3
-                                : _bodySize,
-                lineSpacing: _bodySize * 0.45,
+                fontSize: blockFontSize,
+                lineSpacing:
+                    _lineSpacing(_body!.getFont(context), blockFontSize),
                 // Източникът остава курсивен, но в мастилено: сивото се
                 // губеше до синьото на самия адрес до него.
                 color: isPrayerHead
@@ -743,7 +781,8 @@ Future<void> sharePdf({
                               style: pw.TextStyle(
                                 font: _body,
                                 fontSize: _bodySize + 0.5,
-                                lineSpacing: _bodySize * 0.45,
+                                lineSpacing: _lineSpacing(
+                                    _body!.getFont(context), _bodySize + 0.5),
                                 color: _ink,
                               ))),
                     ],
