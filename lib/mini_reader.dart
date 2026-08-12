@@ -21,6 +21,13 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'reader_screen.dart';
+import 'reference_text.dart';
+import 'saint_expandable_tile.dart' show lookupBySlug;
+
+/// Схемата, с която 03_build_db.py бележи препратките към бележки под линия
+/// в мислите на свт. Теофан. Държи се тук, до мястото, което я разпознава.
+const String kTeofanNoteScheme = 'teofan-note://';
 
 class MiniReader extends StatefulWidget {
   /// Връща готовото HTML тяло или null, ако за деня няма запис.
@@ -62,6 +69,32 @@ class _MiniReaderState extends State<MiniReader> {
 
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
+
+    // Бележките под линия НЕ водят навън — отварят се в четеца, както
+    // четивата на „Справочник". Библейските препратки нарочно си остават
+    // външни (azbyka.ru), докато си направим своя секция „Библия".
+    if (url.startsWith(kTeofanNoteScheme)) {
+      final key = Uri.decodeComponent(url.substring(kTeofanNoteScheme.length));
+      final texts = await loadTeofanNote('$kTeofanNoteSlugPrefix$key');
+      if (!mounted) return;
+      if (texts == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Бележката не беше намерена.')),
+        );
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ReaderScreen.sluzhba(
+          texts: texts,
+          lookup: lookupBySlug,
+          lifeTitle: texts.name,
+          // Режимът рисува без буквица, но четивото не е служба.
+          typeLabel: 'Бележка',
+        ),
+      ));
+      return;
+    }
+
     final uri = Uri.tryParse(url);
     if (uri == null) return;
     await launchUrl(uri, mode: LaunchMode.externalApplication);
@@ -143,8 +176,8 @@ class _MiniReaderState extends State<MiniReader> {
           color: AppColors.sectionTitle,
           textDecoration: TextDecoration.none,
         ),
-        // Препратките към бележки под линия. Засега само се виждат;
-        // отварянето им е отделна стъпка.
+        // Препратките към бележки под линия — отварят се в четеца
+        // (виж _onLinkTap). Цветът им идва от правилото за <a> отгоре.
         'sup': Style(fontSize: FontSize(widget.fontSize * 0.7)),
       };
 }

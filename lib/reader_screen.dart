@@ -896,11 +896,21 @@ class ReaderScreen extends StatefulWidget {
   /// "Житие" (напр. при saint:// вътрешен линк, където няма rank).
   final String? lifeTitle;
 
+  /// Какъв вид четиво е това — надписът над заглавието, който влиза и в
+  /// отметката.
+  ///
+  /// Режимът `sluzhba` отдавна не носи само служби: с него се отварят и
+  /// четивата на „Справочник", и бележките на свт. Теофан. Той решава как
+  /// се РИСУВА текстът (без буквица), не какво Е той, затова надписът се
+  /// подава отвън. Празно значи старото поведение — „Служба".
+  final String? typeLabel;
+
   const ReaderScreen.life({
     super.key,
     required this.texts,
     required this.lookup,
     this.lifeTitle,
+    this.typeLabel,
   }) : _mode = _ReaderMode.life;
 
   const ReaderScreen.prayers({
@@ -908,6 +918,7 @@ class ReaderScreen extends StatefulWidget {
     required this.texts,
     required this.lookup,
     this.lifeTitle,
+    this.typeLabel,
   }) : _mode = _ReaderMode.prayers;
 
   const ReaderScreen.sluzhba({
@@ -915,6 +926,7 @@ class ReaderScreen extends StatefulWidget {
     required this.texts,
     required this.lookup,
     this.lifeTitle,
+    this.typeLabel,
   }) : _mode = _ReaderMode.sluzhba;
 
   @override
@@ -1839,11 +1851,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
-  String get _typeLabel => widget._mode == _ReaderMode.life
-      ? (widget.lifeTitle ?? 'Житие')
-      : widget._mode == _ReaderMode.sluzhba
-          ? 'Служба'
-          : prayersTitleFor(widget.texts);
+  String get _typeLabel =>
+      widget.typeLabel ??
+      (widget._mode == _ReaderMode.life
+          ? (widget.lifeTitle ?? 'Житие')
+          : widget._mode == _ReaderMode.sluzhba
+              ? 'Служба'
+              : prayersTitleFor(widget.texts));
 
   // Палитрата на четеца — независима от темата на приложението.
   Color get _bg =>

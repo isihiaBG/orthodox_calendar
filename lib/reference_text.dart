@@ -18,11 +18,18 @@
 
 import 'package:flutter/material.dart';
 
+import 'dart:convert' show HtmlEscape, HtmlEscapeMode;
+
 import 'database_helper.dart';
 import 'saint_expandable_tile.dart' show SaintTexts;
 
 /// Представка на слъговете от справочника: `ref-<id на статията>`.
 const String kReferenceSlugPrefix = 'ref-';
+
+/// Представка на бележките под линия от „Мисли от Теофан Затворник":
+/// `teofan-note-*5`. Ключът е такъв, какъвто е в книгата — авторовите
+/// бележки са „*5", редакционните са само число.
+const String kTeofanNoteSlugPrefix = 'teofan-note-';
 
 /// Многодневните пости — само те стават за „започналия/предстоящия … пост".
 /// Период 1 е обикновен постен ден (сряда/петък), 0 е блажене.
@@ -31,6 +38,9 @@ const Set<int> _multiDayFastPeriods = {2, 3, 4, 5};
 const String _fastPlaceholder = '⟦пост⟧';
 
 bool isReferenceSlug(String slug) => slug.startsWith(kReferenceSlugPrefix);
+
+bool isTeofanNoteSlug(String slug) =>
+    slug.startsWith(kTeofanNoteSlugPrefix);
 
 /// „започналия вече Богородичен пост" или „предстоящия Велик пост".
 ///
@@ -101,6 +111,31 @@ Future<SaintTexts?> loadReferenceArticle(String slug) async {
     );
   } catch (e) {
     debugPrint('[reference] не можах да заредя статия $slug: $e');
+    return null;
+  }
+}
+
+/// Бележка под линия от мислите на свт. Теофан, по слъг `teofan-note-*5`.
+///
+/// Текстът в базата е ЧИСТ (без разметка) — там влиза така от
+/// 02b_translate_notes.py. Затова се обвива в <p> тук: четецът рисува
+/// тялото през flutter_html и без таг би получил един слепен ред.
+Future<SaintTexts?> loadTeofanNote(String slug) async {
+  final key = slug.substring(kTeofanNoteSlugPrefix.length);
+  if (key.isEmpty) return null;
+  try {
+    final db = await DatabaseHelper.teofanDatabase;
+    final rows = await db.query('notes',
+        columns: ['body'], where: 'key = ?', whereArgs: [key], limit: 1);
+    if (rows.isEmpty) return null;
+    final body = (rows.first['body'] as String).trim();
+    return SaintTexts(
+      name: 'Бележка',
+      sluzhba: '<p>${const HtmlEscape(HtmlEscapeMode.element).convert(body)}</p>',
+      slug: slug,
+    );
+  } catch (e) {
+    debugPrint('[teofan] не можах да заредя бележка $slug: $e');
     return null;
   }
 }

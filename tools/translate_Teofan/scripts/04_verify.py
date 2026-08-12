@@ -55,8 +55,12 @@ DEFAULT_DB = os.path.join(REPO_ROOT, 'assets', 'db', 'teofan.db')
 
 REQUIRED_TAIL = '&amp;bg~utfcs'
 RE_HREF = re.compile(r'href="([^"]+)"')
+# Библейските препратки водят навън, бележките — в четеца на приложението.
+# Двете се броят поотделно, защото за тях важат различни правила.
+RE_BIBLE_HREF = re.compile(r'href="(https://azbyka\.ru/[^"]+)"')
+NOTE_SCHEME = 'teofan-note://'
 RE_LEFTOVER = re.compile(r'⟦[^⟧]*⟧')
-RE_NOTE_REF = re.compile(r'data-note="([^"]+)"')
+RE_NOTE_REF = re.compile(r'href="teofan-note://([^"]+)"')
 RE_TAG = re.compile(r'</?(\w+)')
 # Руските и дългите форми, които не бива да остават. Търсят се като ЦЯЛА
 # дума пред точка — „Мат." е грешка, но „Матей" в текста е съвсем редно.
@@ -93,7 +97,7 @@ def main():
 
     връзки_общо = бележки_общо = 0
     for tid, (_, kind, key, _, body) in sorted(thoughts.items()):
-        има = len(RE_HREF.findall(body))
+        има = len(RE_BIBLE_HREF.findall(body))
         има_бел = len(RE_NOTE_REF.findall(body))
         връзки_общо += има
         бележки_общо += има_бел
@@ -112,6 +116,10 @@ def main():
     адреси = []
     for tid, (_, _, _, _, body) in sorted(thoughts.items()):
         for href in RE_HREF.findall(body):
+            # Бележките не са външни адреси — те се проверяват отделно,
+            # срещу таблицата `notes` (виж проверка 4).
+            if href.startswith(NOTE_SCHEME):
+                continue
             адреси.append((tid, href))
             if not href.endswith(REQUIRED_TAIL):
                 беди.append('%03d: адрес без опашката %s → %s'

@@ -59,6 +59,13 @@ DEFAULT_OUT = os.path.join(REPO_ROOT, 'assets', 'db', 'teofan.db')
 
 BIBLE_URL = 'https://azbyka.ru/biblia/?%s&bg~utfcs'
 
+# Бележките под линия НЕ водят навън — отварят се в четеца на приложението,
+# по същия начин както четивата на „Справочник". Схемата се разпознава в
+# MiniReader (lib/mini_reader.dart) и се превежда в слъг `teofan-note-*5`,
+# който lookupBySlug разрешава срещу таблицата `notes` в тази база.
+# Библейските препратки НАРОЧНО остават външни — виж BIBLE_URL.
+NOTE_URL_SCHEME = 'teofan-note://'
+
 RE_ATOM = re.compile(r'⟦(\d+)⟧')
 RE_QUOTE = re.compile(r'«[^«»]{2,}»')
 # Колко ЧИСТИ знака търпим между края на цитата и препратката, за да ги
@@ -157,8 +164,14 @@ def build_body(unit, quotes_out):
                 return '<a href="%s">%s</a>' % (
                     html.escape(BIBLE_URL % code, quote=True),
                     html.escape(bulgarian_ref(code), quote=False))
+            # Бележката е ВРЪЗКА, не просто надпис: flutter_html подава на
+            # onLinkTap само <a>, тъй че гол <sup> не може да се отвори.
+            # Схемата teofan-note:// се разпознава в MiniReader и отваря
+            # бележката в четеца — по същия ред като saint:// при житията.
             label = html.escape(atom['payload'], quote=False)
-            return '<sup class="note" data-note="%s">%s</sup>' % (label, label)
+            return ('<a href="%s%s"><sup class="note">%s</sup></a>'
+                    % (NOTE_URL_SCHEME,
+                       html.escape(atom['payload'], quote=True), label))
 
         escaped = RE_ATOM.sub(on_atom, escaped)
         paragraphs.append('<p>%s</p>' % escaped.strip())

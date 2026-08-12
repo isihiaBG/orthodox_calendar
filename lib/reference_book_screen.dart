@@ -117,6 +117,9 @@ class _ReferenceBookSectionState extends State<ReferenceBookSection> {
         ),
         lookup: lookupBySlug,
         lifeTitle: article.title,
+        // Режимът е `sluzhba`, защото рисува без буквица — но четивото не е
+        // служба и не бива да се представя за такава.
+        typeLabel: 'Указания',
       ),
     ));
   }

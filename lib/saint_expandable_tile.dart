@@ -88,6 +88,9 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
   // разрешава слъг — включително списъка с отметки в четеца, който знае
   // само слъга на запазеното четиво.
   if (isReferenceSlug(slug)) return loadReferenceArticle(slug);
+  // Бележките на свт. Теофан — също своя база (teofan.db), по същата
+  // причина: слъгът трябва да се разрешава и от списъка с отметки.
+  if (isTeofanNoteSlug(slug)) return loadTeofanNote(slug);
 
   final db = await DatabaseHelper.database;
   final r = await db.rawQuery('''
