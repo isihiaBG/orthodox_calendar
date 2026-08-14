@@ -25,7 +25,7 @@ import 'reader_theme.dart';
 /// Наборът тагове там е ЗАКРИТ и проверен по цялата база: <a href>,
 /// <strong>, <em> и <br>. Друг таг и друг атрибут не се срещат, затова
 /// разборът е нарочно плосък, без дърво.
-class _Run {
+class HtmlRun {
   final String text;
   final bool bold;
   final bool italic;
@@ -33,7 +33,7 @@ class _Run {
   /// повдигнат; виж коментара при [kSupScale].
   final bool sup;
   final String? href;
-  const _Run(this.text,
+  const HtmlRun(this.text,
       {this.bold = false, this.italic = false, this.sup = false, this.href});
 }
 
@@ -41,10 +41,11 @@ class _Run {
 /// reader_styles.dart, за да изглеждат еднакво в двата начина на рисуване.
 const double kSupScale = 0.62;
 
-/// Разлага HTML на парчета, като разкодира entity-тата и слепва поредните
+/// Разлага HTML на парчета. Публична, защото по същите парчета мери и
+/// text_line_locator.dart — двете трябва да виждат ЕДИН И СЪЩ текст., като разкодира entity-тата и слепва поредните
 /// интервали — точно както го прави и чистият текст, по който се мери.
-List<_Run> _htmlRuns(String html) {
-  final runs = <_Run>[];
+List<HtmlRun> htmlRuns(String html) {
+  final runs = <HtmlRun>[];
   var bold = 0;
   var italic = 0;
   var sup = 0;
@@ -54,7 +55,7 @@ List<_Run> _htmlRuns(String html) {
 
   void push(String t) {
     if (t.isEmpty) return;
-    runs.add(_Run(t,
+    runs.add(HtmlRun(t,
         bold: bold > 0,
         italic: italic > 0,
         sup: sup > 0,
@@ -96,6 +97,14 @@ List<_Run> _htmlRuns(String html) {
   return runs;
 }
 
+/// Началата на всички съвпадения в чист текст.
+///
+/// Ползва се отвън (reader_screen), за да разбере на кой ЗНАК стои k-тото
+/// съвпадение в абзаца с буквицата — и оттам, чрез
+/// [DropCapParagraphState.dyForChar], на кой пиксел.
+List<int> matchStartsOf(String text, String foldedQuery) =>
+    [for (final r in _matchRanges(text, foldedQuery)) r.$1];
+
 /// Началото и краят на всяко съвпадение в чистия текст.
 List<(int, int)> _matchRanges(String text, String foldedQuery) {
   if (foldedQuery.isEmpty) return const [];
@@ -110,6 +119,48 @@ List<(int, int)> _matchRanges(String text, String foldedQuery) {
     from = endIdx + 1;
   }
   return out;
+}
+
+/// Каквото трябва да се знае, за да се каже на кой пиксел стои даден знак от
+/// абзаца с буквицата. Пълни се при рисуването (виж [DropCapParagraphState]).
+class _CapGeometry {
+  final List<InlineSpan> narrowSpans; // първият абзац, целият
+  final List<InlineSpan> tailSpans;   // същият, от отреза нататък
+  final int cut;                      // докъде стига обтичащата зона
+  final double narrowWidth;
+  final double fullWidth;
+  final double rowHeight;             // височината на реда с буквицата
+  final TextStyle base;
+  final TextScaler scaler;
+
+  // Вторият абзац — влиза вдясно от буквицата, когато първият е къс.
+  final List<InlineSpan> narrowSpans2;
+  final List<InlineSpan> tailSpans2;
+  final int cut2;      // докъде от него е в тясната колона
+  final int lines2;    // колко негови реда са там (0 = не е влизал)
+  final int startsAt2; // откъде започва опашката му
+  final double firstNarrowHeight; // височината на първия абзац в колоната
+  final double tail1Height;       // опашката на първия абзац, ако има
+  final double paraGap;
+
+  const _CapGeometry({
+    required this.narrowSpans,
+    required this.tailSpans,
+    required this.cut,
+    required this.narrowWidth,
+    required this.fullWidth,
+    required this.rowHeight,
+    required this.base,
+    required this.scaler,
+    required this.narrowSpans2,
+    required this.tailSpans2,
+    required this.cut2,
+    required this.lines2,
+    required this.startsAt2,
+    required this.firstNarrowHeight,
+    required this.tail1Height,
+    required this.paraGap,
+  });
 }
 
 /// Абзац с водеща буква и ИСТИНСКО обтичане.
@@ -131,7 +182,7 @@ List<(int, int)> _matchRanges(String text, String foldedQuery) {
 /// разминаване няма по построение, а maxLines сам отрязва.
 ///
 /// Таговете, които се срещат в началните абзаци, са проверени по цялата
-/// база и са само четири (виж _htmlRuns).
+/// база и са само четири (виж htmlRuns).
 class DropCapParagraph extends StatefulWidget {
   final String dropCap;
   final double dropCapSize;
@@ -154,6 +205,7 @@ class DropCapParagraph extends StatefulWidget {
   final void Function(String?) onLinkTap;
 
   const DropCapParagraph({
+    super.key,
     required this.dropCap,
     required this.dropCapSize,
     required this.lineHeight,
@@ -181,6 +233,118 @@ class DropCapParagraphState extends State<DropCapParagraph> {
   // Старите се освобождават СЛЕД кадъра — докато той се рисува, все още са
   // закачени за spans-овете.
   List<TapGestureRecognizer> _recognizers = [];
+
+  // ── Геометрията от последното рисуване ────────────────────────────────
+  //
+  // Запомня се, за да може търсенето да пита „на кой пиксел е този знак".
+  // Нарочно се взима ОТТУК, а не се пресмята наново отвън: кутията вече е
+  // мерила всичко това, за да реши къде да пречупи обтичащата зона, и
+  // всяко второ пресмятане би се разминало с нея при първата промяна на
+  // константите (ширина на буквицата, луфт, ред за букви с опашка).
+  _CapGeometry? _geometry;
+
+  /// Отместването (в пиксели, спрямо върха на този абзац) на реда, в който
+  /// стои знак [charIndex] от ПЪРВИЯ абзац.
+  ///
+  /// null, ако още не е рисувано (значи няма геометрия) — тогава
+  /// извикващият да ползва началото на абзаца.
+  double? dyForChar(int charIndex) {
+    final g = _geometry;
+    if (g == null) return null;
+    // Обтичащата зона: знакът е в тясната колона до буквицата.
+    if (charIndex < g.cut) {
+      final tp = TextPainter(
+        text: TextSpan(style: g.base, children: g.narrowSpans),
+        textDirection: TextDirection.ltr,
+        textScaler: g.scaler,
+        textAlign: TextAlign.justify,
+      )..layout(maxWidth: g.narrowWidth);
+      final dy = tp
+          .getOffsetForCaret(TextPosition(offset: charIndex), Rect.zero)
+          .dy;
+      tp.dispose();
+      return dy;
+    }
+    // Опашката под буквицата — цяла ширина, започва наново от отреза.
+    final tp = TextPainter(
+      text: TextSpan(style: g.base, children: g.tailSpans),
+      textDirection: TextDirection.ltr,
+      textScaler: g.scaler,
+      textAlign: TextAlign.justify,
+    )..layout(maxWidth: g.fullWidth);
+    final dy = tp
+        .getOffsetForCaret(TextPosition(offset: charIndex - g.cut), Rect.zero)
+        .dy;
+    tp.dispose();
+    // 2 пиксела отстъп отгоре — виж Padding-а при опашката в build().
+    return g.rowHeight + 2 + dy;
+  }
+
+  /// Обратното на [dyForChar]: кой знак стои на пиксел [dy].
+  ///
+  /// Нужно е на отметките — те записват ЗНАК, не пиксел и не ред, защото
+  /// само знакът не се мени при смяна на размера на шрифта. Виж
+  /// text_line_locator.dart за същото при обикновените абзаци.
+  int? charAtDy(double dy) {
+    final g = _geometry;
+    if (g == null) return null;
+    int at(List<InlineSpan> spans, double width, double y) {
+      final tp = TextPainter(
+        text: TextSpan(style: g.base, children: spans),
+        textDirection: TextDirection.ltr,
+        textScaler: g.scaler,
+        textAlign: TextAlign.justify,
+      )..layout(maxWidth: width);
+      final pos = tp
+          .getPositionForOffset(Offset(0, y.clamp(0, tp.height)))
+          .offset;
+      tp.dispose();
+      return pos;
+    }
+
+    // Обтичащата зона до инициала.
+    if (dy < g.rowHeight) {
+      final pos = at(g.narrowSpans, g.narrowWidth, dy);
+      // Отвъд отреза текстът вече е в опашката — там горе го няма.
+      return pos > g.cut ? g.cut : pos;
+    }
+    // Опашката под буквицата; 2 пиксела отстъп отгоре (виж build).
+    return g.cut + at(g.tailSpans, g.fullWidth, dy - g.rowHeight - 2);
+  }
+
+  /// Същото, но за знак от ВТОРИЯ абзац (онзи, който при къс първи абзац се
+  /// изтегля вдясно от буквицата). Без него съвпаденията точно на границата
+  /// между двата абзаца се целеха по началото на региона — оттам и
+  /// „дупката" в чертичките там.
+  double? dyForCharInSecond(int charIndex) {
+    final g = _geometry;
+    if (g == null) return null;
+    double caret(List<InlineSpan> spans, double width, int at) {
+      final tp = TextPainter(
+        text: TextSpan(style: g.base, children: spans),
+        textDirection: TextDirection.ltr,
+        textScaler: g.scaler,
+        textAlign: TextAlign.justify,
+      )..layout(maxWidth: width);
+      final dy =
+          tp.getOffsetForCaret(TextPosition(offset: at), Rect.zero).dy;
+      tp.dispose();
+      return dy;
+    }
+
+    // В тясната колона, под първия абзац и луфта помежду им.
+    if (g.lines2 > 0 && charIndex < g.cut2) {
+      return g.firstNarrowHeight +
+          g.paraGap +
+          caret(g.narrowSpans2, g.narrowWidth, charIndex);
+    }
+    // Иначе — в опашката под буквицата, след опашката на първия абзац.
+    final padTop = g.lines2 > 0 ? 2.0 : g.paraGap / 2;
+    return g.rowHeight +
+        g.tail1Height +
+        padTop +
+        caret(g.tailSpans2, g.fullWidth, charIndex - g.startsAt2);
+  }
 
   @override
   void dispose() {
@@ -212,15 +376,15 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         final capLines =
             (widget.dropCapSize / widget.lineHeight).ceil() + extraLine;
 
-        final runs = _htmlRuns(widget.firstParagraph);
+        final runs = htmlRuns(widget.firstParagraph);
         final plain = runs.map((r) => r.text).join();
         final matches = _matchRanges(plain, widget.searchQuery);
         // Вторият абзац — може да влезе вдясно от буквицата, ако първият
         // не стигне до петия ред. Съвпаденията му продължават номерацията
         // на първия, за да не се разминат броячите.
         final runs2 = widget.secondParagraph.isEmpty
-            ? const <_Run>[]
-            : _htmlRuns(widget.secondParagraph);
+            ? const <HtmlRun>[]
+            : htmlRuns(widget.secondParagraph);
         final plain2 = runs2.map((r) => r.text).join();
         final matches2 = _matchRanges(plain2, widget.searchQuery);
 
@@ -251,7 +415,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         /// тук се мери само за да се реши докъде стига текстът до буквицата.
         /// Ширината е ЕДНАКВА в двата случая (повдигането е чисто вертикално
         /// отместване), тъй че резът пада на същото място.
-        List<InlineSpan> spansOf(List<_Run> src, String text,
+        List<InlineSpan> spansOf(List<HtmlRun> src, String text,
             List<(int, int)> hits, int matchBase, int from, int to,
             {bool forMeasure = false}) {
           final out = <InlineSpan>[];
@@ -287,11 +451,26 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             // таблицата „sups" на шрифта: сменим ли го утре с такъв без нея,
             // повдигането щеше да отпадне тихо.
             //
-            // Не се насича по съвпаденията от търсенето: номерът на бележка
-            // не е текст, който човек търси.
+            // Не се насича по съвпаденията, но СЕ ОЦВЕТЯВА, ако попада в
+            // намереното. Номерът на бележка наистина не е текст, който
+            // човек търси нарочно, но търсачката го брои и обхожда — и
+            // остане ли неоцветен, човекът стига дотам и не вижда нищо.
             if (run.sup && !forMeasure) {
+              Color? hitBg;
+              for (var i = 0; i < hits.length; i++) {
+                final (ms, me) = hits[i];
+                if (me <= lo || ms >= hi) continue;
+                hitBg = matchBase + i == widget.currentGlobalMatch
+                    ? widget.hitCurrentColor
+                    : widget.hitColor;
+                // Текущото има превес над обикновеното.
+                if (matchBase + i == widget.currentGlobalMatch) break;
+              }
               final label = Text(text.substring(lo, hi),
-                  style: style, textScaler: TextScaler.noScaling);
+                  style: hitBg == null
+                      ? style
+                      : style.copyWith(backgroundColor: hitBg),
+                  textScaler: TextScaler.noScaling);
               out.add(WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
                 baseline: TextBaseline.alphabetic,
@@ -412,6 +591,57 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             cut2 = f2.cut;
           }
         }
+
+        // Запомняме измереното, за да може търсенето да пита „на кой пиксел
+        // стои този знак". Пише се по време на build нарочно: това е
+        // кеширане на мярката, която ТОКУ-ЩО направихме — второ смятане
+        // отвън неизбежно би се разминало с тукашните константи.
+        final firstNarrowHeight = f1.lines * lineHeightPx;
+        final narrowColumnHeight = firstNarrowHeight +
+            (lines2 > 0 ? paraGap + lines2 * lineHeightPx : 0.0);
+        final tailSpans1 = spansOf(runs, plain, matches,
+            widget.firstGlobalMatchIndex, f1.cut, plain.length,
+            forMeasure: true);
+        // Височината на опашката на първия абзац — нужна, за да знаем къде
+        // започва опашката на втория. Мери се само когато има такава.
+        var tail1Height = 0.0;
+        if (f1.cut < plain.length) {
+          final tp = TextPainter(
+            text: TextSpan(style: base, children: tailSpans1),
+            textDirection: TextDirection.ltr,
+            textScaler: scaler,
+            textAlign: TextAlign.justify,
+          )..layout(maxWidth: constraints.maxWidth);
+          tail1Height = tp.height + 2; // + Padding(top: 2)
+          tp.dispose();
+        }
+        final startsAt2 = lines2 > 0 ? cut2 : 0;
+        _geometry = _CapGeometry(
+          narrowSpans: measure1,
+          tailSpans: tailSpans1,
+          cut: f1.cut,
+          narrowWidth: narrowWidth,
+          fullWidth: constraints.maxWidth,
+          rowHeight: widget.dropCapSize > narrowColumnHeight
+              ? widget.dropCapSize
+              : narrowColumnHeight,
+          base: base,
+          scaler: scaler,
+          narrowSpans2: runs2.isEmpty
+              ? const <InlineSpan>[]
+              : spansOf(runs2, plain2, matches2, base2, 0, plain2.length,
+                  forMeasure: true),
+          tailSpans2: runs2.isEmpty || startsAt2 >= plain2.length
+              ? const <InlineSpan>[]
+              : spansOf(runs2, plain2, matches2, base2, startsAt2,
+                  plain2.length, forMeasure: true),
+          cut2: cut2,
+          lines2: lines2,
+          startsAt2: startsAt2,
+          firstNarrowHeight: firstNarrowHeight,
+          tail1Height: tail1Height,
+          paraGap: paraGap,
+        );
 
         // Какво остава ПОД буквицата. Трите случая се изключват взаимно:
         // или първият абзац е пресечен (тогава вторият изобщо не е влизал),

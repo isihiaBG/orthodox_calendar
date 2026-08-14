@@ -64,14 +64,28 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.justify,
       color: ink,
     ),
+    // Заглавието на четивото. Едро и СТЕГНАТО: при междуредието на текста
+    // (1.25) по-дългите заглавия се разсипват на разредени редове, вместо да
+    // стоят като един надпис. Числата са общи за двата четеца — същите носи
+    // и заглавието, което reader_screen рисува със свой Text.
     'h3': Style(
       fontFamily: kTitleFamily,
-      fontSize: FontSize(fontSize + 10),
-      lineHeight: const LineHeight(kReaderLineHeight),
+      fontSize: FontSize(fontSize + 12),
+      lineHeight: const LineHeight(1.05),
       fontWeight: FontWeight.normal,
       textAlign: TextAlign.center,
       // bottom се управлява от отстоянието заглавие → текст в четеца
       margin: Margins.only(top: 18, bottom: 0),
+      color: ink,
+    ),
+    // Гол <div>. В житията от базата такъв няма изобщо — идва от .epub-ите
+    // на „Читанка", където заглавната страница на тома е построена от
+    // <div>-ове вместо от абзаци. Без това правило те се рисуват със
+    // системния шрифт и подразбиращия се цвят, тъй че единствената
+    // страница, която е чиста типография, изглежда чужда на книгата.
+    'div': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
       color: ink,
     ),
     'strong': Style(color: strongInWine ? wine : ink),

@@ -136,6 +136,29 @@ class _TocProbeState extends State<_TocProbe> {
                             color: AppColors.textSecondary, fontSize: 12),
                       ),
                     ),
+                    // Отваряне на КНИГАТА, а не на конкретна глава. Разликата
+                    // не е козметична: тапне ли се глава от съдържанието,
+                    // човекът вече е казал къде иска да бъде и четецът
+                    // нарочно НЕ предлага връщане към отметката (виж
+                    // BookReader._loadSavedPosition). Само по този път
+                    // подканата за продължаване изобщо се явява.
+                    InkWell(
+                      onTap: () => Navigator.of(context).push(
+                          MaterialPageRoute(
+                              builder: (_) => BookReader(book: book))),
+                      child: const Padding(
+                        padding: EdgeInsets.fromLTRB(16, 14, 16, 14),
+                        child: Row(children: [
+                          Icon(Icons.play_arrow,
+                              size: 20, color: AppColors.sectionTitle),
+                          SizedBox(width: 10),
+                          Text('Отвори книгата',
+                              style: TextStyle(
+                                  color: AppColors.sectionTitle, fontSize: 16)),
+                        ]),
+                      ),
+                    ),
+                    const Divider(height: 1),
                     Expanded(child: _tocList(book)),
                   ],
                 ),

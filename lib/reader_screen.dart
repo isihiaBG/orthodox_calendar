@@ -28,6 +28,7 @@ import 'dart:math' as math;
 import 'package:flutter/foundation.dart' show compute;
 import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -35,11 +36,17 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'bookmarks.dart';
+import 'bookmarks_all.dart';
 import 'pdf_export.dart';
 import 'round_icon_button.dart';
 import 'drop_cap.dart';
+import 'text_line_locator.dart';
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
+import 'reader_more_menu.dart';
+import 'reader_resume_prompt.dart';
+import 'reader_regions.dart';
 import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'reader_sup_extension.dart';
@@ -88,30 +95,6 @@ int _countMatchesHtml(String html, String foldedQuery) {
 
 
 
-/// Дели HTML на блокове по абзаци/заглавия — всеки получава свой GlobalKey,
-/// за да можем да скролваме прецизно до региона с текущото съвпадение.
-List<String> _splitBlocks(String html) {
-  final blocks = <String>[];
-  final re = RegExp(
-    r'<(p|h[1-6])\b[^>]*>.*?</\1>',
-    dotAll: true,
-    caseSensitive: false,
-  );
-  int cursor = 0;
-  for (final m in re.allMatches(html)) {
-    if (m.start > cursor) {
-      final gap = html.substring(cursor, m.start).trim();
-      if (gap.isNotEmpty) blocks.add(gap);
-    }
-    blocks.add(m.group(0)!);
-    cursor = m.end;
-  }
-  if (cursor < html.length) {
-    final tail = html.substring(cursor).trim();
-    if (tail.isNotEmpty) blocks.add(tail);
-  }
-  return blocks.isEmpty ? [html] : blocks;
-}
 
 /// Чист текст без тагове — същата формула, ползвана и в _DropCapParagraph.
 String _plainTextOf(String innerHtml) {
@@ -204,58 +187,7 @@ class _ExactListDelegate extends SliverChildListDelegate {
   ) => totalExtent;
 }
 
-/// Един "регион" от документа — единица за търсене/скролиране.
-/// isHtml=true  → рендва се през flutter_html (обикновен абзац/блок).
-/// isHtml=false → буквицата (плосък текст, специален рендер).
-class _Region {
-  final bool isHtml;
-  final String content;
-  /// САМО за региона с буквицата: следващият абзац, който може да влезе
-  /// вдясно от нея, ако първият не запълва петте реда. Той се маха от
-  /// списъка с обикновени региони, за да не се изпише два пъти.
-  final String second;
-  const _Region.html(this.content)
-      : isHtml = true,
-        second = '';
-  const _Region.dropcapPlain(this.content, {this.second = ''})
-      : isHtml = false;
-}
-
-List<_Region> _computeRegions(
-  String beforeHtml,
-  String dropCap,
-  String firstP,
-  String afterHtml,
-) {
-  final regions = <_Region>[];
-  if (dropCap.isNotEmpty) {
-    if (beforeHtml.trim().isNotEmpty) regions.add(_Region.html(beforeHtml));
-    final blocks = _splitBlocks(afterHtml);
-    // Следващият блок отива при буквицата САМО ако е обикновен абзац:
-    // заглавие или центриран курсив не бива да се притиска в тясната
-    // колона. Ако не потрябва, кутията си го изписва под буквицата — на
-    // мястото, където би стоял и без това.
-    var second = '';
-    if (blocks.isNotEmpty) {
-      final m = RegExp(r'^<p>(.*)</p>$', dotAll: true).firstMatch(blocks.first);
-      if (m != null) {
-        second = m.group(1)!;
-        blocks.removeAt(0);
-      }
-    }
-    regions.add(_Region.dropcapPlain(firstP, second: second));
-    for (final block in blocks) {
-      regions.add(_Region.html(block));
-    }
-  } else {
-    for (final block in _splitBlocks(beforeHtml)) {
-      regions.add(_Region.html(block));
-    }
-  }
-  return regions;
-}
-
-int _countInRegion(_Region r, String foldedQuery) {
+int _countInRegion(ReaderRegion r, String foldedQuery) {
   if (r.isHtml) return _countMatchesHtml(r.content, foldedQuery);
   return _countMatchesPlain(_plainTextOf(r.content), foldedQuery) +
       (r.second.isEmpty
@@ -375,7 +307,7 @@ class _PreparedContent {
   final bool hasOwnTitle;
   final bool hasGap;
   final String dropCap;
-  final List<_Region> regions;
+  final List<ReaderRegion> regions;
   // Успоредни на regions — плоският текст (декодиран, без тагове) и броят
   // линкове на всеки регион, кеширани веднъж тук вместо преизвличани при
   // всеки build() само за да се пресметне хюристичната височина.
@@ -408,12 +340,28 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
   // еднакви заглавни реда един под друг. isLife: в режима с молитвите
   // beforeHtml съдържа целия HTML (вкл. заглавията на тропарите), затова
   // проверката важи само за житието.
-  final hasOwnTitle =
+  var hasOwnTitle =
       (isLife || args.mode == _ReaderMode.sluzhba) &&
       RegExp(r'<h[1-6]\b').hasMatch(beforeHtml);
 
-  final regions = _computeRegions(beforeHtml, dropCap, firstP, afterHtml);
-  final hasGap = dropCap.isNotEmpty && beforeHtml.trim().isNotEmpty;
+  // Няма ли четивото свое заглавие, ВЛИВАМЕ името в самия текст.
+  //
+  // Дотук то се рисуваше като отделен надпис НАД съдържанието и затова
+  // оставаше извън търсенето: търсачката черпи от регионите, а те се правят
+  // от HTML-а. За читателя обаче заглавието си е текст на екрана и е редно
+  // да се намира. Влято тук, то става обикновен регион и всичко останало
+  // (броене, маркиране, чертички, мерене на височини) го поема без
+  // изключения — а отделният надпис отпада, защото hasOwnTitle става true.
+  var before = beforeHtml;
+  final name = args.texts.name.trim();
+  if (!hasOwnTitle && name.isNotEmpty) {
+    final escaped = name.replaceAll('&', '&amp;').replaceAll('<', '&lt;');
+    before = '<h3>$escaped</h3>$beforeHtml';
+    hasOwnTitle = true;
+  }
+
+  final regions = computeRegions(before, dropCap, firstP, afterHtml);
+  final hasGap = dropCap.isNotEmpty && before.trim().isNotEmpty;
 
   final plainTexts = <String>[];
   final linkCounts = <int>[];
@@ -443,12 +391,27 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
 // ---------------------------------------------------------------
 class _BookmarkRecord {
   final int regionIndex;
+
+  /// Индекс на ЗНАКА вътре в региона — първата буква на най-горния видим
+  /// ред в мига на записа.
+  ///
+  /// Защо знак, а не ред и не пиксел: и двете се менят със размера на
+  /// шрифта, тъй че записани днес, утре сочат другаде. Знакът е
+  /// единственото инвариантно; редът и пикселът се смятат наново при всяко
+  /// отваряне (виж text_line_locator.dart).
+  ///
+  /// 0 значи „началото на региона" — така се четат и всички стари записи,
+  /// правени преди тази колона да съществува, тоест никой не си губи
+  /// отметките.
+  final int charInRegion;
+
   final String name;
   final String typeLabel;
   final int savedAtMs; // за сортиране по скорошност в списъка с отметки
 
   const _BookmarkRecord({
     required this.regionIndex,
+    this.charInRegion = 0,
     required this.name,
     required this.typeLabel,
     required this.savedAtMs,
@@ -456,6 +419,7 @@ class _BookmarkRecord {
 
   Map<String, dynamic> toJson() => {
         'regionIndex': regionIndex,
+        'charInRegion': charInRegion,
         'name': name,
         'typeLabel': typeLabel,
         'savedAtMs': savedAtMs,
@@ -471,6 +435,7 @@ class _BookmarkRecord {
     }
     return _BookmarkRecord(
       regionIndex: regionIndex,
+      charInRegion: m['charInRegion'] is int ? m['charInRegion'] as int : 0,
       name: name,
       typeLabel: typeLabel,
       savedAtMs: savedAtMs is int ? savedAtMs : 0,
@@ -695,7 +660,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!mounted) return;
       setState(() => _prepared = result);
       // Има ли вече запазена позиция за това четиво? Ако да — показваме
-      // resume-подканата (виж _ResumePrompt) вместо да скачаме безшумно.
+      // resume-подканата (виж ResumePrompt) вместо да скачаме безшумно.
       final slug = widget.texts.slug;
       if (slug.isEmpty) return;
       final saved = await _BookmarkStore.load(slug, widget._mode);
@@ -703,6 +668,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       setState(() {
         _isBookmarked = true;
         _bookmarkedRegionIndex = saved.regionIndex;
+        _bookmarkedChar = saved.charInRegion;
         _showResumePrompt = true;
         _awaitingBookmarkDecision = true;
       });
@@ -742,6 +708,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   // _isBookmarked = проследяването е включено (има запис в storage-а).
   bool _isBookmarked = false;
   int? _bookmarkedRegionIndex; // последно известната запазена позиция
+  int _bookmarkedChar = 0;     // и знакът в нея (виж _BookmarkRecord)
   bool _showResumePrompt = false; // показваме ли долния widget при отваряне
   // Докато resume-подканата виси на екрана (в което и да е от двете ѝ
   // състояния), автозаписът при скрол СПИРА — не бива да презаписваме
@@ -782,6 +749,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   // палец) е перфектно точен, без изкуствени прескачания.
   List<double>? _realCumulativeHeights; // по регион, кумулативно
   List<double>? _realItemExtents; // по sliver child-индекс (вкл. заглавие)
+
+  /// Пореден номер на текущото искане за скрол — виж _scrollToCurrent.
+  /// Пази от закъснели поправки, останали от предишна стъпка.
+  int _scrollToken = 0;
+
+  /// Кутията с буквицата — питаме я на кой пиксел стои даден знак от първия
+  /// абзац. Тя единствена знае къде е пречупила обтичащата зона.
+  final GlobalKey<DropCapParagraphState> _dropCapKey =
+      GlobalKey<DropCapParagraphState>();
   bool _measuring = false;
   List<GlobalKey> _measureKeys = [];
   final GlobalKey _titleMeasureKey = GlobalKey();
@@ -845,18 +821,24 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (!_scrollController.hasClients) return;
     final slug = widget.texts.slug;
     if (slug.isEmpty) return;
-    final idx = _topmostRegionIndex(_scrollController.position.pixels);
-    // Сравняваме с последно ЗАПАЗЕНАТА (в паметта, не презачитаме от диска)
-    // стойност — ако позицията не се е променила (напр. телефонът лежи
-    // неподвижен с часове, или дребно поклащане в рамките на същия регион),
-    // пропускаме излишния запис на диска.
-    if (idx == _bookmarkedRegionIndex) return;
+    // Най-горният ВИДИМ РЕД, не просто най-горният абзац: така при връщане
+    // екранът застава точно както е бил оставен.
+    final at = _topmostLine();
+    final idx = at?.$1 ??
+        _topmostRegionIndex(_scrollController.position.pixels);
+    final ch = at?.$2 ?? 0;
+    // Сравняваме с последно ЗАПАЗЕНОТО (в паметта, не презачитаме от диска)
+    // — ако нищо не се е променило (телефонът лежи неподвижен с часове или
+    // дребно поклащане в рамките на същия ред), пропускаме записа на диска.
+    if (idx == _bookmarkedRegionIndex && ch == _bookmarkedChar) return;
     _bookmarkedRegionIndex = idx;
+    _bookmarkedChar = ch;
     _BookmarkStore.save(
       slug,
       widget._mode,
       _BookmarkRecord(
         regionIndex: idx,
+        charInRegion: ch,
         name: widget.texts.name,
         typeLabel: _typeLabel,
         savedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -877,18 +859,23 @@ class _ReaderScreenState extends State<ReaderScreen>
       setState(() {
         _isBookmarked = false;
         _bookmarkedRegionIndex = null;
+        _bookmarkedChar = 0;
         _showResumePrompt = false;
         _awaitingBookmarkDecision = false;
       });
     } else {
-      final idx = _scrollController.hasClients
-          ? _topmostRegionIndex(_scrollController.position.pixels)
-          : 0;
+      final at = _scrollController.hasClients ? _topmostLine() : null;
+      final idx = at?.$1 ??
+          (_scrollController.hasClients
+              ? _topmostRegionIndex(_scrollController.position.pixels)
+              : 0);
+      final ch = at?.$2 ?? 0;
       await _BookmarkStore.save(
         slug,
         widget._mode,
         _BookmarkRecord(
           regionIndex: idx,
+          charInRegion: ch,
           name: widget.texts.name,
           typeLabel: _typeLabel,
           savedAtMs: DateTime.now().millisecondsSinceEpoch,
@@ -898,6 +885,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       setState(() {
         _isBookmarked = true;
         _bookmarkedRegionIndex = idx;
+        _bookmarkedChar = ch;
       });
       _showBookmarkEnabledSnackbar();
     }
@@ -920,13 +908,36 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Скролира до региона на запазената отметка — първо пряко (ако вече е
   /// построен), иначе приблизителен скок по кумулативната оценка + прецизиране
   /// (същата двуфазна логика като _scrollToCurrent за търсенето).
-  void _jumpToBookmarkRegion(int regionIndex) {
+  void _jumpToBookmarkRegion(int regionIndex, [int charInRegion = 0]) {
     if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
     final key = _regionKeys[regionIndex];
 
     void refine() {
       final ctx = key.currentContext;
       if (ctx == null) return;
+      final box = ctx.findRenderObject() as RenderBox?;
+      // Целим точния РЕД, на който е спрял читателят, и го поставяме най-
+      // горе — така екранът изглежда както го е оставил. Знакът е записан,
+      // редът се смята сега, при текущия размер на шрифта.
+      final line = box == null
+          ? null
+          : _lineForChar(regionIndex, charInRegion, box.size.width);
+      if (box != null && line != null && _scrollController.hasClients) {
+        final target = RenderAbstractViewport.of(box)
+            .getOffsetToReveal(
+              box,
+              0.0,
+              rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
+            )
+            .offset;
+        final position = _scrollController.position;
+        _scrollController.animateTo(
+          target.clamp(position.minScrollExtent, position.maxScrollExtent),
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+        );
+        return;
+      }
       Scrollable.ensureVisible(
         ctx,
         alignment: 0.05,
@@ -960,7 +971,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   void _onResumePromptJump() {
     final idx = _bookmarkedRegionIndex;
-    if (idx != null) _jumpToBookmarkRegion(idx);
+    if (idx != null) _jumpToBookmarkRegion(idx, _bookmarkedChar);
   }
 
   void _onResumePromptDeleted() {
@@ -1058,19 +1069,260 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// клавиатурата долу да не я скрива. 0.22 ≈ среда на горната половина.
   static const double _matchAlignment = 0.22;
 
-  /// Скролва до региона с текущото съвпадение. SliverList строи децата си
-  /// мързеливо (само близо до видимата зона) — ако регионът вече е
-  /// построен, ensureVisible е точен; иначе първо скачаме ПРИБЛИЗИТЕЛНО
-  /// по пропорция, за да влезе в build-обхвата, после прецизираме.
+  /// Отместването на съвпадение №[ordinal] ВЪТРЕ в региона [regionIdx],
+  /// мерено при текущия размер на шрифта и подадената ширина.
+  ///
+  /// Това е сърцевината на точното позициониране: дотук се целеше цял
+  /// регион, а регион може да е дълъг колкото няколко екрана — тогава
+  /// съвпадение в средата му оставаше невидимо. Виж text_line_locator.dart.
+  ///
+  /// null значи „не можах да го изчисля" — тогава извикващият се връща към
+  /// стария начин (цял регион), вместо да скочи на грешно място.
+  (double, double)? _matchLineInRegion(int regionIdx, double width) {
+    final prepared = _prepared;
+    if (prepared == null || width <= 0) return null;
+    if (regionIdx < 0 || regionIdx >= prepared.regions.length) return null;
+    if (_committedQuery.isEmpty) return null;
+    final region = prepared.regions[regionIdx];
+
+    // Кое поред съвпадение в ТОЗИ регион е текущото.
+    var ordinal = _currentMatch;
+    for (int i = 0; i < regionIdx && i < _regionMatchCounts.length; i++) {
+      ordinal -= _regionMatchCounts[i];
+    }
+    if (ordinal < 0) return null;
+
+    // Абзацът с буквицата. Текстът обтича инициала, тъй че прав TextPainter
+    // не го мери вярно — питаме самата кутия (виж DropCapParagraphState).
+    //
+    // ⚠ Без този клон грубият скок отиваше на вярното място и веднага след
+    // това точната стъпка го разваляше: връщаше null и се падаше на
+    // „покажи целия регион", тоест на началото на абзаца.
+    if (!region.isHtml) {
+      final state = _dropCapKey.currentState;
+      if (state == null) return null;
+      final folded = fold(_committedQuery).text;
+      final starts = matchStartsOf(_plainTextOf(region.content), folded);
+      // Регионът на буквицата може да носи И следващия абзац (изтегля се
+      // вдясно от инициала, когато първият е къс). Съвпаденията в него
+      // продължават номерацията на първия.
+      final double? dy;
+      if (ordinal < starts.length) {
+        dy = state.dyForChar(starts[ordinal]);
+      } else {
+        final starts2 = matchStartsOf(_plainTextOf(region.second), folded);
+        final k = ordinal - starts.length;
+        dy = k < starts2.length ? state.dyForCharInSecond(starts2[k]) : null;
+      }
+      if (dy == null) return null;
+      // Кутията с буквицата няма поле отгоре — започва направо от реда с
+      // инициала.
+      return (dy, ReaderFontSize.value * kReaderLineHeight);
+    }
+
+    final locator = LineLocator.forHtml(
+      html: region.content,
+      base: TextStyle(
+        fontFamily: kBodyFamily,
+        fontSize: ReaderFontSize.value,
+        height: kReaderLineHeight,
+      ),
+      maxWidth: width,
+    );
+    try {
+      final at = locator.charOfMatch(fold(_committedQuery).text, ordinal);
+      if (at == null) return null;
+      // Абзацът има поле отгоре (виж правилото за 'p' в reader_styles.dart);
+      // текстът започва под него.
+      return (_pTopMargin + locator.dyForChar(at), locator.lineHeightForChar(at));
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Отместването и височината на реда, в който стои знак [charInRegion] от
+  /// региона [regionIdx] — при ТЕКУЩИЯ шрифт и подадената ширина.
+  ///
+  /// Общо за търсенето и за отметките: и двете имат нужда от едно и също
+  /// превръщане „знак → ред → пиксел".
+  (double, double)? _lineForChar(int regionIdx, int charInRegion, double width) {
+    final prepared = _prepared;
+    if (prepared == null || width <= 0) return null;
+    if (regionIdx < 0 || regionIdx >= prepared.regions.length) return null;
+    final region = prepared.regions[regionIdx];
+    final lineH = ReaderFontSize.value * kReaderLineHeight;
+
+    if (!region.isHtml) {
+      final dy = _dropCapKey.currentState?.dyForChar(charInRegion);
+      return dy == null ? null : (dy, lineH);
+    }
+    final (base, topMargin) = _measureStyleFor(region.content);
+    final locator =
+        LineLocator.forHtml(html: region.content, base: base, maxWidth: width);
+    try {
+      return (
+        topMargin + locator.dyForChar(charInRegion),
+        locator.lineHeightForChar(charInRegion),
+      );
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Абсолютното отместване на един регион в скрола — от РЕАЛНАТА му
+  /// геометрия, не от оценка. null, ако още не е построен (мързелив списък).
+  double? _regionTopOffset(int regionIdx) {
+    if (regionIdx < 0 || regionIdx >= _regionKeys.length) return null;
+    final ctx = _regionKeys[regionIdx].currentContext;
+    if (ctx == null) return null;
+    final box = ctx.findRenderObject() as RenderBox?;
+    if (box == null) return null;
+    return RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+  }
+
+  /// Кой знак стои на най-горния видим ред — (регион, знак в него).
+  ///
+  /// Това записва отметката. Върви по РЕАЛНАТА геометрия на построените
+  /// региони: първият, чийто долен ръб е под горния ръб на екрана, е
+  /// видимият най-отгоре. (Непостроените са далеч от екрана по построение.)
+  (int, int)? _topmostLine() {
+    if (!_scrollController.hasClients) return null;
+    final pixels = _scrollController.position.pixels;
+    for (int i = 0; i < _regionKeys.length; i++) {
+      final ctx = _regionKeys[i].currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject() as RenderBox?;
+      if (box == null) continue;
+      final top =
+          RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+      if (top + box.size.height <= pixels) continue; // изцяло над екрана
+      final dy = pixels - top;
+      if (dy < 0) return (i, 0); // екранът е спрял преди този регион
+      return (i, _charAtDyInRegion(i, dy, box.size.width) ?? 0);
+    }
+    return null;
+  }
+
+  int? _charAtDyInRegion(int regionIdx, double dy, double width) {
+    final prepared = _prepared;
+    if (prepared == null || width <= 0) return null;
+    if (regionIdx < 0 || regionIdx >= prepared.regions.length) return null;
+    final region = prepared.regions[regionIdx];
+    if (!region.isHtml) return _dropCapKey.currentState?.charAtDy(dy);
+    final (base, topMargin) = _measureStyleFor(region.content);
+    final locator =
+        LineLocator.forHtml(html: region.content, base: base, maxWidth: width);
+    try {
+      return locator.charAtDy(dy - topMargin);
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Стилът и горното поле, с които се РИСУВА даден регион.
+  ///
+  /// Мерещият трябва да е огледален на рисуващия, инак редовете се чупят на
+  /// друго място и отместването излиза грешно. Стойностите тук са същите
+  /// като правилата в reader_styles.dart — сменят ли се там, сменят се и
+  /// тук. (Заглавието е с друг шрифт и с 12 пункта по-едро; църковнославян-
+  /// ският откъс е малко по-едър и по-нагъсто; преводът, редът с паметта и
+  /// източникът са по-дребни и в курсив.)
+  (TextStyle, double) _measureStyleFor(String html) {
+    final size = ReaderFontSize.value;
+    TextStyle body(double s, {FontStyle? italic, double? height}) => TextStyle(
+          fontFamily: kBodyFamily,
+          fontSize: s,
+          height: height ?? kReaderLineHeight,
+          fontStyle: italic,
+        );
+    final head = html.trimLeft();
+    if (head.startsWith('<h3')) {
+      return (
+        TextStyle(
+          fontFamily: kTitleFamily,
+          fontSize: size + 12,
+          height: 1.05,
+        ),
+        18.0,
+      );
+    }
+    if (head.contains('class="csl"')) return (body(size + 0.5, height: 1.3), 8.0);
+    if (head.contains('class="trans"')) {
+      return (body(size - 1, italic: FontStyle.italic), 8.0);
+    }
+    if (head.contains('class="memorydate"')) {
+      return (body(size - 1, italic: FontStyle.italic), 2.0);
+    }
+    if (head.contains('class="source"')) {
+      return (body(size - 2, italic: FontStyle.italic), 24.0);
+    }
+    if (head.contains('class="prayerhead"')) {
+      return (
+        TextStyle(
+          fontFamily: kBodyFamily,
+          fontSize: size + 1,
+          height: kReaderLineHeight,
+          fontWeight: FontWeight.w600,
+        ),
+        18.0,
+      );
+    }
+    return (body(size), _pTopMargin);
+  }
+
+  /// Горното поле на обикновен абзац — Margins.only(top: 8) в
+  /// reader_styles.dart.
+  static const double _pTopMargin = 8.0;
+
+  /// Скролва до текущото съвпадение. SliverList строи децата си мързеливо
+  /// (само близо до видимата зона) — ако регионът вече е построен, целим
+  /// точния РЕД в него; иначе първо скачаме ПРИБЛИЗИТЕЛНО по пропорция, за
+  /// да влезе в build-обхвата, после прецизираме.
   void _scrollToCurrent() {
     if (_currentMatch < 0 || _regionKeys.isEmpty) return;
     final regionIdx = _regionIndexForCurrentMatch();
     if (regionIdx >= _regionKeys.length) return;
     final key = _regionKeys[regionIdx];
 
+    // Всяка нова стъпка обезсилва подредените поправки от предната. Без
+    // това бързото натискане на „напред" оставя опашка от закъснели
+    // поправки и всяка дърпа екрана към СВОЕТО съвпадение.
+    final token = ++_scrollToken;
+
     void refine(String tag) {
+      if (token != _scrollToken) return;
       final ctx = key.currentContext;
       if (ctx == null) return;
+      final box = ctx.findRenderObject() as RenderBox?;
+      final line =
+          box == null ? null : _matchLineInRegion(regionIdx, box.size.width);
+      if (box != null && line != null && _scrollController.hasClients) {
+        // getOffsetToReveal с ВЪТРЕШЕН правоъгълник: искаме да се покаже
+        // точно този ред от този абзац. Геометрията на слоевете (заглавие,
+        // отстояния, sliver-и) се пресмята от самата viewport-а, тъй че тук
+        // не се събират отмествания на ръка.
+        final viewport = RenderAbstractViewport.of(box);
+        final target = viewport
+            .getOffsetToReveal(
+              box,
+              _matchAlignment,
+              rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
+            )
+            .offset;
+        final position = _scrollController.position;
+        final clamped =
+            target.clamp(position.minScrollExtent, position.maxScrollExtent);
+        // Вече сме там — не мърдаме. Точно тази проверка липсваше и
+        // втората (закъсняла) поправка местеше екрана за няколко пиксела, а
+        // докато височините още се оценяват — го връщаше назад.
+        if ((position.pixels - clamped).abs() < 8) return;
+        _scrollController.animateTo(
+          clamped,
+          duration: const Duration(milliseconds: 350),
+          curve: Curves.easeInOut,
+        );
+        return;
+      }
       Scrollable.ensureVisible(
         ctx,
         alignment: _matchAlignment,
@@ -1082,19 +1334,31 @@ class _ReaderScreenState extends State<ReaderScreen>
     final ctx = key.currentContext;
     if (ctx != null) {
       refine('direct');
-      Future.delayed(const Duration(milliseconds: 420), () {
-        if (mounted) refine('refine-1');
-      });
+      // Втора поправка САМО докато височините още се оценяват: тогава всеки
+      // новопостроен елемент мести абсолютните отмествания и първият ход
+      // може да е бил спрямо остаряла геометрия. Веднъж измерено точно,
+      // повторението няма какво да добави — а има какво да развали.
+      if (_realItemExtents == null) {
+        Future.delayed(const Duration(milliseconds: 420), () {
+          if (mounted) refine('refine-1');
+        });
+      }
       return;
     }
-    // Не е построен — скок по НАШАТА кумулативна оценка (не сляпа пропорция
-    // от maxScrollExtent, който самият той е нестабилен), после прецизиране.
+    // Не е построен — скок по НАШАТА оценка (не сляпа пропорция от
+    // maxScrollExtent, който самият той е нестабилен), после прецизиране.
+    // Целим самото съвпадение, а не началото на абзаца му: при дълъг абзац
+    // това са няколко екрана разлика и вторият, точният ход тръгва отдалеч.
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
+    _ensureMatchYs();
     final cumulative = _effectiveCumulativeHeights;
-    final estimateRaw = regionIdx > 0 && regionIdx - 1 < cumulative.length
-        ? cumulative[regionIdx - 1]
-        : 0.0;
+    final estimateRaw = _currentMatch < _matchYs.length
+        ? _matchYs[_currentMatch] -
+            _scrollController.position.viewportDimension * _matchAlignment
+        : (regionIdx > 0 && regionIdx - 1 < cumulative.length
+            ? cumulative[regionIdx - 1]
+            : 0.0);
     final estimate = estimateRaw.clamp(
       position.minScrollExtent,
       position.maxScrollExtent,
@@ -1157,24 +1421,151 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
-  /// Позицията (0..1) на всяко съвпадение спрямо цялата преценена дължина
-  /// на текста — по нашата кумулативна оценка (_cumulativeHeights), не по
-  /// (нестабилния) реален maxScrollExtent. Ползва се за маркерите на
-  /// скролбара — визуална проверка дали оценката е разумна.
-  List<double> _allMatchRatios() {
+  // ── Къде точно стои всяко съвпадение ──────────────────────────────────
+  //
+  // Отместването (в пиксели, при текущия шрифт и ширина) на ВСЯКО
+  // съвпадение поотделно. Дотук се знаеше само в кой абзац е — тъй че
+  // всички съвпадения в един абзац получаваха една и съща позиция: по
+  // скролбара чертичките се струпваха на купчини, а обхождането ги
+  // подминаваше, защото скачаше все на едно и също място.
+  //
+  // Смята се лениво и се пази, докато не се смени нещо, което го обезсилва
+  // (заявка, размер на шрифта, ширина на екрана). Виж text_line_locator.dart.
+  List<double> _matchYs = const [];
+  String _matchYsQuery = '';
+  double _matchYsFont = -1;
+  double _matchYsWidth = -1;
+  bool _matchYsFromRealHeights = false;
+
+  void _ensureMatchYs() {
+    final prepared = _prepared;
+    if (prepared == null) return;
+    // Меренето минава през две състояния: първо оценени височини, после
+    // реални. Смени ли се това, позициите се смятат наново — иначе
+    // чертичките остават по старата, приблизителна геометрия.
+    final real = _realItemExtents != null;
+    if (_matchYsQuery == _committedQuery &&
+        _matchYsFont == ReaderFontSize.value &&
+        _matchYsWidth == _viewportWidth &&
+        _matchYsFromRealHeights == real) {
+      return;
+    }
+    _matchYsQuery = _committedQuery;
+    _matchYsFont = ReaderFontSize.value;
+    _matchYsWidth = _viewportWidth;
+    _matchYsFromRealHeights = real;
+
+    if (_committedQuery.isEmpty || _totalMatches == 0) {
+      _matchYs = const [];
+      return;
+    }
+    final folded = fold(_committedQuery).text;
     final cumulative = _effectiveCumulativeHeights;
-    if (_totalMatches == 0 || cumulative.isEmpty) return const [];
-    final total = cumulative.last;
-    if (total <= 0) return const [];
-    final ratios = <double>[];
-    for (int i = 0; i < _regionMatchCounts.length; i++) {
-      final startHeight = i > 0 ? cumulative[i - 1] : 0.0;
-      final ratio = (startHeight / total).clamp(0.0, 1.0);
-      for (int k = 0; k < _regionMatchCounts[i]; k++) {
-        ratios.add(ratio);
+    final width = _viewportWidth - _horizontalPadding * 2;
+    final ys = <double>[];
+    for (int i = 0; i < prepared.regions.length; i++) {
+      final count = i < _regionMatchCounts.length ? _regionMatchCounts[i] : 0;
+      if (count == 0) continue;
+      // Отместване до началото на региона В ПРОСТРАНСТВОТО НА СКРОЛА, а не
+      // само спрямо другите региони: над тях стоят горният отстъп на
+      // списъка, заглавието и (след първия регион) луфтът под него. Без
+      // тези три събираеми чертичките излизаха систематично по-нагоре от
+      // показалеца на скролбара, макар подредбата им да беше вярна.
+      final top = _contentTop +
+          (i >= 1 ? _gapBeforeRegions : 0.0) +
+          (i > 0 && i - 1 < cumulative.length ? cumulative[i - 1] : 0.0);
+      final region = prepared.regions[i];
+      if (!region.isHtml) {
+        final state = _dropCapKey.currentState;
+        final starts = matchStartsOf(_plainTextOf(region.content), folded);
+        final starts2 = region.second.isEmpty
+            ? const <int>[]
+            : matchStartsOf(_plainTextOf(region.second), folded);
+        for (int k = 0; k < count; k++) {
+          double? dy;
+          if (state != null) {
+            if (k < starts.length) {
+              dy = state.dyForChar(starts[k]);
+            } else if (k - starts.length < starts2.length) {
+              dy = state.dyForCharInSecond(starts2[k - starts.length]);
+            }
+          }
+          ys.add(dy == null ? top : top + dy);
+        }
+        continue;
+      }
+      if (width <= 0) {
+        for (int k = 0; k < count; k++) {
+          ys.add(top);
+        }
+        continue;
+      }
+      final (base, topMargin) = _measureStyleFor(region.content);
+      final locator =
+          LineLocator.forHtml(html: region.content, base: base, maxWidth: width);
+      try {
+        for (int k = 0; k < count; k++) {
+          final at = locator.charOfMatch(folded, k);
+          ys.add(at == null ? top : top + topMargin + locator.dyForChar(at));
+        }
+      } finally {
+        locator.dispose();
       }
     }
-    return ratios;
+    _matchYs = ys;
+  }
+
+  /// Горният отстъп на списъка плюс височината на заглавието — всичко, което
+  /// стои НАД първия регион в скрола. Виж SliverPadding в build().
+  double get _contentTop {
+    const topPadding = 8.0;
+    final extents = _realItemExtents;
+    final prepared = _prepared;
+    if (extents == null || extents.isEmpty || prepared == null) {
+      return topPadding;
+    }
+    return topPadding + (prepared.hasOwnTitle ? 0.0 : extents.first);
+  }
+
+  /// Луфтът между заглавната част и буквицата — вмъква се СЛЕД първия
+  /// регион, тъй че важи за всички следващи.
+  double get _gapBeforeRegions {
+    final prepared = _prepared;
+    if (prepared == null || !prepared.hasGap) return 0.0;
+    return _titleGap;
+  }
+
+  /// Цялата дължина на съдържанието в скрола — знаменателят за чертичките.
+  /// Показалецът на скролбара се движи в ТОВА пространство.
+  double get _totalContentHeight {
+    const topPadding = 8.0;
+    const bottomPadding = 60.0;
+    final extents = _realItemExtents;
+    if (extents != null && extents.isNotEmpty) {
+      return topPadding +
+          extents.fold<double>(0, (a, b) => a + b) +
+          bottomPadding;
+    }
+    final cumulative = _effectiveCumulativeHeights;
+    if (cumulative.isEmpty) return 0;
+    return topPadding + cumulative.last + bottomPadding;
+  }
+
+  /// Отстоянието вляво/вдясно на текстовата колона — виж SliverPadding в
+  /// build(). Мерещият трябва да ползва СЪЩАТА ширина като рисуващият.
+  static const double _horizontalPadding = 16.0;
+
+  /// Позицията (0..1) на всяко съвпадение спрямо цялата преценена дължина
+  /// на текста. Ползва се за чертичките по скролбара.
+  List<double> _allMatchRatios() {
+    if (_totalMatches == 0) return const [];
+    final total = _totalContentHeight;
+    if (total <= 0) return const [];
+    _ensureMatchYs();
+    if (_matchYs.isEmpty) return const [];
+    return [
+      for (final y in _matchYs) (y / total).clamp(0.0, 1.0),
+    ];
   }
 
   /// Тънка лента вдясно с чертички за всяко съвпадение (жълто) и текущото
@@ -1227,6 +1618,10 @@ class _ReaderScreenState extends State<ReaderScreen>
               focusNode: _searchFocusNode,
               style: TextStyle(color: fg, fontSize: 16),
               textInputAction: TextInputAction.search,
+              // Търси се НА ЖИВО, на всеки въведен знак — както в четеца
+              // на книги. Сметката е евтина (броене по вече сгънатия
+              // текст на четивото), а човек вижда отговора, докато пише.
+              onChanged: (_) => _runSearch(),
               onSubmitted: (_) => _runSearch(),
               decoration: InputDecoration(
                 isDense: true,
@@ -1246,14 +1641,6 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           ),
           const SizedBox(width: 12),
-          RoundIconButton(
-            icon: Icons.search,
-            tooltip: 'Старт на търсенето',
-            enabled: true,
-            onTap: _runSearch,
-            size: _searchBtnSize,
-          ),
-          const SizedBox(width: 16),
           RoundIconButton(
             icon: Icons.chevron_left,
             tooltip: 'Предишно съвпадение',
@@ -1362,92 +1749,28 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Написано е ръчно (showGeneralDialog + SlideTransition), защото
   /// вграденият PopupMenuButton не позволява смяна на вида на анимацията.
   Future<void> _showMoreMenu() async {
-    final topInset = MediaQuery.of(context).padding.top;
-    final selected = await showGeneralDialog<String>(
-      context: context,
-      barrierDismissible: true,
-      barrierLabel: 'Затвори менюто',
-      barrierColor: Colors.black26,
-      transitionDuration: const Duration(milliseconds: 240),
-      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
-      transitionBuilder: (ctx, anim, _, _) {
-        final curved = CurvedAnimation(
-          parent: anim,
-          curve: Curves.easeOutCubic,
-          reverseCurve: Curves.easeInCubic,
-        );
-        return Stack(
-          children: [
-          Positioned(
-            top: topInset + 44,
-            right: 6,
-            child: SlideTransition(
-              position: Tween<Offset>(
-                begin: const Offset(0, -0.35),
-                end: Offset.zero,
-              ).animate(curved),
-              child: FadeTransition(
-                opacity: curved,
-                child: Material(
-                  color: AppColors.backgroundCard,
-                  elevation: 8,
-                  borderRadius: BorderRadius.circular(14),
-                  clipBehavior: Clip.antiAlias,
-                  child: IntrinsicWidth(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Лента за затваряне най-отгоре — менюто се
-                        // прибира и с тап встрани, но стрелката прави
-                        // изхода очевиден.
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: InkWell(
-                            onTap: () => Navigator.of(ctx).pop(),
-                            customBorder: const CircleBorder(),
-                            child: const Padding(
-                              padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
-                                child: Icon(
-                                  Icons.arrow_forward,
-                                  size: 22,
-                                  color: AppColors.textSecondary,
-                                ),
-                            ),
-                          ),
-                        ),
-                        const Divider(
-                            height: 1,
-                            color: AppColors.sectionDivider,
-                          ),
-                          _moreMenuItem(
-                            ctx,
-                            Icons.bookmarks_outlined,
-                            'Списък с отметки',
-                            'bookmarks',
-                          ),
-                          _moreMenuItem(
-                            ctx,
-                            Icons.picture_as_pdf_outlined,
-                            'Сподели като PDF',
-                            'share_pdf',
-                          ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          ],
-        );
-      },
+    final selected = await showReaderMoreMenu(
+      context,
+      items: const [
+        ReaderMenuItem(
+          icon: Icons.bookmarks_outlined,
+          label: 'Списък с отметки',
+          value: 'bookmarks',
+        ),
+        ReaderMenuItem(
+          icon: Icons.picture_as_pdf_outlined,
+          label: 'Сподели като PDF',
+          value: 'share_pdf',
+        ),
+      ],
     );
     if (!mounted || selected == null) return;
     if (selected == 'bookmarks') {
       Navigator.of(context).push(
         MaterialPageRoute(
-        builder: (_) => BookmarksListScreen(lookup: widget.lookup),
+        builder: (_) => BookmarksListScreen(
+          load: () => allBookmarkEntries(widget.lookup),
+        ),
         ),
       );
     } else if (selected == 'share_pdf') {
@@ -1455,34 +1778,6 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
   }
 
-  Widget _moreMenuItem(
-    BuildContext ctx,
-    IconData icon,
-    String label,
-    String value,
-  ) {
-    return InkWell(
-      onTap: () => Navigator.of(ctx).pop(value),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(
-          children: [
-            // Пропорция икона/текст като в главното меню (app_drawer.dart)
-            // — това също е меню, не дребен списъчен ред.
-            Icon(icon, size: 22, color: AppColors.textSecondary),
-            const SizedBox(width: 12),
-            Text(
-              label,
-                style: const TextStyle(
-                color: AppColors.textPrimary,
-                fontSize: 16,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 
   /// Сглобява PDF (A4) от същия HTML, който се показва в четеца, и отваря
   /// стандартния диалог за споделяне. Виж pdf_export.dart за оформлението.
@@ -1649,6 +1944,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           KeyedSubtree(
           key: key,
           child: DropCapParagraph(
+            key: _dropCapKey,
             dropCap: dropCap,
             dropCapSize: dropCapSize,
             lineHeight: lineHeightPx,
@@ -1686,8 +1982,11 @@ class _ReaderScreenState extends State<ReaderScreen>
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: kTitleFamily,
-                fontSize: ReaderFontSize.value + 9,
-                height: 1.25,
+                // Изравнено с четеца на книги (виж стила на h3 там): при
+                // междуредие 1.25 по-дългите заглавия се разсипваха на
+                // разредени редове вместо да стоят като един надпис.
+                fontSize: ReaderFontSize.value + 12,
+                height: 1.05,
                 color: _ink,
               ),
             ),
@@ -2065,7 +2364,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     bottom: 16,
                     child: SafeArea(
                       top: false,
-                      child: _ResumePrompt(
+                      child: ResumePrompt(
                         background: AppColors.backgroundCard,
                         ink: _ink,
                         dim: _dim,
@@ -2162,582 +2461,48 @@ class _ReaderScreenState extends State<ReaderScreen>
 
 
 
-/// Долна подкана "продължи от последната позиция" — показва се при отваряне
-/// на четиво със запазена отметка. Две състояния:
-///  - "пълно": обяснение + брояч 5→0 + бутон "иди" + бутон "пауза" (ако
-///    броячът стигне 0 без реакция, автоматично скача на позицията);
-///  - "slim" (на пауза): един ред, полупрозрачен, безсрочен, само бутоните.
-/// Swipe на "пълно" пита за потвърждение преди да изтрие отметката; swipe
-/// на "slim" просто се "събужда" обратно към пълно с пресен брояч.
-class _ResumePrompt extends StatefulWidget {
-  final Color background;
-  final Color ink;
-  final Color dim;
-  final VoidCallback onJump;
-  final VoidCallback onDeleted;
-  final VoidCallback onClosed;
 
-  const _ResumePrompt({
-    required this.background,
-    required this.ink,
-    required this.dim,
-    required this.onJump,
-    required this.onDeleted,
-    required this.onClosed,
-  });
 
-  @override
-  State<_ResumePrompt> createState() => _ResumePromptState();
-}
 
-class _ResumePromptState extends State<_ResumePrompt> {
-  static const int _countdownStart = 10;
-  int _secondsLeft = _countdownStart;
-  bool _paused = false;
-  Timer? _timer;
-  bool _closing = false; // пази от двойно извикване на onJump/onClosed
 
-  @override
-  void initState() {
-    super.initState();
-    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
-  }
-
-  void _tick(Timer t) {
-    if (!mounted) {
-      t.cancel();
-      return;
-    }
-    if (_secondsLeft <= 0) {
-      t.cancel();
-      _jump();
-      return;
-    }
-    setState(() => _secondsLeft--);
-  }
-
-  void _startCountdown() {
-    _timer?.cancel();
-    setState(() => _secondsLeft = _countdownStart);
-    _timer = Timer.periodic(const Duration(seconds: 1), _tick);
-  }
-
-  void _togglePause() {
-    setState(() => _paused = !_paused);
-    if (_paused) {
-      _timer?.cancel();
-    } else {
-      _startCountdown();
-    }
-  }
-
-  void _jump() {
-    if (_closing) return;
-    _closing = true;
-    _timer?.cancel();
-    widget.onJump();
-    widget.onClosed();
-  }
-
-  Future<bool> _confirmDelete() async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text(
-          'Заличаване на отметката',
-          style: TextStyle(fontSize: 20),
-        ),
-        content: const Text(
-            'Наистина ли искате да ЗАЛИЧИТЕ запазената отметка за това четиво?',
-          style: TextStyle(fontSize: 16),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Не', style: TextStyle(fontSize: 20)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Да', style: TextStyle(fontSize: 20)),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-
-  @override
-  void dispose() {
-    _timer?.cancel();
-    super.dispose();
-  }
-
-  Widget _circleButton({
-    required IconData icon,
-    required VoidCallback onTap,
-    bool active = false,
-  }) {
-    return InkWell(
-      onTap: onTap,
-      customBorder: const CircleBorder(),
-      child: Container(
-        width: 34,
-        height: 34,
-        alignment: Alignment.center,
-        decoration: BoxDecoration(
-          shape: BoxShape.circle,
-          color: active ? widget.ink : Colors.transparent,
-          border: Border.all(color: widget.ink, width: 1.3),
-        ),
-        child: Icon(
-          icon,
-          size: 18,
-          color: active ? widget.background : widget.ink,
-        ),
-      ),
-    );
-  }
-
-  Widget _buildFull() {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Имате запазена позиция в това четиво.',
-                style: TextStyle(color: widget.ink, fontSize: 18),
-              ),
+/// Отметките от житията/службите, преведени към общия вид на списъка.
+///
+/// Живее ТУК, защото само този файл вижда хранилището им и знае как се
+/// отваря четиво. Самият списък ([BookmarksListScreen]) не знае нищо за
+/// светии — виж bookmarks.dart.
+Future<List<BookmarkEntry>> livesBookmarkEntries(SaintLookup lookup) async {
+  final items = await _BookmarkStore.loadAll();
+  return [
+    for (final (id, record) in items)
+      BookmarkEntry(
+        id: 'life:${id.mode.name}:${id.slug}',
+        title: record.name,
+        typeLabel: record.typeLabel,
+        group: '', // житията вървят без група
+        savedAtMs: record.savedAtMs,
+        delete: () => _BookmarkStore.clear(id.slug, id.mode),
+        open: (context) async {
+          final texts = await lookup(id.slug);
+          if (!context.mounted) return;
+          if (texts == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Няма запис за този светия.')),
+            );
+            return;
+          }
+          Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => switch (id.mode) {
+                _ReaderMode.life =>
+                  ReaderScreen.life(texts: texts, lookup: lookup),
+                _ReaderMode.prayers =>
+                  ReaderScreen.prayers(texts: texts, lookup: lookup),
+                _ReaderMode.sluzhba =>
+                  ReaderScreen.sluzhba(texts: texts, lookup: lookup),
+              },
             ),
-            const SizedBox(width: 8),
-            _circleButton(icon: Icons.arrow_forward, onTap: _jump),
-          ],
-        ),
-        const SizedBox(height: 10),
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                'Отваря се след $_secondsLeft…',
-                style: TextStyle(color: widget.dim, fontSize: 13),
-              ),
-            ),
-            Text('Изчакай', style: TextStyle(color: widget.dim, fontSize: 13)),
-            const SizedBox(width: 6),
-            _circleButton(icon: Icons.pause, onTap: _togglePause),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildSlim() {
-    return Row(
-      children: [
-        _circleButton(icon: Icons.pause, onTap: _togglePause, active: true),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Text(
-            'Отиди на отметката',
-              textAlign: TextAlign.right,
-            style: TextStyle(color: widget.ink, fontSize: 14),
-          ),
-        ),
-        const SizedBox(width: 10),
-        _circleButton(icon: Icons.arrow_forward, onTap: _jump),
-      ],
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final card = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: widget.background,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow: const [
-          BoxShadow(color: Colors.black45, blurRadius: 8, offset: Offset(0, 2)),
-        ],
+          );
+        },
       ),
-      child: _paused ? _buildSlim() : _buildFull(),
-    );
-
-    return Dismissible(
-      key: ValueKey(_paused ? 'resume-slim' : 'resume-full'),
-      direction: DismissDirection.horizontal,
-      confirmDismiss: (_) async {
-        if (_paused) {
-          // Swipe на slim = "събуди се" — обратно към пълно с пресен брояч.
-          _togglePause();
-          return false;
-        }
-        // Спираме брояча веднага — иначе докато диалогът за потвърждение
-        // виси, той продължава да тече във фонов режим и може да "скочи"
-        // към отметката точно докато потребителят чете диалога.
-        _timer?.cancel();
-        final confirmed = await _confirmDelete();
-        if (confirmed) {
-          widget.onDeleted();
-          widget.onClosed();
-          return true;
-        }
-        _startCountdown(); // "Не" -> нулира брояча отначало
-        return false;
-      },
-      child: card,
-    );
-  }
-}
-
-
-
-/// Списък с всички запазени отметки в приложението (виж _BookmarkStore) —
-/// отваря се от менюто с трите точки в reader_screen. Всеки ред: заглавие
-/// (натискане → отваря четивото; native InkWell "присветване" за feedback)
-/// + тип (Житие/Сказание/Тропар и кондак/…, вече готов от _BookmarkRecord —
-/// виж коментара там за защо не се пресмята повторно тук) + кошче вдясно
-/// за единично изтриване. "Изтрий всички" — иконка в лентата отгоре.
-class BookmarksListScreen extends StatefulWidget {
-  final SaintLookup lookup;
-  const BookmarksListScreen({super.key, required this.lookup});
-
-  @override
-  State<BookmarksListScreen> createState() => _BookmarksListScreenState();
-}
-
-class _BookmarksListScreenState extends State<BookmarksListScreen>
-    with SingleTickerProviderStateMixin {
-  List<(_BookmarkId, _BookmarkRecord)>? _items;
-
-  /// Избраните редове. Режимът "избиране" се пази с ОТДЕЛЕН флаг, а не се
-  /// познава по това дали има избрани: докосването върху маркиран ред го
-  /// размаркира, та човек лесно стига до нула избрани насред работата си —
-  /// а тогава изхвърлянето от режима значи ново задържане на пръста.
-  /// Излиза се само нарочно: с ✕, с "назад" или след изтриване.
-  final _selected = <_BookmarkId>{};
-  bool _selectionMode = false;
-
-  /// Копчето горе не сменя иконката си, когато влезем в режим "избиране" —
-  /// вместо това тя леко се разтърсва и наедрява. Подсещането се повтаря,
-  /// ако човек се позамисли и не предприеме нищо: таймерът се вдига наново
-  /// при всяко докосване, така че разтърсването идва само след затишие.
-  late final AnimationController _nudge = AnimationController(
-    vsync: this,
-    duration: const Duration(milliseconds: 700),
-  );
-  Timer? _nudgeTimer;
-  static const _nudgePause = Duration(seconds: 4);
-
-  void _toggle(_BookmarkId id) {
-    setState(() {
-      _selectionMode = true;
-        if (!_selected.remove(id)) _selected.add(id);
-      });
-    _restartNudge();
-  }
-
-  void _clearSelection() {
-    setState(() {
-      _selected.clear();
-      _selectionMode = false;
-    });
-    _restartNudge(); // спира таймера — вече няма какво да подсеща
-  }
-
-  void _restartNudge() {
-    _nudgeTimer?.cancel();
-    // Няма какво да подсеща, докато не е избрано поне едно.
-    if (!_selectionMode || _selected.isEmpty) {
-      _nudge.stop();
-      return;
-    }
-    _nudge.forward(from: 0);
-    _nudgeTimer = Timer.periodic(_nudgePause, (_) {
-      if (!mounted || !_selectionMode || _selected.isEmpty) return;
-      _nudge.forward(from: 0);
-    });
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  @override
-  void dispose() {
-    _nudgeTimer?.cancel();
-    _nudge.dispose();
-    super.dispose();
-  }
-
-  Future<void> _reload() async {
-    final items = await _BookmarkStore.loadAll();
-    if (!mounted) return;
-    setState(() => _items = items);
-  }
-
-  Future<bool> _confirm(String title, String content) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(title, style: const TextStyle(fontSize: 20)),
-        content: Text(content, style: const TextStyle(fontSize: 16)),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Не', style: TextStyle(fontSize: 20)),
-          ),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Да', style: TextStyle(fontSize: 20)),
-          ),
-        ],
-      ),
-    );
-    return result ?? false;
-  }
-
-  Future<void> _deleteOne(_BookmarkId id) async {
-    final confirmed = await _confirm(
-      'Изтриване на отметката',
-      'Наистина ли искате да изтриете тази отметка?',
-    );
-    if (!confirmed) return;
-    await _BookmarkStore.clear(id.slug, id.mode);
-    _reload();
-  }
-
-  Future<void> _deleteAll() async {
-    final confirmed = await _confirm(
-      'Изтриване на всички отметки',
-      'Наистина ли искате да изтриете ВСИЧКИ запазени отметки?',
-    );
-    if (!confirmed) return;
-    await _BookmarkStore.clearAll();
-    _reload();
-  }
-
-  Future<void> _deleteSelected() async {
-    final confirmed = await _confirm(
-      'Изтриване на избраните отметки',
-      'Наистина ли искате да изтриете избраните отметки?',
-    );
-    if (!confirmed) return;
-    for (final id in _selected) {
-      await _BookmarkStore.clear(id.slug, id.mode);
-    }
-    if (!mounted) return;
-    _clearSelection();
-    _reload();
-  }
-
-  Future<void> _open(_BookmarkId id) async {
-    final texts = await widget.lookup(id.slug);
-    if (!mounted) return;
-    if (texts == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Няма запис за този светия.')),
-      );
-      return;
-    }
-    Navigator.of(context).push(
-      MaterialPageRoute(
-      builder: (_) => switch (id.mode) {
-          _ReaderMode.life => ReaderScreen.life(
-            texts: texts,
-            lookup: widget.lookup,
-          ),
-          _ReaderMode.prayers => ReaderScreen.prayers(
-            texts: texts,
-            lookup: widget.lookup,
-          ),
-          _ReaderMode.sluzhba => ReaderScreen.sluzhba(
-            texts: texts,
-            lookup: widget.lookup,
-          ),
-      },
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final items = _items;
-    return PopScope(
-      // Докато има избрани редове, "назад" излиза от режима, а не от
-      // екрана — иначе човек губи списъка вместо избора си.
-      canPop: !_selectionMode,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _clearSelection();
-      },
-      child: _buildScaffold(items),
-    );
-  }
-
-  Widget _buildScaffold(List<(_BookmarkId, _BookmarkRecord)>? items) {
-    return Scaffold(
-      backgroundColor: AppColors.toolbar,
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        // В режим "избиране" на мястото на стрелката "назад" стои изричен
-        // "Отказ" — думата се чете еднозначно, докато ✕ оставя съмнение
-        // дали ще затвори екрана, или само ще изчисти избора.
-        leading: _selectionMode ? const SizedBox.shrink() : null,
-        leadingWidth: _selectionMode ? 0 : null,
-        title: _selectionMode
-            ? Row(
-                children: [
-                  TextButton.icon(
-                    onPressed: _clearSelection,
-                    icon: const Icon(Icons.close, size: 20),
-                    label: const Text('Отказ', style: TextStyle(fontSize: 16)),
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textPrimary,
-                      padding: const EdgeInsets.symmetric(horizontal: 10),
-                    ),
-                  ),
-                  const SizedBox(width: 4),
-                  // Броячът отстъпва пръв, ако мястото не стигне — по-важно
-                  // е изходът от режима да се вижда изцяло.
-                  Flexible(
-                    child: Text(
-                      'Избрани: ${_selected.length}',
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              )
-            : const Text('Списък с отметки'),
-        // actionsPadding: нула, за да МАХНЕМ вградения отстъп на AppBar-а и
-        // сами да контролираме десния отстъп (виж contentPadding на
-        // ListTile-овете долу) — за да легнат кошчетата едно точно под
-        // друго, и двете разстояния трябва да идват от НАС, не от
-        // framework подразбирания, които може да са различни едно от друго.
-        actionsPadding: EdgeInsets.zero,
-        actions: [
-          if (items != null && items.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: Tooltip(
-                message: _selectionMode ? 'Изтрий избраните' : 'Изтрий всички',
-                child: IconButton(
-                  // Едно и също копче с две задачи. Иконката не се сменя —
-                  // че режимът е друг, се вижда от заглавието и от лекото
-                  // разтърсване, което се повтаря през няколко секунди.
-                  icon: AnimatedBuilder(
-                    animation: _nudge,
-                    builder: (context, child) {
-                      final t = _nudge.value;
-                      if (t == 0) return child!;
-                      // Затихващо махало: люлее се все по-слабо, а
-                      // наедряването върви и обратно, за да не "подскочи"
-                      // иконката в края.
-                      final angle = math.sin(t * math.pi * 6) * 0.28 * (1 - t);
-                      final scale = 1 + math.sin(t * math.pi) * 0.22;
-                      return Transform.rotate(
-                        angle: angle,
-                        child: Transform.scale(scale: scale, child: child),
-                      );
-                    },
-                    child: const Icon(Icons.delete_sweep_outlined),
-                    ),
-                  // Без избрани копчето е угасено — така се вижда, че
-                  // чака избор, вместо да изтрие всичко по погрешка.
-                  onPressed: _selectionMode
-                      ? (_selected.isEmpty ? null : _deleteSelected)
-                      : _deleteAll,
-                ),
-              ),
-            ),
-        ],
-      ),
-      body: SafeArea(
-        child: Container(
-          color: AppColors.background,
-          child: items == null
-              ? const Center(child: CircularProgressIndicator())
-              : items.isEmpty
-                  ? const Center(
-                      child: Text(
-                        'Няма запазени отметки.',
-                    style: TextStyle(
-                      color: AppColors.textSecondary,
-                      fontSize: 16,
-                    ),
-                      ),
-                    )
-                  : ListView.separated(
-                      itemCount: items.length,
-                  separatorBuilder: (_, _) =>
-                      const Divider(height: 1, color: AppColors.sectionDivider),
-                      itemBuilder: (context, i) {
-                        final (id, record) = items[i];
-                        final picked = _selected.contains(id);
-                    // Фонът се рисува от НАС, а не през ListTile.
-                    // selectedTileColor минава през Ink и в този вложен
-                    // списък не се появяваше изобщо.
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 160),
-                      color: picked
-                          ? AppColors.rowSelected
-                          : Colors.transparent,
-                      child: ListTile(
-                          // Десен отстъп = точно колкото добавихме на
-                          // "Изтрий всички" в лентата отгоре (виж
-                          // AppBar.actionsPadding по-горе) — за да легне
-                          // кошчето точно под него.
-                        contentPadding: const EdgeInsets.only(
-                          left: 16,
-                          right: 16,
-                        ),
-                          // Задържане отваря режима за избиране; след това
-                          // обикновеното докосване вече не отваря четивото,
-                          // а добавя/маха реда от избора.
-                          onLongPress: () => _toggle(id),
-                        onTap: () => _selectionMode ? _toggle(id) : _open(id),
-                          title: Text(
-                            record.name,
-                            style: const TextStyle(
-                              color: AppColors.textPrimary,
-                              fontSize: 16,
-                            ),
-                          ),
-                          subtitle: Text(
-                            record.typeLabel,
-                            style: const TextStyle(
-                              color: AppColors.sectionTitle,
-                              fontSize: 13,
-                            ),
-                          ),
-                          // В режим "избиране" кошчето на реда отстъпва
-                          // мястото си на отметка за избора — изтриването
-                          // вече минава през копчето горе.
-                          trailing: _selectionMode
-                              ? Icon(
-                                  picked
-                                      ? Icons.check_circle
-                                      : Icons.circle_outlined,
-                                  color: picked
-                                      ? AppColors.textPrimary
-                                      : AppColors.textMuted,
-                                )
-                              : IconButton(
-                                icon: const Icon(
-                                  Icons.delete_outline,
-                                  color: AppColors.textSecondary,
-                                ),
-                                  onPressed: () => _deleteOne(id),
-                              ),
-                                ),
-                        );
-                      },
-                    ),
-        ),
-      ),
-    );
-  }
+  ];
 }

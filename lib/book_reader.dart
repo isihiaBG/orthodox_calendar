@@ -19,17 +19,30 @@
 // БУКВИЦАТА се явява в началото на ВСЯКА глава — тя е знакът на
 // приложението, а всяка глава тук е отделно житие.
 
+import 'dart:async';
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'book_image.dart';
+import 'book_position_store.dart';
+import 'bookmarks.dart';
+import 'bookmarks_all.dart';
 import 'drop_cap.dart';
 import 'epub_source.dart';
+import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
+import 'reader_more_menu.dart';
+import 'reader_resume_prompt.dart';
+import 'reader_regions.dart';
+import 'text_line_locator.dart';
 import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'reader_sup_extension.dart';
@@ -83,10 +96,57 @@ class _BookReaderState extends State<BookReader> {
 
   /// Делът от височината на текста, на който стои всяко съвпадение (0..1).
   /// По тях се рисуват чертичките по скролбара.
-  List<double> _hitRatios = const [];
+  /// Абсолютното отместване в скрола на всяко съвпадение (виж
+  /// _recomputeHitYs). Заменя предишните съотношения спрямо дължината.
+  List<double> _hitYs = const [];
 
   int _total = 0;
   int _currentHit = -1;
+
+  // ── Докъде е стигнал читателят ──────────────────────────────────────
+  //
+  // Позицията се пази при СПИРАНЕ на плъзгането, не при всяко движение —
+  // иначе всеки ред би бил запис на диска.
+  /// По един ключ на регион — оттам идва реалната геометрия за точното
+  /// позициониране (виж reader_regions.dart и text_line_locator.dart).
+  List<GlobalKey> _regionKeys = [];
+
+  /// Кутията с ЦЯЛОТО съдържание на главата. Спрямо нея се смятат
+  /// съотношенията за чертичките — не спрямо скрола, защото в неговото
+  /// пространство влиза и лентата отгоре (при търсене тя е закована и не се
+  /// превърта, тъй че чертичките излизаха изместени).
+  final GlobalKey _contentKey = GlobalKey();
+
+  /// Кутията с буквицата — питаме я на кой пиксел стои даден знак.
+  final GlobalKey<DropCapParagraphState> _dropCapKey =
+      GlobalKey<DropCapParagraphState>();
+
+  /// Уловен в didChangeDependencies: в dispose() context вече не е сигурен
+  /// за нови lookup-и, а SnackBar-ът трябва да се прибере точно тогава.
+  ScaffoldMessengerState? _scaffoldMessenger;
+
+  Timer? _positionTimer;
+  BookPosition? _saved;
+  bool _promptShown = false;
+
+  /// Има ли отметка в тази книга.
+  ///
+  /// Моделът е като в четеца на жития: отметката не е точка, а СПЪТНИК —
+  /// сложиш ли я веднъж, тя те следва, докато четеш, и следващия път ти
+  /// предлага да се върнеш там. Без отметка нищо не се пази.
+  bool _isBookmarked = false;
+
+  /// Последно ЗАПАЗЕНАТА позиция, пазена в паметта. Сравняваме с нея, за да
+  /// пропускаме излишни записи: телефон, който лежи неподвижен, или дребно
+  /// поклащане в рамките на същия екран, не бива да удрят диска.
+  int? _savedChapter;
+  double? _savedOffset;
+  int _savedRegion = -1;
+  int _savedChar = 0;
+
+  /// Докато подканата за връщане стои на екрана, НЕ пишем нищо: иначе
+  /// плъзгането зад нея би презаписало точно позицията, която тя предлага.
+  bool _awaitingDecision = false;
 
   @override
   void initState() {
@@ -119,11 +179,29 @@ class _BookReaderState extends State<BookReader> {
     // само часовника, а печели цялата височина — особено в хоризонтално
     // положение, където тя отнема чувствителна част от екрана.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+    _scroll.addListener(_rememberPosition);
+    _loadSavedPosition();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _scaffoldMessenger = ScaffoldMessenger.of(context);
   }
 
   @override
   void dispose() {
     ReaderFontSize.flush();
+    // Прибираме евентуален висящ SnackBar веднага — ScaffoldMessenger е ОБЩ
+    // за приложението, не локален за екрана, тъй че иначе съобщението остава
+    // да виси и върху екрана, към който се връщаме.
+    _scaffoldMessenger?.removeCurrentSnackBar();
+    _positionTimer?.cancel();
+    // НЕ пишем позиция при излизане — нарочно, както в четеца на жития.
+    // Ако човек отвори книгата, види подканата за връщане и веднага излезе,
+    // записът тук би презаписал точно позицията, която подканата предлага.
+    // Пази се единствено по пътя „3 секунди покой на скрола".
+    _scroll.removeListener(_rememberPosition);
     _scroll.dispose();
     // ЗАДЪЛЖИТЕЛНО: режимът важи за цялото приложение, не за екрана. Без
     // това календарът остава без системна лента, след като човек затвори
@@ -137,8 +215,22 @@ class _BookReaderState extends State<BookReader> {
 
   void _goTo(int i) {
     if (i < 0 || i >= _chapters.length) return;
-    setState(() => _index = i);
+    _positionTimer?.cancel();
+    setState(() {
+      _index = i;
+      // Отметката е на ниво ЖИТИЕ. Новата глава е ново четиво: бутонът
+      // изгасва, а състоянието се чете наново за нея. Без това нулиране
+      // бутонът светеше и в жития, които човек не е отбелязвал, а първото
+      // спиране на скрола записваше позиция в тях.
+      _isBookmarked = false;
+      _savedChapter = null;
+      _savedOffset = null;
+      _saved = null;
+      _promptShown = false;
+      _awaitingDecision = false;
+    });
     if (_scroll.hasClients) _scroll.jumpTo(0);
+    _loadSavedPosition();
   }
 
   Future<void> _onLinkTap(String? url) async {
@@ -179,8 +271,169 @@ class _BookReaderState extends State<BookReader> {
       backgroundColor: palette.bg,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _NoteSheet(html: body, palette: palette),
+      builder: (_) => _NoteSheet(
+          html: body, palette: palette, extensions: _htmlExtensions),
     );
+  }
+
+  // ── Докъде е стигнал читателят ──────────────────────────────────────
+
+  /// Отлага записа: пише се едва след като плъзгането спре. Без това всеки
+  /// ред би бил обръщение към диска.
+  void _rememberPosition() {
+    if (!_isBookmarked || _awaitingDecision) return;
+    _positionTimer?.cancel();
+    // Три секунди покой — както в четеца на жития. Пише се при СПИРАНЕ на
+    // плъзгането, не по време на него.
+    _positionTimer = Timer(const Duration(seconds: 3), _saveIfStillIdle);
+  }
+
+  void _saveIfStillIdle() {
+    if (!mounted || !_isBookmarked || _awaitingDecision) return;
+    if (!_scroll.hasClients) return;
+    // Ако нищо не се е променило спрямо последно запазеното, пропускаме
+    // записа. Сравнява се РЕДЪТ (абзац + знак), не пикселът: дребно
+    // поклащане в рамките на същия ред не е нова позиция.
+    final at = _topmostLine();
+    if (_index == _savedChapter &&
+        at != null &&
+        at.$1 == _savedRegion &&
+        at.$2 == _savedChar) {
+      return;
+    }
+    _writePosition();
+  }
+
+  void _writePosition() {
+    if (!_scroll.hasClients) return;
+    _savedChapter = _index;
+    _savedOffset = _scroll.offset;
+    // Пази се ЗНАК, не пиксел: пикселът зависи от размера на шрифта и
+    // записан днес, утре сочи другаде. Виж BookPosition.
+    final at = _topmostLine();
+    _savedRegion = at?.$1 ?? -1;
+    _savedChar = at?.$2 ?? 0;
+    BookPositionStore.save(
+      widget.book.assetPath,
+      _current.href,
+      BookPosition(
+        chapter: _index,
+        offset: _scroll.offset,
+        region: _savedRegion,
+        charInRegion: _savedChar,
+        chapterTitle: _current.title,
+        parentTitle: _dayTitleOf(_current),
+        savedAtMs: DateTime.now().millisecondsSinceEpoch,
+      ),
+    );
+  }
+
+  /// Чете запазената позиция за ТЕКУЩАТА глава и, ако има такава, предлага
+  /// връщане към нея.
+  Future<void> _loadSavedPosition() async {
+    // Записът се търси за ГЛАВАТА, която е отворена в момента — отметките
+    // са на ниво житие (виж BookPositionStore).
+    final href = _current.href;
+    final pos = await BookPositionStore.load(widget.book.assetPath, href);
+    // Стария общокнижен запис го чистим пътьом, веднъж.
+    BookPositionStore.clearLegacy(widget.book.assetPath);
+    if (!mounted || pos == null) return;
+    // Главата се е сменила, докато четяхме от диска.
+    if (_current.href != href) return;
+    setState(() {
+      _saved = pos;
+      _isBookmarked = true;
+      _savedChapter = pos.chapter;
+      _savedOffset = pos.offset;
+      _savedRegion = pos.region;
+      _savedChar = pos.charInRegion;
+      // Докато подканата стои, плъзгането зад нея не бива да презаписва
+      // позицията, която тя предлага.
+      _awaitingDecision = true;
+    });
+  }
+
+  Future<void> _toggleBookmark() async {
+    if (_isBookmarked) {
+      await BookPositionStore.clear(widget.book.assetPath, _current.href);
+      _positionTimer?.cancel();
+      if (!mounted) return;
+      setState(() {
+        _isBookmarked = false;
+        _savedChapter = null;
+        _savedOffset = null;
+        _savedRegion = -1;
+        _savedChar = 0;
+        _saved = null;
+        _promptShown = true;
+        _awaitingDecision = false;
+      });
+    } else {
+      if (!mounted) return;
+      setState(() {
+        _isBookmarked = true;
+        _promptShown = true;
+        _awaitingDecision = false;
+      });
+      _writePosition();
+      _showBookmarkEnabledSnackbar();
+    }
+  }
+
+  void _showBookmarkEnabledSnackbar() {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Последната ви позиция в книгата ще се запазва регулярно, '
+          'докато бутонът за отметка остава включен.',
+          style: TextStyle(fontSize: 18),
+        ),
+        duration: Duration(seconds: 10),
+      ),
+    );
+  }
+
+  void _jumpToSaved() {
+    final pos = _saved;
+    if (pos == null) return;
+    setState(() {
+      // Главата НЕ се сменя: записът е намерен по нейния ключ, тъй че
+      // подканата връща само на мястото в текущото четиво. (Полето
+      // `chapter` в записа остава като справка, но не води.)
+      _promptShown = true;
+      _saved = null;
+      _awaitingDecision = false;
+    });
+    // Скролът получава позицията чак след като главата се построи.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scroll.hasClients) return;
+      final position = _scroll.position;
+      // Новите записи носят абзац и знак — редът се смята сега, при
+      // текущия размер на шрифта, и застава най-горе. Старите носят само
+      // пиксел и се ползват както преди.
+      if (pos.region >= 0 && pos.region < _regionKeys.length) {
+        final ctx = _regionKeys[pos.region].currentContext;
+        final box = ctx?.findRenderObject() as RenderBox?;
+        final line = box == null
+            ? null
+            : _lineForChar(
+                _currentRegions(), pos.region, pos.charInRegion, box.size.width);
+        if (box != null && line != null) {
+          final target = RenderAbstractViewport.of(box)
+              .getOffsetToReveal(
+                box,
+                0.0,
+                rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
+              )
+              .offset;
+          _scroll.jumpTo(
+              target.clamp(position.minScrollExtent, position.maxScrollExtent));
+          return;
+        }
+      }
+      _scroll.jumpTo(pos.offset.clamp(0.0, position.maxScrollExtent));
+    });
   }
 
   // ── Търсене ─────────────────────────────────────────────────────────
@@ -191,7 +444,7 @@ class _BookReaderState extends State<BookReader> {
       if (!_searchOpen) {
         _searchCtrl.clear();
         _query = '';
-        _hitRatios = const [];
+        _hitYs = const [];
         _total = 0;
         _currentHit = -1;
       }
@@ -209,26 +462,88 @@ class _BookReaderState extends State<BookReader> {
   /// различни шрифтове и височините се оценяват поотделно.)
   void _runSearch(String raw) {
     final q = fold(raw.trim()).text;
-    final plain =
-        _plainOf(_normalize(widget.book.readFile(_current.href) ?? ''));
-    final folded = fold(plain);
-    final ratios = <double>[];
-    if (q.isNotEmpty && folded.text.isNotEmpty) {
-      var from = 0;
-      while (true) {
-        final at = folded.text.indexOf(q, from);
-        if (at < 0) break;
-        ratios.add(folded.origIndex[at] / plain.length);
-        from = at + q.length;
-      }
+    // Броим ПО РЕГИОНИ, със същата сметка, с която се и маркира (виж
+    // _chapterBody). Дотук се броеше по слепения текст на цялата глава — а
+    // там съвпадение можеше да „прескочи" границата между два абзаца и да
+    // се появи номер, който маркирането не рисува никъде.
+    final regions = _currentRegions();
+    var total = 0;
+    for (final r in regions) {
+      total += _countIn(r.content, q) + _countIn(r.second, q);
     }
     setState(() {
       _query = q;
-      _hitRatios = ratios;
-      _total = ratios.length;
-      _currentHit = ratios.isEmpty ? -1 : 0;
+      _total = total;
+      _currentHit = total == 0 ? -1 : 0;
+      _hitYs = const [];
     });
-    if (ratios.isNotEmpty) _scrollToHit(0);
+    // Позициите искат построена геометрия — смятат се след кадъра.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _recomputeHitYs();
+      if (_total > 0) _scrollToHit(0);
+    });
+  }
+
+  /// Регионите на текущата глава — същото деление, което рисува build().
+  List<ReaderRegion> _currentRegions() {
+    final body = _normalize(widget.book.readFile(_current.href) ?? '');
+    final (beforeHtml, dropCap, firstP, afterHtml) = splitDropCap(body);
+    return computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+  }
+
+  int _countIn(String html, String foldedQuery) {
+    if (foldedQuery.isEmpty || html.isEmpty) return 0;
+    final folded = fold(_plainOf(html));
+    var n = 0, from = 0;
+    while (true) {
+      final at = folded.text.indexOf(foldedQuery, from);
+      if (at < 0) break;
+      n++;
+      from = at + foldedQuery.length;
+    }
+    return n;
+  }
+
+  /// Абсолютното отместване (в скрола) на всяко съвпадение.
+  ///
+  /// По РЕАЛНАТА геометрия на построените региони плюс реда вътре в тях —
+  /// същото, което прави четецът на жития. Дотук тук се смяташе
+  /// „съотношение × maxScrollExtent", което приема, че всички редове са
+  /// еднакво високи: заглавия, полета между абзаците и буквицата го
+  /// разместваха.
+  void _recomputeHitYs() {
+    if (_query.isEmpty || !_scroll.hasClients) {
+      _hitYs = const [];
+      return;
+    }
+    final regions = _currentRegions();
+    final ys = <double>[];
+    for (int i = 0; i < regions.length && i < _regionKeys.length; i++) {
+      final r = regions[i];
+      final count = _countIn(r.content, _query) + _countIn(r.second, _query);
+      if (count == 0) continue;
+      final ctx = _regionKeys[i].currentContext;
+      final box = ctx?.findRenderObject() as RenderBox?;
+      if (box == null) {
+        for (var k = 0; k < count; k++) {
+          ys.add(0);
+        }
+        continue;
+      }
+      // Две различни неща от една мярка:
+      //   • за СКРОЛА — абсолютно отместване (виж getOffsetToReveal);
+      //   • за ЧЕРТИЧКИТЕ — къде е това вътре в съдържанието, 0..1.
+      final top =
+          RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+      for (int k = 0; k < count; k++) {
+        final line = _lineOfMatch(regions, i, k, box.size.width);
+        final dy = line?.$1 ?? 0;
+        final y = top + dy;
+        ys.add(y);
+      }
+    }
+    if (mounted) setState(() => _hitYs = ys);
   }
 
   /// Колко пъти се среща заявката в даден откъс HTML.
@@ -251,12 +566,195 @@ class _BookReaderState extends State<BookReader> {
       .replaceAll(RegExp(r'\s+'), ' ')
       .trim();
 
+  /// Отместването и височината на реда с k-тото съвпадение в региона [i].
+  (double, double)? _lineOfMatch(
+      List<ReaderRegion> regions, int i, int k, double width) {
+    if (width <= 0 || i < 0 || i >= regions.length) return null;
+    final r = regions[i];
+    final lineH = ReaderFontSize.value * kReaderLineHeight;
+
+    if (!r.isHtml) {
+      final state = _dropCapKey.currentState;
+      if (state == null) return null;
+      final starts = matchStartsOf(_plainOf(r.content), _query);
+      if (k < starts.length) {
+        final dy = state.dyForChar(starts[k]);
+        return dy == null ? null : (dy, lineH);
+      }
+      final starts2 = matchStartsOf(_plainOf(r.second), _query);
+      final k2 = k - starts.length;
+      if (k2 >= starts2.length) return null;
+      final dy = state.dyForCharInSecond(starts2[k2]);
+      return dy == null ? null : (dy, lineH);
+    }
+
+    final (base, topMargin) = _measureStyleFor(r.content);
+    final locator =
+        LineLocator.forHtml(html: r.content, base: base, maxWidth: width);
+    try {
+      final at = locator.charOfMatch(_query, k);
+      if (at == null) return null;
+      return (
+        topMargin + locator.dyForChar(at),
+        locator.lineHeightForChar(at),
+      );
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Отместването и височината на реда със знак [charInRegion] от региона
+  /// [i]. Общо за отметките и (през _lineOfMatch) за търсенето.
+  (double, double)? _lineForChar(
+      List<ReaderRegion> regions, int i, int charInRegion, double width) {
+    if (width <= 0 || i < 0 || i >= regions.length) return null;
+    final r = regions[i];
+    final lineH = ReaderFontSize.value * kReaderLineHeight;
+    if (!r.isHtml) {
+      final dy = _dropCapKey.currentState?.dyForChar(charInRegion);
+      return dy == null ? null : (dy, lineH);
+    }
+    final (base, topMargin) = _measureStyleFor(r.content);
+    final locator =
+        LineLocator.forHtml(html: r.content, base: base, maxWidth: width);
+    try {
+      return (
+        topMargin + locator.dyForChar(charInRegion),
+        locator.lineHeightForChar(charInRegion),
+      );
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Кой знак стои на пиксел [dy] в региона [i] — обратното на [_lineForChar].
+  int? _charAtDyInRegion(
+      List<ReaderRegion> regions, int i, double dy, double width) {
+    if (width <= 0 || i < 0 || i >= regions.length) return null;
+    final r = regions[i];
+    if (!r.isHtml) return _dropCapKey.currentState?.charAtDy(dy);
+    final (base, topMargin) = _measureStyleFor(r.content);
+    final locator =
+        LineLocator.forHtml(html: r.content, base: base, maxWidth: width);
+    try {
+      return locator.charAtDy(dy - topMargin);
+    } finally {
+      locator.dispose();
+    }
+  }
+
+  /// Денят, под който стои това четиво в съдържанието.
+  ///
+  /// Съдържанието на томовете е двуетажно: ден → жития в него. Записът
+  /// пази и двете, защото само заглавието на житието не казва кога се чете,
+  /// а само денят не казва кое от четивата му е било отворено.
+  String _dayTitleOf(EpubTocEntry entry) {
+    for (final day in widget.book.toc) {
+      if (day.children.isEmpty) continue;
+      if (day.title == entry.title) return '';  // самият ден е отворен
+      for (final child in day.children) {
+        if (child.href == entry.href && child.anchor == entry.anchor) {
+          return day.title;
+        }
+      }
+    }
+    return '';
+  }
+
+  /// (абзац, знак) на най-горния видим ред — това записва отметката.
+  (int, int)? _topmostLine() {
+    if (!_scroll.hasClients) return null;
+    final regions = _currentRegions();
+    final pixels = _scroll.position.pixels;
+    for (int i = 0; i < regions.length && i < _regionKeys.length; i++) {
+      final ctx = _regionKeys[i].currentContext;
+      final box = ctx?.findRenderObject() as RenderBox?;
+      if (box == null) continue;
+      final top =
+          RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+      if (top + box.size.height <= pixels) continue; // изцяло над екрана
+      final dy = pixels - top;
+      if (dy < 0) return (i, 0);
+      return (i, _charAtDyInRegion(regions, i, dy, box.size.width) ?? 0);
+    }
+    return null;
+  }
+
+  /// Стилът и горното поле, с които се РИСВА даден регион — мерещият
+  /// трябва да е огледален на рисуващия (виж същото в reader_screen).
+  (TextStyle, double) _measureStyleFor(String html) {
+    final size = ReaderFontSize.value;
+    final head = html.trimLeft();
+    if (head.startsWith('<h3')) {
+      return (
+        TextStyle(fontFamily: kTitleFamily, fontSize: size + 12, height: 1.05),
+        18.0,
+      );
+    }
+    if (head.contains('class="memorydate"')) {
+      return (
+        TextStyle(
+          fontFamily: kBodyFamily,
+          fontSize: size - 1,
+          height: kReaderLineHeight,
+          fontStyle: FontStyle.italic,
+        ),
+        2.0,
+      );
+    }
+    return (
+      TextStyle(
+        fontFamily: kBodyFamily,
+        fontSize: size,
+        height: kReaderLineHeight,
+      ),
+      8.0,
+    );
+  }
+
+  /// Къде да легне чертичката, за да съвпадне с ПАЛЕЦА на скролбара.
+  ///
+  /// Не е просто „място в текста / дължина на текста". Двете ленти мерят от
+  /// РАЗЛИЧНИ начала: палецът се движи по целия скролируем изглед, който тук
+  /// започва от самия връх на екрана (лентата с инструменти е sliver вътре в
+  /// него), а чертичките започват ПОД инструментите. Затова се смята екранна
+  /// координата на палеца и чак тя се превръща в дял от лентата с чертички.
+  /// Без това чертичките стоят системно по-ниско от палеца.
+  double _tickRatioFor(double matchY) {
+    final p = _scroll.position;
+    final vp = p.viewportDimension;
+    final maxScroll = p.maxScrollExtent;
+    if (vp <= 0 || maxScroll <= 0) return 0;
+
+    // При търсене лентата е ИЗВЪН скролируемото, тъй че пътят на палеца и
+    // лентата с чертичките започват от едно и също място — остава само да
+    // повторим сметката, с която Flutter рисува палеца:
+    //   отместване_на_палеца = (позиция / maxScroll) × (път − дължина).
+    const margin = 4.0; // mainAxisMargin от readerScrollbarTheme
+    final track = vp - margin * 2;
+    if (track <= 0) return 0;
+    // Палецът никога не е по-къс от minThumbLength (48) — иначе сметката
+    // би го поставила по-ниско, отколкото се рисува.
+    final thumb = math.max(48.0, track * vp / (maxScroll + vp));
+
+    final offset = (matchY - vp * _hitAlignment).clamp(0.0, maxScroll);
+    return ((offset / maxScroll) * (track - thumb) / track).clamp(0.0, 1.0);
+  }
+
+  /// Отстъпът отгоре на лентата с чертичките: лентата с инструменти (44)
+  /// плюс тази за търсене (58) плюс луфта на скролбара.
+  static const double _ticksLaneTop = 44 + 58 + 4;
+
+  /// Колко от височината на екрана да остане НАД намереното.
+  static const double _hitAlignment = 0.30;
+
   void _scrollToHit(int i) {
-    if (i < 0 || i >= _hitRatios.length || !_scroll.hasClients) return;
-    final max = _scroll.position.maxScrollExtent;
-    // Съвпадението се вкарва малко под горния ръб, а не залепено за него —
-    // така се вижда и редът преди него.
-    final target = (_hitRatios[i] * max - 80).clamp(0.0, max);
+    if (i < 0 || !_scroll.hasClients) return;
+    if (i >= _hitYs.length) return;
+    final position = _scroll.position;
+    final target = (_hitYs[i] - position.viewportDimension * _hitAlignment)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    if ((position.pixels - target).abs() < 8) return;
     _scroll.animateTo(target,
         duration: const Duration(milliseconds: 280), curve: Curves.easeOut);
   }
@@ -268,10 +766,24 @@ class _BookReaderState extends State<BookReader> {
   }
 
   Future<void> _showMoreMenu() async {
-    // TODO: същинско меню (отметки, преход към календара, споделяне).
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Менюто предстои.')),
+    // СЪЩОТО меню като в четеца на жития — виж reader_more_menu.dart.
+    final choice = await showReaderMoreMenu(
+      context,
+      items: const [
+        ReaderMenuItem(
+          icon: Icons.bookmarks_outlined,
+          label: 'Списък с отметки',
+          value: 'bookmarks',
+        ),
+      ],
     );
+    if (!mounted || choice != 'bookmarks') return;
+    // Един и същи списък: там са и отметките от житията, и тукашните.
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BookmarksListScreen(
+        load: () => allBookmarkEntries(lookupBySlug),
+      ),
+    ));
   }
 
   // ── Съдържанието ────────────────────────────────────────────────────────
@@ -299,156 +811,235 @@ class _BookReaderState extends State<BookReader> {
     final raw = widget.book.readFile(_current.href);
 
     return Scaffold(
-      backgroundColor: palette.bg,
-      // Чертичките за намереното стоят НАД скрола, затова е Stack: те са
-      // показалец, не част от текста.
-      body: Stack(children: [
-        SafeArea(
+      // Фонът на СКЕЛЕТА е цветът на инструментите, а не на четеца — под
+      // него остава само ивицата на системната лента (виж SafeArea долу).
+      // Така тя стои еднакво тъмна и в светла тема, вместо да светне
+      // кремава заедно със страницата. Точно както в четеца на жития.
+      backgroundColor: AppColors.toolbar,
+      body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
         // нагоре — същото поведение като в четеца на жития (SliverAppBar с
         // floating+snap, без pinned). При четене на дълъг текст всеки
         // изгубен ред се усеща.
-        child: ScrollbarTheme(
-          data: readerScrollbarTheme(palette),
-          child: Scrollbar(
-            controller: _scroll,
-            // Разрешава ВЛАЧЕНЕ на палеца с пръст; без него скролбарът е
-            // само показалец. Флагът разширява и зоната за докосване отвъд
-            // видимата ширина на палеца.
-            interactive: true,
-            child: CustomScrollView(
-              controller: _scroll,
-              slivers: [
-                SliverAppBar(
-                  primary: false,
-                  // При ТЪРСЕНЕ лентите остават заковани: иначе полето за
-                  // въвеждане и броячът изчезват при първото плъзгане към
-                  // намереното. Същото прави и четецът на жития.
-                  floating: !_searchOpen,
-                  snap: !_searchOpen,
-                  pinned: _searchOpen,
-                  backgroundColor: AppColors.toolbar,
-                  toolbarHeight: 44,
-                  title: Text(
-                    _current.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 15),
+        child: Container(
+          // Фонът на СТРАНИЦАТА — вътре в SafeArea, за да не покрие ивицата
+          // на системната лента (тя остава с цвета на инструментите).
+          color: palette.bg,
+          // ПРИ ТЪРСЕНЕ лентата излиза ИЗВЪН скролируемото и застава като
+          // обикновен AppBar в Column — както в четеца на жития.
+          //
+          // Не е подредба заради подредбата: докато лентата е sliver вътре
+          // в скрола, пътят на палеца започва от самия връх на екрана и
+          // палецът навлиза зад полето за търсене. Изнесена, тя отрязва
+          // изгледа и палецът тръгва изпод нея — оттам и чертичките лягат
+          // точно срещу него.
+          // Чертичките и подканата стоят НАД скрола, затова е Stack — и
+          // ВЪТРЕ в SafeArea, за да мерят от същото начало като него.
+          // Отвън координатите им се разминават с височината на системната
+          // ивица и разминаването расте надолу.
+          child: Stack(children: [
+          _searchOpen
+              ? Column(children: [
+                  // AppBar като дете на Column не получава височина отвън —
+                  // затова е в SizedBox (същото и в четеца на жития).
+                  SizedBox(
+                    height: 44 + 58,
+                    child: AppBar(
+                      primary: false,
+                      backgroundColor: AppColors.toolbar,
+                      toolbarHeight: 44,
+                      title: Text(
+                        _current.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                      actions: _toolbarActions(),
+                      bottom: _searchBar(),
+                    ),
                   ),
-                  // Същата лента като при четеца на жития — за потребителя
-                  // това е един и същи четец. Разликата е само
-                  // „Съдържание": то има смисъл при книга, не при житие.
-                  actions: readerToolbarActions(
-                    context: context,
-                    onShowContents: _showToc,
-          onSearch: _toggleSearch,
-          searchOpen: _searchOpen,
-                    onThemeToggle: () =>
-                        setState(() => ReaderTheme.dark = !ReaderTheme.dark),
-                    onFontSmaller: () => setState(
-                        () => ReaderFontSize.nudge(-ReaderFontSize.step)),
-                    onFontBigger: () => setState(
-                        () => ReaderFontSize.nudge(ReaderFontSize.step)),
-                    // Търсенето и отметките предстоят; менюто вече стои,
-                    // защото и тук ще получи аналогични инструменти.
-                    onMore: _showMoreMenu,
-                  ),
-                  bottom: _searchOpen ? _searchBar() : null,
-                ),
-                SliverToBoxAdapter(
-                  child: raw == null
-                      ? Padding(
-                          padding: const EdgeInsets.all(24),
-                          child: Text('Няма ${_current.href}',
-                              style: TextStyle(color: palette.dim)))
-                      : _chapterBody(raw, palette),
-                ),
-              ],
+                  Expanded(
+                      child: _scrollBody(palette, raw, withHeader: false)),
+                ])
+              : _scrollBody(palette, raw, withHeader: true),
+        // „Продължи оттам, докъдето стигна" — изскача веднъж при отваряне
+        // и изчезва само, ако не го докоснат. Прозорчето е ОБЩО с четеца
+        // на жития (виж reader_resume_prompt.dart).
+        if (_saved != null && !_promptShown)
+          Positioned(
+            left: 12,
+            right: 12,
+            bottom: 20,
+            child: ResumePrompt(
+              background: AppColors.toolbar,
+              ink: palette.ink,
+              dim: palette.dim,
+              onJump: _jumpToSaved,
+              onDeleted: () {
+                BookPositionStore.clear(
+                    widget.book.assetPath, _current.href);
+                setState(() {
+                  _saved = null;
+                  _isBookmarked = false;
+                  _savedChapter = null;
+                  _savedOffset = null;
+                  _awaitingDecision = false;
+                });
+              },
+              // Затваряне без избор: отметката ОСТАВА и продължава да следи
+              // — човекът просто чете оттам, докъдето е отворил.
+              onClosed: () => setState(() {
+                _promptShown = true;
+                _awaitingDecision = false;
+              }),
             ),
           ),
-        ),
-      ),
         // Отстъпът отгоре съвпада с височината на лентата (44) плюс тази
         // за търсене (52) — за да легнат чертичките точно върху скролбара.
         if (_searchOpen && _total > 0)
           matchTicksOverlay(
-            ratios: _hitRatios,
+            // Съотношенията се смятат В МОМЕНТА НА РИСУВАНЕ, а не се пазят:
+            // те зависят от височината на изгледа, а тя се мени (завъртане,
+            // прибиране на лентата, промяна в SafeArea). Запазени веднъж,
+            // остаряват тихо и чертичките се разминават с палеца.
+            ratios: [for (final y in _hitYs) _tickRatioFor(y)],
             currentIndex: _currentHit,
             palette: palette,
-            top: 44 + 52 + 4,
+            top: _ticksLaneTop,
           ),
-      ]),
+          ]),
+        ),
+      ),
       bottomNavigationBar: _showNavBar ? _navBar(palette) : null,
     );
   }
 
+  /// Разширенията за flutter_html — ЕДНИ И СЪЩИ навсякъде в този четец.
+  ///
+  /// Не са `const`, защото картинките трябва да знаят от коя книга и от коя
+  /// глава идват, за да разрешат относителния си път.
+  List<HtmlExtension> get _htmlExtensions => [
+        const ReaderSupExtension(),
+        BookImageExtension(book: widget.book, chapterHref: _current.href),
+      ];
+
   Widget _chapterBody(String raw, ReaderPalette palette) {
-    var body = _normalize(raw);
-    // Маркирането е ОБЩО с четеца на жития (виж reader_search.dart): то
-    // обвива намереното в <span class="hit">, а стиловете го оцветяват.
-    if (_query.isNotEmpty) {
-      body = highlightHtml(body, _query, 0, _currentHit);
-    }
+    final body = _normalize(raw);
+    // Главата се дели на РЕГИОНИ (по абзац), както в четеца на жития.
+    //
+    // Не е подредба заради подредбата: регионът е единицата, която има свой
+    // ключ и оттам реална геометрия в скрола. Без него „на кой пиксел е
+    // този ред" няма спрямо какво да се смята — а и буквицата няма откъде
+    // да получи втория абзац, който да изтегли до себе си.
+    //
+    // Маркирането се нанася ПО РЕГИОНИ, с текущо отместване на броя, за да
+    // остане номерацията на съвпаденията същата като преди.
     final (beforeHtml, dropCap, firstP, afterHtml) = splitDropCap(body);
+    final regions = computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+    if (_regionKeys.length != regions.length) {
+      _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+    }
     final styles = readerStyles(
       fontSize: ReaderFontSize.value,
       palette: palette,
     );
+    // Заглавният блок на тома. Класът е на calibre и го има САМО в книгите,
+    // затова стои тук, а не в общия reader_styles.dart. Стойностите не са
+    // измислени — прочетени са от stylesheet.css вътре в .epub-а:
+    // центрирано, с шрифта на заглавията. Без него подзаглавието увисва
+    // ляво подравнено под центрираното заглавие.
+    styles['.calibre9'] = Style(
+      fontFamily: kTitleFamily,
+      textAlign: TextAlign.center,
+      color: palette.ink,
+      // Стегнат ред. Заглавието е едро и с обичайното междуредие на четеца
+      // двата му реда се разкъсват; в самия том стои 1.2, а инлайн — още
+      // по-стегнато (46px при 68px шрифт). Онова инлайн междуредие се маха
+      // по-горе, защото flutter_html го чете като множител, тъй че тук е
+      // единственото място, където намерението може да се върне.
+      lineHeight: const LineHeight(1.05),
+      fontSize: FontSize(ReaderFontSize.value + 6),
+    );
+    // Заглавната страница на тома се разпознава по това, че НЯМА нито един
+    // абзац — само заглавен блок. Белегът е структурен, а не „главата е
+    // първа": в тома точно два файла са такива (тя и корицата), а всички
+    // 550 заглавия делят един и същ клас, тъй че по клас не се различават.
+    //
+    // Там заглавието е едро и с обичайното междуредие на четеца двата му
+    // реда се разкъсват на две отделни надписа.
+    if (!body.contains('<p')) {
+      styles['h3'] = styles['h3']!.copyWith(
+        lineHeight: const LineHeight(0.9),
+        // Стегнатият ред слепва и подзаглавието за заглавието — връщаме им
+        // въздуха помежду, но само тук: в главите отстоянието заглавие →
+        // текст се мери другаде (виж отстоянието под заглавието в четеца).
+        margin: Margins.only(top: 18, bottom: 16),
+      );
+    }
 
     final fontSize = ReaderFontSize.value;
     final lineHeightPx = fontSize * kReaderLineHeight;
 
-    // Без долната лента текстът стига до края на екрана; отдолу се оставя
-    // само толкова, колкото заема системната лента за жестове.
-    final bottomInset = MediaQuery.of(context).padding.bottom;
+    final children = <Widget>[];
+    var matchOffset = 0;
+    for (int i = 0; i < regions.length; i++) {
+      final r = regions[i];
+      if (r.isHtml) {
+        children.add(KeyedSubtree(
+          key: _regionKeys[i],
+          child: Html(
+            data: _query.isEmpty
+                ? r.content
+                : highlightHtml(r.content, _query, matchOffset, _currentHit),
+            style: styles,
+            extensions: _htmlExtensions,
+            onLinkTap: (u, _, __) => _onLinkTap(u),
+          ),
+        ));
+        matchOffset += _countHits(r.content);
+      } else {
+        children.add(KeyedSubtree(
+          key: _regionKeys[i],
+          child: DropCapParagraph(
+            key: _dropCapKey,
+            dropCap: dropCap,
+            // Същата сметка като в четеца на жития: 5,5 реда височина, с
+            // корекция за ascender-а на Bukvica.
+            dropCapSize: lineHeightPx * 5.5 * 0.82,
+            lineHeight: lineHeightPx,
+            lineFactor: kReaderLineHeight,
+            firstParagraph: r.content,
+            // Вече се подава: при къс първи абзац следващият се изтегля
+            // вдясно от инициала, вместо там да зее празно.
+            secondParagraph: r.second,
+            fontSize: fontSize,
+            capColor: palette.wine,
+            inkColor: palette.ink,
+            linkColor: palette.link,
+            // Първите редове се рисуват РЪЧНО (Text.rich), не през
+            // flutter_html — значи маркирането трябва да им се подаде
+            // отделно. Без това намереното в началото оставаше неоцветено.
+            searchQuery: _query,
+            firstGlobalMatchIndex: matchOffset,
+            currentGlobalMatch: _currentHit,
+            hitColor: palette.hit,
+            hitCurrentColor: palette.hitCurrent,
+            onLinkTap: _onLinkTap,
+          ),
+        ));
+        matchOffset += _countHits(r.content) + _countHits(r.second);
+      }
+    }
+
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 12, 16, 24 + bottomInset),
+      key: _contentKey,
+      // Долният отстъп е само дъх след последния ред — мястото на
+      // системната лента за жестове вече е отнето от SafeArea (виж build).
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          if (beforeHtml.trim().isNotEmpty)
-            Html(
-                data: beforeHtml,
-                style: styles,
-                extensions: const [ReaderSupExtension()],
-                onLinkTap: (u, _, __) => _onLinkTap(u)),
-          if (dropCap.isNotEmpty)
-            DropCapParagraph(
-              dropCap: dropCap,
-              // Същата сметка като в четеца на жития: 5,5 реда височина, с
-              // корекция за ascender-а на Bukvica.
-              dropCapSize: lineHeightPx * 5.5 * 0.82,
-              lineHeight: lineHeightPx,
-              lineFactor: kReaderLineHeight,
-              firstParagraph: firstP,
-              secondParagraph: '',
-              fontSize: fontSize,
-              capColor: palette.wine,
-              inkColor: palette.ink,
-              linkColor: palette.link,
-              // Първите редове се рисуват РЪЧНО (Text.rich), не през
-              // flutter_html — значи маркирането трябва да им се подаде
-              // отделно. Без това намереното в началото на главата оставаше
-              // неоцветено.
-              searchQuery: _query,
-              // Съвпаденията се броят ГЛОБАЛНО за цялата глава, а буквицата
-              // започва след beforeHtml (заглавието и реда с паметта).
-              // Затова ѝ се подава колко са намерени преди нея — иначе
-              // „текущото" би се оцветило на грешно място.
-              firstGlobalMatchIndex: _countHits(beforeHtml),
-              currentGlobalMatch: _currentHit,
-              hitColor: palette.hit,
-              hitCurrentColor: palette.hitCurrent,
-              onLinkTap: _onLinkTap,
-            ),
-          if (afterHtml.trim().isNotEmpty)
-            Html(
-                data: afterHtml,
-                style: styles,
-                extensions: const [ReaderSupExtension()],
-                onLinkTap: (u, _, __) => _onLinkTap(u)),
-        ],
+        children: children,
       ),
     );
   }
@@ -500,6 +1091,17 @@ class _BookReaderState extends State<BookReader> {
       RegExp(r'<h1\b[^>]*>(.*?)</h1>', dotAll: true),
       (m) => '<h3>${m.group(1)!.replaceAll(RegExp(r'(<br\b[^>]*/?>\s*)+$'), '').trim()}</h3>',
     );
+    // Инлайн междуредието на calibre — МАХА СЕ ЗАДЪЛЖИТЕЛНО.
+    //
+    // Не е разкрасяване, а поправка: flutter_html чете `line-height: 46px`
+    // като МНОЖИТЕЛ (46 пъти размера на шрифта), не като дължина. Редът
+    // става няколко хиляди пиксела висок и текстът пада далеч под екрана —
+    // страницата изглежда напълно празна, без никаква грешка в лога.
+    // Точно това правеше заглавната страница на всеки том невидима.
+    //
+    // Загуба няма: междуредието при четене е наше (kReaderLineHeight), а
+    // сметките на calibre са за друга ширина на страница.
+    body = body.replaceAll(RegExp(r'line-height\s*:[^;"]*;?'), '');
     // Празните котви на calibre (<a id="TOC_…"></a>) само шумят.
     body = body.replaceAll(
         RegExp(r'<a\s+(?![^>]*href)[^>]*>\s*</a>', dotAll: true), '');
@@ -575,6 +1177,72 @@ class _BookReaderState extends State<BookReader> {
               maxLines: 1,
               softWrap: false,
               style: TextStyle(color: fg, fontSize: 13),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Копчетата в лентата — едни и същи в двата ѝ вида (sliver и закована).
+  List<Widget> _toolbarActions() => readerToolbarActions(
+        context: context,
+        onShowContents: _showToc,
+        onSearch: _toggleSearch,
+        searchOpen: _searchOpen,
+        onBookmark: _toggleBookmark,
+        bookmarked: _isBookmarked,
+        onThemeToggle: () =>
+            setState(() => ReaderTheme.dark = !ReaderTheme.dark),
+        onFontSmaller: () =>
+            setState(() => ReaderFontSize.nudge(-ReaderFontSize.step)),
+        onFontBigger: () =>
+            setState(() => ReaderFontSize.nudge(ReaderFontSize.step)),
+        onMore: _showMoreMenu,
+      );
+
+  /// Скролируемото тяло. [withHeader] решава дали лентата да е вътре в него
+  /// (обикновено четене, прибира се при плъзгане) или не (търсене — тогава
+  /// тя е закована отвън; виж коментара в build).
+  Widget _scrollBody(ReaderPalette palette, String? raw,
+      {required bool withHeader}) {
+    return ScrollbarTheme(
+      data: readerScrollbarTheme(palette),
+      child: Scrollbar(
+        controller: _scroll,
+        // Постоянно видим палец, докато ИМА чертички за гледане — от старта
+        // на търсенето с поне едно намерено, до затварянето му. Иначе
+        // чертичките стоят, а палецът (референтната точка спрямо тях)
+        // избледнява и сравнението е безсмислено.
+        thumbVisibility: _searchOpen && _total > 0,
+        // Разрешава ВЛАЧЕНЕ на палеца с пръст; без него скролбарът е само
+        // показалец. Флагът разширява и зоната за докосване.
+        interactive: true,
+        child: CustomScrollView(
+          controller: _scroll,
+          slivers: [
+            if (withHeader)
+              SliverAppBar(
+                primary: false,
+                floating: true,
+                snap: true,
+                backgroundColor: AppColors.toolbar,
+                toolbarHeight: 44,
+                title: Text(
+                  _current.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15),
+                ),
+                actions: _toolbarActions(),
+              ),
+            SliverToBoxAdapter(
+              child: raw == null
+                  ? Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text('Няма ${_current.href}',
+                          style: TextStyle(color: palette.dim)))
+                  : _chapterBody(raw, palette),
             ),
           ],
         ),
@@ -700,8 +1368,12 @@ class _TocSheet extends StatelessWidget {
 class _NoteSheet extends StatelessWidget {
   final String html;
   final ReaderPalette palette;
+  final List<HtmlExtension> extensions;
 
-  const _NoteSheet({required this.html, required this.palette});
+  const _NoteSheet(
+      {required this.html,
+      required this.palette,
+      required this.extensions});
 
   @override
   Widget build(BuildContext context) {
@@ -722,7 +1394,7 @@ class _NoteSheet extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
             child: Html(
               data: html,
-              extensions: const [ReaderSupExtension()],
+              extensions: extensions,
               // Бележката е пояснение, не част от разказа: една степен
               // по-дребна и в курсив, за да се различава от текста, от
               // който току-що е дошъл читателят.
