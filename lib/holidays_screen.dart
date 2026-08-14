@@ -20,7 +20,15 @@ import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
 
-const String _bodyFamily = 'CharisSIL';
+// Системният шрифт на телефона, не Charis SIL — `null` значи „каквото дава
+// устройството". Същото решение както в дневния и месечния изглед: тези
+// екрани са СПРАВОЧНИ, четат се на прескок и стоят по-добре с шрифта, с
+// който човек чете всичко останало на телефона си.
+//
+// ⚠ Спира дотук. Хедърът (section_header.dart) си остава с TamburinModern
+// за заглавието и годината и с Charis SIL за подканата под тях; четецът, в
+// който се отварят самите четива, също не се пипа.
+const String? _bodyFamily = null;
 const Color _ink = AppColors.textPrimary;
 const Color _dim = AppColors.textSecondary;
 // Заглавията на категориите (h2/h3) — червени, за разлика от основното

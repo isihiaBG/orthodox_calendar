@@ -32,7 +32,10 @@ List<InlineSpan> dualDateSpans(
   double fontSize, {
   required Color ink,
   required Color dim,
-  required String fontFamily,
+  // Нулево значи „системният шрифт на устройството" — четирите
+  // справочни секции минаха на него. Единствените ползватели на
+  // тези помощници са те, тъй че ненулевото не се пази за никого.
+  required String? fontFamily,
 }) {
   final iconSize = fontSize + 4;
   final leadStyle = TextStyle(
@@ -92,7 +95,10 @@ List<InlineSpan> dualDateRangeSpans(
   double fontSize, {
   required Color ink,
   required Color dim,
-  required String fontFamily,
+  // Нулево значи „системният шрифт на устройството" — четирите
+  // справочни секции минаха на него. Единствените ползватели на
+  // тези помощници са те, тъй че ненулевото не се пази за никого.
+  required String? fontFamily,
 }) {
   final iconSize = fontSize + 4;
   final leadStyle = TextStyle(

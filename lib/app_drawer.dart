@@ -77,7 +77,7 @@ class AppDrawer extends StatelessWidget {
                   style: TextStyle(
                     fontFamily: 'TamburinModern',
                     color: AppColors.textPrimary,
-                    fontSize: 26,
+                    fontSize: 28,
                   ),
                   textAlign: TextAlign.center,
                 ),
