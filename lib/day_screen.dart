@@ -551,9 +551,14 @@ class _DayScreenState extends State<DayScreen> {
                 ExpandableSection(
                   title: '⛪  ОТ ОПТИНСКИТЕ СТАРЦИ',
                   isSunday: isSunday,
-                  content: const Text(
-                    'Тук ще се показват изреченията от Оптинските старци.',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.6),
+                  content: MiniReader(
+                    load: () => DatabaseHelper.optinaSaying(date),
+                    // За разлика от Теофан тук всеки от 366-те дни има запис,
+                    // тъй че това съобщение не бива да се показва никога.
+                    // Види ли се, базата не се е отворила или е стара.
+                    emptyMessage:
+                        'За този ден няма записана сентенция от Оптинските '
+                        'старци.',
                   ),
                 ),
               ],

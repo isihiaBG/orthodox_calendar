@@ -330,6 +330,53 @@ class DatabaseHelper {
     return out;
   }
 
+  // ── „От оптинските старци" — трета отделна база ─────────────────────────
+  //
+  // Не се ATTACH-ва, като teofan.db и reference.db.
+  //
+  // ⚠ Адресът тук е ГРАЖДАНСКА дата „ММ-ДД", а не литургичен. Симфонията на
+  // старците е тематичен речник, не годишен кръг: сентенцията за 3 март не
+  // говори за 3 март, а просто ѝ се пада този ден. Затова цялата верига на
+  // приоритета от Теофан тук липсва и една заявка стига.
+  //
+  // Оттам следва и че датата НЕ се измества с 13 дни при стар стил. Мисълта
+  // не е вързана за празник, тъй че местенето би значело само едно: човек
+  // сменя коя дата да е водеща в изгледа, а сентенцията му подскача с две
+  // седмици. Днешният ден показва днешната мисъл, каквото и да е избрал.
+  //
+  // База има за всеки от 366-те дни, тъй че null означава счупено, не празно
+  // — за разлика от Теофан. 29 февруари също е покрит.
+  // ───────────────────────────────────────────────────────────────────────
+  static const String _optinaDbName = 'optina.db';
+  static Database? _optinaDatabase;
+
+  static Future<Database> get optinaDatabase async {
+    if (_optinaDatabase != null) return _optinaDatabase!;
+    final dbPath = await getDatabasesPath();
+    final path = join(dbPath, _optinaDbName);
+    final file = File(path);
+    if (await file.exists()) {
+      await file.delete(); // винаги презаписва — както другите бази
+    }
+    final data = await rootBundle.load('assets/db/$_optinaDbName');
+    await file.writeAsBytes(data.buffer.asUint8List());
+    _optinaDatabase = await openDatabase(path, readOnly: true);
+    return _optinaDatabase!;
+  }
+
+  /// Сентенцията на оптинските старци за деня — готово HTML тяло, или null.
+  static Future<String?> optinaSaying(DateTime date) async {
+    final mmdd = '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final db = await optinaDatabase;
+    final rows = await db.rawQuery(
+      'SELECT body FROM sayings WHERE day = ? LIMIT 1',
+      [mmdd],
+    );
+    if (rows.isEmpty) return null;
+    return rows.first['body'] as String?;
+  }
+
   static Future<Database> _initDatabase() async {
     
     // print('_initDatabase started');
