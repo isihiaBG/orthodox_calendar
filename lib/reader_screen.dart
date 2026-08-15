@@ -41,6 +41,7 @@ import 'bookmarks_all.dart';
 import 'pdf_export.dart';
 import 'round_icon_button.dart';
 import 'drop_cap.dart';
+import 'external_link.dart';
 import 'text_line_locator.dart';
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
@@ -1727,15 +1728,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
 
-    // Външен линк (https://…) — отваряме в браузъра по подразбиране
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    final ok = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('Не може да се отвори: $url')));
-    }
+    // Външен линк (https://…) — с питане и с разкодиран адрес.
+    // Виж external_link.dart: `&amp;` от XHTML стигаше до браузъра както си
+    // е и azbyka.ru отваряше Писанието само на църковнославянски.
+    if (mounted) await openExternal(context, url);
     // ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(url)));
   }
 

@@ -21,6 +21,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'external_link.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
@@ -98,9 +99,7 @@ class _MiniReaderState extends State<MiniReader> {
       return;
     }
 
-    final uri = Uri.tryParse(url);
-    if (uri == null) return;
-    await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (mounted) await openExternal(context, url);
   }
 
   @override

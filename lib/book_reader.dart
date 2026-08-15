@@ -37,6 +37,7 @@ import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'drop_cap.dart';
 import 'epub_source.dart';
+import 'external_link.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'nudge_shake.dart';
 import 'reader_font_size.dart';
@@ -347,12 +348,10 @@ class _BookReaderState extends State<BookReader>
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
 
-    // Външните препратки (библейските към azbyka.ru) водят навън.
+    // Външните препратки (библейските към azbyka.ru) водят навън — с питане
+    // и с разкодиран адрес; виж external_link.dart защо и двете са нужни.
     if (url.startsWith('http')) {
-      final uri = Uri.tryParse(url);
-      if (uri != null) {
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-      }
+      if (mounted) await openExternal(context, url);
       return;
     }
 
