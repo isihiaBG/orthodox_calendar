@@ -81,6 +81,7 @@ flutter:
   assets:
     - assets/db/
     - assets/books/
+    - assets/lives_index.json
     # Кориците на томовете, извлечени от .epub-ите (tools/extract_covers.py).
     # Отделни файлове, за да се отваря библиотеката мигновено — иначе всяко
     # влизане иска разархивиране на дванайсет тома.

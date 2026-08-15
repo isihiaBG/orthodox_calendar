@@ -38,6 +38,7 @@ import 'bookmarks_all.dart';
 import 'drop_cap.dart';
 import 'epub_source.dart';
 import 'external_link.dart';
+import 'lives_index.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'nudge_shake.dart';
 import 'reader_font_size.dart';
@@ -345,6 +346,37 @@ class _BookReaderState extends State<BookReader>
     _loadSavedPosition();
   }
 
+  /// Отваря житието с този номер. Връща false, ако го няма в указателя.
+  ///
+  /// Ако е в СЪЩИЯ том — просто смяна на глава. Ако е в друг (почти винаги
+  /// така), се отваря нов четец върху него; „назад" връща тук, на същото
+  /// място, защото текущият екран не се затваря.
+  Future<bool> _openLife(String num) async {
+    final index = await LivesIndex.load();
+    final ref = index[num];
+    if (ref == null) return false;
+
+    if (widget.book.assetPath.endsWith(ref.book)) {
+      final i = _chapters.indexWhere((e) => e.href == ref.href);
+      if (i >= 0) {
+        _goTo(i);
+        return true;
+      }
+      return false;
+    }
+
+    final book = await EpubBook.open('assets/books/${ref.book}');
+    final entry = book.toc
+        .expand((e) => e.flattened())
+        .where((e) => e.href == ref.href)
+        .firstOrNull;
+    if (entry == null || !mounted) return false;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BookReader(book: book, start: entry),
+    ));
+    return true;
+  }
+
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
 
@@ -352,6 +384,22 @@ class _BookReaderState extends State<BookReader>
     // и с разкодиран адрес; виж external_link.dart защо и двете са нужни.
     if (url.startsWith('http')) {
       if (mounted) await openExternal(context, url);
+      return;
+    }
+
+    // Кръстосана препратка към друго житие („../zhitija-svjatykh/1143").
+    // Числото е номерът на статията в azbyka.ru и по него указателят
+    // намира главата — почти винаги в ДРУГ том (виж lives_index.dart).
+    final num = LivesIndex.numberOf(url.split('#').first);
+    if (num != null) {
+      if (await _openLife(num)) return;
+      // Няма съответствие у нас — тогава навън, към сайта, вместо да
+      // мълчим. (Днес такива няма нито една, но томовете се менят.)
+      if (mounted) {
+        await openExternal(context,
+            'https://azbyka.ru/otechnik/Dmitrij_Rostovskij/'
+            'zhitija-svjatykh/$num');
+      }
       return;
     }
 
@@ -1046,8 +1094,43 @@ class _BookReaderState extends State<BookReader>
             fontSize: ReaderFontSize.value),
       ];
 
+  /// Адресът на житието в azbyka.ru, или null.
+  ///
+  /// Номерът на статията е оцелял в самите томове като `id` на заглавието:
+  /// `<h1 id="642" …>`. Той съвпада с номера в адреса на сайта, откъдето са
+  /// свалени книгите — проверено за 1505 от 1533 записа в съдържанията
+  /// (останалите 28 са заглавни страници и сборни дялове).
+  ///
+  /// ⚠ Чете се от СУРОВИЯ html, преди _normalize: там `<h1>` става `<h3>`
+  /// и от него остава само текстът, тъй че `id`-то се губи.
+  ///
+  /// ⚠ Само за томовете по св. Димитрий Ростовски. Проверката е по името на
+  /// файла, защото пътят в адреса (`Dmitrij_Rostovskij/zhitija-svjatykh`) е
+  /// техен и на друга книга би сочил в празното.
+  String? _sourceUrl(String raw) {
+    if (!widget.book.assetPath.contains('Димитрий Ростовски')) return null;
+    // ⚠ Приема се и „calibre_pb_N", не само голото число. При първите
+    // единайсет жития на януари calibre е сложил свой знак за нова страница
+    // и е презаписал оригиналния id — номерът обаче е СЪЩИЯ (сверено срещу
+    // сайта за 1, 3, 7, 10, 11). Формата се среща само там и само в <h1>,
+    // тъй че е безопасно да се брои за равностойна. Без нея точно първите
+    // страници, които човек отваря, оставаха без източник.
+    final m = RegExp(r'<h1\b[^>]*\bid="(?:calibre_pb_)?(\d+)"')
+        .firstMatch(raw);
+    if (m == null) return null;
+    return 'https://azbyka.ru/otechnik/Dmitrij_Rostovskij/zhitija-svjatykh/'
+        '${m.group(1)}';
+  }
+
   Widget _chapterBody(String raw, ReaderPalette palette) {
-    final body = _normalize(raw);
+    var body = _normalize(raw);
+    // Редът с източника накрая — само в приложението; .epub-ите остават
+    // каквито ги прави конвейерът. Класът `.source` вече се рисува от
+    // reader_styles.dart (приглушен курсив с отстояние отгоре).
+    final src = _sourceUrl(raw);
+    if (src != null) {
+      body += '<p class="source">Източник: <a href="$src">azbyka.ru</a></p>';
+    }
     // Главата се дели на РЕГИОНИ (по абзац), както в четеца на жития.
     //
     // Не е подредба заради подредбата: регионът е единицата, която има свой
