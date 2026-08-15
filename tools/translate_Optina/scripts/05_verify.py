@@ -116,10 +116,15 @@ def check(db, problems, notes):
     elders = Counter(r[2] for r in rows)
     notes.append('старци: ' + ', '.join('%s %d' % kv
                                         for kv in elders.most_common()))
+    # Повторенията се гледат САМО сред дните с дата. В резерва те са
+    # нарочни — той е дълбок по теми, за да има с какво да се подменя.
     topics = Counter(r[5] for r in rows)
-    notes.append('теми: %d различни; повторени: %s'
-                 % (len(topics),
-                    ', '.join(t for t, n in topics.items() if n > 1) or 'няма'))
+    dated_topics = Counter(r[5] for r in rows if r[1])
+    rep = [t for t, n in dated_topics.items() if n > 1]
+    notes.append('теми: %d различни (%d сред дните с дата)'
+                 % (len(topics), len(dated_topics)))
+    notes.append('теми, повторени В КАЛЕНДАРА: %s'
+                 % (', '.join(rep) if rep else 'няма'))
     lens = sorted(len(re.sub(r'<[^>]+>', '', r[3])) for r in rows)
     notes.append('дължини: медиана %d, най-къса %d, най-дълга %d'
                  % (lens[len(lens) // 2], lens[0], lens[-1]))

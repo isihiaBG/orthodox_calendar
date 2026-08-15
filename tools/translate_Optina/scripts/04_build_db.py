@@ -154,8 +154,11 @@ def build_body(unit, quotes_out):
             html.escape(bulgarian_ref(code), quote=False))
 
     escaped = RE_ATOM.sub(on_atom, escaped)
-    return '<p>%s</p>\n<p class="source">прп. %s</p>' % (escaped.strip(),
-                                                        unit['elder'])
+    # Всичките дванайсет са оптински старци, тъй че прозвището се долепя
+    # машинно и не се пази в колоната `elder` — там стои голото име, по
+    # което се групира и брои.
+    return '<p>%s</p>\n<p class="source">прп. %s Оптински</p>' % (
+        escaped.strip(), unit['elder'])
 
 
 def main():
@@ -181,12 +184,50 @@ def main():
         sys.exit('Няма %s — пусни 02_select.py.' % sel_path)
     selected = {q['id']: q for q in json.load(open(sel_path,
                                                    encoding='utf-8'))}
+    # Разширеният резерв (02b_expand.py) — всичко преведено извън календара.
+    # Тези нямат и НЕ получават ден: стоят в базата и чакат да заменят
+    # сентенция, която при преглед се окаже неподходяща. Ако някой ден се
+    # окаже и в двата списъка, календарният печели — той носи датата.
+    # Ръчните ПОДМЕНИ. Тук, а не в 02_select.py, нарочно: там датите се
+    # раздават наново за цялата година и подмяната на един ден би разместила
+    # всички останали. Резервът съществува тъкмо за да може да се сменя по
+    # един ден, без да мръдне нищо друго.
+    #
+    #   "swap": {"<id на пенсионираната>": "<id на заместника>"}
+    #
+    # Пенсионираната остава в базата без ден — може да потрябва пак.
+    manual_path = os.path.join(WORK_DIR, 'manual_select.json')
+    manual = (json.load(open(manual_path, encoding='utf-8'))
+              if os.path.exists(manual_path) else {})
+    swap = manual.get('swap', {})
+
+    exp_path = os.path.join(WORK_DIR, 'expand.json')
+    n_exp = 0
+    if os.path.exists(exp_path):
+        for q in json.load(open(exp_path, encoding='utf-8')):
+            if q['id'] not in selected:
+                q['day'] = None
+                selected[q['id']] = q
+                n_exp += 1
+        print('резерв от 02b_expand.py: %d записа' % n_exp)
 
     if os.path.exists(args.out):
         os.remove(args.out)
     os.makedirs(os.path.dirname(args.out), exist_ok=True)
     db = sqlite3.connect(args.out)
     db.executescript(SCHEMA)
+
+    # Прилагането е ПРЕДИ обхождането: заместникът поема датата, а
+    # пенсионираната минава в резерва.
+    for old_id, new_id in swap.items():
+        a, b = selected.get(old_id), selected.get(new_id)
+        if a is None or b is None:
+            print('  ⚠ подмяна %s → %s: липсва един от двата' % (old_id,
+                                                                 new_id))
+            continue
+        b['day'], a['day'] = a['day'], None
+        print('  подмяна: %s (%s) отстъпва деня на %s' % (old_id, b['day'],
+                                                          new_id))
 
     dates, clashes, ncites, noref = {}, [], 0, 0
     elders, days, reserve = Counter(), 0, 0

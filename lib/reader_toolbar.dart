@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'nudge_shake.dart';
 import 'reader_font_size.dart';
 import 'round_icon_button.dart';
 
@@ -61,8 +62,11 @@ Widget _flatCircle({
   required String tooltip,
   required VoidCallback onTap,
   bool active = false,
+  Animation<double>? nudge,
 }) {
   final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+  Widget glyph = Icon(icon, size: 24, color: fg);
+  if (nudge != null) glyph = NudgeShake(animation: nudge, child: glyph);
   return Tooltip(
     message: tooltip,
     child: InkWell(
@@ -77,9 +81,29 @@ Widget _flatCircle({
           shape: BoxShape.circle,
           color: active ? fg.withValues(alpha: 0.28) : Colors.transparent,
         ),
-        child: Icon(icon, size: 24, color: fg),
+        child: glyph,
       ),
     ),
+  );
+}
+
+/// Копчето „Съдържание" — САМО за четеца на книги и САМО отляво.
+///
+/// Стои отделно от [readerToolbarActions], защото мястото му е друго: веднага
+/// след стрелката „назад", а не сред копчетата вдясно. Причината е навик —
+/// в четците съдържанието се вика отляво, а на широк екран разликата е
+/// осезаема. Изглежда точно като останалите кръгли копчета.
+Widget readerContentsButton({
+  required BuildContext context,
+  required VoidCallback onTap,
+  Animation<double>? nudge,
+}) {
+  return _flatCircle(
+    context: context,
+    icon: Icons.format_list_bulleted,
+    tooltip: 'Съдържание',
+    onTap: onTap,
+    nudge: nudge,
   );
 }
 
@@ -93,7 +117,6 @@ List<Widget> readerToolbarActions({
   required VoidCallback onThemeToggle,
   required VoidCallback onFontSmaller,
   required VoidCallback onFontBigger,
-  VoidCallback? onShowContents,
   VoidCallback? onSearch,
   bool searchOpen = false,
   VoidCallback? onBookmark,
@@ -102,17 +125,6 @@ List<Widget> readerToolbarActions({
 }) {
   final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
   final out = <Widget>[];
-
-  if (onShowContents != null) {
-    out
-      ..add(_flatCircle(
-        context: context,
-        icon: Icons.format_list_bulleted,
-        tooltip: 'Съдържание',
-        onTap: onShowContents,
-      ))
-      ..add(const SizedBox(width: 16));
-  }
 
   if (onSearch != null) {
     out

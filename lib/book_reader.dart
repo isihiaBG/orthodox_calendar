@@ -1,6 +1,6 @@
 // book_reader.dart
 //
-// Четецът на книги от „Читанка". Чете глава по глава направо от .epub-а
+// Четецът на книги от „Месецослов". Чете глава по глава направо от .epub-а
 // (виж epub_source.dart) — книгите НЕ се превръщат в бази.
 //
 // Отделен екран от reader_screen.dart, защото навигацията е наистина
@@ -32,11 +32,13 @@ import 'package:url_launcher/url_launcher.dart';
 import 'app_theme.dart';
 import 'book_image.dart';
 import 'book_position_store.dart';
+import 'book_title_extension.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'drop_cap.dart';
 import 'epub_source.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
+import 'nudge_shake.dart';
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
 import 'reader_more_menu.dart';
@@ -57,13 +59,37 @@ class BookReader extends StatefulWidget {
   /// Откъде да започне. Ако е null — от началото на книгата.
   final EpubTocEntry? start;
 
-  const BookReader({super.key, required this.book, this.start});
+  /// Да ОСТАВИ ли системната лента скрита при излизане.
+  ///
+  /// Режимът важи за цялото приложение, не за екрана, тъй че четецът по
+  /// подразбиране връща лентата — иначе календарът остава без нея. Но
+  /// библиотеката („Месецослов") сама стои без лента: върне ли я четецът,
+  /// тя я гаси веднага след него и се вижда премигване. Оттам и този флаг —
+  /// по-добре да не се пали, отколкото да се гаси наново.
+  final bool keepImmersiveOnExit;
+
+  /// Да подсети ли, че оттук нататък се върви през съдържанието.
+  ///
+  /// Вдига се САМО от екрана за избор на книга: там човек тъкмо е отворил
+  /// тома и стои на заглавната му страница, без да знае как се стига до
+  /// житията. По другите пътища (отметка, връщане към прекъснато четене) той
+  /// вече е насред четиво и подсещането би било досадно.
+  final bool hintContents;
+
+  const BookReader({
+    super.key,
+    required this.book,
+    this.start,
+    this.hintContents = false,
+    this.keepImmersiveOnExit = false,
+  });
 
   @override
   State<BookReader> createState() => _BookReaderState();
 }
 
-class _BookReaderState extends State<BookReader> {
+class _BookReaderState extends State<BookReader>
+    with TickerProviderStateMixin {
   /// Долната лента със стрелките и брояча „4 / 129".
   ///
   /// Изключена засега по решение на потребителя (12.08.2026): тя яде ред от
@@ -148,6 +174,33 @@ class _BookReaderState extends State<BookReader> {
   /// плъзгането зад нея би презаписало точно позицията, която тя предлага.
   bool _awaitingDecision = false;
 
+  // ── Подсещането за съдържанието ─────────────────────────────────────
+  //
+  // Отвори ли се том от библиотеката, човек стои на заглавната страница —
+  // красива, но задънена: нататък се върви само през съдържанието. Затова
+  // иконката му се поклаща (виж nudge_shake.dart) по ДВА бъмпа наведнъж,
+  // три серии през 5 секунди, и толкова. Подсещане, което не спира само,
+  // престава да е подсещане и става натрапване.
+  late final AnimationController _nudge =
+      AnimationController(vsync: this, duration: kNudgeBump)
+        ..addStatusListener(_onNudgeBumpEnd);
+  Timer? _nudgeTimer;
+
+  /// Колко бъмпа още се дължат в текущата серия.
+  int _nudgeLeft = 0;
+
+  /// Колко серии са изиграни. При 3 подсещането е приключило завинаги.
+  int _nudgeRounds = 0;
+
+  static const int _nudgeRoundCount = 3;
+  static const int _nudgeBumpsPerRound = 2;
+  static const Duration _nudgeGap = Duration(seconds: 5);
+
+  /// Колко се чака ПРЕДИ първата серия. Страницата тъкмо се е появила и окото
+  /// още обхожда заглавието и орнамента — движение точно в този миг остава
+  /// незабелязано. Две секунди по-късно погледът вече е свободен.
+  static const Duration _nudgeDelay = Duration(seconds: 2);
+
   @override
   void initState() {
     super.initState();
@@ -181,6 +234,54 @@ class _BookReaderState extends State<BookReader> {
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _scroll.addListener(_rememberPosition);
     _loadSavedPosition();
+
+    if (widget.hintContents) _startNudge();
+  }
+
+  /// Пуска трите серии — първата след кратко изчакване (виж [_nudgeDelay]),
+  /// следващите през [_nudgeGap]. Двата таймера делят едно поле, тъй че
+  /// спирането е едно и също, независимо докъде е стигнало подсещането.
+  void _startNudge() {
+    _nudgeTimer = Timer(_nudgeDelay, () {
+      if (!mounted) return;
+      _nudgeRound();
+      _nudgeTimer = Timer.periodic(_nudgeGap, (t) {
+        if (!mounted || _nudgeRounds >= _nudgeRoundCount) {
+          t.cancel();
+          return;
+        }
+        _nudgeRound();
+      });
+    });
+  }
+
+  void _nudgeRound() {
+    _nudgeRounds++;
+    _nudgeLeft = _nudgeBumpsPerRound;
+    _nudge.forward(from: 0);
+  }
+
+  /// Вторият бъмп в серията се пуска чак когато първият е свършил — иначе
+  /// двата се сливат в едно по-дълго поклащане вместо в две подсещания.
+  void _onNudgeBumpEnd(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    if (--_nudgeLeft > 0) _nudge.forward(from: 0);
+  }
+
+  /// Спира подсещането завинаги. Вика се при всяко докосване по лентата с
+  /// инструменти: пипне ли човек там, той вече е разбрал къде да гледа —
+  /// няма значение кое точно копче е натиснал.
+  void _stopNudge() {
+    // Без подсещане няма и какво да се спира — а достъпът до _nudge тук би
+    // създал контролер за нищо (полето е late).
+    if (!widget.hintContents) return;
+    if (_nudgeTimer == null && _nudgeRounds >= _nudgeRoundCount) return;
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+    _nudgeRounds = _nudgeRoundCount;
+    _nudgeLeft = 0;
+    _nudge.stop();
+    _nudge.value = 0;
   }
 
   @override
@@ -197,6 +298,9 @@ class _BookReaderState extends State<BookReader> {
     // да виси и върху екрана, към който се връщаме.
     _scaffoldMessenger?.removeCurrentSnackBar();
     _positionTimer?.cancel();
+    _nudgeTimer?.cancel();
+    if (widget.hintContents) _nudge.dispose();
+    _tocSlide.dispose();
     // НЕ пишем позиция при излизане — нарочно, както в четеца на жития.
     // Ако човек отвори книгата, види подканата за връщане и веднага излезе,
     // записът тук би презаписал точно позицията, която подканата предлага.
@@ -205,9 +309,13 @@ class _BookReaderState extends State<BookReader> {
     _scroll.dispose();
     // ЗАДЪЛЖИТЕЛНО: режимът важи за цялото приложение, не за екрана. Без
     // това календарът остава без системна лента, след като човек затвори
-    // книгата.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-        overlays: SystemUiOverlay.values);
+    // книгата. Изключение — екраните, които сами стоят без лента (виж
+    // keepImmersiveOnExit): там паленето би било само едно премигване,
+    // защото те я гасят веднага след нас.
+    if (!widget.keepImmersiveOnExit) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+          overlays: SystemUiOverlay.values);
+    }
     super.dispose();
   }
 
@@ -216,6 +324,9 @@ class _BookReaderState extends State<BookReader> {
   void _goTo(int i) {
     if (i < 0 || i >= _chapters.length) return;
     _positionTimer?.cancel();
+    // Излезем ли от заглавната страница, подсещането е излишно — човекът
+    // вече е намерил пътя навътре в тома.
+    _stopNudge();
     setState(() {
       _index = i;
       // Отметката е на ниво ЖИТИЕ. Новата глава е ново четиво: бутонът
@@ -783,12 +894,28 @@ class _BookReaderState extends State<BookReader> {
 
   // ── Съдържанието ────────────────────────────────────────────────────────
 
+  /// Плъзгането на панела със съдържанието.
+  ///
+  /// Собствен контролер, защото подразбиращият се на `showModalBottomSheet`
+  /// е 250 ms навън и 200 ms навътре — при панел, висок колкото екрана, това
+  /// е толкова бързо, че прибирането не се вижда като движение, а като
+  /// премигване. Особено при прекъснат жест: дръпнеш ли надолу и пуснеш по
+  /// средата, панелът просто изчезва.
+  ///
+  /// Кривите остават тези на BottomSheet — тук се разтяга само времето.
+  late final AnimationController _tocSlide = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 420),
+    reverseDuration: const Duration(milliseconds: 360),
+  );
+
   Future<void> _showToc() async {
     final palette = ReaderTheme.palette;
     final chosen = await showModalBottomSheet<int>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
+      transitionAnimationController: _tocSlide,
       backgroundColor: palette.bg,
       builder: (_) => _TocSheet(
         toc: widget.book.toc,
@@ -844,12 +971,10 @@ class _BookReaderState extends State<BookReader> {
                       primary: false,
                       backgroundColor: AppColors.toolbar,
                       toolbarHeight: 44,
-                      title: Text(
-                        _current.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontSize: 15),
-                      ),
+                      leading: _toolbarLeading(),
+                      leadingWidth: _leadingWidth,
+                      titleSpacing: 8,
+                      title: _toolbarTitle(),
                       actions: _toolbarActions(),
                       bottom: _searchBar(),
                     ),
@@ -917,6 +1042,9 @@ class _BookReaderState extends State<BookReader> {
   List<HtmlExtension> get _htmlExtensions => [
         const ReaderSupExtension(),
         BookImageExtension(book: widget.book, chapterHref: _current.href),
+        BookTitleExtension(
+            palette: ReaderPalette(ReaderTheme.dark),
+            fontSize: ReaderFontSize.value),
       ];
 
   Widget _chapterBody(String raw, ReaderPalette palette) {
@@ -1072,10 +1200,78 @@ class _BookReaderState extends State<BookReader> {
           dotAll: true),
       (m) => '<p class="memorydate">${m.group(1)}</p>',
     );
+    // Тропарите и кондаците накрая на житието — ПРЕДИ общото правило, инак
+    // те щяха да станат обикновени абзаци и да загубят оформлението си.
+    //
+    // 04_build_epub.py ги бележи с data-prayer="head|csl|trans" и трите
+    // стойности се превеждат едно към едно в класовете, с които стария
+    // четец рисува тропарите от дневния изглед (виж _prayersBlocksHtml в
+    // reader_screen.dart). Така молитвата изглежда еднакво и на двете
+    // места, макар да идва от два съвсем различни източника.
+    //
+    // Атрибут, а не клас: в .epub-а `class` трябва да си остане точно
+    // „paragraph", защото проверките на билд скрипта броят абзаците по него
+    // — на техния ред виси буквицата.
+    const prayerClass = {
+      'head': 'prayerhead',
+      'csl': 'csl',
+      'trans': 'trans',
+    };
+    body = body.replaceAllMapped(
+      RegExp(
+          r'<div\s+class="paragraph"\s+data-prayer="(head|csl|trans)"[^>]*>'
+          r'(.*?)</div>',
+          dotAll: true),
+      (m) => '<p class="${prayerClass[m.group(1)]}">${m.group(2)}</p>',
+    );
     // Останалите абзаци. Вложени <div> в „paragraph" няма — проверено.
     body = body.replaceAllMapped(
       RegExp(r'<div\s+class="paragraph"[^>]*>(.*?)</div>', dotAll: true),
       (m) => '<p>${m.group(1)}</p>',
+    );
+    // Заглавието на ЗАГЛАВНАТА СТРАНИЦА — разпознава се и получава свой клас.
+    //
+    // 04_build_epub.py го пише като <span style="font-size: NNpx;
+    // line-height: N;"> с три реда, разделени с <br/>. Тези числа са
+    // нагласени по ОБИКНОВЕН четец и там изглеждат точно; flutter_html
+    // обаче мери другояче — при 0.62 „на" опира в „СВЕТИИТЕ".
+    //
+    // Затова инлайн стилът се сваля и се заменя с клас `.booktitle`, чиито
+    // стойности живеят в reader_styles.dart. Така .epub-ът остава
+    // непокътнат — той е верен за четците, които го отварят отвън — а
+    // приложението си има свои числа за същото място.
+    body = body.replaceAllMapped(
+      // ⚠ Хваща се ЦЕЛИЯТ <h1>, а вътрешното е ЛАКОМО (.*), не пестеливо.
+      // Заглавието носи ВЛОЖЕН <span> — онзи, с който .epub-ът повдига „на"
+      // за обикновените четци. С пестеливо `.*?` съвпадението спираше на
+      // неговия </span>, уловените редове излизаха два вместо три и цялата
+      // обработка мълчаливо се пропускаше.
+      RegExp(
+          r'<h1\b[^>]*>\s*<span style="font-size:\s*\d+px;[^"]*">'
+          r'(.*)</span>\s*(?:<br\s*/?>)?\s*</h1>',
+          dotAll: true),
+      (m) {
+        final lines = m
+            .group(1)!
+            .split(RegExp(r'<br\s*/?>'))
+            .map((s) => s.replaceAll(RegExp(r'<[^>]+>'), '').trim())
+            .where((s) => s.isNotEmpty)
+            .toList();
+        // ⚠ САМО за житията. Проверката е по самото заглавие, за да не може
+        // намесата да засегне книга, добавена утре: там заглавната страница
+        // минава по общия път и остава каквато я е направил конвейерът.
+        final whole = lines.join(' ').toLowerCase();
+        if (lines.length == 3 && whole.startsWith('жития на светиите')) {
+          // Оттук нататък заглавието се рисува от book_title_extension.dart
+          // с Column и Text — единственият начин средният ред да се повдигне
+          // (виж коментара там кои четири пътя през HTML се провалиха).
+          // Остава ВЪТРЕ в <h1>: той се превръща в <h3> малко по-надолу, а
+          // правилото за h3 носи `textAlign: center`. Върнеше ли се голият
+          // <booktitle>, блокът увисваше вляво.
+          return '<h1><booktitle>${lines.join('|')}</booktitle></h1>';
+        }
+        return m.group(0)!;
+      },
     );
     // Заглавието на главата. h3 е стилът за заглавие в reader_styles.dart.
     //
@@ -1086,7 +1282,8 @@ class _BookReaderState extends State<BookReader> {
       RegExp(r'<h1\b[^>]*>(.*?)</h1>', dotAll: true),
       (m) => '<h3>${m.group(1)!.replaceAll(RegExp(r'(<br\b[^>]*/?>\s*)+$'), '').trim()}</h3>',
     );
-    // Инлайн междуредието на calibre — МАХА СЕ ЗАДЪЛЖИТЕЛНО.
+    // Инлайн междуредието на calibre — маха се, но САМО когато е с мерна
+    // единица.
     //
     // Не е разкрасяване, а поправка: flutter_html чете `line-height: 46px`
     // като МНОЖИТЕЛ (46 пъти размера на шрифта), не като дължина. Редът
@@ -1094,9 +1291,13 @@ class _BookReaderState extends State<BookReader> {
     // страницата изглежда напълно празна, без никаква грешка в лога.
     // Точно това правеше заглавната страница на всеки том невидима.
     //
-    // Загуба няма: междуредието при четене е наше (kReaderLineHeight), а
-    // сметките на calibre са за друга ширина на страница.
-    body = body.replaceAll(RegExp(r'line-height\s*:[^;"]*;?'), '');
+    // ⚠ БЕЗРАЗМЕРНИТЕ стойности („line-height: 0.62") ОСТАВАТ. Те и по CSS
+    // значат множител, тъй че flutter_html ги чете правилно — и точно с тях
+    // 04_build_epub.py задава сгъстяването на заглавната страница. Триеше
+    // ли се и то, същите числа даваха различен вид в приложението и в
+    // обикновен четец, а те трябва да си приличат.
+    body = body.replaceAll(
+        RegExp(r'line-height\s*:\s*[\d.]+\s*(px|em|rem|pt|%)\s*;?'), '');
     // Празните котви на calibre (<a id="TOC_…"></a>) само шумят.
     body = body.replaceAll(
         RegExp(r'<a\s+(?![^>]*href)[^>]*>\s*</a>', dotAll: true), '');
@@ -1180,9 +1381,76 @@ class _BookReaderState extends State<BookReader> {
   }
 
   /// Копчетата в лентата — едни и същи в двата ѝ вида (sliver и закована).
-  List<Widget> _toolbarActions() => readerToolbarActions(
+  ///
+  /// Целият ред стои в един `Listener`, за да може подсещането за
+  /// съдържанието да спре при докосване КЪДЕТО И ДА Е по лентата, а не само
+  /// върху самото копче. Listener-ът не поглъща събитието — копчетата под
+  /// него работят както преди.
+  List<Widget> _toolbarActions() => [
+        _stopsNudge(
+          child: Row(mainAxisSize: MainAxisSize.min, children: _toolbarRow()),
+        ),
+      ];
+
+  /// Обвивка, която спира подсещането при докосване. Ползва се и от двете
+  /// страни на лентата — важното е човек да е пипнал ЛЕНТАТА, не точно
+  /// копчето за съдържание.
+  Widget _stopsNudge({required Widget child}) => Listener(
+        behavior: HitTestBehavior.translucent,
+        onPointerDown: (_) => _stopNudge(),
+        child: child,
+      );
+
+  /// Стрелката „назад" и до нея копчето за съдържание.
+  ///
+  /// Съдържанието стои ОТЛЯВО: така е в четците изобщо, а на широк екран
+  /// разликата е осезаема. Затова и не минава през [readerToolbarActions] —
+  /// то реди копчетата вдясно.
+  ///
+  /// ⚠ Копчето е в гнездото на СТРЕЛКАТА (с изрично `leadingWidth`), а не в
+  /// това на заглавието. На телефон в изправено положение копчетата вдясно
+  /// изяждат 244 от 360 dp и за средното поле остават около 40 — копчето
+  /// плюс отстъпа му не се побират в тях и лентата прелива. В гнездото на
+  /// стрелката мястото е сигурно, а заглавието получава каквото остане:
+  /// легнало то е цялото, изправено се свива до многоточие.
+  Widget _toolbarLeading() => _stopsNudge(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const BackButton(),
+            const SizedBox(width: _contentsGap),
+            readerContentsButton(
+              context: context,
+              onTap: _showToc,
+              nudge: widget.hintContents ? _nudge : null,
+            ),
+          ],
+        ),
+      );
+
+  /// Луфтът между стрелката и копчето за съдържание.
+  ///
+  /// Нагласян е по око: стрелката е по-широка от трите точки в другия край,
+  /// тъй че при слепени копчета левият край изглежда по-нагъсто от десния.
+  static const double _contentsGap = 8;
+
+  /// Ширината на онова гнездо: стрелката (48), луфтът и кръглото копче (30).
+  ///
+  /// ⚠ Трябва да ги събира ВСИЧКИТЕ. Веднъж го свих, за да изтегля копчето
+  /// наляво — и лентата преля с точно толкова, защото луфтът беше направен с
+  /// `Transform.translate`, който мести само рисуването, но не и мястото,
+  /// което редът иска при разполагането.
+  static const double _leadingWidth = 48 + _contentsGap + 30;
+
+  Widget _toolbarTitle() => Text(
+        _current.title,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(fontSize: 15),
+      );
+
+  List<Widget> _toolbarRow() => readerToolbarActions(
         context: context,
-        onShowContents: _showToc,
         onSearch: _toggleSearch,
         searchOpen: _searchOpen,
         onBookmark: _toggleBookmark,
@@ -1223,12 +1491,10 @@ class _BookReaderState extends State<BookReader> {
                 snap: true,
                 backgroundColor: AppColors.toolbar,
                 toolbarHeight: 44,
-                title: Text(
-                  _current.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15),
-                ),
+                leading: _toolbarLeading(),
+                leadingWidth: _leadingWidth,
+                titleSpacing: 8,
+                title: _toolbarTitle(),
                 actions: _toolbarActions(),
               ),
             SliverToBoxAdapter(
@@ -1280,9 +1546,23 @@ class _BookReaderState extends State<BookReader> {
   }
 }
 
-/// Съдържанието като плъзгащ се панел. Пази вложеността: дните са заглавия,
-/// житията под тях са с отстъп.
-class _TocSheet extends StatelessWidget {
+/// Едно съвпадение при търсене в съдържанието: кой ред и кои знаци от
+/// заглавието му обхваща (в ОРИГИНАЛНИЯ текст, с ударенията — виж fold).
+class _TocHit {
+  final int row;
+  final int start;
+  final int end;
+  const _TocHit(this.row, this.start, this.end);
+}
+
+/// Съдържанието като плъзгащ се панел — малък самостоятелен екран.
+///
+/// Пази вложеността (дните са заглавия, житията под тях са с отстъп) и носи
+/// собствена лента: поле за търсене по заглавие и двойка кръгчета, които са
+/// „− / +" за размера, а щом търсенето намери нещо — стрелки за обхождане.
+/// Двете употреби спокойно делят едно място: никой не нагласява шрифта,
+/// докато търси.
+class _TocSheet extends StatefulWidget {
   final List<EpubTocEntry> toc;
   final List<EpubTocEntry> chapters;
   final int current;
@@ -1296,7 +1576,45 @@ class _TocSheet extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
+  State<_TocSheet> createState() => _TocSheetState();
+}
+
+class _TocSheetState extends State<_TocSheet> {
+  // Три различни разстояния, не едно. Заглавие на две-три строчки трябва да
+  // се чете като ЕДИН блок (сбито междуредие), съседните жития — да се
+  // отделят леко, а новият ден — осезаемо повече, защото той е разделителят
+  // в списъка. Изравнят ли се трите, изгледът или се разлива, или се слепва.
+  static const double _inside = 1.22; // междуредие ВЪТРЕ в едно заглавие
+  static const double _gapLife = 4.0; // въздух над и под житие
+  static const double _gapDay = 12.0; // въздух над ден
+  static const double _padLeft = 16.0;
+  static const double _padRight = 16.0;
+  static const double _indent = 16.0;
+
+  /// Съдържанието, разгънато в плосък списък: (запис, дълбочина).
+  late final List<(EpubTocEntry, int)> _rows;
+
+  final ScrollController _scroll = ScrollController();
+  final TextEditingController _searchCtrl = TextEditingController();
+
+  /// Изгладеният низ за сравнение — без ударения и регистър (виж fold()).
+  String _query = '';
+  List<_TocHit> _hits = const [];
+  int _currentHit = -1;
+
+  /// Горният ръб на всеки ред в пространството на списъка.
+  ///
+  /// Смята се наново при промяна на ширината или на размера на шрифта.
+  /// Нужен е, защото `ListView.builder` не строи невидимите редове —
+  /// `Scrollable.ensureVisible` няма за какво да се хване, когато
+  /// намереното е на стотния ред.
+  List<double> _tops = const [];
+  double _measuredWidth = -1;
+  double _measuredSize = -1;
+
+  @override
+  void initState() {
+    super.initState();
     final rows = <(EpubTocEntry, int)>[];
     void walk(List<EpubTocEntry> list, int depth) {
       for (final e in list) {
@@ -1305,47 +1623,355 @@ class _TocSheet extends StatelessWidget {
       }
     }
 
-    walk(toc, 0);
+    walk(widget.toc, 0);
+    _rows = rows;
+    TocFontSize.loadOnce().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
 
+  @override
+  void dispose() {
+    // Последната промяна на размера иначе се губи, ако панелът се затвори
+    // преди изтичането на трите секунди покой.
+    TocFontSize.flush();
+    _scroll.dispose();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  /// Стилът на един ред. ЕДНО място — по него и се рисува, и се мери.
+  TextStyle _styleOf(bool isDay) => TextStyle(
+        color: isDay ? AppColors.sectionTitle : widget.palette.ink,
+        // Денят стои с една степен по-едро от житията под него — разликата в
+        // ръста го прави разделител и без линия.
+        fontSize: TocFontSize.value + (isDay ? TocFontSize.dayBonus : 0),
+        height: _inside,
+        fontWeight: isDay ? FontWeight.w600 : FontWeight.normal,
+        // БЕЗ fontFamily — нарочно. Съдържанието е указател, не четиво: стои
+        // със системния шрифт на телефона, както дневният и месечният
+        // изглед. Charis SIL остава за самия текст на житията.
+      );
+
+  /// Пресмята горните ръбове на редовете със същия стил и същата ширина, с
+  /// които се и рисуват. Мерещият трябва да е огледален на рисуващия —
+  /// затова редовете се рисуват с `RichText`, а не с `Text`: `Text` слива
+  /// стила по подразбиране от контекста, а мерещият не го вижда.
+  void _measure(double width) {
+    if (width == _measuredWidth && TocFontSize.value == _measuredSize) return;
+    _measuredWidth = width;
+    _measuredSize = TocFontSize.value;
+
+    final tops = List<double>.filled(_rows.length + 1, 0);
+    double y = 0;
+    for (int i = 0; i < _rows.length; i++) {
+      final (entry, depth) = _rows[i];
+      final isDay = depth == 0;
+      final painter = TextPainter(
+        text: TextSpan(text: entry.title, style: _styleOf(isDay)),
+        textDirection: TextDirection.ltr,
+      )..layout(maxWidth: width - (_padLeft + depth * _indent) - _padRight);
+      tops[i] = y;
+      y += painter.height + (isDay && i > 0 ? _gapDay : _gapLife) + _gapLife;
+      painter.dispose();
+    }
+    tops[_rows.length] = y;
+    _tops = tops;
+  }
+
+  // ── Търсенето ───────────────────────────────────────────────────────
+  //
+  // Живо: от първия въведен знак, наново при всяка промяна. Списъкът НЕ се
+  // филтрира — намереното се маркира и се обхожда, точно както в четеца.
+  // Така човек вижда къде в тома попада заглавието, а не изваден от
+  // подредбата откъслек.
+
+  void _runSearch(String raw) {
+    final q = fold(raw.trim()).text;
+    final hits = <_TocHit>[];
+    if (q.isNotEmpty) {
+      for (int i = 0; i < _rows.length; i++) {
+        final folded = fold(_rows[i].$1.title);
+        int from = 0;
+        while (true) {
+          final at = folded.text.indexOf(q, from);
+          if (at < 0) break;
+          hits.add(_TocHit(
+            i,
+            folded.origIndex[at],
+            folded.origIndex[at + q.length - 1] + 1,
+          ));
+          from = at + q.length;
+        }
+      }
+    }
+    setState(() {
+      _query = q;
+      _hits = hits;
+      _currentHit = hits.isEmpty ? -1 : 0;
+    });
+    if (hits.isNotEmpty) {
+      // Геометрията се строи с кадъра — скачаме след него.
+      WidgetsBinding.instance.addPostFrameCallback((_) => _revealHit());
+    }
+  }
+
+  void _stepHit(int delta) {
+    if (_hits.isEmpty) return;
+    setState(() {
+      _currentHit = (_currentHit + delta) % _hits.length;
+      if (_currentHit < 0) _currentHit += _hits.length;
+    });
+    _revealHit();
+  }
+
+  /// Придвижва списъка, за да застане текущото съвпадение в ГОРНАТА част на
+  /// видимото.
+  ///
+  /// Две уговорки, всяка от които е струвала по един неверен изглед:
+  ///
+  /// • Клавиатурата НЕ смалява изгледа — тя ляга върху него. Мери ли се по
+  ///   `viewportDimension`, „видимо" излиза и това, което стои зад нея, и
+  ///   намереното редовно се озовава точно под клавиатурата.
+  /// • Не всяко натискане мести списъка. Стои ли редът вече в горната
+  ///   половина, нищо не мърда — съседните заглавия често са през два реда и
+  ///   прескачането при всяко натискане прави обхождането накъсано.
+  void _revealHit() {
+    if (_currentHit < 0 || _tops.isEmpty || !_scroll.hasClients) return;
+    final row = _hits[_currentHit].row;
+    final pos = _scroll.position;
+    final visible = pos.viewportDimension - MediaQuery.viewInsetsOf(context).bottom;
+    if (visible <= 0) return;
+
+    const margin = 28.0; // въздух, за да не опира редът в ръба
+    final top = _tops[row];
+    final bottom = _tops[row + 1];
+
+    // Удобната зона: от горния ръб до средата на видимото.
+    final inBand = top >= pos.pixels + margin &&
+        bottom <= pos.pixels + visible * 0.5;
+    if (inBand) return;
+
+    // Иначе редът се изкарва на четвърт от височината — достатъчно високо,
+    // за да се види и следващото под него, без да е залепен за лентата.
+    final target = top - visible * 0.25;
+    _scroll.animateTo(
+      target.clamp(0.0, pos.maxScrollExtent),
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeInOutCubic,
+    );
+  }
+
+  /// Изход от търсенето: полето се изчиства, клавиатурата се прибира и
+  /// кръгчетата се връщат към размера на шрифта.
+  void _clearSearch() {
+    _searchCtrl.clear();
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _query = '';
+      _hits = const [];
+      _currentHit = -1;
+    });
+  }
+
+  // ── Видът ───────────────────────────────────────────────────────────
+
+  /// Каквото стои в десния край НА САМОТО поле: сивата лупа, докато полето е
+  /// празно, и броячът с ✕, щом се пише. Лупата е знак какво е това поле, не
+  /// копче — затова отстъпва мястото, щом полето заработи.
+  Widget _fieldSuffix(Color fg) {
+    if (_query.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 10, left: 6),
+        child: Icon(Icons.search, size: 18, color: fg.withValues(alpha: 0.45)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, left: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _hits.isEmpty ? '0/0' : '${_currentHit + 1}/${_hits.length}',
+            style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _clearSearch,
+            customBorder: const CircleBorder(),
+            child: Icon(Icons.close,
+                size: 18, color: fg.withValues(alpha: 0.75)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _bar(BuildContext context) {
+    final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+    // Двойката кръгчета сменя занятието си, а не вида си: щом има намерено,
+    // „− +" стават „‹ ›" на същото място и със същия размер.
+    final stepping = _hits.isNotEmpty;
+    return Container(
+      color: AppColors.toolbar,
+      padding: const EdgeInsets.fromLTRB(12, 6, 14, 8),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _searchCtrl,
+              style: TextStyle(color: fg, fontSize: 15),
+              textInputAction: TextInputAction.search,
+              onChanged: _runSearch,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: 'търси заглавие',
+                hintStyle:
+                    TextStyle(color: fg.withValues(alpha: 0.45), fontSize: 13),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                filled: true,
+                fillColor: Colors.black.withValues(alpha: 0.15),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                suffixIcon: _fieldSuffix(fg),
+                suffixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+              ),
+            ),
+          ),
+          const SizedBox(width: 16),
+          RoundIconButton(
+            icon: stepping ? Icons.chevron_left : Icons.remove,
+            tooltip: stepping ? 'Предишно съвпадение' : 'По-дребен шрифт',
+            enabled: stepping || TocFontSize.value > TocFontSize.min,
+            onTap: () => stepping
+                ? _stepHit(-1)
+                : setState(() => TocFontSize.nudge(-TocFontSize.step)),
+            size: kReaderBtnSize,
+          ),
+          const SizedBox(width: 18),
+          RoundIconButton(
+            icon: stepping ? Icons.chevron_right : Icons.add,
+            tooltip: stepping ? 'Следващо съвпадение' : 'По-едър шрифт',
+            enabled: stepping || TocFontSize.value < TocFontSize.max,
+            onTap: () => stepping
+                ? _stepHit(1)
+                : setState(() => TocFontSize.nudge(TocFontSize.step)),
+            size: kReaderBtnSize,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Заглавието на реда, с маркирани съвпадения.
+  InlineSpan _spanFor(int i) {
+    final (entry, depth) = _rows[i];
+    final base = _styleOf(depth == 0);
+    if (_query.isEmpty) return TextSpan(text: entry.title, style: base);
+
+    final parts = <InlineSpan>[];
+    int at = 0;
+    for (int h = 0; h < _hits.length; h++) {
+      final hit = _hits[h];
+      if (hit.row != i) continue;
+      if (hit.start > at) {
+        parts.add(TextSpan(text: entry.title.substring(at, hit.start)));
+      }
+      parts.add(TextSpan(
+        text: entry.title.substring(hit.start, hit.end),
+        style: TextStyle(
+          backgroundColor: h == _currentHit
+              ? widget.palette.hitCurrent
+              : widget.palette.hit,
+        ),
+      ));
+      at = hit.end;
+    }
+    if (at < entry.title.length) {
+      parts.add(TextSpan(text: entry.title.substring(at)));
+    }
+    return TextSpan(children: parts, style: base);
+  }
+
+  Widget _row(int i) {
+    final (entry, depth) = _rows[i];
+    final at = widget.chapters.indexWhere(
+        (c) => c.href == entry.href && c.anchor == entry.anchor);
+    final isCurrent = at == widget.current;
+    final isDay = depth == 0;
+    return InkWell(
+      onTap: at < 0 ? null : () => Navigator.of(context).pop(at),
+      child: Container(
+        color: isCurrent ? widget.palette.here : null,
+        padding: EdgeInsets.fromLTRB(
+          _padLeft + depth * _indent,
+          // Първият ред няма какво да отделя от предходния.
+          isDay && i > 0 ? _gapDay : _gapLife,
+          _padRight,
+          _gapLife,
+        ),
+        child: RichText(text: _spanFor(i)),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
+        // Дръжката и лентата са ЕДИН блок в цвета на инструментите.
+        //
+        // Иначе при светла тема отгоре стои кремава ивица, под нея тъмна
+        // лента, а после пак кремаво — изгледът се насича на пояси. Ъглите
+        // повтарят тези на панела (28), инак в двата горни края наднича
+        // кремавото под тях.
         Container(
-          margin: const EdgeInsets.symmetric(vertical: 10),
-          width: 40,
-          height: 4,
-          decoration: BoxDecoration(
-            color: palette.dim,
-            borderRadius: BorderRadius.circular(2),
+          decoration: const BoxDecoration(
+            color: AppColors.toolbar,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                margin: const EdgeInsets.symmetric(vertical: 10),
+                width: 40,
+                height: 4,
+                decoration: BoxDecoration(
+                  // Светла на тъмното — една и съща в двете теми, защото и
+                  // подложката ѝ е една и съща.
+                  color: Colors.white.withValues(alpha: 0.32),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              _bar(context),
+            ],
           ),
         ),
         Flexible(
-          child: ListView.builder(
-            itemCount: rows.length,
-            itemBuilder: (context, i) {
-              final (entry, depth) = rows[i];
-              final at = chapters.indexWhere((c) =>
-                  c.href == entry.href && c.anchor == entry.anchor);
-              final isCurrent = at == current;
-              return InkWell(
-                onTap: at < 0 ? null : () => Navigator.of(context).pop(at),
-                child: Container(
-                  color: isCurrent
-                      ? palette.hit.withValues(alpha: 0.25)
-                      : null,
-                  padding:
-                      EdgeInsets.fromLTRB(16.0 + depth * 18, 11, 16, 11),
-                  child: Text(
-                    entry.title,
-                    style: TextStyle(
-                      color: depth == 0 ? AppColors.sectionTitle : palette.ink,
-                      fontSize: depth == 0 ? 15 : 14,
-                      fontWeight:
-                          depth == 0 ? FontWeight.w600 : FontWeight.normal,
-                      fontFamily: kBodyFamily,
-                    ),
-                  ),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              _measure(constraints.maxWidth);
+              final height =
+                  constraints.maxHeight.isFinite ? constraints.maxHeight : 600.0;
+              return ListView.builder(
+                controller: _scroll,
+                // Опашка празно място под последното заглавие. Тя не е
+                // украса: без нея краят на списъка не може да се вдигне до
+                // горната част на изгледа и последните няколко съвпадения
+                // при обхождане увисват долу. Плюс мястото на клавиатурата,
+                // която покрива последните редове тъкмо при търсене.
+                padding: EdgeInsets.only(
+                  bottom: MediaQuery.viewInsetsOf(context).bottom +
+                      height * 0.55,
                 ),
+                itemCount: _rows.length,
+                itemBuilder: (context, i) => _row(i),
               );
             },
           ),

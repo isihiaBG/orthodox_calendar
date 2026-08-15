@@ -75,6 +75,33 @@ RE_TAG = re.compile(r'<[^>]+>')
 RE_PARA = re.compile(r'<div class="paragraph"')
 PH = re.compile(r"⟦(\d+)⟧")
 
+# ── Тропарите и кондаците накрая на житието ──────────────────────────────
+#
+# В книгата те стоят като два обикновени абзаца: заглавие („Тропарь, глас 8:")
+# и текст. Тук се разгъват на ТРИ, за да изглеждат както в дневния изглед:
+#
+#     <p class="prayerhead">Тропар, глас 8</p>
+#     <p class="csl">Слез твоих теченьми…</p>          ← оригиналът
+#     <p class="trans"><span class="translabel">Превод:</span> …</p>
+#
+# „Оригиналът" е църковнославянски в руска гражданска азбука — точно това, за
+# което служи класът .csl в стария четец. Затова тук се пренася както си е,
+# а не се превежда.
+#
+# ⚠ Класът НЕ се пише в class="paragraph …", а в отделен атрибут
+# data-prayer. Причината е в проверките отдолу: RE_PARA търси буквално
+# `class="paragraph"` и добавен клас би я подвел, че абзаците са намалели —
+# а на техния брой виси буквицата. С отделен атрибут всички изрази работят
+# непроменени.
+RE_PRAYER_HEAD = re.compile(
+    r'^(?:(?:Ин|Друг|Иный|Другой)\s+)?(?:[Тт]ропар|[Кк]ондак)\b'
+    r'[^:]{0,60}:\s*$')
+# Препратка към бележка вътре в текста на молитвата (20 случая от 595).
+# Маха се САМО от оригинала: инак номерчето излиза два пъти — веднъж на
+# църковнославянския ред и веднъж на превода, — а бележката е една и съща.
+RE_NOTE_REF = re.compile(
+    r'<a[^>]*#note\d+[^>]*>\s*<sup[^>]*>.*?</sup>\s*</a>', re.S)
+
 
 def split_tags(inner):
     """Същото разглобяване като в 02_extract.py — но върху ТЕКУЩАТА книга."""
@@ -223,9 +250,31 @@ def rebuild_file(path, rel, blocks, notes_bg, html_title, extra, problems):
             return block
 
         new_inner = PH.sub(lambda p: tags[int(p.group(1)) - 1], tr)
+
+        # ── Молитвите накрая на житието ──────────────────────────────────
+        # Заглавието вдига флаг; следващият блок С ПРЕВОД е текстът на
+        # молитвата. Между тях в книгата често стои празен абзац — той няма
+        # превод и не се брои, тъй че флагът го прескача от само себе си.
+        if repl.prayer_pending:
+            repl.prayer_pending = False
+            repl.added += 1
+            csl = RE_NOTE_REF.sub("", inner).strip()
+            return ('<div class="paragraph" data-prayer="csl">%s</div>'
+                    '<div class="paragraph" data-prayer="trans">'
+                    '<span class="translabel">Превод:</span> %s</div>'
+                    % (csl, new_inner))
+        if RE_PRAYER_HEAD.match(plain(tr)):
+            repl.prayer_pending = True
+            # Двоеточието отпада — старият четец реже заглавието по „: " и
+            # рисува „Тропар, глас 8" без него.
+            head = plain(tr).rstrip().rstrip(":").rstrip()
+            return '<div class="paragraph" data-prayer="head">%s</div>' % head
+
         return open_tag + new_inner + close_tag
 
     repl.i = 0
+    repl.prayer_pending = False
+    repl.added = 0
     out = RE_BLOCK.sub(repl, s)
 
     # title="..." на препратките към бележки — от превода на самата бележка.
@@ -249,12 +298,17 @@ def rebuild_file(path, rel, blocks, notes_bg, html_title, extra, problems):
         ru, bg = html_title
         out = out.replace("<title>%s</title>" % ru, "<title>%s</title>" % bg)
 
-    if len(RE_PARA.findall(out)) != before_paras:
+    # Проверките остават СТРОГИ — само знаят колко абзаца е добавило
+    # разгъването на молитвите. Те са накрая на главата, след житието, тъй
+    # че буквицата на първия абзац не може да бъде засегната.
+    if len(RE_PARA.findall(out)) != before_paras + repl.added:
         problems.append("%s: сменен брой .paragraph (буквицата!)" % rel)
         return s
-    if len(RE_BLOCK.findall(out)) != before_blocks:
+    if len(RE_BLOCK.findall(out)) != before_blocks + repl.added:
         problems.append("%s: сменен брой блокове" % rel)
         return s
+    if repl.prayer_pending:
+        problems.append("%s: заглавие на молитва без текст след него" % rel)
     return out
 
 
@@ -287,6 +341,12 @@ def rebuild_file(path, rel, blocks, notes_bg, html_title, extra, problems):
 # е по-специфичен от .calibre, а .calibre9 (заглавията) си има собствен
 # font-family, който бие наследяването.
 #
+# Българските корици. Слагат се ВЪРХУ извлечените от руския том — той си
+# носи своята и без подмяна тя пътува в готовата книга. Файлът е с
+# точно същото име и тип (cover.jpg, image/jpeg), тъй че манифестът в
+# content.opf и препратката в titlepage.xhtml не се пипат.
+COVERS_DIR = os.path.join(PROJECT_DIR, "Covers_BG")
+
 FONT_DIR = os.path.join(os.path.dirname(os.path.dirname(PROJECT_DIR)),
                         "assets", "fonts")
 LICENSE_FILE = "OFL-CharisSIL.txt"
@@ -297,6 +357,37 @@ LICENSE_FILE = "OFL-CharisSIL.txt"
 # вгражда, за да не го наклонява четецът по сметка.
 CHARIS = [("CharisSIL-Regular.ttf", "normal", "normal"),
           ("CharisSIL-Italic.ttf", "normal", "italic")]
+# Получерът стои ОТДЕЛНО, защото се подрязва по друг набор знаци. В тези
+# книги единственото получерно нещо са заглавията на тропарите и кондаците
+# („Тропар, глас 8"), тъй че му трябват няколко десетки букви вместо целия
+# том: 42 KB вместо 786. Без него четецът дорисува получер сам и буквите
+# излизат размазани.
+CHARIS_BOLD = ("CharisSIL-Bold.ttf", "bold", "normal")
+
+# Оформлението на молитвите В САМАТА КНИГА — за когато томът се отвори в
+# чужд четец. В приложението те се рисуват от reader_styles.dart и този CSS
+# не се чете; тук е, за да не изглежда книгата гола другаде.
+#
+# Цветовете са същите като в четеца при светла тема: виненото на заглавията
+# и приглушеното сиво на превода (reader_theme.dart, `wine` и `dim`).
+# Тялото на молитвата НЕ се пипа — остава като основния текст.
+PRAYER_CSS = """
+/* — тропарите и кондаците накрая на житието (добавено при сглобяването) — */
+div.paragraph[data-prayer="head"] {
+	font-weight: bold;
+	color: #B83333;
+	margin-top: 1.2em;
+	margin-bottom: 0.2em;
+	}
+div.paragraph[data-prayer="trans"] {
+	font-style: italic;
+	color: #6B675F;
+	}
+div.paragraph[data-prayer="trans"] .translabel {
+	font-style: normal;
+	font-weight: bold;
+	}
+"""
 
 FONT_CSS = """
 /* — вградена Charis SIL за основния текст (добавено при сглобяването) — */
@@ -349,6 +440,128 @@ def subset_font(src, dst, chars):
     return True
 
 
+def prayer_head_characters(oebps):
+    """Знаците, изписани в заглавията на молитвите. Основа за подрязването на
+    получера: той се ползва само там и няма защо да носи целия том."""
+    chars = set()
+    for p in glob.glob(os.path.join(oebps, "Text", "*.xhtml")):
+        s = open(p, encoding="utf-8").read()
+        for m in re.finditer(
+                r'<div class="paragraph" data-prayer="head"[^>]*>(.*?)</div>',
+                s, re.S):
+            chars |= set(html.unescape(RE_TAG.sub(" ", m.group(1))))
+    return chars
+
+
+# Трите числа на заглавната страница. Стоят тук, защото се нагласяват с
+# ОКО в обикновен четец и почти сигурно ще се пипат пак.
+#
+# TITLE_SIZE      кеглите на „ЖИТИЯ/на/СВЕТИИТЕ". Оригиналът е 68px за един
+#                 ред; на три реда толкова е прекалено.
+# TITLE_LEADING   междуредие. В книгата стоеше 46px — при 68px шрифт това е
+#                 застъпване, което не личеше само защото редът беше един.
+# TITLE_NA_LIFT   повдигане на „на". При еднакъв кегел то е с x-височина, а
+#                 съседите му са с главни букви, тъй че стои ниско в реда си
+#                 и горното разстояние ИЗГЛЕЖДА по-голямо. Изравнява видяното,
+#                 не измереното. ⚠ `position` не се поддържа от flutter_html —
+#                 важи за чуждите четци, в приложението редът си остава.
+TITLE_SIZE = "58px"
+TITLE_LEADING = "0.62"
+TITLE_NA_LIFT = "-0.12em"
+# Редът с месеца („месец януари") и кръстчетата над него — изравнени с
+# подзаглавието „по изложението на…". В книгата бяха 30px и 1.0em.
+#
+# ⚠ 2.16em, а НЕ 1.2em, колкото пише при подзаглавието. Уловката е, че
+# подзаглавието е <span> ВЪТРЕ в div.calibre9, тъй че неговите 1.2em се
+# умножават по класовите 1.8em и дават 2.16. Месецът и кръстчетата са
+# самите div.calibre9 — там инлайн размерът ЗАМЕСТВА 1.8em, не се умножава
+# с тях. Сложи ли се 1.2em и на тях, излизат по-дребни и от оригинала.
+MONTH_SIZE = "1.85em"
+CROSSES_SIZE = "1.55em"
+
+
+def fix_titlepage(oebps):
+    """Приближава заглавната страница до корицата. Връща True при промяна.
+
+    Две неща, и двете само в оформлението — текстът си остава преводът:
+
+      1. Заглавието се разчупва на ТРИ реда, както е на корицата:
+             ЖИТИЯ
+               на          (с малки букви, но със СЪЩИЯ кегел)
+             СВЕТИИТЕ
+         Разчупването е с <br/> ВЪТРЕ в същия <span>, не с нови абзаци —
+         иначе редовете се разделят и се получават три заглавия.
+
+         „на" се повдига с 0.10em. Причината е типографска: при еднакъв
+         кегел то е с x-височина, а съседните редове са с главни букви, тъй
+         че стои ниско в реда си и горното разстояние ИЗГЛЕЖДА по-голямо от
+         долното, без да е. Повдигането изравнява видяното, не измереното.
+         ⚠ `position` не се поддържа от flutter_html — в приложението редът
+         си остава както е бил; повдигането важи за чуждите четци.
+      2. „според изложението на" → „по изложението на".
+
+    ⚠ Междуредието се сменя от `46px` на множител. При 68-пикселов шрифт
+    46 пиксела ред значеше застъпване — не личеше, докато заглавието беше на
+    един ред. (В нашия четец е без значение: book_reader._normalize маха
+    инлайн line-height, защото flutter_html го чете като множител. Но томът
+    се отваря и в чужди четци.)
+    """
+    changed = 0
+    for path in glob.glob(os.path.join(oebps, "Text", "*.xhtml")):
+        s = open(path, encoding="utf-8").read()
+        if "ЖИТИЯ НА СВЕТИИТЕ" not in s:
+            continue
+        # Разчупването е с <br/> ВЪТРЕ в същия <span>. Пробвано беше и с три
+        # блокчета — flutter_html ги подрежда правилно, но те попадат под
+        # общото му правило за `div` и заглавието излиза с друг шрифт
+        # (Charis SIL вместо Tamburin) и по-дребно. Инлайн font-family не
+        # помага: книгата обявява шрифта като „Tamburin Modern", а
+        # приложението го знае като „TamburinModern".
+        #
+        # С <br/> и двете се наследяват сами — в книгата от .calibre9, в
+        # приложението от правилото за h3 — и нищо не се пипа в кода, тъй че
+        # утрешна нова книга няма да иска промени.
+        out = s.replace(
+            "ЖИТИЯ НА СВЕТИИТЕ",
+            'ЖИТИЯ<br/><span style="position: relative; top: %s;">на'
+            '</span><br/>СВЕТИИТЕ' % TITLE_NA_LIFT)
+        out = out.replace(
+            "font-size: 68px; line-height: 46px;",
+            "font-size: %s; line-height: %s;" % (TITLE_SIZE, TITLE_LEADING))
+        out = out.replace("font-size: 30px; line-height: 0.8em;",
+                          "font-size: %s; line-height: 0.8em;" % MONTH_SIZE)
+        out = out.replace("font-size: 1.0em; line-height: 0.8em; text-align",
+                          "font-size: %s; line-height: 0.8em; text-align"
+                          % CROSSES_SIZE)
+        out = out.replace("според изложението на", "по изложението на")
+        if out != s:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(out)
+            changed += 1
+    return changed
+
+
+def replace_cover(oebps, vol):
+    """Слага българската корица на тома. Връща True, ако е сменена.
+
+    Липсва ли файл за този месец, книгата излиза с руската корица и това се
+    съобщава — по-добре стара корица, отколкото том без корица.
+    """
+    # Томът се казва „01(яну)", а корицата — просто „01.jpg": в папката
+    # номерът на месеца стига, а руското съкращение в скобите само би карало
+    # човек да го помни при преименуване.
+    src = os.path.join(COVERS_DIR, "%s.jpg" % vol[:2])
+    dst = os.path.join(oebps, "Images", "cover.jpg")
+    if not os.path.exists(src):
+        print("  ⚠ няма българска корица %s — остава руската" % src)
+        return False
+    if not os.path.exists(dst):
+        print("  ⚠ томът няма Images/cover.jpg — корицата не е сменена")
+        return False
+    shutil.copyfile(src, dst)
+    return True
+
+
 def embed_fonts(oebps):
     """Копира Charis SIL в книгата, добавя @font-face и я задава за основен
     шрифт. Шрифтовете се ПОДРЯЗВАТ до знаците, които томът наистина ползва —
@@ -391,8 +604,25 @@ def embed_fonts(oebps):
     else:
         print("  знаци в тома: %d" % len(chars))
 
+    # Получерът — само ако томът има заглавия на молитви, и подрязан по тях.
+    bold_chars = prayer_head_characters(oebps)
+    extra_css = ""
+    if bold_chars:
+        fn, weight, style = CHARIS_BOLD
+        src = os.path.join(FONT_DIR, fn)
+        if os.path.exists(src):
+            if not subset_font(src, os.path.join(fonts_dir, fn), bold_chars):
+                sub_ok = False
+            faces += FACE % (fn, weight, style)
+            added.append(fn)
+            print("  получер за заглавията на молитвите: %d знака"
+                  % len(bold_chars))
+        else:
+            print("  ⚠ липсва %s — заглавията ще са с дорисуван получер" % src)
+        extra_css = PRAYER_CSS
+
     with open(css_path, "w", encoding="utf-8") as f:
-        f.write(css.rstrip("\n") + "\n" + (FONT_CSS % faces))
+        f.write(css.rstrip("\n") + "\n" + (FONT_CSS % faces) + extra_css)
 
     # Всеки файл в архива трябва да е и в манифеста, иначе .epub-ът не е
     # валиден и четците може да не заредят шрифта.
@@ -737,6 +967,12 @@ def process(vol, dry, epub3=False):
     if dry:
         print("  (--dry-run: нищо не е записано)")
         return
+
+    if fix_titlepage(oebps):
+        print("  заглавната страница е приближена до корицата")
+
+    if replace_cover(oebps, vol):
+        print("  корица: българската от Covers_BG/%s.jpg" % vol[:2])
 
     n_font = embed_fonts(oebps)
     if n_font:

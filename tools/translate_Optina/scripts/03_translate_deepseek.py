@@ -70,6 +70,27 @@ RE_QUOTE = re.compile(r'«[^«»]{2,}»')
 
 _local = threading.local()
 _lock = threading.Lock()
+# Вдига се, когато парите свършат — течащите порции довършват, нови не тръгват.
+_stop = threading.Event()
+
+BALANCE_URL = "https://api.deepseek.com/user/balance"
+
+
+def balance(api_key):
+    """Остатъкът по сметката в долари, или None при неуспех.
+
+    Заявката е БЕЗПЛАТНА и не минава през модела, тъй че може да се пита
+    често. Ползва се, за да спрем ПРЕДИ да свършат парите: при празна сметка
+    DeepSeek връща 402 и порцията се губи заедно с разсъжденията, за които
+    вече е платено.
+    """
+    try:
+        r = session().get(BALANCE_URL,
+                          headers={"Authorization": "Bearer %s" % api_key},
+                          timeout=30)
+        return float(r.json()["balance_infos"][0]["total_balance"])
+    except Exception:
+        return None
 
 
 def session():
@@ -230,6 +251,10 @@ def main():
     ap.add_argument('--workers', type=int, default=6)
     ap.add_argument('--batch', type=int, default=12,
                     help='сентенции в една заявка')
+    ap.add_argument('--pool',
+                    help='друг списък за превод (напр. work/expand.json)')
+    ap.add_argument('--min-balance', type=float, default=0.02,
+                    help='спира, щом остатъкът падне под това ($)')
     ap.add_argument('--env-file')
     ap.add_argument('--show-prompt', action='store_true')
     args = ap.parse_args()
@@ -238,9 +263,12 @@ def main():
         print(SYSTEM_PROMPT)
         return
 
-    path = os.path.join(WORK_DIR, 'selected.json')
+    path = args.pool or os.path.join(WORK_DIR, 'selected.json')
+    if not os.path.isabs(path):
+        path = os.path.join(PROJECT_DIR, path) if os.sep in path else \
+            os.path.join(WORK_DIR, path)
     if not os.path.exists(path):
-        print('Няма %s — пусни първо 02_select.py.' % path)
+        print('Няма %s — пусни първо 02_select.py (или 02b_expand.py).' % path)
         sys.exit(1)
     selected = json.load(open(path, encoding='utf-8'))
 
@@ -272,9 +300,14 @@ def main():
              else {'requests': 0, 'prompt_tokens': 0, 'completion_tokens': 0})
 
     chunks = [todo[i:i + args.batch] for i in range(0, len(todo), args.batch)]
-    counter, failed = {'n': 0}, []
+    counter, failed = {'n': 0, 'batches': 0}, []
+    start_balance = balance(api_key)
+    if start_balance is not None:
+        print('остатък по сметката: %.2f$' % start_balance)
 
     def run(items):
+        if _stop.is_set():
+            return                      # парите свършиха — не тръгваме
         parts = translate_batch(api_key, items, args.retries, usage)
         for q, bg in zip(items, parts):
             out = dict(q)
@@ -284,10 +317,26 @@ def main():
                 json.dump(out, fh, ensure_ascii=False, indent=1)
         with _lock:
             counter['n'] += len(items)
+            counter['batches'] += 1
             print('[%d/%d] %s … %s' % (counter['n'], len(todo),
                                        items[0]['id'], items[-1]['id']))
             with open(usage_path, 'w', encoding='utf-8') as fh:
                 json.dump(usage, fh, ensure_ascii=False, indent=1)
+            # Остатъкът се пита на всеки няколко порции — заявката е
+            # безплатна, но не е мигновена. От разликата спрямо началото се
+            # смята и реалната цена на сентенция, която иначе е догадка.
+            if counter['batches'] % 3 == 0:
+                now = balance(api_key)
+                if now is not None:
+                    spent = (start_balance - now) if start_balance else 0
+                    per = spent / counter['n'] if counter['n'] else 0
+                    print('    остатък %.3f$ | изхарчено %.3f$ | %.5f$ на '
+                          'сентенция | стигат за още ~%d'
+                          % (now, spent, per,
+                             int((now - args.min_balance) / per) if per else 0))
+                    if now <= args.min_balance:
+                        _stop.set()
+                        print('    ПАРИТЕ СВЪРШИХА — спирам новите порции.')
 
     with ThreadPoolExecutor(max_workers=args.workers) as pool:
         for fut in [pool.submit(run, ch) for ch in chunks]:

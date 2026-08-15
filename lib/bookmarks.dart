@@ -14,11 +14,11 @@
 // повече място от самите отметки.
 
 import 'dart:async';
-import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'nudge_shake.dart';
 
 /// Един запис в списъка.
 class BookmarkEntry {
@@ -90,7 +90,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
   /// при всяко докосване, така че разтърсването идва само след затишие.
   late final AnimationController _nudge = AnimationController(
     vsync: this,
-    duration: const Duration(milliseconds: 700),
+    duration: kNudgeBump,
   );
   Timer? _nudgeTimer;
   static const _nudgePause = Duration(seconds: 4);
@@ -284,21 +284,8 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
                   // Едно и също копче с две задачи. Иконката не се сменя —
                   // че режимът е друг, се вижда от заглавието и от лекото
                   // разтърсване, което се повтаря през няколко секунди.
-                  icon: AnimatedBuilder(
+                  icon: NudgeShake(
                     animation: _nudge,
-                    builder: (context, child) {
-                      final t = _nudge.value;
-                      if (t == 0) return child!;
-                      // Затихващо махало: люлее се все по-слабо, а
-                      // наедряването върви и обратно, за да не „подскочи"
-                      // иконката в края.
-                      final angle = math.sin(t * math.pi * 6) * 0.28 * (1 - t);
-                      final scale = 1 + math.sin(t * math.pi) * 0.22;
-                      return Transform.rotate(
-                        angle: angle,
-                        child: Transform.scale(scale: scale, child: child),
-                      );
-                    },
                     child: const Icon(Icons.delete_sweep_outlined),
                   ),
                   // Без избрани копчето е угасено — така се вижда, че

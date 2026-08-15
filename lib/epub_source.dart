@@ -20,20 +20,18 @@
 //
 // Архивът се чете ВЕДНЪЖ и се държи в паметта (1,6 MB на том), защото
 // главите се отварят една след друга и повторното разархивиране при всяко
-// прелистване е излишно. Самият .epub се копира от assets на диска по реда
-// на базите — от bundle-а няма произволен достъп.
+// прелистване е излишно. Чете се ПРАВО от пакета — за разлика от базите тук
+// няма копие на диска (виж EpubBook.open защо и какво струваше то).
 //
 // ТУК НЕ СЕ РИСУВА НИЩО. Този файл само вади текст и структура; как
 // изглежда книгата решава четецът.
 
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:archive/archive.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 
 /// Един запис от съдържанието. Може да има подзаписи — в житията първото
 /// ниво са дните („Памет на 1 септември"), второто са самите жития.
@@ -103,21 +101,26 @@ class EpubBook {
 
   // ── Отваряне ────────────────────────────────────────────────────────────
 
-  /// Копира .epub-а от assets на диска (веднъж) и го разчита.
+  /// Разчита .epub-а ПРАВО от assets, без копие на диска.
   ///
-  /// Копието е нужно, защото от bundle-а няма произволен достъп до файл;
-  /// същата причина, поради която и базите се копират (виж DatabaseHelper).
+  /// ⚠ Дотук книгата се копираше в getApplicationSupportDirectory() и се
+  /// четеше оттам, „защото от bundle-а няма произволен достъп до файл".
+  /// Това беше излишно: `ZipDecoder.decodeBytes` работи с байтове, а те
+  /// идват от `rootBundle.load` наготово — файлът се записваше само за да
+  /// бъде прочетен обратно.
+  ///
+  /// Копието обаче се правеше САМО ако още го няма („if (!await
+  /// file.exists())"), тъй че щом веднъж се запишеше, нов билд с поправен
+  /// том вече не стигаше до четеца. Симптомът е коварен: приложението
+  /// показва стария текст, а файлът в assets/ е верният, и единственият
+  /// лек е изчистване на данните. (Загубени над час на 15.08.2026 по
+  /// заглавната страница на житията.)
+  ///
+  /// Оттук нататък източникът е един — пакетът, — и такова разминаване не
+  /// може да се получи. Пътьом отпадат и 19 MB второ копие на устройството.
   static Future<EpubBook> open(String assetPath) async {
-    final dir = await getApplicationSupportDirectory();
-    final file = File(p.join(dir.path, 'books', p.basename(assetPath)));
-
-    if (!await file.exists()) {
-      await file.parent.create(recursive: true);
-      final data = await rootBundle.load(assetPath);
-      await file.writeAsBytes(data.buffer.asUint8List(), flush: true);
-    }
-
-    final archive = ZipDecoder().decodeBytes(await file.readAsBytes());
+    final data = await rootBundle.load(assetPath);
+    final archive = ZipDecoder().decodeBytes(data.buffer.asUint8List());
     return _parse(assetPath, archive);
   }
 
