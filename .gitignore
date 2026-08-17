@@ -133,3 +133,6 @@ tools/translate_Optina/work/
 # 16.08.2026, за да е на едно място с останалите инструменти, но НЕ влиза в
 # git: тежка е, съдържа чуждо съдържание и е производна.
 tools/azbyka.ru/
+
+# Архивите с резервните копия, които tools/corrections/apply.py прави преди запис
+tools/corrections/backups/
