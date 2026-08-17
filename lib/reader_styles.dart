@@ -70,6 +70,7 @@ Map<String, Style> readerStyles({
     // и заглавието, което reader_screen рисува със свой Text.
     'h3': Style(
       fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
       fontSize: FontSize(fontSize + 12),
       lineHeight: const LineHeight(1.05),
       fontWeight: FontWeight.normal,
@@ -95,6 +96,7 @@ Map<String, Style> readerStyles({
     // при дребен шрифт изглеждаше огромно, а при едър — сбито.
     '.booktitle': Style(
       fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
       fontSize: FontSize(fontSize * 3.3),
       lineHeight: const LineHeight(0.80),
       // ⚠ ПОВДИГАНЕ НА СРЕДНИЯ РЕД НЕ Е ВЪЗМОЖНО в приложението. При

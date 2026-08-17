@@ -72,6 +72,7 @@ class BookTitleExtension extends HtmlExtension {
         : const Color(0xFF000000);
     final style = TextStyle(
       fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
       fontSize: size,
       height: kBookTitleLineHeight,
       color: color,
