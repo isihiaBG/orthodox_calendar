@@ -62,15 +62,19 @@ Widget _flatCircle({
   required String tooltip,
   required VoidCallback onTap,
   bool active = false,
+  bool enabled = true,
   Animation<double>? nudge,
 }) {
-  final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+  final fgFull = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+  // Посивено, когато действието няма смисъл тук — виж отметката на
+  // заглавната страница в book_reader.
+  final fg = enabled ? fgFull : fgFull.withValues(alpha: 0.30);
   Widget glyph = Icon(icon, size: 24, color: fg);
   if (nudge != null) glyph = NudgeShake(animation: nudge, child: glyph);
   return Tooltip(
     message: tooltip,
     child: InkWell(
-      onTap: onTap,
+      onTap: enabled ? onTap : null,
       customBorder: const CircleBorder(),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 150),
@@ -121,6 +125,10 @@ List<Widget> readerToolbarActions({
   bool searchOpen = false,
   VoidCallback? onBookmark,
   bool bookmarked = false,
+
+  /// Може ли изобщо да се отбелязва тук. false посивява бутона — ползва
+  /// се на заглавната страница на том, която не е четиво.
+  bool canBookmark = true,
   VoidCallback? onMore,
 }) {
   final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
@@ -179,9 +187,12 @@ List<Widget> readerToolbarActions({
       ..add(_flatCircle(
         context: context,
         icon: bookmarked ? Icons.bookmark : Icons.bookmark_border,
-        tooltip: bookmarked ? 'Премахни отметката' : 'Отметни тук',
+        tooltip: canBookmark
+            ? (bookmarked ? 'Премахни отметката' : 'Отметни тук')
+            : 'Тук няма какво да се отмята',
         onTap: onBookmark,
         active: bookmarked,
+        enabled: canBookmark,
       ));
   }
 

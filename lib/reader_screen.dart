@@ -246,26 +246,24 @@ String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
 /// по-голямо отстояние над тях.
 String _prayersBlocksHtml(SaintTexts texts, {String firstClassExtra = ''}) {
   final b = StringBuffer();
-  void block(String csl, String trans) {
-    if (csl.isEmpty) return;
-    final i = csl.indexOf(': ');
-    if (i > 0 && i < 40) {
-      b.write('<p class="prayerhead">${csl.substring(0, i)}</p>');
-      b.write('<p class="csl">${csl.substring(i + 2)}</p>');
-    } else {
-      b.write('<p class="csl">$csl</p>');
+  // Заглавието, църковнославянският текст и преводът с курсив отдолу —
+  // редът е един и същ за тропар, кондак, молитва и величание. Броят им
+  // вече е неограничен: идват от lives.hymns, а не от четири колони.
+  for (final h in texts.hymns) {
+    // Молитвите и величанията нямат превод; осемте стари сирака нямат
+    // църковнославянски оригинал. Ред без нито едно от двете няма какво
+    // да покаже.
+    if (h.csl.isEmpty && h.bg.isEmpty) continue;
+    if (h.heading.isNotEmpty) {
+      b.write('<p class="prayerhead">${h.heading}</p>');
     }
-    if (trans.isNotEmpty) {
+    if (h.csl.isNotEmpty) b.write('<p class="csl">${h.csl}</p>');
+    if (h.bg.isNotEmpty) {
       b.write(
-        '<p class="trans"><span class="translabel">Превод:</span> $trans</p>',
+        '<p class="trans"><span class="translabel">Превод:</span> ${h.bg}</p>',
       );
     }
   }
-
-  block(texts.tropar, texts.troparTrans);
-  block(texts.tropar2, texts.tropar2Trans);
-  block(texts.kondak, texts.kondakTrans);
-  block(texts.kondak2, texts.kondak2Trans);
 
   var out = b.toString();
   if (out.isNotEmpty && firstClassExtra.isNotEmpty) {
@@ -634,6 +632,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   void initState() {
     super.initState();
     _scrollController.addListener(_onScrollForBookmark);
+    // Темата и размерът се четат заедно — за човека това е един
+    // четец и настройките му са общи (виж ReaderTheme.loadOnce).
+    ReaderTheme.loadOnce().then((_) {
+      if (mounted) setState(() {});
+    });
     ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
@@ -1241,6 +1244,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       return (
         TextStyle(
           fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
           fontSize: size + 12,
           height: 1.05,
         ),
@@ -1687,6 +1691,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Ако имаше чакащ (недовършил 3-те си секунди) запис на шрифта, го
     // пускаме веднага сега — иначе промяната би се изгубила при излизане.
     ReaderFontSize.flush();
+    ReaderTheme.flush();
     _searchAnim.dispose();
     _searchCtrl.dispose();
     _searchFocusNode.dispose();
@@ -1978,6 +1983,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               textAlign: TextAlign.center,
               style: TextStyle(
                 fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
                 // Изравнено с четеца на книги (виж стила на h3 там): при
                 // междуредие 1.25 по-дългите заглавия се разсипваха на
                 // разредени редове вместо да стоят като един надпис.
@@ -2361,7 +2367,11 @@ class _ReaderScreenState extends State<ReaderScreen>
                     child: SafeArea(
                       top: false,
                       child: ResumePrompt(
-                        background: AppColors.backgroundCard,
+                        background: _p.sheet,   // ⚠ от палитрата, не закован цвят:
+                                   // в светла тема тъмният фон правеше
+                                   // прозорчето нечетимо (текстът също е
+                                   // тъмен), а в тъмна се сливаше със
+                                   // страницата.
                         ink: _ink,
                         dim: _dim,
                         onJump: _onResumePromptJump,

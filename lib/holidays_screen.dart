@@ -18,7 +18,13 @@ import 'dual_date_text.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
 import 'saint_expandable_tile.dart'
-    show SaintExpandableTile, SaintLookup, SaintTexts, lifeLabelFor;
+    show
+        SaintExpandableTile,
+        SaintLookup,
+        SaintTexts,
+        lifeLabelFor,
+        loadHymns,
+        parseHymnCounts;
 
 // Системният шрифт на телефона, не Charis SIL — `null` значи „каквото дава
 // устройството". Същото решение както в дневния и месечния изглед: тези
@@ -122,8 +128,7 @@ class _FeastResult {
   final int? id;
   final String? slug;
   final int rank;
-  final bool hasTropar;
-  final bool hasKondak;
+  final Map<String, int> hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
   const _FeastResult(
@@ -132,8 +137,7 @@ class _FeastResult {
     this.id,
     this.slug,
     required this.rank,
-    this.hasTropar = false,
-    this.hasKondak = false,
+    this.hymnCounts = const {},
     this.hasLife = false,
     this.hasSluzhba = false,
   });
@@ -219,8 +223,9 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       // съдържат пълното име на празника.
       final rows = await db.rawQuery("""
         SELECT s.id, s.rank, s.slug,
-              (l.tropar  IS NOT NULL AND l.tropar  != '') AS has_tropar,
-              (l.kondak  IS NOT NULL AND l.kondak  != '') AS has_kondak,
+              (SELECT group_concat(kind || ':' || n, ',') FROM
+                 (SELECT kind, count(*) AS n FROM lives.hymns
+                  WHERE slug = s.slug GROUP BY kind)) AS hymn_counts,
               (l.life    IS NOT NULL AND l.life    != '') AS has_life,
               (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
         FROM saints s
@@ -236,8 +241,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         id: row?['id'] as int?,
         slug: row?['slug'] as String?,
         rank: row?['rank'] as int? ?? 6,
-        hasTropar: (row?['has_tropar'] as int? ?? 0) == 1,
-        hasKondak: (row?['has_kondak'] as int? ?? 0) == 1,
+        hymnCounts: parseHymnCounts(row?['hymn_counts'] as String?),
         hasLife: (row?['has_life'] as int? ?? 0) == 1,
         hasSluzhba: (row?['has_sluzhba'] as int? ?? 0) == 1,
       ));
@@ -259,8 +263,6 @@ class _HolidaysSectionState extends State<HolidaysSection> {
     final db = await DatabaseHelper.database;
     final r = await db.rawQuery('''
       SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
-             l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
-             l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
              l.life, l.sluzhba, l.source, s.slug
       FROM saints s
       LEFT JOIN lives.texts l ON l.slug = s.slug
@@ -268,14 +270,14 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       LIMIT 1
     ''', [id]);
     if (r.isEmpty) return null;
-    return SaintTexts.fromMap(r.first);
+    return SaintTexts.fromMap(r.first,
+        hymns: await loadHymns((r.first['slug'] ?? '') as String));
   }
 
   Widget _expandableWrap(_FeastResult r, Widget collapsedRow) {
     return SaintExpandableTile(
       collapsedRow: collapsedRow,
-      hasTropar: r.hasTropar,
-      hasKondak: r.hasKondak,
+      hymnCounts: r.hymnCounts,
       hasLife: r.hasLife,
       hasSluzhba: r.hasSluzhba,
       lifeLabel: lifeLabelFor(rank: r.rank, name: r.spec.displayName),

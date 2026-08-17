@@ -116,15 +116,67 @@ class DayScreen extends StatefulWidget {
   State<DayScreen> createState() => _DayScreenState();
 }
 
-class _DayScreenState extends State<DayScreen> {
+class _DayScreenState extends State<DayScreen>
+    with SingleTickerProviderStateMixin {
   CalendarDay? _day;
   List<Saint> _saints = [];
   bool _loading = true;
 
+  /// Кой ред да просветне — идва от търсенето през
+  /// [AppSettings.flashSaintId]. Изчиства се веднага щом се вземе, за да
+  /// не мига пак при следващо отваряне на същия ден.
+  int? _flashSaintId;
+  late AnimationController _flashController;
+  late Animation<double> _flashAnimation;
+
   @override
   void initState() {
     super.initState();
+    // Същата крива като в месечния изглед: бързо светва, задържа се и
+    // гасне бавно. Виж MonthScreen._flashAnimation — нарочно е еднаква,
+    // за да е един и същ жестът, откъдето и да дойде човек.
+    _flashController = AnimationController(
+      duration: const Duration(milliseconds: 5000),
+      vsync: this,
+    );
+    _flashAnimation = TweenSequence<double>([
+      TweenSequenceItem(tween: Tween(begin: 0.0, end: 1.0), weight: 5),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 1.0), weight: 8),
+      TweenSequenceItem(tween: Tween(begin: 1.0, end: 0.0), weight: 87),
+    ]).animate(CurvedAnimation(
+      parent: _flashController,
+      curve: Curves.easeInOut,
+    ));
+    // Слуша за сигнал от търсенето. Проверката СЛЕД зареждането (в края
+    // на _loadDay) покрива страница, която тепърва се строи; слушателят —
+    // онази, която вече съществува в PageView и няма да мине пак през
+    // initState. Нужни са и двете.
+    AppSettings.flashSaintId.addListener(_checkFlash);
     _loadDay();
+  }
+
+  @override
+  void dispose() {
+    AppSettings.flashSaintId.removeListener(_checkFlash);
+    _flashController.dispose();
+    super.dispose();
+  }
+
+  /// Взима заявката за флаш, ако тя е за някой от светиите на ТОЗИ ден.
+  ///
+  /// ⚠ Проверката е нужна, защото дневният изглед живее в PageView и
+  /// съседните страници се строят предварително. Без нея флашът щеше да
+  /// се изяде от съседен ден, който човек дори не вижда.
+  void _checkFlash() {
+    if (!mounted) return;
+    final id = AppSettings.flashSaintId.value;
+    if (id == null) return;
+    if (!_saints.any((s) => s.id == id)) return;
+    // Изчиства се веднага: сигналът е за ЕДИН ден и не бива да мига пак
+    // при следващо построяване, нито да го поеме друга страница.
+    AppSettings.flashSaintId.value = null;
+    setState(() => _flashSaintId = id);
+    _flashController.forward(from: 0);
   }
 
   Future<void> _loadDay() async {
@@ -150,8 +202,12 @@ class _DayScreenState extends State<DayScreen> {
     final saintsResult = await db.rawQuery('''
     SELECT s.id, s.date, s.name, s.rank, s.group_code,
           r.sign, r.sign_color,
-          (l.tropar  IS NOT NULL AND l.tropar  != '') AS has_tropar,
-          (l.kondak  IS NOT NULL AND l.kondak  != '') AS has_kondak,
+          -- Видовете песнопения с броя им, кодирани в едно поле:
+          -- "tropar:3,kondak:5". Едно поле, а не колона за всеки вид —
+          -- утрешен нов вид минава, без да се пипа заявката.
+          (SELECT group_concat(kind || ':' || n, ',') FROM
+             (SELECT kind, count(*) AS n FROM lives.hymns
+              WHERE slug = s.slug GROUP BY kind)) AS hymn_counts,
           (l.life    IS NOT NULL AND l.life    != '') AS has_life,
           (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
     FROM saints s
@@ -172,6 +228,12 @@ class _DayScreenState extends State<DayScreen> {
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();
       _loading = false;
     });
+
+    // Чак сега — списъкът трябва да е налице, за да се провери дали
+    // търсеният светия е от ТОЗИ ден.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _checkFlash();
+    });
   }
 
   /// Пълните текстове на светия — зареждат се чак при тап върху секция.
@@ -183,8 +245,6 @@ class _DayScreenState extends State<DayScreen> {
     final db = await DatabaseHelper.database;
     final r = await db.rawQuery('''
       SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
-             l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
-             l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
              l.life, l.sluzhba, l.source, s.slug
       FROM saints s
       LEFT JOIN lives.texts l ON l.slug = s.slug
@@ -192,7 +252,8 @@ class _DayScreenState extends State<DayScreen> {
       LIMIT 1
     ''', [id]);
     if (r.isEmpty) return null;
-    return SaintTexts.fromMap(r.first);
+    return SaintTexts.fromMap(r.first,
+        hymns: await loadHymns((r.first['slug'] ?? '') as String));
   }
 
   /// Търсене по слъг — за saint:// линковете в житията.
@@ -483,10 +544,27 @@ class _DayScreenState extends State<DayScreen> {
           ),
         );
 
+        // Просветване на реда, избран от търсенето. Обвива се целият
+        // булет, не само името: така се вижда докъде се простира записът,
+        // а разгъващият се компонент отдолу остава непокътнат.
+        final tile = saint.id == _flashSaintId
+            ? AnimatedBuilder(
+                animation: _flashAnimation,
+                builder: (context, child) => DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: AppColors.todayFlash
+                        .withValues(alpha: _flashAnimation.value * 0.55),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: child,
+                ),
+                child: row,
+              )
+            : row;
+
         return SaintExpandableTile(
-          collapsedRow: row,
-          hasTropar: saint.hasTropar,
-          hasKondak: saint.hasKondak,
+          collapsedRow: tile,
+          hymnCounts: parseHymnCounts(saint.hymnCounts),
           hasLife: saint.hasLife,
           hasSluzhba: saint.hasSluzhba,
           lifeLabel: lifeLabelFor(rank: saint.rank, name: saint.name),

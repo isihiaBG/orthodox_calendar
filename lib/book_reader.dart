@@ -31,6 +31,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
 import 'book_image.dart';
+import 'book_last_read_store.dart';
 import 'book_position_store.dart';
 import 'book_title_extension.dart';
 import 'bookmarks.dart';
@@ -42,6 +43,7 @@ import 'lives_index.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'nudge_shake.dart';
 import 'reader_font_size.dart';
+import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
@@ -92,13 +94,30 @@ class BookReader extends StatefulWidget {
 
 class _BookReaderState extends State<BookReader>
     with TickerProviderStateMixin {
-  /// Долната лента със стрелките и брояча „4 / 129".
+  /// Последно отваряното четиво в ТОЗИ том — за текста на опашката под
+  /// заглавната страница и за маркирането в съдържанието. null = томът не
+  /// е отварян (или е отваряна само заглавната му страница).
+  LastRead? _lastRead;
+
+  /// Изчезването на СТАРОТО четиво — първата фаза на прехода.
   ///
-  /// Изключена засега по решение на потребителя (12.08.2026): тя яде ред от
-  /// текста, а прелистването между глави и без това е достъпно през
-  /// съдържанието. Кодът ѝ (_navBar) НЕ е махнат — ще потрябва, когато
-  /// решим как да изглежда преходът между главите.
-  static const bool _showNavBar = false;
+  /// ⚠ Не е черен слой отгоре, а избледняване на самото съдържание. Черна
+  /// пелена работи само в тъмна тема; в светла тя е рязко премигване. А
+  /// щом трябва да е с цвета на фона, отделен слой изобщо не е нужен:
+  /// избледнее ли текстът, фонът прозира сам — и в двете теми.
+  ///
+  /// ⚠ Лентата с инструментите НЕ се засяга. Сменя се четивото, не
+  /// екранът; лента, която мига заедно с текста, изглежда като
+  /// презареждане на целия изглед.
+  ///
+  /// Двуфазно е, защото инак двете глави трябва да съществуват
+  /// едновременно — две пълни жития в паметта и двойно оформление на
+  /// всеки кадър.
+  late final AnimationController _veil;
+
+  /// Влизането на новото: плъзгане настрани плюс избледняване.
+  late final AnimationController _enter;
+  bool _enterFromRight = true;
 
   /// Главите — само тези, които са в СЪДЪРЖАНИЕТО, не целият spine.
   ///
@@ -216,9 +235,36 @@ class _BookReaderState extends State<BookReader>
           (e) => e.href == start.href && e.anchor == start.anchor);
       if (at >= 0) _index = at;
     }
+    // Пелената пада бързо (240) и се вдига по-бавно (420) — както при
+    // отварянето на том: тръгването е жест на човека и трябва да отговори
+    // веднага, а пристигането е нарочно по-спокойно.
+    _veil = AnimationController(
+      duration: const Duration(milliseconds: 240),
+      reverseDuration: const Duration(milliseconds: 420),
+      vsync: this,
+    );
+    // Плъзгането върви заедно с вдигането на пелената.
+    _enter = AnimationController(
+      duration: const Duration(milliseconds: 460),
+      vsync: this,
+      value: 1, // първата глава е вече „влязла" — не се анимира отварянето
+    );
+    // Темата и размерът се четат заедно — за човека това е един
+    // четец и настройките му са общи (виж ReaderTheme.loadOnce).
+    ReaderTheme.loadOnce().then((_) {
+      if (mounted) setState(() {});
+    });
     ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+    // Кое четиво е било последно в този том — решава какво пише опашката
+    // под заглавната страница и кой ред е маркиран в съдържанието.
+    BookLastReadStore.load(widget.book.assetPath).then((v) {
+      if (mounted) setState(() => _lastRead = v);
+    });
+    // Влизането направо в житие (от отметка или от кръстосана препратка)
+    // също е отваряне и трябва да се запомни.
+    if (_index > 0) _rememberLastRead();
 
     // ПЪЛЕН ЕКРАН ЗА ЦЯЛОТО ЧЕТЕНЕ — включва се веднъж тук и се изключва
     // веднъж при излизане. Между тях режимът НЕ се пипа.
@@ -295,12 +341,15 @@ class _BookReaderState extends State<BookReader>
   @override
   void dispose() {
     ReaderFontSize.flush();
+    ReaderTheme.flush();
     // Прибираме евентуален висящ SnackBar веднага — ScaffoldMessenger е ОБЩ
     // за приложението, не локален за екрана, тъй че иначе съобщението остава
     // да виси и върху екрана, към който се връщаме.
     _scaffoldMessenger?.removeCurrentSnackBar();
     _positionTimer?.cancel();
     _nudgeTimer?.cancel();
+    _enter.dispose();
+    _veil.dispose();
     if (widget.hintContents) _nudge.dispose();
     _tocSlide.dispose();
     // НЕ пишем позиция при излизане — нарочно, както в четеца на жития.
@@ -323,8 +372,17 @@ class _BookReaderState extends State<BookReader>
 
   EpubTocEntry get _current => _chapters[_index];
 
-  void _goTo(int i) {
+  Future<void> _goTo(int i) async {
     if (i < 0 || i >= _chapters.length) return;
+    // Посоката на влизане: напред — новото идва отдясно, назад — отляво.
+    // Пелената сама по себе си не я носи (всяка смяна изглежда еднакво),
+    // затова плъзгането върви заедно с нея.
+    _enterFromRight = i > _index;
+
+    // Фаза 1: пелената пада. Смяната става зад нея.
+    await _veil.forward(from: 0);
+    if (!mounted) return;
+
     _positionTimer?.cancel();
     // Излезем ли от заглавната страница, подсещането е излишно — човекът
     // вече е намерил пътя навътре в тома.
@@ -344,6 +402,29 @@ class _BookReaderState extends State<BookReader>
     });
     if (_scroll.hasClients) _scroll.jumpTo(0);
     _loadSavedPosition();
+    _rememberLastRead();
+
+    // Фаза 2: пелената се вдига, новото се плъзга навътре. Двете вървят
+    // заедно — иначе се вижда първо гола смяна, после движение.
+    _enter.forward(from: 0);
+    _veil.reverse();
+  }
+
+  /// Запомня кое четиво е отворено — за опашката на заглавната страница и
+  /// за маркирането в съдържанието.
+  ///
+  /// ⚠ НЕЗАВИСИМО от отметките: пише се при всяко отваряне на житие, дори
+  /// човек да не е отбелязал нищо. Затова не минава през
+  /// BookPositionStore, който записва само отбелязаните.
+  /// Заглавната страница (индекс 0) се пропуска в самия store.
+  void _rememberLastRead() {
+    if (_index <= 0) return;
+    final e = _chapters[_index];
+    BookLastReadStore.save(
+      widget.book.assetPath,
+      LastRead(chapter: _index, href: e.href, title: e.title),
+    );
+    _lastRead = LastRead(chapter: _index, href: e.href, title: e.title);
   }
 
   /// Отваря житието с този номер. Връща false, ако го няма в указателя.
@@ -597,6 +678,17 @@ class _BookReaderState extends State<BookReader>
   // ── Търсене ─────────────────────────────────────────────────────────
 
   void _toggleSearch() {
+    // ⚠ На ЗАГЛАВНАТА страница лупата прави друго: отваря съдържанието с
+    // готов за писане курсор. Търсене в текста там е безсмислено — тя е
+    // орнамент, заглавие и месец, няма какво да се намери. А най-близкото
+    // полезно е да се търси житие по заглавие.
+    //
+    // Двете копчета остават различни: съдържанието само отваря списъка,
+    // лупата отваря същия списък и вика клавиатурата.
+    if (_index == 0) {
+      _showToc(focusSearch: true);
+      return;
+    }
     setState(() {
       _searchOpen = !_searchOpen;
       if (!_searchOpen) {
@@ -845,7 +937,8 @@ class _BookReaderState extends State<BookReader>
     final head = html.trimLeft();
     if (head.startsWith('<h3')) {
       return (
-        TextStyle(fontFamily: kTitleFamily, fontSize: size + 12, height: 1.05),
+        TextStyle(fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback, fontSize: size + 12, height: 1.05),
         18.0,
       );
     }
@@ -956,7 +1049,11 @@ class _BookReaderState extends State<BookReader>
     reverseDuration: const Duration(milliseconds: 360),
   );
 
-  Future<void> _showToc() async {
+  /// [focusSearch] отваря панела с курсор в полето за търсене (лупата на
+  /// заглавната страница — виж [_toggleSearch]). Плъзгането до маркирания
+  /// ред се прави и тогава: при първия въведен знак обхождането само ще
+  /// отведе другаде, а дотогава няма причина списъкът да стои на началото.
+  Future<void> _showToc({bool focusSearch = false}) async {
     final palette = ReaderTheme.palette;
     final chosen = await showModalBottomSheet<int>(
       context: context,
@@ -967,8 +1064,13 @@ class _BookReaderState extends State<BookReader>
       builder: (_) => _TocSheet(
         toc: widget.book.toc,
         chapters: _chapters,
-        current: _index,
+        // ⚠ От ЗАГЛАВНАТА страница се маркира последно четеното житие, а
+        // не самата тя. Дотогава маркиран стоеше най-горният ред — тоест
+        // заглавната, — което не казваше нищо: човек и без това идва
+        // оттам. Така съдържанието помни вместо него.
+        current: _index == 0 ? (_lastRead?.chapter ?? 0) : _index,
         palette: palette,
+        autofocusSearch: focusSearch,
       ),
     );
     if (chosen != null) _goTo(chosen);
@@ -1039,7 +1141,11 @@ class _BookReaderState extends State<BookReader>
             right: 12,
             bottom: 20,
             child: ResumePrompt(
-              background: AppColors.toolbar,
+              background: palette.sheet,   // ⚠ от палитрата, не закован цвят:
+                                   // в светла тема тъмният фон правеше
+                                   // прозорчето нечетимо (текстът също е
+                                   // тъмен), а в тъмна се сливаше със
+                                   // страницата.
               ink: palette.ink,
               dim: palette.dim,
               onJump: _jumpToSaved,
@@ -1078,7 +1184,6 @@ class _BookReaderState extends State<BookReader>
           ]),
         ),
       ),
-      bottomNavigationBar: _showNavBar ? _navBar(palette) : null,
     );
   }
 
@@ -1156,6 +1261,7 @@ class _BookReaderState extends State<BookReader>
     // ляво подравнено под центрираното заглавие.
     styles['.calibre9'] = Style(
       fontFamily: kTitleFamily,
+      fontFamilyFallback: kTitleFallback,
       textAlign: TextAlign.center,
       color: palette.ink,
       // Стегнат ред. Заглавието е едро и с обичайното междуредие на четеца
@@ -1537,6 +1643,11 @@ class _BookReaderState extends State<BookReader>
         searchOpen: _searchOpen,
         onBookmark: _toggleBookmark,
         bookmarked: _isBookmarked,
+        // ⚠ Заглавната страница не е четиво — няма какво да се отмята в
+        // нея. Посивяването маха и причината за изскачащата подкана при
+        // връщане: няма отметка → няма запис → няма подкана. Така не
+        // трябва отделно правило, което да я потиска само тук.
+        canBookmark: _index > 0,
         onThemeToggle: () =>
             setState(() => ReaderTheme.dark = !ReaderTheme.dark),
         onFontSmaller: () =>
@@ -1580,52 +1691,105 @@ class _BookReaderState extends State<BookReader>
                 actions: _toolbarActions(),
               ),
             SliverToBoxAdapter(
-              child: raw == null
-                  ? Padding(
-                      padding: const EdgeInsets.all(24),
-                      child: Text('Няма ${_current.href}',
-                          style: TextStyle(color: palette.dim)))
-                  : _chapterBody(raw, palette),
+              child: _entering(
+                raw == null
+                    ? Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text('Няма ${_current.href}',
+                            style: TextStyle(color: palette.dim)))
+                    : _chapterBody(raw, palette),
+              ),
             ),
+            // ⚠ Празнина, която избутва опашката ПОД прегъвката, но само
+            // на заглавната страница. Тя е къса — орнамент, заглавие и
+            // месец — тъй че без това опашката се вижда още при
+            // отварянето и заглавната никога не стои сама на екрана.
+            // SliverFillRemaining допълва точно колкото не достига до
+            // дъното на изгледа: при дълга страница добавя нула.
+            if (_index == 0)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: SizedBox.shrink(),
+              ),
+            // Опашката с навигацията — вътре в скрола, не като постоянна
+            // лента: докато се чете, тя не отнема нищо от екрана.
+            SliverToBoxAdapter(child: _footer()),
           ],
         ),
       ),
     );
   }
 
-  Widget _navBar(ReaderPalette palette) {
-    return Container(
-      color: AppColors.toolbar,
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            IconButton(
-              icon: const Icon(Icons.chevron_left),
-              color: AppColors.textPrimary,
-              onPressed: _index > 0 ? () => _goTo(_index - 1) : null,
-            ),
-            Expanded(
-              child: Text(
-                '${_index + 1} / ${_chapters.length}',
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: AppColors.textSecondary, fontSize: 12),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.chevron_right),
-              color: AppColors.textPrimary,
-              onPressed: _index < _chapters.length - 1
-                  ? () => _goTo(_index + 1)
-                  : null,
-            ),
-          ],
-        ),
-      ),
+  /// Обвива новото четиво в плъзгане отстрани плюс избледняване.
+  ///
+  /// ⚠ Отместването е малко (0,12 от ширината), не цял екран: това не е
+  /// прелистване на страници, а смяна на четиво — жестът трябва да се
+  /// усети, без да изглежда като че ли съдържанието „лети".
+  Widget _entering(Widget child) {
+    return AnimatedBuilder(
+      animation: Listenable.merge([_enter, _veil]),
+      builder: (context, inner) {
+        final t = Curves.easeOutCubic.transform(_enter.value);
+        // Двете фази се умножават: първо _veil свежда старото до нула,
+        // после _enter връща новото нагоре. Едно число за двете, тъй че
+        // няма как да останат разсинхронизирани.
+        final opacity = (1 - _veil.value) * t;
+        final dx = (1 - t) * 0.12 * (_enterFromRight ? 1 : -1);
+        return Opacity(
+          opacity: opacity.clamp(0.0, 1.0),
+          child: FractionalTranslation(
+            translation: Offset(dx, 0),
+            child: inner,
+          ),
+        );
+      },
+      child: child,
     );
   }
+
+  /// Опашката под четивото. Две подредби според това къде сме.
+  Widget _footer() {
+    // Заглавната страница: един изход навътре, с текст според това дали
+    // томът е бил отварян.
+    if (_index == 0) {
+      final resume = _lastRead;
+      final target = resume?.chapter ?? 1;
+      if (target >= _chapters.length) return const SizedBox.shrink();
+      void go() => _goTo(target);
+      return ReaderFooter(
+        color: ReaderTheme.palette.dim,
+        centerLabel: resume == null
+            ? 'към първото четиво'
+            : 'продължете от последно отваряното четиво',
+        onCenterTap: go,
+        right: FooterAction(
+          icon: Icons.chevron_right,
+          label: '',
+          onTap: go,
+        ),
+      );
+    }
+
+    // Житие: назад и напред. ⚠ „Предишно" от ПЪРВОТО житие води към
+    // заглавната страница — щом тя е достъпна от съдържанието, няма
+    // причина да е недостъпна от навигацията.
+    return ReaderFooter(
+      color: ReaderTheme.palette.dim,
+      left: FooterAction(
+        icon: Icons.chevron_left,
+        label: 'предишно',
+        onTap: () => _goTo(_index - 1),
+      ),
+      right: _index < _chapters.length - 1
+          ? FooterAction(
+              icon: Icons.chevron_right,
+              label: 'следващо',
+              onTap: () => _goTo(_index + 1),
+            )
+          : null,
+    );
+  }
+
 }
 
 /// Едно съвпадение при търсене в съдържанието: кой ред и кои знаци от
@@ -1650,11 +1814,16 @@ class _TocSheet extends StatefulWidget {
   final int current;
   final ReaderPalette palette;
 
+  /// Курсорът застава в полето за търсене още при отварянето, тъй че
+  /// клавиатурата излиза сама. Вдига се от лупата на заглавната страница.
+  final bool autofocusSearch;
+
   const _TocSheet({
     required this.toc,
     required this.chapters,
     required this.current,
     required this.palette,
+    this.autofocusSearch = false,
   });
 
   @override
@@ -1759,7 +1928,21 @@ class _TocSheetState extends State<_TocSheet> {
     }
     tops[_rows.length] = y;
     _tops = tops;
+
+    // Първото измерване е и мигът, в който вече може да се скролне до
+    // маркирания ред: дотогава няма позиции, по които да се цели.
+    if (!_revealedCurrent) {
+      _revealedCurrent = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _revealCurrent();
+      });
+    }
   }
+
+  /// Скролването до маркираното става ВЕДНЪЖ, при отваряне. Инак всяко
+  /// премерване (смяна на размера на шрифта, завъртане) би дърпало списъка
+  /// обратно и човек не би могъл да го разгледа.
+  bool _revealedCurrent = false;
 
   // ── Търсенето ───────────────────────────────────────────────────────
   //
@@ -1844,6 +2027,57 @@ class _TocSheetState extends State<_TocSheet> {
     );
   }
 
+  /// Изкарва МАРКИРАНИЯ ред (последно четеното житие) на видно място при
+  /// отваряне на съдържанието.
+  ///
+  /// ⚠ Без това маркирането е безполезно в дълъг том: последното четено е
+  /// някъде на осемдесетия ред, човек отваря съдържанието, вижда началото
+  /// и не разбира, че изобщо има отбелязано място. Скролът го подсеща, а
+  /// маркирането после задържа погледа му.
+  ///
+  /// Ако редът и без това се вижда, нищо не мърда — както при
+  /// обхождането на намереното.
+  void _revealCurrent() {
+    final row = _rows.indexWhere((r) {
+      final at = widget.chapters
+          .indexWhere((c) => c.href == r.$1.href && c.anchor == r.$1.anchor);
+      return at == widget.current;
+    });
+    if (row <= 0 || _tops.isEmpty || !_scroll.hasClients) return;
+    if (row + 1 >= _tops.length) return;
+
+    final pos = _scroll.position;
+    final visible = pos.viewportDimension;
+    if (visible <= 0) return;
+    const margin = 28.0;
+    final top = _tops[row];
+    final bottom = _tops[row + 1];
+    if (top >= pos.pixels + margin && bottom <= pos.pixels + visible * 0.8) {
+      return; // вече се вижда
+    }
+    // ⚠ ВИДИМО плъзгане, не скок. Самото движение е подсещането: то казва
+    // „списъкът се премести, защото има отбелязано място". Скочи ли
+    // наготово, човек вижда просто едно съдържание, отворено някъде по
+    // средата, и маркираният ред не се свързва с нищо.
+    //
+    // Изчаква панела да изплува (420 ms в _tocSlide) — инак двете
+    // движения се засичат и нито едното не се чете.
+    Future.delayed(const Duration(milliseconds: 460), () {
+      if (!mounted || !_scroll.hasClients) return;
+      // ⚠ Отменя се, ако човекът вече е започнал да търси. При лупата на
+      // заглавната страница клавиатурата излиза веднага и първият знак
+      // може да дойде преди тези 460 ms — тогава обхождането на
+      // намереното дърпа списъка на едно място, а това плъзгане на друго.
+      // Търсенето печели: то е по-новото желание.
+      if (_query.isNotEmpty) return;
+      _scroll.animateTo(
+        (top - visible * 0.3).clamp(0.0, _scroll.position.maxScrollExtent),
+        duration: const Duration(milliseconds: 620),
+        curve: Curves.easeInOutCubic,
+      );
+    });
+  }
+
   /// Изход от търсенето: полето се изчиства, клавиатурата се прибира и
   /// кръгчетата се връщат към размера на шрифта.
   void _clearSearch() {
@@ -1902,6 +2136,9 @@ class _TocSheetState extends State<_TocSheet> {
           Expanded(
             child: TextField(
               controller: _searchCtrl,
+              // Лупата на заглавната страница отваря панела готов за
+              // писане — виж _BookReaderState._toggleSearch.
+              autofocus: widget.autofocusSearch,
               style: TextStyle(color: fg, fontSize: 15),
               textInputAction: TextInputAction.search,
               onChanged: _runSearch,

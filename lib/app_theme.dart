@@ -49,6 +49,24 @@ class AppColors {
   static const signRed     = Color(0xFFBB8C9C); //Color(0xFFeb98b6); // цвят за dark mode
   static const signWhite   = Color(0xFFAAAAAA); // цвят за тъмен фон
 
+  // ─── Намереното при търсене ───────────────────────────────────────────
+  // ЕДИН цвят за цялото приложение: списъка с резултати в екрана за
+  // търсене и двата четеца. Четците имат светла и тъмна тема, тъй че
+  // двойката стои тук цяла — ReaderPalette.hit/hitCurrent избира по своя
+  // `dark` флаг. Останалите екрани са само тъмни и ползват *Dark.
+  //
+  // ⚠ Смяна на жълтото се прави ТУК, не в reader_theme.dart — инак
+  // намереното свети различно в списъка и в отвореното житие.
+  static const hitDark         = Color(0xFF6B5B1E);
+  static const hitLight        = Color(0xFFFFF176);
+  // Текущото съвпадение (онова, върху което стоят стрелките в четеца).
+  static const hitCurrentDark  = Color(0xFFCC8A2E);
+  static const hitCurrentLight = Color(0xFFFFA726);
+  // Текстът ВЪРХУ маркираното. Обичайният textPrimary е полупрозрачно
+  // бяло (0xA0FFFFFF) и върху жълтеникавия фон изсветлява до неразчетимо
+  // — тук трябва плътен цвят.
+  static const hitOnDark       = Color(0xFFF5EAC8);
+
   // ─── Highlight на днешния ден ─────────────────────────────────────────
   // Обикновен ден — днес
   static const todayBg       = Color(0x33BBBBBA); //Color.fromARGB(51, 187, 187, 186);

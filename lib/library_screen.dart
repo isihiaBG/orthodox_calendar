@@ -178,7 +178,23 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Един кадър, колкото четецът да се построи и подреди ПОД пелената.
       // Без него вдигането ѝ откроява първото му, още неуталожено рисуване.
       await Future<void>.delayed(const Duration(milliseconds: 32));
-      await _reveal.forward(from: 0);
+
+      // ⚠ НЕ `await _reveal.forward()`. Контролерът е с vsync от ТОЗИ
+      // екран, а щом четецът се отвори отгоре, Flutter спира тикерите на
+      // покритите маршрути: анимацията замръзва някъде към 0,4 и нейният
+      // Future не се резолвва НИКОГА. Тогава редът под него не се
+      // изпълнява, слоят остава в rootOverlay и черната му пелена виси
+      // върху цялото четене — страницата изглежда угасена (измерено:
+      // фон 18 → 5 в тъмна тема, 245 → 73 в светла).
+      //
+      // `finally` не спасява: той чака `await opened`, тоест докато човек
+      // затвори тома.
+      //
+      // Затова изчакването е по ВРЕМЕ. Future.delayed не зависи от тикери
+      // и се изпълнява дори когато екранът е покрит.
+      _reveal.forward(from: 0);
+      await Future<void>.delayed(
+          kPageArriveDuration + const Duration(milliseconds: 60));
       flying?.remove();
       flying = null;
 

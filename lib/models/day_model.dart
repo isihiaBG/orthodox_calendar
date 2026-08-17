@@ -65,8 +65,9 @@ class Saint {
   final String? groupCode;
   final String? sign;
   final String? signColor;
-  final bool hasTropar;
-  final bool hasKondak;
+  /// Видовете песнопения с броя им, както идват от заявката:
+  /// "tropar:3,kondak:5". Разчита се с parseHymnCounts().
+  final String? hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
 
@@ -79,8 +80,7 @@ class Saint {
     this.groupCode,
     this.sign,
     this.signColor,
-    this.hasTropar  = false,
-    this.hasKondak  = false,
+    this.hymnCounts,
     this.hasLife    = false,
     this.hasSluzhba = false,
   });
@@ -94,8 +94,7 @@ class Saint {
       groupCode: map['group_code'],
       sign: map['sign'],
       signColor: map['sign_color'],
-      hasTropar:  (map['has_tropar']  ?? 0) == 1,
-      hasKondak:  (map['has_kondak']  ?? 0) == 1,
+      hymnCounts: map['hymn_counts'] as String?,
       hasLife:    (map['has_life']    ?? 0) == 1,
       hasSluzhba: (map['has_sluzhba'] ?? 0) == 1,
     );

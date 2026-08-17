@@ -29,7 +29,7 @@ import 'dual_date_text.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
 import 'saint_expandable_tile.dart'
-    show SaintExpandableTile, SaintLookup;
+    show SaintExpandableTile, SaintLookup, parseHymnCounts;
 
 // Системният шрифт на телефона, не Charis SIL — `null` значи „каквото дава
 // устройството". Същото решение както в дневния и месечния изглед: тези
@@ -183,17 +183,17 @@ class _FastsSectionState extends State<FastsSection> {
     final db = await DatabaseHelper.database;
     for (final slug in slugs) {
       final rows = await db.rawQuery('''
-        SELECT (tropar  IS NOT NULL AND tropar  != '') AS has_tropar,
-               (kondak  IS NOT NULL AND kondak  != '') AS has_kondak,
-               (life    IS NOT NULL AND life    != '') AS has_life,
-               (sluzhba IS NOT NULL AND sluzhba != '') AS has_sluzhba
-        FROM lives.texts WHERE slug = ? LIMIT 1
+        SELECT (SELECT group_concat(kind || ':' || n, ',') FROM
+                  (SELECT kind, count(*) AS n FROM lives.hymns
+                   WHERE slug = t.slug GROUP BY kind)) AS hymn_counts,
+               (t.life    IS NOT NULL AND t.life    != '') AS has_life,
+               (t.sluzhba IS NOT NULL AND t.sluzhba != '') AS has_sluzhba
+        FROM lives.texts t WHERE t.slug = ? LIMIT 1
       ''', [slug]);
       if (rows.isEmpty) continue;
       final r = rows.first;
       _flags[slug] = _TextFlags(
-        hasTropar: (r['has_tropar'] as int? ?? 0) == 1,
-        hasKondak: (r['has_kondak'] as int? ?? 0) == 1,
+        hymnCounts: parseHymnCounts(r['hymn_counts'] as String?),
         hasLife: (r['has_life'] as int? ?? 0) == 1,
         hasSluzhba: (r['has_sluzhba'] as int? ?? 0) == 1,
       );
@@ -220,8 +220,7 @@ class _FastsSectionState extends State<FastsSection> {
     if (flags == null) return row;
     return SaintExpandableTile(
       collapsedRow: row,
-      hasTropar: flags.hasTropar,
-      hasKondak: flags.hasKondak,
+      hymnCounts: flags.hymnCounts,
       hasLife: flags.hasLife,
       hasSluzhba: flags.hasSluzhba,
       lifeLabel: 'Сказание',
@@ -368,13 +367,11 @@ class _FastsSectionState extends State<FastsSection> {
 }
 
 class _TextFlags {
-  final bool hasTropar;
-  final bool hasKondak;
+  final Map<String, int> hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
   const _TextFlags({
-    required this.hasTropar,
-    required this.hasKondak,
+    this.hymnCounts = const {},
     required this.hasLife,
     required this.hasSluzhba,
   });

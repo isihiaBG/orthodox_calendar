@@ -18,11 +18,64 @@ import 'database_helper.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
 
+/// Едно песнопение — ред от таблицата `lives.hymns`.
+///
+/// Дотогава тропарите и кондаците стояха в осем колони на `texts`
+/// (tropar, tropar2, kondak, kondak2 + преводите), тоест най-много по два
+/// от вид. Това отрязваше 93 тропара и 57 кондака у 77 светии, а молитвите
+/// и величанията не се показваха изобщо. Прп. Иоан Рилски например има три
+/// тропара и пет кондака, като третият тропар е тъкмо онзи, който БПЦ пее
+/// като негов основен.
+class Hymn {
+  /// tropar | kondak | molitva | velichanie | other
+  final String kind;
+
+  /// Заглавието, както стои в богослужебната книга: "Тропарь", "Ин
+  /// тропарь", "2-я Молитва". ⚠ Църковнославянско е и ТАКА ОСТАВА — то е
+  /// част от славянския блок, не негов превод. Преводът отдолу е с курсив.
+  final String kindRu;
+
+  /// "глас 4" или празно (молитвите и величанията нямат глас).
+  final String glas;
+
+  /// Църковнославянският текст, без заглавната част.
+  final String csl;
+
+  /// Българският превод. Празен при молитвите и величанията — azbyka не
+  /// дава руски превод за тях, тъй че няма от какво да се преведат.
+  final String bg;
+
+  const Hymn({
+    required this.kind,
+    this.kindRu = '',
+    this.glas = '',
+    this.csl = '',
+    this.bg = '',
+  });
+
+  factory Hymn.fromMap(Map<String, dynamic> m) => Hymn(
+        kind: (m['kind'] ?? '') as String,
+        kindRu: (m['kind_ru'] ?? '') as String,
+        glas: (m['glas'] ?? '') as String,
+        csl: (m['csl'] ?? '') as String,
+        bg: (m['bg'] ?? '') as String,
+      );
+
+  /// Редът над текста: "Ин тропарь, глас 4". Празен, ако няма заглавие —
+  /// такива са осемте стари превода без църковнославянски оригинал.
+  String get heading {
+    if (kindRu.isEmpty) return '';
+    return glas.isEmpty ? kindRu : '$kindRu, $glas';
+  }
+}
+
 /// Текстовете на един светия (ред от таблицата saints с новите колони).
 class SaintTexts {
   final String name;
-  final String tropar, troparTrans, tropar2, tropar2Trans;
-  final String kondak, kondakTrans, kondak2, kondak2Trans;
+
+  /// Песнопенията по реда на страницата — тропари, кондаци, молитви,
+  /// величания. Празен списък, ако светията няма нито едно.
+  final List<Hymn> hymns;
   final String lifeHtml;
   final String sluzhba;
   final String source; // URL за атрибуция под житието
@@ -30,37 +83,27 @@ class SaintTexts {
 
   const SaintTexts({
     required this.name,
-    this.tropar = '',
-    this.troparTrans = '',
-    this.tropar2 = '',
-    this.tropar2Trans = '',
-    this.kondak = '',
-    this.kondakTrans = '',
-    this.kondak2 = '',
-    this.kondak2Trans = '',
+    this.hymns = const [],
     this.lifeHtml = '',
     this.sluzhba = '',
     this.source = '',
     this.slug = '',
   });
 
-  factory SaintTexts.fromMap(Map<String, dynamic> m) => SaintTexts(
+  factory SaintTexts.fromMap(Map<String, dynamic> m,
+          {List<Hymn> hymns = const []}) =>
+      SaintTexts(
         name: (m['name'] ?? '') as String,
-        tropar: (m['tropar'] ?? '') as String,
-        troparTrans: (m['tropar_trans'] ?? '') as String,
-        tropar2: (m['tropar2'] ?? '') as String,
-        tropar2Trans: (m['tropar2_trans'] ?? '') as String,
-        kondak: (m['kondak'] ?? '') as String,
-        kondakTrans: (m['kondak_trans'] ?? '') as String,
-        kondak2: (m['kondak2'] ?? '') as String,
-        kondak2Trans: (m['kondak2_trans'] ?? '') as String,
+        hymns: hymns,
         lifeHtml: (m['life'] ?? '') as String,
         sluzhba: (m['sluzhba'] ?? '') as String,
         source: (m['source'] ?? '') as String,
         slug: (m['slug'] ?? '') as String,
       );
 
-  bool get hasPrayers => tropar.isNotEmpty || kondak.isNotEmpty;
+  bool hasKind(String kind) => hymns.any((h) => h.kind == kind);
+
+  bool get hasPrayers => hymns.isNotEmpty;
   bool get hasLife => lifeHtml.isNotEmpty;
   bool get hasSluzhba => sluzhba.isNotEmpty;
 }
@@ -95,8 +138,6 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
   final db = await DatabaseHelper.database;
   final r = await db.rawQuery('''
     SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
-           l.tropar, l.tropar_trans, l.tropar2, l.tropar2_trans,
-           l.kondak, l.kondak_trans, l.kondak2, l.kondak2_trans,
            l.life, l.sluzhba, l.source, l.slug
     FROM lives.texts l
     LEFT JOIN saints s ON s.slug = l.slug
@@ -104,26 +145,110 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
     LIMIT 1
   ''', [slug]);
   if (r.isEmpty) return null;
-  return SaintTexts.fromMap(r.first);
+  return SaintTexts.fromMap(r.first, hymns: await loadHymns(slug));
+}
+
+/// Песнопенията на един светия, по реда на страницата.
+///
+/// Отделна заявка, а не JOIN към texts: редовете са много на един светия
+/// и JOIN-ът би размножил житието (до 130 KB) по веднъж за всяко.
+Future<List<Hymn>> loadHymns(String slug) async {
+  final db = await DatabaseHelper.database;
+  final rows = await db.rawQuery('''
+    SELECT kind, kind_ru, glas, csl, bg
+    FROM lives.hymns
+    WHERE slug = ?
+    ORDER BY ord
+  ''', [slug]);
+  return rows.map(Hymn.fromMap).toList();
 }
 
 /// Кой раздел се отваря при тап върху секция.
 enum _Section { prayers, life, sluzhba }
 
-/// Етикетът на секцията с молитвите според това какво реално има:
-/// "Тропар", "Кондак" или "Тропар и кондак". Празен низ = няма нищо.
-String prayersLabel({required bool hasTropar, required bool hasKondak}) {
-  if (hasTropar && hasKondak) return 'Тропар и кондак';
-  if (hasTropar) return 'Тропар';
-  if (hasKondak) return 'Кондак';
-  return '';
+/// Имената на видовете за етикета: (единствено число, множествено).
+///
+/// Непознат вид пада към последния ред. Така утрешна добавка в данните
+/// (икос, светилен, задостойник…) минава сама, без промяна тук: тя ще се
+/// класифицира като `other` от 14_extract_hymns.py и ще се изпише
+/// „песнопение". Добави ѝ ред само ако искаш собственото ѝ име.
+const Map<String, (String, String)> _kindNames = {
+  'tropar': ('тропар', 'тропари'),
+  'kondak': ('кондак', 'кондаци'),
+  'molitva': ('молитва', 'молитви'),
+  'velichanie': ('величание', 'величания'),
+  'other': ('песнопение', 'песнопения'),
+};
+
+/// Редът на изброяване — както стоят на страницата и в книгите:
+/// тропар, кондак, молитва, величание. Вид извън списъка отива накрая.
+const List<String> _kindOrder = [
+  'tropar',
+  'kondak',
+  'molitva',
+  'velichanie',
+  'other',
+];
+
+/// Етикетът на секцията с песнопенията: „Тропар и кондак", „Тропари,
+/// кондаци и молитви", „Молитва". Празен низ = няма нищо.
+///
+/// [counts] е вид → брой. Строи се от данните, а не от изброени случаи:
+/// в базата днес има десет различни комбинации, а утре може да дойде
+/// друга. Числото на всяка дума следва броя ѝ — три тропара дават
+/// „тропари".
+///
+/// ⚠ Дотогава етикетът знаеше само за тропар и кондак и връщаше празно
+/// за всичко друго. Трима светии имат САМО молитви (св. Фотина
+/// Самарянка, св. Юрий Новицки, мчци Хрисант и Дария) — за тях секцията
+/// не се показваше изобщо и молитвите им оставаха недостъпни. Още 307
+/// имат молитва или величание, скрити зад етикет „Тропар и кондак".
+String prayersLabel(Map<String, int> counts) {
+  final parts = <String>[];
+  final kinds = counts.keys.toList()
+    ..sort((a, b) {
+      final ia = _kindOrder.indexOf(a), ib = _kindOrder.indexOf(b);
+      return (ia < 0 ? _kindOrder.length : ia)
+          .compareTo(ib < 0 ? _kindOrder.length : ib);
+    });
+  for (final k in kinds) {
+    final n = counts[k] ?? 0;
+    if (n <= 0) continue;
+    final names = _kindNames[k] ?? _kindNames['other']!;
+    parts.add(n == 1 ? names.$1 : names.$2);
+  }
+  if (parts.isEmpty) return '';
+  // „а", „а и б", „а, б и в" — последното се съединява с „и".
+  final joined = parts.length == 1
+      ? parts.first
+      : '${parts.sublist(0, parts.length - 1).join(', ')} и ${parts.last}';
+  return joined[0].toUpperCase() + joined.substring(1);
+}
+
+/// Броевете по вид от низа, който заявките връщат: "tropar:3,kondak:5".
+///
+/// Кодирани са в едно поле, за да не се добавя по колона за всеки нов
+/// вид — заявката е `group_concat` и не знае какви видове има.
+Map<String, int> parseHymnCounts(String? packed) {
+  final out = <String, int>{};
+  if (packed == null || packed.isEmpty) return out;
+  for (final pair in packed.split(',')) {
+    final i = pair.indexOf(':');
+    if (i <= 0) continue;
+    final n = int.tryParse(pair.substring(i + 1));
+    if (n != null && n > 0) out[pair.substring(0, i)] = n;
+  }
+  return out;
 }
 
 /// Същото, но от заредените текстове (ползва се в четеца за заглавието).
-String prayersTitleFor(SaintTexts t) => prayersLabel(
-      hasTropar: t.tropar.isNotEmpty,
-      hasKondak: t.kondak.isNotEmpty,
-    );
+String prayersTitleFor(SaintTexts t) {
+  final counts = <String, int>{};
+  for (final h in t.hymns) {
+    counts[h.kind] = (counts[h.kind] ?? 0) + 1;
+  }
+  return prayersLabel(counts);
+}
 
 /// "Житие" пасва само при светия с жизнеописание. При най-големите
 /// господски/богородични празници (rank 1), икони, предпразненства,
@@ -146,10 +271,12 @@ class SaintExpandableTile extends StatefulWidget {
   final Widget collapsedRow;
 
   /// Евтините флагове от дневната заявка.
-  final bool hasTropar;
-  final bool hasKondak;
   final bool hasLife;
   final bool hasSluzhba;
+
+  /// Колко песнопения от кой вид има светията — за етикета на секцията.
+  /// Празна карта = няма нито едно.
+  final Map<String, int> hymnCounts;
 
   /// "Житие" или "Сказание" — виж lifeLabelFor().
   final String lifeLabel;
@@ -169,10 +296,9 @@ class SaintExpandableTile extends StatefulWidget {
   const SaintExpandableTile({
     super.key,
     required this.collapsedRow,
-    required this.hasTropar,
-    required this.hasKondak,
     required this.hasLife,
     required this.hasSluzhba,
+    this.hymnCounts = const {},
     this.lifeLabel = 'Житие',
     required this.loadTexts,
     required this.lookup,
@@ -186,10 +312,7 @@ class SaintExpandableTile extends StatefulWidget {
 class _SaintExpandableTileState extends State<SaintExpandableTile> {
   bool _expanded = false;
 
-  String get _prayersLabel => prayersLabel(
-        hasTropar: widget.hasTropar,
-        hasKondak: widget.hasKondak,
-      );
+  String get _prayersLabel => prayersLabel(widget.hymnCounts);
 
   bool get _hasAnything =>
       _prayersLabel.isNotEmpty || widget.hasLife || widget.hasSluzhba;

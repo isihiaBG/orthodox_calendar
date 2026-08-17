@@ -600,13 +600,37 @@ class _MonthPageState extends State<_MonthPage>
 
   // ─── Постни периоди (лява ивица и табела) ────────────────────────────────
 
-  // Еднодневни строги пости (нов стил: ден, месец) — винаги постни,
-  // независимо от деня от седмицата. Посивяват се, но без табела.
+  // Еднодневните строги пости — ЦЪРКОВНИ дати (ден, месец). Постни са
+  // независимо от деня от седмицата; получават и ивица, и табела „пост".
+  //
+  // ⚠ Това са НЕПОДВИЖНИ празници: църковната им дата е една и съща в
+  // двата стила, мени се само денят от седмицата (и гражданската дата
+  // при стар стил). Затова се сравняват с _churchDate(), а не с
+  // гражданската дата на реда.
+  //
+  // Дотогава списъкът стоеше с гражданските дати НА СТАРОСТИЛНИЯ
+  // календар (18.I, 11.IX, 27.IX) и се прилагаше и в новостилния — тъй
+  // че по нов стил ивицата падаше 13 дни встрани: на 18 януари вместо
+  // на 5-и, макар самата база да казва „Блажи се" за 18-и и „Постен
+  // ден, без олио" за 5-и. По стар стил излизаше вярно и затова се
+  // забелязваше трудно.
   static const _singleFastDays = [
-    (18, 1),  // Предпразненство на Богоявление
-    (11, 9),  // Отсичане главата на св. Йоан Кръстител
-    (27, 9),  // Въздвижение на Кръста Господен
+    (5, 1),   // Навечерие на Богоявление
+    (29, 8),  // Отсичане главата на св. Йоан Кръстител
+    (14, 9),  // Въздвижение на Кръста Господен
   ];
+
+  /// Църковната дата на реда — тази, по която се разпознават
+  /// неподвижните празници.
+  ///
+  /// При нов стил тя съвпада с гражданската. При стар стил с водещ стар
+  /// `day` ВЕЧЕ е юлианска (базата се пита с +13 — виж [_cacheKey]), тъй
+  /// че също не се пипа. Преобразуване трябва само когато стилът е стар,
+  /// а водеща е новата дата: там `day` е гражданската.
+  static DateTime _churchDate(DateTime day) =>
+      (AppSettings.isOldStyle && !AppSettings.oldStyleFirst)
+          ? _toOldStyle(day)
+          : day;
 
   // Връща id на многодневния постен период (2-5) за деня, или null.
   int? _multiDayFastId(DateTime day) {
@@ -623,11 +647,8 @@ class _MonthPageState extends State<_MonthPage>
   // многодневен пост (2-5) или един от трите еднодневни строги поста.
   bool _isFastStripeDay(DateTime day) {
     if (_multiDayFastId(day) != null) return true;
-    final bool oldIsLeading = AppSettings.oldStyleFirst;
-    final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
-        ? _toNewStyle(day)
-        : day;
-    return _singleFastDays.contains((newStyle.day, newStyle.month));
+    final church = _churchDate(day);
+    return _singleFastDays.contains((church.day, church.month));
   }
 
   // Връща списък от (начален индекс, краен индекс, име на поста) за
@@ -653,11 +674,8 @@ class _MonthPageState extends State<_MonthPage>
     // Еднодневните строги пости — период от един ред с текст "пост"
     for (int i = 0; i < days.length; i++) {
       if (_multiDayFastId(days[i]) != null) continue; // вече покрит
-      final bool oldIsLeading = AppSettings.oldStyleFirst;
-      final DateTime newStyle = (AppSettings.isOldStyle && oldIsLeading)
-          ? _toNewStyle(days[i])
-          : days[i];
-      if (_singleFastDays.contains((newStyle.day, newStyle.month))) {
+      final church = _churchDate(days[i]);
+      if (_singleFastDays.contains((church.day, church.month))) {
         boundaries.add((i, i, AppStrings.fastLabel)); // 'пост' <-- табела за еднодневните постни дни
       }
     }

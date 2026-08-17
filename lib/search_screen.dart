@@ -29,6 +29,20 @@ const Map<String, String> _contentAliases = {
   // кондак
   'кон': 'kondak', 'конд': 'kondak', 'кондак': 'kondak',
   'kon': 'kondak', 'kond': 'kondak', 'kondak': 'kondak',
+  // молитва — ⚠ НЕ бива да почва с 'мол'+'и', че да не се бърка с
+  // „молитва" като дума за търсене; затова само кратките форми.
+  'мол': 'molitva', 'моли': 'molitva', 'молит': 'molitva',
+  'молитва': 'molitva',
+  'mol': 'molitva', 'moli': 'molitva', 'molit': 'molitva',
+  'molitva': 'molitva', 'pray': 'molitva', 'prayer': 'molitva',
+  // величание
+  'вел': 'velichanie', 'вели': 'velichanie', 'велич': 'velichanie',
+  'величание': 'velichanie',
+  'vel': 'velichanie', 'veli': 'velichanie', 'velich': 'velichanie',
+  'velichanie': 'velichanie',
+  // песнопение — всичко останало от тропарите (стихира и каквото дойде)
+  'песн': 'other', 'песноп': 'other', 'песнопение': 'other',
+  'pes': 'other', 'pesn': 'other', 'hymn': 'other',
   // житие
   'жит': 'life', 'жив': 'life', 'жиз': 'life',
   'житие': 'life', 'живот': 'life',
@@ -38,14 +52,40 @@ const Map<String, String> _contentAliases = {
   'sl': 'sluzhba', 'slu': 'sluzhba', 'sluj': 'sluzhba', 'slujb': 'sluzhba', 'slujba': 'sluzhba', 'sluzhba': 'sluzhba',
 };
 
-/// SQL условието за всеки филтър по съдържание.
-/// Текстовете живеят в lives.texts (виж DatabaseHelper._initDatabase),
-/// не в saints — затова сочат към l.*, а не към s.*.
-const Map<String, String> _contentSql = {
-  'tropar':  "(l.tropar  IS NOT NULL AND l.tropar  != '')",
-  'kondak':  "(l.kondak  IS NOT NULL AND l.kondak  != '')",
-  'life':    "(l.life    IS NOT NULL AND l.life    != '')",
+/// Условие „светията има поне едно песнопение от този вид".
+///
+/// ⚠ Песнопенията вече НЕ са колони на texts, а редове в lives.hymns —
+/// светия може да има три тропара и пет кондака. Затова тук стои EXISTS
+/// по вида, а не проверка за непразна колона. Индексът hymns(slug, kind)
+/// прави подзаявката евтина.
+String _hymnKindSql(String kind) =>
+    "EXISTS (SELECT 1 FROM lives.hymns h "
+    "WHERE h.slug = s.slug AND h.kind = '$kind')";
+
+/// SQL условието за всеки филтър по съдържание. Житието и службата си
+/// остават колони на lives.texts (виж DatabaseHelper._initDatabase), тъй
+/// че сочат към l.*, а не към s.*.
+final Map<String, String> _contentSql = {
+  'tropar': _hymnKindSql('tropar'),
+  'kondak': _hymnKindSql('kondak'),
+  'molitva': _hymnKindSql('molitva'),
+  'velichanie': _hymnKindSql('velichanie'),
+  'other': _hymnKindSql('other'),
+  'life': "(l.life    IS NOT NULL AND l.life    != '')",
   'sluzhba': "(l.sluzhba IS NOT NULL AND l.sluzhba != '')",
+};
+
+/// Хаштагът за помощ. Заявка, която го съдържа, НЕ търси нищо — вместо
+/// резултати се показва списъкът с всички хаштагове.
+///
+/// Нарочно не изчиства полето: човек, който търси нещо и се е запънал за
+/// някой хаштаг, дописва „#?“, прочита каквото му трябва и го трие —
+/// написаното дотогава го чака непокътнато.
+/// ⚠ Редът тук е редът на изписване в помощта (Set пази реда на
+/// вмъкване): първо кирилските от кратко към дълго, после латинските.
+const Set<String> _helpTags = {
+  '?', 'п', 'пом', 'помощ',
+  'h', 'help',
 };
 
 /// Интервал от години, изписан с #: #25, #2025, #25-27, #2025-2027.
@@ -82,8 +122,12 @@ class _ParsedQuery {
   final List<String> excludeContent; // tropar / kondak / life / sluzhba — НЯМА
   final List<_YearSpan> years;        // #25 — комбинират се с ИЛИ
   final List<_YearSpan> excludeYears; // #!25 — комбинират се с И
+
+  /// В заявката има #? (или #h, #помощ…). Тогава всичко останало се
+  /// подминава и на мястото на резултатите застава списъкът с хаштагове.
+  final bool wantsHelp;
   const _ParsedQuery(this.words, this.groups, this.content, this.excludeContent,
-      this.years, this.excludeYears);
+      this.years, this.excludeYears, {this.wantsHelp = false});
 
   /// Филтри, които НЕ важат за недели и седмици (те нямат нито група, нито
   /// текстове). Годините съзнателно не влизат тук — те стесняват периода,
@@ -107,8 +151,17 @@ _ParsedQuery _parseQuery(String raw) {
   final excludeContent = <String>[];
   final years = <_YearSpan>[];
   final excludeYears = <_YearSpan>[];
+  var wantsHelp = false;
   for (final token in raw.replaceAll('*', '%').trim().split(RegExp(r'\s+'))) {
     if (token.isEmpty) continue;
+
+    // Помощта се проверява ПЪРВА и излиза от разбора: щом я има, нищо
+    // друго в заявката няма значение.
+    if (token.startsWith('#') &&
+        _helpTags.contains(token.substring(1).toLowerCase())) {
+      wantsHelp = true;
+      continue;
+    }
 
     // Годините се проверяват ПЪРВИ: те са чисти числа и не могат да се
     // объркат с псевдоним на група или на съдържание.
@@ -149,8 +202,8 @@ _ParsedQuery _parseQuery(String raw) {
     }
     words.add(token);
   }
-  return _ParsedQuery(
-      words, groups, content, excludeContent, years, excludeYears);
+  return _ParsedQuery(words, groups, content, excludeContent, years,
+      excludeYears, wantsHelp: wantsHelp);
 }
 
 /// Условието по година за дадена колона с дата. Връща null, ако няма какво
@@ -206,6 +259,14 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   /// Има ли годишен хаштаг в текущата заявка — виж _buildDateCell.
   bool _showYear = false;
 
+  /// В заявката има #? — на мястото на резултатите стои помощта.
+  bool _showHelp = false;
+
+  /// Думите от последната заявка (без хаштаговете) — по тях се маркира
+  /// намереното в списъка. Пазят се отделно, защото списъкът се рисува
+  /// наново при всеки кадър, а разборът на заявката става веднъж.
+  List<String> _lastWords = const [];
+
   @override
   void initState() {
     super.initState();
@@ -224,6 +285,19 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 
 	Future<void> _search(String query) async {
 		final parsed = _parseQuery(query);
+
+		// #? — помощта измества резултатите. Заявката не се пуска изобщо;
+		// написаното в полето остава, за да може човек да прочете и да
+		// продължи оттам, докъдето е стигнал.
+		if (parsed.wantsHelp) {
+		  setState(() {
+			_showHelp = true;
+			_results = [];
+			_loading = false;
+		  });
+		  return;
+		}
+		if (_showHelp) setState(() => _showHelp = false);
 
 		// Нищо за търсене: нито дума, нито филтър
 		if (parsed.words.isEmpty && !parsed.hasFilters) {
@@ -265,7 +339,11 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		final saintYearCond = _yearCondition('s.date', parsed, saintArgs);
 		if (saintYearCond != null) saintConds.add(saintYearCond);
 		final saintsResults = await db.rawQuery(
-		  'SELECT s.name, s.date, s.rank, \'saint\' as result_type '
+		  // s.id пътува с резултата, за да може избраният светия да
+		  // просветне в дневния изглед (виж AppSettings.flashSaintId).
+		  // Неделите и седмиците по-долу нямат такъв — там няма кого да
+		  // се флашва, самият ден е резултатът.
+		  'SELECT s.id, s.name, s.date, s.rank, \'saint\' as result_type '
 		  'FROM saints s '
 		  'LEFT JOIN lives.texts l ON l.slug = s.slug '
 		  'WHERE ${saintConds.join(' AND ')} ORDER BY s.date ASC',
@@ -282,7 +360,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  final sundayYear = _yearCondition('cd.date', parsed, sundayArgs);
 		  if (sundayYear != null) sundayConds.add(sundayYear);
 		  final sundaysResults = await db.rawQuery(
-		    'SELECT sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
+		    'SELECT NULL as id, sn.name, cd.date, 0 as rank, \'sunday\' as result_type '
 		    'FROM sundays sn JOIN calendar_days cd ON cd.sunday_id = sn.id '
 		    'WHERE ${sundayConds.join(' AND ')} ORDER BY cd.date ASC',
 		    sundayArgs);
@@ -294,7 +372,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  final weekYear = _yearCondition('cd.date', parsed, weekArgs);
 		  if (weekYear != null) weekConds.add(weekYear);
 		  final weeksResults = await db.rawQuery(
-		    'SELECT w.name, cd.date, 0 as rank, \'week\' as result_type '
+		    'SELECT NULL as id, w.name, cd.date, 0 as rank, \'week\' as result_type '
 		    'FROM weeks w JOIN calendar_days cd ON cd.week_id = w.id '
 		    'WHERE ${weekConds.join(' AND ')} ORDER BY cd.date ASC',
 		    weekArgs);
@@ -309,6 +387,8 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		  // Годината се изписва под датата само когато има годишен хаштаг —
 		  // иначе всичко е от текущата година и номерът само би шумял.
 		  _showYear = parsed.hasYearFilter;
+		  // По тях се маркира намереното в списъка (виж _highlight).
+		  _lastWords = parsed.words;
 		  _loading = false;
 		});
 	}
@@ -439,11 +519,18 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		final screenHeight = MediaQuery.of(context).size.height;
 		final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
     
-    // Динамична височина: search field + резултати.
-    // Третият ред с годината прави редовете по-високи — иначе последният
-    // резултат остава отрязан долу.
-    final resultsHeight = _results.length * (_showYear ? 68.0 : 56.0);
-    final contentHeight = 80.0 + (resultsHeight > 0 ? resultsHeight + 8 : 0);
+    // ⚠ Височината на панела НЕ се смята от броя резултати. Дълго време
+    // стоеше `брой × 56` (или 68 с годината) и това беше вярно само за
+    // ред на ЕДИН ред: „Събор на свв. славни и всехвални 12 апостоли:
+    // Петър, брат му Андрей…“ заема четири реда, а панелът оставаше висок
+    // колкото един — текстът се режеше долу заедно с датата отдясно.
+    // Същото важеше и за помощта, само че обратно: тя няма нито един
+    // резултат, тъй че сметката даваше нула.
+    //
+    // Затова тук се смята само ТАВАНЪТ, а истинската височина я определя
+    // самото съдържание: Column с mainAxisSize.min и ListView с
+    // shrinkWrap в Flexible. Панелът е точно колкото трябва и никога
+    // по-голям от позволеното.
 
     // Таванът е ДВОЕН. Освен старите 80% от екрана (за да се вижда нещо от
     // календара отдолу), панелът трябва да се събере и в мястото, което
@@ -464,11 +551,12 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
     final cap = screenHeight * 0.80;
     var maxHeight = available < cap ? available : cap;
     if (maxHeight < 80.0) maxHeight = 80.0;
-    final sheetHeight = contentHeight.clamp(80.0, maxHeight);
 
-    return AnimatedContainer(
+    return AnimatedSize(
       duration: const Duration(milliseconds: 200),
-      height: sheetHeight + keyboardHeight,
+      alignment: Alignment.bottomCenter,
+      child: Container(
+      constraints: BoxConstraints(maxHeight: maxHeight + keyboardHeight),
       decoration: BoxDecoration(
         color: AppColors.drawerBackground,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
@@ -481,6 +569,9 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
         ],
       ),
       child: Column(
+        // Панелът е точно колкото съдържанието си — виж бележката горе
+        // защо височината вече не се смята от броя резултати.
+        mainAxisSize: MainAxisSize.min,
         children: [
           // Drag handle
           Center(
@@ -510,7 +601,10 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                       fontSize: 16,
                     ),
                     decoration: const InputDecoration(
-                      hintText: 'Търси...  (#bg #троп #!кон #25 #25-27)',
+                      // Подсказката изброяваше пет хаштага и не се
+                      // побираше. Сега показва два за пример и сочи към
+                      // помощта — тя ги изброява всичките.
+                      hintText: 'Търси...       #троп #кон (#? - помощ)',
                       hintStyle: TextStyle(color: AppColors.textMuted),
                       border: InputBorder.none,
                       isDense: true,
@@ -547,7 +641,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
             ),
           ),
           // Разделител
-          if (_results.isNotEmpty || _loading)
+          if (_results.isNotEmpty || _loading || _showHelp)
             Divider(color: AppColors.sectionDivider, height: 1),
           // Резултати
           if (_loading)
@@ -555,8 +649,13 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
               padding: EdgeInsets.all(16),
               child: CircularProgressIndicator(),
             )
+          else if (_showHelp)
+            // Flexible, не Expanded: списъкът заема колкото му трябва и
+            // спира на тавана от constraints-ите, вместо да разпъва
+            // панела до дъно и при два резултата.
+            const Flexible(child: _HashtagHelp())
           else
-            Expanded(
+            Flexible(
               child: ListView.separated(
                 padding: EdgeInsets.zero,
                 shrinkWrap: true,
@@ -588,27 +687,45 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                   // това преливаше с точно толкова, колкото е новият ред.
                   return InkWell(
                     onTap: () {
+                      // Кой ред да просветне в дневния изглед. При неделя
+                      // или седмица е null — там самият ден е резултатът
+                      // и флашът на месечния изглед стига.
+                      AppSettings.flashSaintId.value = result['id'] as int?;
                       Navigator.pop(context);
                       widget.onDateSelected(_parseDate(date));
                     },
                     child: Padding(
                       padding:
                           const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      // Датата стои ЦЕНТРИРАНА спрямо реда — така се чете
+                      // ясно към кой запис спада. Това е безопасно само
+                      // защото името е ограничено до 4 реда: без него
+                      // съборните имена разпъваха реда и датата увисваше
+                      // насред него, а долният ѝ край се режеше.
                       child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
                           SizedBox(width: 24, child: Center(child: leadingIcon)),
                           const SizedBox(width: 8),
                           Expanded(
-                            child: Text(
-                              name,
-                              style: TextStyle(
-                                color: textColor,
-                                fontSize: 15,
-                                fontStyle: resultType == 'saint'
-                                    ? FontStyle.normal
-                                    : FontStyle.italic,
+                            child: Text.rich(
+                              _highlight(
+                                name,
+                                _lastWords,
+                                TextStyle(
+                                  color: textColor,
+                                  fontSize: 15,
+                                  fontStyle: resultType == 'saint'
+                                      ? FontStyle.normal
+                                      : FontStyle.italic,
+                                ),
                               ),
+                              // Списъкът е за ОРИЕНТИР, не за четене:
+                              // по-дългото се отрязва с многоточие. Инак
+                              // един съборен ред заема половин екран и
+                              // изтласква останалите резултати.
+                              maxLines: 4,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
                           const SizedBox(width: 12),
@@ -624,6 +741,266 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 					SizedBox(height: keyboardHeight),
         ],
       ),
+      ),
     );
   }
+}
+
+/// Човешките имена на филтрите, по стойността им в картите по-горе.
+///
+/// ⚠ Помощта се СТРОИ от `_groupAliases` и `_contentAliases`, а не се
+/// преписва на ръка. Затова нов псевдоним се вижда в нея веднага, а нов
+/// ФИЛТЪР иска само ред тук — забрави ли се, той изпъква като „(без
+/// име)“ вместо да изчезне мълчаливо от списъка.
+const Map<String, String> _contentTitles = {
+  'tropar': 'тропар',
+  'kondak': 'кондак',
+  'molitva': 'молитва',
+  'velichanie': 'величание',
+  'other': 'друго песнопение',
+  'life': 'житие',
+  'sluzhba': 'служба',
+};
+
+/// ⚠ Женски род — съгласуват се с „църква“ от заглавието на раздела
+/// („От коя поместна църква“), не със „светии“.
+const Map<String, String> _groupTitles = {
+  'BG': 'българска',
+  'RU': 'руска',
+  // ⚠ „Атон", не „атонска": атонска поместна църква НЯМА — Света гора е
+  // под Вселенската патриаршия. Стои в този списък, защото е достатъчно
+  // особено и познато място, за да има свой филтър; затова единствено то
+  // е съществително, а не прилагателно към „църква".
+  'ATHOS': 'Атон',
+  'RS': 'сръбска',
+  'GR': 'гръцка',
+  'GE': 'грузинска',
+  'RO': 'румънска',
+  'JER': 'йерусалимска',
+  'US': 'американска',
+  'ECUMENICAL': 'вселенска',
+};
+
+/// Обръща карта „псевдоним → стойност“ в „стойност → псевдонимите ѝ“,
+/// запазвайки реда на изписване от оригинала.
+Map<String, List<String>> _aliasesByValue(Map<String, String> aliases) {
+  final out = <String, List<String>>{};
+  aliases.forEach((alias, value) => out.putIfAbsent(value, () => []).add(alias));
+  return out;
+}
+
+/// Списъкът с всички хаштагове — застава на мястото на резултатите,
+/// когато заявката съдържа #? (виж [_helpTags]).
+class _HashtagHelp extends StatelessWidget {
+  const _HashtagHelp();
+
+  @override
+  Widget build(BuildContext context) {
+    final content = _aliasesByValue(_contentAliases);
+    final groups = _aliasesByValue(_groupAliases);
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      children: [
+        const Padding(
+          padding: EdgeInsets.only(bottom: 2),
+          child: Text(
+            'Помощна информация',
+            style: TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        const _HelpNote('Долните предложения се въвеждат в полето за '
+            'търсене, разделени с интервал, заедно с ключовите думи, по '
+            'които се търси, или самостоятелно.'),
+
+        const _HelpSection('Търсене за налични тропар, кондак и т.н.'),
+        for (final e in _contentTitles.entries)
+          if (content[e.key] != null) _HelpRow(content[e.key]!, e.value),
+        const _HelpNote('Няколко филтъра се съчетават: показва се само онзи, '
+            'за когото важат всички.'),
+        const _HelpExample('#троп #кон', 'има и тропар, и кондак'),
+
+        const _HelpSection('От коя поместна църква'),
+        for (final e in _groupTitles.entries)
+          if (groups[e.key] != null) _HelpRow(groups[e.key]!, e.value),
+        const _HelpExample('йоан #бг', 'Йоан само сред българските светии'),
+
+        const _HelpSection('В коя година'),
+        const _HelpRow(['25', '2025'], 'само тази година'),
+        const _HelpRow(['25-27'], 'от — до'),
+        const _HelpNote('Без годишен хаштаг се търси само в текущата година.'),
+        const _HelpExample('#бг #25-27', 'българските светии за трите години'),
+
+        const _HelpSection('Изключване от списъка'),
+        const _HelpRow(['!троп', '!кон', '!бг'], 'НЯМА го / не е оттам'),
+        const _HelpNote('Удивителната застава веднага след решетката.'),
+        const _HelpExample('#троп #!кон', 'има тропар, но няма кондак'),
+
+        const _HelpSection('Помощ'),
+        _HelpRow(_helpTags.toList(), 'показва този списък'),
+        const _HelpNote('Изтрий го, за да се върнеш към резултатите — '
+            'останалото в полето стои непокътнато.'),
+      ],
+    );
+  }
+}
+
+class _HelpSection extends StatelessWidget {
+  final String title;
+  const _HelpSection(this.title);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 18, bottom: 6),
+        child: Text(
+          title.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.sectionTitle,
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.8,
+          ),
+        ),
+      );
+}
+
+class _HelpRow extends StatelessWidget {
+  final List<String> tags;
+  final String meaning;
+  const _HelpRow(this.tags, this.meaning);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 5),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              flex: 5,
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 4,
+                children: [
+                  for (final t in tags)
+                    Text('#$t',
+                        style: const TextStyle(
+                          color: AppColors.textPrimary,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        )),
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              flex: 4,
+              child: Text(meaning,
+                  style: const TextStyle(
+                      color: AppColors.textMuted, fontSize: 13)),
+            ),
+          ],
+        ),
+      );
+}
+
+class _HelpNote extends StatelessWidget {
+  final String text;
+  const _HelpNote(this.text);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 6),
+        child: Text(text,
+            style: const TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 12,
+                fontStyle: FontStyle.italic)),
+      );
+}
+
+/// Пример за употреба — самата заявка и какво връща. Стои с курсив и
+/// приглушено, като бележка: това е показване, не още един ред за четене.
+class _HelpExample extends StatelessWidget {
+  final String query;
+  final String meaning;
+  const _HelpExample(this.query, this.meaning);
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 4, left: 2),
+        child: RichText(
+          text: TextSpan(
+            style: const TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 12,
+              fontStyle: FontStyle.italic,
+            ),
+            children: [
+              TextSpan(
+                text: query,
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+              TextSpan(text: '  —  $meaning'),
+            ],
+          ),
+        ),
+      );
+}
+
+/// Разбива [text] на парчета и слага жълт фон зад онези, които съвпадат с
+/// някоя от [words] — така окото хваща веднага защо редът е в списъка.
+///
+/// ⚠ Сравнението е по `toLowerCase()` от двете страни, не буквално:
+/// човек пише „йоан", а в календара стои „Йоан". Dart-овият toLowerCase
+/// се справя с кирилицата — за разлика от SQLite-ския LIKE, който е
+/// нечувствителен само за ASCII.
+///
+/// ⚠ Звездичката в заявката се превежда на `%` за SQL-а още в
+/// _parseQuery. Тук тя няма смисъл и се маха, инак се търси буквален
+/// процент и нищо не светва.
+TextSpan _highlight(String text, List<String> words, TextStyle base) {
+  final needles = words
+      .map((w) => w.replaceAll('%', '').toLowerCase())
+      .where((w) => w.isNotEmpty)
+      .toList();
+  if (needles.isEmpty) return TextSpan(text: text, style: base);
+
+  final lower = text.toLowerCase();
+  // Кои позиции са част от съвпадение — маска, а не списък от интервали:
+  // две различни думи от заявката може да се застъпват в текста и с
+  // интервали трябваше да се слепват на ръка.
+  final marked = List<bool>.filled(text.length, false);
+  for (final n in needles) {
+    var from = 0;
+    while (true) {
+      final at = lower.indexOf(n, from);
+      if (at < 0) break;
+      for (var i = at; i < at + n.length && i < marked.length; i++) {
+        marked[i] = true;
+      }
+      from = at + n.length;
+    }
+  }
+
+  final spans = <TextSpan>[];
+  var start = 0;
+  for (var i = 1; i <= text.length; i++) {
+    if (i == text.length || marked[i] != marked[start]) {
+      spans.add(TextSpan(
+        text: text.substring(start, i),
+        style: marked[start]
+            ? base.copyWith(
+                backgroundColor: AppColors.hitDark,
+                color: AppColors.hitOnDark,
+              )
+            : base,
+      ));
+      start = i;
+    }
+  }
+  return TextSpan(children: spans, style: base);
 }

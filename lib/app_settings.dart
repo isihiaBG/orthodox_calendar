@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AppSettings {
@@ -14,6 +16,18 @@ class AppSettings {
   static DateTime? today;
   // Временен flash при навигация до дата
   static DateTime? flashDate;
+
+  /// Кой светия да просветне в ДНЕВНИЯ изглед — `saints.id` от избрания
+  /// резултат в търсенето. Месечният изглед флашва цял ред (един ден), а
+  /// там датата стига; в дневния на един ден се падат по няколко светии и
+  /// трябва да се знае кой точно е бил търсен.
+  ///
+  /// ⚠ ValueNotifier, а НЕ обикновено поле като [flashDate]. Флашът е
+  /// сигнал, не начално състояние: дневните страници живеят в PageView и
+  /// съседните вече са построени: за тях `initState` няма да се повика
+  /// втори път и прочетена веднъж стойност би останала невидяна. Всеки
+  /// ден слуша и просветва онзи от своите светии, чийто id дойде.
+  static final ValueNotifier<int?> flashSaintId = ValueNotifier<int?>(null);
 
   /// Улавя коя дата в момента е "по средата" на месечния изглед — вика се
   /// от settings_screen.dart ПРЕДИ да се мутира isOldStyle. Редът има
