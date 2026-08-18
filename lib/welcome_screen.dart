@@ -1,0 +1,212 @@
+// welcome_screen.dart
+//
+// Посрещането: по кой стил да се чете календарът.
+//
+// Показва се при стартиране, докато човек не го изключи — от чекбокса тук
+// или от суича в настройките. И двете пипат AppSettings.showWelcome.
+//
+// ЗАЩО ГО ИМА. Изборът на стил е първото решение, което календарът иска от
+// човека, а дотогава той стоеше скрит в настройките: приложението мълчаливо
+// избираше вместо него и го посрещаше с таблица от числа. По-честно е да се
+// попита направо — и по-хубаво като първо впечатление.
+//
+// Устроен е като „Месецослов" НАРОЧНО: същото тесте корици, същото
+// разположение, същият градиент отдолу. Скелетът е общ
+// (cover_picker.dart), тъй че двата екрана не могат да се разминат.
+
+import 'package:flutter/material.dart';
+
+import 'app_settings.dart';
+import 'app_theme.dart';
+import 'cover_flow.dart';
+import 'cover_picker.dart';
+
+/// Един стил на четене — корица и какво значи.
+class _Style {
+  final String cover;
+  final String name;
+  final String note;
+
+  /// Стойностите, които изборът записва. Двете заедно дават трите
+  /// смислени подредби (четвъртата — нов стил с водеща стара дата — няма
+  /// смисъл и затова я няма).
+  final bool isOldStyle;
+  final bool oldStyleFirst;
+
+  const _Style({
+    required this.cover,
+    required this.name,
+    required this.note,
+    required this.isOldStyle,
+    required this.oldStyleFirst,
+  });
+}
+
+const List<_Style> _styles = [
+  _Style(
+    cover: 'assets/calendar_covers/Cover_01.jpg',
+    name: 'Нов стил',
+    note: 'Църковните дати съвпадат с гражданските.\n'
+        'Така е в повечето български храмове.',
+    isOldStyle: false,
+    oldStyleFirst: false,
+  ),
+  _Style(
+    cover: 'assets/calendar_covers/Cover_02.jpg',
+    name: 'Стар стил',
+    note: 'Празниците вървят по Юлианския календар,\n'
+        'а водеща датата отпред е гражданската.',
+    isOldStyle: true,
+    oldStyleFirst: false,
+  ),
+  _Style(
+    cover: 'assets/calendar_covers/Cover_03.jpg',
+    name: 'Стар стил',
+    note: 'Водеща е църковната дата, а гражданската справочно след нея.\n'
+        'По трудно е за ориентиране.',
+    isOldStyle: true,
+    oldStyleFirst: true,
+  ),
+];
+
+class WelcomeScreen extends StatefulWidget {
+  const WelcomeScreen({super.key});
+
+  @override
+  State<WelcomeScreen> createState() => _WelcomeScreenState();
+}
+
+class _WelcomeScreenState extends State<WelcomeScreen> {
+  final GlobalKey<CoverFlowState> _flow = GlobalKey<CoverFlowState>();
+
+  /// Тестето се отваря на стила, който е нагласен в момента — човек вижда
+  /// къде се намира, а не започва отначало.
+  late int _index = _currentIndex();
+
+  bool _dontShowAgain = false;
+
+  int _currentIndex() {
+    final i = _styles.indexWhere((s) =>
+        s.isOldStyle == AppSettings.isOldStyle &&
+        (!s.isOldStyle || s.oldStyleFirst == AppSettings.oldStyleFirst));
+    return i < 0 ? 0 : i;
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    for (final s in _styles) {
+      precacheImage(AssetImage(s.cover), context);
+    }
+  }
+
+  void _choose(int i) {
+    final s = _styles[i];
+    AppSettings.isOldStyle = s.isOldStyle;
+    AppSettings.oldStyleFirst = s.oldStyleFirst;
+    AppSettings.showWelcome = !_dontShowAgain;
+    // Записва се веднага, не с отлагане: оттук се излиза и екранът се
+    // разрушава, тъй че отложен запис би могъл да не се случи.
+    AppSettings.saveNow();
+    Navigator.of(context).pop(true);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return CoverPickerScaffold(
+      title: 'Изберете календар',
+      covers: [for (final s in _styles) AssetImage(s.cover)],
+      index: _index,
+      onIndexChanged: (i) => setState(() => _index = i),
+      onOpen: _choose,
+      flowKey: _flow,
+      infoBuilder: (_, i) => _info(i),
+      landscapeLabel: (i) => _styles[i].name,
+      extra: _checkbox(),
+    );
+  }
+
+  Widget _info(int i) {
+    final s = _styles[i];
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 4, 24, 4),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            s.name,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontSize: 26,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            s.note,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.35,
+            ),
+          ),
+          const SizedBox(height: 14),
+          FilledButton.icon(
+            onPressed: () => _choose(i),
+            icon: const Icon(Icons.check, size: 18),
+            label: const Text('Отвори календара'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.sectionTitle,
+              foregroundColor: Colors.white,
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// „Не показвай повече" — само отбелязва желанието; записва се заедно с
+  /// избора, за да няма състояние „изключен екран без избран стил".
+  Widget _checkbox() {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 6),
+      child: InkWell(
+        onTap: () => setState(() => _dontShowAgain = !_dontShowAgain),
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              SizedBox(
+                width: 22,
+                height: 22,
+                child: Checkbox(
+                  value: _dontShowAgain,
+                  onChanged: (v) =>
+                      setState(() => _dontShowAgain = v ?? false),
+                  side: const BorderSide(
+                      color: AppColors.textSecondary, width: 1.4),
+                  checkColor: Colors.white,
+                  activeColor: AppColors.sectionTitle,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+              const SizedBox(width: 10),
+              const Text(
+                'Не показвай повече',
+                style: TextStyle(
+                    color: AppColors.textSecondary, fontSize: 14),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

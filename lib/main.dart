@@ -6,6 +6,7 @@ import 'settings_screen.dart';
 import 'app_drawer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
+import 'welcome_screen.dart';
 import 'day_screen.dart';
 import 'month_screen.dart';
 
@@ -126,6 +127,28 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // AppSettings.captureMonthMiddleDate).
     AppSettings.captureMonthMiddleDate =
         () => _isMonthView ? _monthScreenKey.currentState?.getMiddleDate() : null;
+
+    // Посрещането — изборът на стил. Показва се СЛЕД първия кадър, а не
+    // вместо календара: така екранът отдолу вече е построен и при затваряне
+    // не се вижда как се сглобява. Ако човек смени стила там, връщаме се
+    // през същия път, по който минава и смяната от настройките.
+    if (AppSettings.showWelcome) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _showWelcome());
+    }
+  }
+
+  Future<void> _showWelcome() async {
+    if (!mounted) return;
+    final before = (AppSettings.isOldStyle, AppSettings.oldStyleFirst);
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => const WelcomeScreen(),
+      fullscreenDialog: true,
+    ));
+    if (!mounted) return;
+    final after = (AppSettings.isOldStyle, AppSettings.oldStyleFirst);
+    // Само при РЕАЛНА промяна: иначе календарът би се презареждал всеки
+    // път, когато човек просто е потвърдил това, което вече е избрано.
+    if (before != after) _onSettingsChanged(true);
   }
 
   Future<void> _refineDateBoundsFromDatabase() async {

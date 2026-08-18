@@ -45,6 +45,7 @@ import 'nudge_shake.dart';
 import 'reader_font_size.dart';
 import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
+import 'pdf_export.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
 import 'reader_regions.dart';
@@ -408,6 +409,18 @@ class _BookReaderState extends State<BookReader>
     // заедно — иначе се вижда първо гола смяна, после движение.
     _enter.forward(from: 0);
     _veil.reverse();
+
+    // ⚠ Търсенето НЕ се затваря при смяна на четиво — нарочно: така човек
+    // обхожда книгата по един и същ критерий, четиво по четиво. Но затова
+    // трябва да се ПРЕСМЕТНЕ наново за новата глава. Дотогава оставаше с
+    // числата на старата: броячът показваше стар брой, чертичките сочеха
+    // никъде, а в новия текст нищо не светеше.
+    //
+    // `_runSearch` е точно това, което трябва — брои по регионите на
+    // ТЕКУЩАТА глава и сам отлага геометрията за следващия кадър.
+    if (_searchOpen && _searchCtrl.text.trim().isNotEmpty) {
+      _runSearch(_searchCtrl.text);
+    }
   }
 
   /// Запомня кое четиво е отворено — за опашката на заглавната страница и
@@ -1012,25 +1025,48 @@ class _BookReaderState extends State<BookReader>
   }
 
   Future<void> _showMoreMenu() async {
-    // СЪЩОТО меню като в четеца на жития — виж reader_more_menu.dart.
-    final choice = await showReaderMoreMenu(
-      context,
-      items: const [
-        ReaderMenuItem(
-          icon: Icons.bookmarks_outlined,
-          label: 'Списък с отметки',
-          value: 'bookmarks',
+    // СЪЩОТО меню като в четеца на жития — точките живеят в
+    // reader_more_menu.dart (kReaderMenuItems), за да не се разминат.
+    final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
+    if (!mounted || choice == null) return;
+    if (choice == kBookmarksMenuItem.value) {
+      // Един и същи списък: там са и отметките от житията, и тукашните.
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookmarksListScreen(
+          load: () => allBookmarkEntries(lookupBySlug),
         ),
-      ],
-    );
-    if (!mounted || choice != 'bookmarks') return;
-    // Един и същи списък: там са и отметките от житията, и тукашните.
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => BookmarksListScreen(
-        load: () => allBookmarkEntries(lookupBySlug),
-      ),
-    ));
+      ));
+    } else if (choice == kSharePdfMenuItem.value) {
+      _shareAsPdf();
+    }
   }
+
+  /// Изнася ТЕКУЩАТА глава като PDF и отваря диалога за споделяне.
+  ///
+  /// Оформлението е същото като при житията — един и същ `pdf_export.dart`
+  /// върху един и същ HTML, тъй че изнесеният файл изглежда като четивото.
+  ///
+  /// ⚠ Заглавието НЕ се подава отделно. В книгите то е вътре в главата
+  /// (`<h1>` → `<h3>` след _normalize), а `sharePdf` го разпознава по
+  /// `hasOwnTitle` и пропуска своето — инак излизат две заглавия едно под
+  /// друго. При житията е обратното: там името идва отвън.
+  Future<void> _shareAsPdf() async {
+    final raw = widget.book.readFile(_current.href);
+    if (raw == null) return;
+    await shareReaderPdf(
+      context,
+      title: _current.title,
+      bodyHtml: _chapterHtml(raw),
+      fileName: '${_fileSafe(_current.title)}.pdf',
+      // Главите започват с буквица, както житията.
+      withDropCap: true,
+    );
+  }
+
+  /// Име за файл от заглавие на глава: без знаци, които някои файлови
+  /// системи и приложения за споделяне не приемат.
+  static String _fileSafe(String s) =>
+      s.replaceAll(RegExp(r'[\\/:*?"<>|]'), ' ').trim();
 
   // ── Съдържанието ────────────────────────────────────────────────────────
 
@@ -1227,7 +1263,13 @@ class _BookReaderState extends State<BookReader>
         '${m.group(1)}';
   }
 
-  Widget _chapterBody(String raw, ReaderPalette palette) {
+  /// HTML-ът на главата, готов за рисуване И за PDF.
+  ///
+  /// ⚠ ЕДНО място за двете. Дотогава сглобяването живееше вътре в
+  /// [_chapterBody], тъй че PDF-ът трябваше да го повтори — и при първата
+  /// поправка (нов клас, друг ред за източника) двете щяха да се разминат
+  /// мълчаливо: на екрана едно, в изнесения файл друго.
+  String _chapterHtml(String raw) {
     var body = _normalize(raw);
     // Редът с източника накрая — само в приложението; .epub-ите остават
     // каквито ги прави конвейерът. Класът `.source` вече се рисува от
@@ -1236,6 +1278,11 @@ class _BookReaderState extends State<BookReader>
     if (src != null) {
       body += '<p class="source">Източник: <a href="$src">azbyka.ru</a></p>';
     }
+    return body;
+  }
+
+  Widget _chapterBody(String raw, ReaderPalette palette) {
+    final body = _chapterHtml(raw);
     // Главата се дели на РЕГИОНИ (по абзац), както в четеца на жития.
     //
     // Не е подредба заради подредбата: регионът е единицата, която има свой

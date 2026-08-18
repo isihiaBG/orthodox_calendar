@@ -1750,23 +1750,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Написано е ръчно (showGeneralDialog + SlideTransition), защото
   /// вграденият PopupMenuButton не позволява смяна на вида на анимацията.
   Future<void> _showMoreMenu() async {
-    final selected = await showReaderMoreMenu(
-      context,
-      items: const [
-        ReaderMenuItem(
-          icon: Icons.bookmarks_outlined,
-          label: 'Списък с отметки',
-          value: 'bookmarks',
-        ),
-        ReaderMenuItem(
-          icon: Icons.picture_as_pdf_outlined,
-          label: 'Сподели като PDF',
-          value: 'share_pdf',
-        ),
-      ],
-    );
+    // Точките живеят в reader_more_menu.dart — общи с четеца на книги.
+    final selected = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || selected == null) return;
-    if (selected == 'bookmarks') {
+    if (selected == kBookmarksMenuItem.value) {
       Navigator.of(context).push(
         MaterialPageRoute(
         builder: (_) => BookmarksListScreen(
@@ -1774,7 +1761,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         ),
         ),
       );
-    } else if (selected == 'share_pdf') {
+    } else if (selected == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }
   }
@@ -1783,26 +1770,20 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Сглобява PDF (A4) от същия HTML, който се показва в четеца, и отваря
   /// стандартния диалог за споделяне. Виж pdf_export.dart за оформлението.
   Future<void> _shareAsPdf() async {
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      // Заглавието идва от името на светията, а тялото — от вече готовия
-      // HTML; така PDF-ът съдържа точно това, което потребителят чете.
-      await sharePdf(
-        title: widget.texts.name,
-        bodyHtml: _buildPdfHtmlFor(widget._mode, widget.texts),
-        fileName: '${_typeLabel.toLowerCase()} - ${widget.texts.name}.pdf',
-        // Буквица САМО за житието — точно както в четеца. Тропарите,
-        // кондаците и службата започват без водеща заглавна буква.
-        withDropCap: widget._mode == _ReaderMode.life,
-        strongIsWine: widget._mode == _ReaderMode.sluzhba,
-        prayerLike: widget._mode != _ReaderMode.life,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(content: Text('Неуспешно създаване на PDF: $e')),
-      );
-    }
+    // Заглавието идва от името на светията, а тялото — от вече готовия
+    // HTML; така PDF-ът съдържа точно това, което потребителят чете.
+    // Обработката на неуспеха е в shareReaderPdf — обща с четеца на книги.
+    await shareReaderPdf(
+      context,
+      title: widget.texts.name,
+      bodyHtml: _buildPdfHtmlFor(widget._mode, widget.texts),
+      fileName: '${_typeLabel.toLowerCase()} - ${widget.texts.name}.pdf',
+      // Буквица САМО за житието — точно както в четеца. Тропарите,
+      // кондаците и службата започват без водеща заглавна буква.
+      withDropCap: widget._mode == _ReaderMode.life,
+      strongIsWine: widget._mode == _ReaderMode.sluzhba,
+      prayerLike: widget._mode != _ReaderMode.life,
+    );
   }
 
   String get _typeLabel =>

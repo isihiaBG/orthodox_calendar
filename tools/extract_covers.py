@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Извлича кориците на томовете от .epub-ите в assets/covers/.
+"""Извлича кориците на томовете от .epub-ите в assets/books_covers/.
 
 Кориците се пакетират като отделни файлове, а не се четат живо от
 архивите: библиотеката ги показва всичките наведнъж (виж
@@ -22,7 +22,7 @@ import zipfile
 
 NS = {'n': 'http://www.daisy.org/z3986/2005/ncx/'}
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, 'assets', 'covers')
+OUT = os.path.join(ROOT, 'assets', 'books_covers')
 
 
 def main() -> None:

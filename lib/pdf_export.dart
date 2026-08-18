@@ -12,6 +12,7 @@
 // ползваните знаци (виж TtfWriter.withChars), затова Charis SIL не надува
 // файла и основният текст е със същия шрифт като в четеца.
 
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
@@ -190,7 +191,7 @@ List<_Block> _parseBlocks(String html) {
 /// изписва режима, но никога не го връща обратно (graphics.dart:538 —
 /// пише само когато режимът е различен от "запълване"), затова
 /// удебеляването изтичаше върху целия текст след него.
-List<pw.TextSpan> _inlineSpans(
+List<pw.InlineSpan> _inlineSpans(
   String inner,
   pw.TextStyle base, {
   required PdfColor strongColor,
@@ -204,12 +205,17 @@ List<pw.TextSpan> _inlineSpans(
   /// прав шрифт и преводът излизаше нормален вместо курсивен.
   bool baseItalic = false,
 }) {
-  final spans = <pw.TextSpan>[];
+  final spans = <pw.InlineSpan>[];
   // strong = истинско <strong>/<b> (носи и цвят), label = етикетът
   // "Превод:" (получер и ПРАВ, но с цвета на абзаца, не на <strong>).
   var strong = 0;
   var label = 0;
   var italic = 0;
+  // Номерата на бележките — <sup>. Рисуват се по-дребни и повдигнати:
+  // `pdf` пакетът НЯМА superscript в TextStyle (проверено — там са само
+  // fontSize, letterSpacing, lineSpacing, height), тъй че повдигането се
+  // прави на ръка, с намален размер и вдигната основна линия.
+  var sup = 0;
   // Стек с адресите на отворените <a> — вложени връзки няма, но стекът
   // пази реда и при неточно затворени тагове.
   final hrefs = <String>[];
@@ -230,6 +236,12 @@ List<pw.TextSpan> _inlineSpans(
       } else if (t.startsWith('</em') || t.startsWith('</i>')) {
         if (italic > 0) italic--;
         if (stack.isNotEmpty) stack.removeLast();
+      } else if (t.startsWith('<sup')) {
+        sup++;
+        stack.add('sup');
+      } else if (t.startsWith('</sup')) {
+        if (sup > 0) sup--;
+        if (stack.isNotEmpty && stack.last == 'sup') stack.removeLast();
       } else if (t.startsWith('<a')) {
         final href = RegExp(r'''href=["']([^"']+)["']''', caseSensitive: false)
             .firstMatch(piece)
@@ -257,11 +269,34 @@ List<pw.TextSpan> _inlineSpans(
     final isItalic = (italic > 0 || baseItalic) && label == 0;
     final href = hrefs.isEmpty ? '' : hrefs.last;
     final link = href.isNotEmpty ? 1 : 0;
+    final isSup = sup > 0;
+    final baseSize = base.fontSize ?? _bodySize;
+    // Номерът на бележка е ВЪТРЕШНА връзка, не външна.
+    //
+    // ⚠ Дотогава тук минаваше AnnotationUrl със самия href от .epub-а —
+    // „../Text/note5041.xhtml#note5041". В PDF това не значи нищо: номерът
+    // излизаше син (тоест изглеждаше кликаем), а не водеше никъде. Сега
+    // сочи към котвата на бележката в края на документа.
+    final noteNum = isSup && _isNoteHref(href) ? text.trim() : null;
+    if (noteNum != null) {
+      // Котва НА МЯСТОТО в текста — за обратния път от бележката насам.
+      // Anchor е widget, не span, затова минава през WidgetSpan.
+      spans.add(pw.WidgetSpan(
+        child: pw.Anchor(name: _refAnchor(noteNum), child: pw.SizedBox()),
+      ));
+    }
     spans.add(pw.TextSpan(
       text: text,
       // Само това парче става кликаемо — не целият абзац.
-      annotation: link > 0 ? pw.AnnotationUrl(href) : null,
+      annotation: noteNum != null
+          ? pw.AnnotationLink(_noteAnchor(noteNum))
+          : (link > 0 ? pw.AnnotationUrl(href) : null),
       style: base.copyWith(
+        // Номерът на бележката: две трети от размера, вдигнат над реда.
+        // `height` мести основната линия — това е единственият лост в
+        // пакета, който върши работа на ниво TextSpan.
+        fontSize: isSup ? baseSize * 0.62 : null,
+        height: isSup ? -0.42 : null,
         // И font, И fontWeight: TextStyle пази отделни шрифтове за
         // нормален/получер/курсив и избира между тях по fontWeight —
         // само подаването на font може да се окаже недостатъчно.
@@ -278,6 +313,54 @@ List<pw.TextSpan> _inlineSpans(
   return spans;
 }
 
+/// Имената на котвите в PDF-а. Две за всяка бележка — едната при номера в
+/// текста, другата при самата бележка в края, — за да се ходи в двете
+/// посоки.
+String _noteAnchor(String num) => 'note-$num';
+String _refAnchor(String num) => 'ref-$num';
+
+/// Връзка към бележка ли е това? В .epub-ите те сочат към note<NNNN>.xhtml.
+bool _isNoteHref(String href) =>
+    RegExp(r'note\d+', caseSensitive: false).hasMatch(href);
+
+/// Една бележка под линия: номерът, както стои в текста, и текстът ѝ.
+class _Note {
+  final String number;
+  final String text;
+  const _Note(this.number, this.text);
+}
+
+/// Изважда бележките от HTML-а, по реда на срещането им.
+///
+/// ⚠ Текстът стои в `title` атрибута на връзката, не в отделен файл:
+///
+///     <a href="../Text/note5041.xhtml#note5041"
+///        title="Лъв III Исаврянин – император от 716 до 741 г.">
+///       <sup>5041</sup></a>
+///
+/// Затова PDF-ът не се нуждае от достъп до архива — всичко е в подадения
+/// HTML. (В четеца същият `title` пълни изскачащото прозорче.)
+///
+/// Повторенията се пропускат: един и същ номер може да се срещне два пъти
+/// в дълго житие, а в списъка накрая му е мястото веднъж.
+List<_Note> _collectNotes(String html) {
+  final out = <_Note>[];
+  final seen = <String>{};
+  final re = RegExp(
+    r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>',
+    caseSensitive: false,
+    dotAll: true,
+  );
+  for (final m in re.allMatches(html)) {
+    final title = _decodeEntities(m.group(1)!).trim();
+    final num = _decodeEntities(m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), ''))
+        .trim();
+    if (title.isEmpty || num.isEmpty || !seen.add(num)) continue;
+    out.add(_Note(num, title));
+  }
+  return out;
+}
+
 /// Вярно, ако единствените тагове в абзаца са връзки (<a>). Тогава
 /// шрифтът е един и същ по цялата дължина и мярката на редовете излиза
 /// точна — а без това правилото за самотните редове не може да се приложи
@@ -287,10 +370,14 @@ bool _onlyLinkTags(String inner) =>
 
 /// Същите парчета, но без първите [skip] знака — с непокътнати цветове и
 /// връзки. Така остатъкът от абзаца не се сглобява наново от HTML-а.
-List<pw.TextSpan> _spansAfter(List<pw.TextSpan> spans, int skip) {
-  final out = <pw.TextSpan>[];
+List<pw.InlineSpan> _spansAfter(List<pw.InlineSpan> spans, int skip) {
+  final out = <pw.InlineSpan>[];
   var left = skip;
   for (final s in spans) {
+    // Котвите (WidgetSpan) нямат текст и нулева ширина — в остатъка от
+    // разкъсания абзац те няма какво да правят: целта им вече е поставена
+    // в първата половина.
+    if (s is! pw.TextSpan) continue;
     final t = s.text ?? '';
     if (left >= t.length) {
       left -= t.length;
@@ -313,6 +400,14 @@ List<pw.TextSpan> _spansAfter(List<pw.TextSpan> spans, int skip) {
 /// само в началото на текста, не насред него.
 bool _eligibleForDropCap(_Block b) {
   if (b.isHeading || b.isItalic || b.startsItalic) return false;
+  // ⚠ Редът с паметта („Памет на 9 август") е УКАЗАНИЕ, не начало на
+  // разказа. В .epub-а той е обикновен `div.paragraph` — със същия клас
+  // като истинските абзаци, — тъй че по нищо друго не се различава.
+  // Четецът го подминава, защото `_normalize` му дава клас `memorydate`,
+  // а splitDropCap търси ГОЛ `<p>`. Тук проверката трябва да е изрична:
+  // без нея буквицата кацаше върху него и излизаше „П|амет на 9 август",
+  // а истинското начало („Когато на престола…") оставаше без нея.
+  if (b.cls.contains('memorydate')) return false;
   const skipChars = {'(', "'", '*', '/', '«', '"', '['};
   final first = b.text.isEmpty ? '' : b.text.substring(0, 1);
   if (first.isEmpty || skipChars.contains(first)) return false;
@@ -415,7 +510,10 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
         strongColor: strongColor);
     // Първата буква вече е нарисувана като буквица.
     if (isFirst) spans = _spansAfter(spans, 1);
-    final plain = spans.map((x) => x.text ?? '').join();
+    // Само текстовите парчета — котвите нямат ширина и не влизат в
+    // мярката на редовете.
+    final plain =
+        spans.whereType<pw.TextSpan>().map((x) => x.text ?? '').join();
     if (plain.isEmpty) break;
 
     final maxLines = budget.floor();
@@ -693,6 +791,11 @@ Future<void> sharePdf({
               final isCsl = b.cls.contains('csl');
               final isTrans = b.cls.contains('trans');
               final isSourceLine = b.cls.contains('source');
+              //   .memorydate — редът с паметта („Памет на 9 август"):
+              //     курсив, приглушен, центриран, −1. Той е указание кога
+              //     се чете житието, не част от разказа — виж стила му в
+              //     reader_styles.dart, който тук се повтаря едно към едно.
+              final isMemoryDate = b.cls.contains('memorydate');
               // Изнесен в променлива, защото междуредието се смята СПРЯМО
               // него — иначе преводът (с по-дребен шрифт) и славянският
               // текст (с по-едър) щяха да получат реда на основния размер.
@@ -700,7 +803,7 @@ Future<void> sharePdf({
                   ? _bodySize + 1
                   : isCsl
                       ? _bodySize + 0.5
-                      : isTrans
+                      : (isTrans || isMemoryDate)
                           ? _bodySize - 1
                           : isSourceLine
                               ? _bodySize - 3
@@ -708,10 +811,10 @@ Future<void> sharePdf({
               final style = pw.TextStyle(
                 font: isPrayerHead
                     ? _bodyBold
-                    : (b.isItalic ? _bodyItalic : _body),
+                    : ((b.isItalic || isMemoryDate) ? _bodyItalic : _body),
                 fontNormal: isPrayerHead
                     ? _bodyBold
-                    : (b.isItalic ? _bodyItalic : _body),
+                    : ((b.isItalic || isMemoryDate) ? _bodyItalic : _body),
                 fontBold: _bodyBold,
                 fontWeight:
                     isPrayerHead ? pw.FontWeight.bold : pw.FontWeight.normal,
@@ -722,7 +825,9 @@ Future<void> sharePdf({
                 // губеше до синьото на самия адрес до него.
                 color: isPrayerHead
                     ? _wine
-                    : (b.isItalic && !isSourceLine ? _dim : _ink),
+                    : ((b.isItalic && !isSourceLine) || isMemoryDate
+                        ? _dim
+                        : _ink),
               );
               // Отстъп на ПЪРВИЯ ред (като tab). pdf пакетът няма
               // "text-indent", затова слагаме невидима кутия като първи
@@ -736,7 +841,8 @@ Future<void> sharePdf({
                       b.isItalic ||
                       isPrayerHead ||
                       isCsl ||
-                      isTrans)
+                      isTrans ||
+                      isMemoryDate)
                   ? null
                   : pw.WidgetSpan(child: pw.SizedBox(width: _bodySize * 1.6));
               final bodySpans = _inlineSpans(
@@ -746,9 +852,15 @@ Future<void> sharePdf({
                   style,
                   strongColor: strongIsWine ? _wine : _ink,
                   baseBold: isPrayerHead,
-                  baseItalic: b.isItalic);
+                  // ⚠ И memorydate: без него _inlineSpans строи спановете
+                  // с прав шрифт и презаписва курсива, зададен в `style`
+                  // по-горе — стилът на блока се губи мълчаливо.
+                  baseItalic: b.isItalic || isMemoryDate);
               final paragraph = pw.RichText(
-                textAlign: pw.TextAlign.justify,
+                // Редът с паметта е ЦЕНТРИРАН, както в четеца; разлятото
+                // подравняване е за същинския текст.
+                textAlign:
+                    isMemoryDate ? pw.TextAlign.center : pw.TextAlign.justify,
                 // Без това дългите абзаци не могат да се разделят на страници.
                 overflow: pw.TextOverflow.span,
                 text: pw.TextSpan(
@@ -800,7 +912,10 @@ Future<void> sharePdf({
                 // Връзките не сменят шрифта (само цвета), затова мярката с
                 // _body важи и за тях; абзаци с курсив или получер текст
                 // остават извън правилото — там сметката би се разминала.
-                final plain = bodySpans.map((x) => x.text ?? '').join();
+                final plain = bodySpans
+                    .whereType<pw.TextSpan>()
+                    .map((x) => x.text ?? '')
+                    .join();
                 final split = _splitLines(
                     plain, contentWidth, _body!.getFont(context), fontSize, 2,
                     firstIndent: indent != null ? _bodySize * 1.6 : 0);
@@ -856,6 +971,69 @@ Future<void> sharePdf({
                       ? 12 // заглавен ред → текста под него
                       : 20));
         }
+        // Бележките — СЛЕД целия текст, като списък.
+        //
+        // ⚠ Не „под линия" на всяка страница, и то по причина, не по
+        // мързел: MultiPage сам разпределя съдържанието и не се знае
+        // предварително кой абзац на коя страница пада. За истински
+        // footnotes трябва двупроходно строене — строиш, гледаш къде са
+        // паднали, строиш пак, — което е крехко. Тук са в края, както е
+        // обичайно за такива издания (медиана 4 бележки на житие).
+        final notes = _collectNotes(bodyHtml);
+        if (notes.isNotEmpty) {
+          widgets.add(pw.SizedBox(height: 26));
+          widgets.add(pw.Container(
+            width: contentWidth * 0.34,
+            height: 0.7,
+            color: _dim,
+          ));
+          widgets.add(pw.SizedBox(height: 14));
+          const noteSize = _bodySize - 5;
+          for (final n in notes) {
+            widgets.add(pw.Anchor(
+              // Целта, към която сочи номерът горе в текста.
+              name: _noteAnchor(n.number),
+              child: pw.Padding(
+              padding: const pw.EdgeInsets.only(bottom: 7),
+              child: pw.RichText(
+                textAlign: pw.TextAlign.left,
+                overflow: pw.TextOverflow.span,
+                text: pw.TextSpan(children: [
+                  pw.TextSpan(
+                    text: '${n.number}  ',
+                    // Обратният път: от бележката към мястото, откъдето е
+                    // повикана. Така четенето не се губи — човек скача
+                    // долу, прочита и се връща с едно натискане.
+                    annotation: pw.AnnotationLink(_refAnchor(n.number)),
+                    style: pw.TextStyle(
+                      font: _body,
+                      fontSize: noteSize,
+                      color: _linkBlue,
+                      lineSpacing:
+                          _lineSpacing(_body!.getFont(context), noteSize),
+                    ),
+                  ),
+                  pw.TextSpan(
+                    text: n.text,
+                    style: pw.TextStyle(
+                      // Курсив — бележката е друг глас, не продължение на
+                      // разказа. Номерът пред нея остава ПРАВ: той е
+                      // указател, а не текст за четене.
+                      font: _bodyItalic,
+                      fontNormal: _bodyItalic,
+                      fontSize: noteSize,
+                      fontStyle: pw.FontStyle.italic,
+                      color: _dim,
+                      lineSpacing:
+                          _lineSpacing(_body!.getFont(context), noteSize),
+                    ),
+                  ),
+                ]),
+              ),
+              ),
+            ));
+          }
+        }
         // Източникът НЕ се добавя тук: _buildHtmlFor вече го е сложил в
         // самия HTML (иначе излизаше два пъти).
         return widgets;
@@ -865,4 +1043,42 @@ Future<void> sharePdf({
 
   final bytes = await doc.save();
   await Printing.sharePdf(bytes: bytes, filename: fileName);
+}
+
+/// Същото като [sharePdf], но с готова обработка на неуспеха.
+///
+/// ⚠ Изнесено, защото беше преписано в двата четеца — а всяко преписване
+/// рано или късно се разминава. Тук стои единственото място, което решава
+/// какво вижда човек, ако PDF-ът не се получи.
+///
+/// Връща `true` при успех. Не хвърля: тръгне ли нещо на зле, показва
+/// съобщение и връща `false` — извикващият няма какво повече да направи.
+Future<bool> shareReaderPdf(
+  BuildContext context, {
+  required String title,
+  required String bodyHtml,
+  required String fileName,
+  bool withDropCap = true,
+  bool strongIsWine = false,
+  bool prayerLike = false,
+}) async {
+  // Взима се ПРЕДИ await-а: след него екранът може вече да е напуснат и
+  // `context` да не е годен за търсене на ScaffoldMessenger.
+  final messenger = ScaffoldMessenger.of(context);
+  try {
+    await sharePdf(
+      title: title,
+      bodyHtml: bodyHtml,
+      fileName: fileName,
+      withDropCap: withDropCap,
+      strongIsWine: strongIsWine,
+      prayerLike: prayerLike,
+    );
+    return true;
+  } catch (e) {
+    messenger.showSnackBar(
+      SnackBar(content: Text('Неуспешно създаване на PDF: $e')),
+    );
+    return false;
+  }
 }

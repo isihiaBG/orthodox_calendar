@@ -85,7 +85,9 @@ flutter:
     # Кориците на томовете, извлечени от .epub-ите (tools/extract_covers.py).
     # Отделни файлове, за да се отваря библиотеката мигновено — иначе всяко
     # влизане иска разархивиране на дванайсет тома.
-    - assets/covers/
+    - assets/books_covers/
+    # Кориците на самия календар — за въвеждащия екран (welcome_screen.dart).
+    - assets/calendar_covers/
     - assets/icon.png
     - assets/icon_trans.png
     - assets/icon_WHT.png

@@ -29,6 +29,31 @@ class ReaderMenuItem {
   });
 }
 
+/// Точките, ОБЩИ за двата четеца.
+///
+/// ⚠ Стоят тук, а не се описват на място във всеки четец. Дотогава бяха
+/// два пъти преписани и вече се разминаваха: в книгите менюто носеше само
+/// отметките, а споделянето като PDF го нямаше — не по решение, а защото
+/// някой е добавил точката само на едното място. Нов елемент се слага
+/// веднъж и се появява в двата.
+const ReaderMenuItem kBookmarksMenuItem = ReaderMenuItem(
+  icon: Icons.bookmarks_outlined,
+  label: 'Списък с отметки',
+  value: 'bookmarks',
+);
+
+const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
+  icon: Icons.picture_as_pdf_outlined,
+  label: 'Сподели като PDF',
+  value: 'share_pdf',
+);
+
+/// Пълното меню на четеца. Ползва се и от двата.
+const List<ReaderMenuItem> kReaderMenuItems = [
+  kBookmarksMenuItem,
+  kSharePdfMenuItem,
+];
+
 /// Показва менюто и връща избраното (или null при затваряне).
 Future<String?> showReaderMoreMenu(
   BuildContext context, {

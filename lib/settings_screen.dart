@@ -15,6 +15,7 @@ class SettingsContent extends StatefulWidget {
 class _SettingsContentState extends State<SettingsContent> {
   bool _isOldStyle = AppSettings.isOldStyle;
   bool _oldStyleFirst = AppSettings.oldStyleFirst;
+  bool _showWelcome = AppSettings.showWelcome;
 
   @override
   Widget build(BuildContext context) {
@@ -165,6 +166,70 @@ class _SettingsContentState extends State<SettingsContent> {
                     ],
                   )
                 : const SizedBox.shrink(),
+          ),
+        ),
+
+        // ─── Въвеждащият екран ───────────────────────────────────────────
+        // Стои НАКРАЯ, защото не мени как изглежда календарът, а само дали
+        // да се пита за стила при стартиране. Същото поле пипа и чекбоксът
+        // „Не показвай повече" на самия екран.
+        const SizedBox(height: 24),
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text('ПРИ ОТВАРЯНЕ',
+              style: TextStyle(
+                color: AppColors.textMuted,
+                fontSize: 11,
+                letterSpacing: 1.5,
+              )),
+        ),
+        Center(
+          child: SegmentedButton<bool>(
+            style: SegmentedButton.styleFrom(
+              backgroundColor: AppColors.backgroundCard,
+              foregroundColor: AppColors.textMuted,
+              selectedForegroundColor: AppColors.textPrimary,
+              selectedBackgroundColor: AppColors.appBarWeekday,
+            ),
+            segments: const [
+              ButtonSegment(
+                value: true,
+                label: Text('Питай за стила'),
+                icon: Icon(Icons.auto_stories, size: 16),
+              ),
+              ButtonSegment(
+                value: false,
+                label: Text('Направо в календара'),
+                icon: Icon(Icons.calendar_month, size: 16),
+              ),
+            ],
+            selected: {_showWelcome},
+            onSelectionChanged: (value) {
+              setState(() {
+                _showWelcome = value.first;
+                AppSettings.showWelcome = value.first;
+              });
+              AppSettings.scheduleSave();
+            },
+          ),
+        ),
+        Container(
+          width: double.infinity,
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: AppColors.backgroundCard,
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Text(
+            _showWelcome
+                ? 'При всяко отваряне ще се показва изборът на календар.'
+                : 'Приложението се отваря направо на днешния ден.',
+            style: TextStyle(
+              color: AppColors.textSecondary,
+              fontSize: 13,
+              height: 1.5,
+            ),
           ),
         ),
       ],

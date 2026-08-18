@@ -10,7 +10,8 @@
 // сме се спрели. Легнало — тестето взима целия екран и човек се ориентира
 // по самите корици.
 //
-// Кориците са ОТДЕЛНИ файлове в assets/covers/ (виж tools/extract_covers.py),
+// Кориците са ОТДЕЛНИ файлове в assets/books_covers/ (виж
+// tools/extract_covers.py),
 // а не се вадят живо от .epub-ите: разархивирането на дванайсет тома при
 // всяко влизане се вижда като забавяне тъкмо на екрана, който трябва да е
 // най-хубавият.
@@ -22,6 +23,7 @@ import 'app_theme.dart';
 import 'book_open_transition.dart';
 import 'book_reader.dart';
 import 'cover_flow.dart';
+import 'cover_picker.dart';
 import 'epub_source.dart';
 
 /// Един том. Числата са преброени от съдържанията на .epub-ите
@@ -36,7 +38,7 @@ class _Volume {
 
   const _Volume(this.month, this.roman, this.days, this.lives, this.file);
 
-  String get cover => 'assets/covers/$file.jpg';
+  String get cover => 'assets/books_covers/$file.jpg';
 }
 
 const List<_Volume> _volumes = [
@@ -92,11 +94,6 @@ class _LibraryScreenState extends State<LibraryScreen>
   late final AnimationController _reveal =
       AnimationController(vsync: this, duration: kPageArriveDuration);
 
-  /// Скрита ли е системната лента в момента. Пази се, за да не се вика
-  /// SystemChrome при всяко преизграждане — всяка смяна на режима
-  /// преоразмерява прозореца веднъж.
-  bool _immersive = false;
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -105,34 +102,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     for (final c in _covers) {
       precacheImage(c, context);
     }
-    _setImmersive(true);
   }
 
-  /// Системната лента се скрива за ЦЕЛИЯ екран, не само легнало.
-  ///
-  /// Легнало причината е хармонията: лентата реже горния ръб на тестето.
-  /// Изправено причината е друга и по-важна — ЧЕТЕЦЪТ също се отваря без
-  /// лента (виж BookReader.initState). Различават ли се двата екрана,
-  /// смяната на режима пада точно по средата на прехода между тях: полето
-  /// отгоре изчезва, целият изглед се пренарежда и страницата подскача
-  /// нагоре, докато се проявява. Преходът не бива да пресича такава граница.
-  void _setImmersive(bool on) {
-    if (_immersive == on) return;
-    _immersive = on;
-    SystemChrome.setEnabledSystemUIMode(
-      on ? SystemUiMode.immersiveSticky : SystemUiMode.manual,
-      overlays: on ? const [] : SystemUiOverlay.values,
-    );
-  }
-
-  @override
-  void dispose() {
-    // ЗАДЪЛЖИТЕЛНО: режимът важи за ЦЯЛОТО приложение, не за екрана. Без това
-    // календарът остава без системна лента, ако човек излезе оттук легнало.
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-        overlays: SystemUiOverlay.values);
-    super.dispose();
-  }
 
   /// Отваря том с движение, а не с премигване (виж book_open_transition.dart).
   ///
@@ -220,32 +191,9 @@ class _LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  /// Подът под тестето: отражението трябва да ляга върху нещо, инак виси в
-  /// празното. Тъмно горе, малко по-светло долу — както при оригинала.
-  Widget _backdrop({required Widget child}) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF0A0A0C), Color(0xFF17171B), Color(0xFF0E0E11)],
-          stops: [0.0, 0.62, 1.0],
-        ),
-      ),
-      child: child,
-    );
-  }
-
-  Widget _deck() => CoverFlow(
-        key: _flow,
-        covers: _covers,
-        initialIndex: _index,
-        onSelected: (i) => setState(() => _index = i),
-        onOpen: _open,
-      );
-
   /// Долният панел: кой том е избран и какво носи.
   Widget _info() {
+
     final v = _volumes[_index];
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
@@ -298,100 +246,18 @@ class _LibraryScreenState extends State<LibraryScreen>
       ),
     );
   }
-
-  /// Стрелката „назад" за легналия изглед.
-  ///
-  /// Легнало лента няма — тя би отнела височина тъкмо там, където всяка е
-  /// нужна на кориците, и би разбила тъмнината. Но с нея си отива и
-  /// единственият изход от екрана, тъй че стрелката остава сама, като
-  /// плаващо копче.
-  ///
-  /// Мястото и размерът ѝ са ТОЧНО тези на лентовата стрелка: гнездо 56×44,
-  /// иконка в средата му. Така, ако човек завърти телефона, копчето не
-  /// подскача.
-  Widget _floatingBack() {
-    return Positioned(
-      left: 0,
-      top: 0,
-      child: SizedBox(
-        width: 56,
-        height: 44,
-        child: Center(
-          child: Material(
-            color: Colors.black.withValues(alpha: 0.38),
-            shape: const CircleBorder(),
-            clipBehavior: Clip.antiAlias,
-            child: InkWell(
-              onTap: () => Navigator.of(context).maybePop(),
-              child: const SizedBox(
-                width: 40,
-                height: 40,
-                child: Icon(Icons.arrow_back,
-                    size: 22, color: AppColors.textPrimary),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  /// Легнало: тестето е целият екран, а името на тома стои дискретно долу —
-  /// колкото да се провери, не да се чете.
-  Widget _landscape() {
-    final v = _volumes[_index];
-    return Stack(
-      children: [
-        Positioned.fill(child: _deck()),
-        _floatingBack(),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 10,
-          child: IgnorePointer(
-            child: Text(
-              '${v.month} · том ${v.roman}',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: AppColors.textSecondary.withValues(alpha: 0.85),
-                fontSize: 13,
-                letterSpacing: 1.1,
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    final landscape =
-        MediaQuery.orientationOf(context) == Orientation.landscape;
-    return Scaffold(
-      backgroundColor: const Color(0xFF0A0A0C),
-      extendBodyBehindAppBar: landscape,
-      appBar: landscape
-          ? null
-          : AppBar(
-              backgroundColor: AppColors.toolbar,
-              // Същата височина като в справочните секции и в четеца —
-              // лентите на приложението не бива да си играят на различни.
-              toolbarHeight: 44,
-              title: const Text('Месецослов'),
-            ),
-      body: _backdrop(
-        child: SafeArea(
-          child: landscape
-              ? _landscape()
-              : Column(
-                  children: [
-                    Expanded(child: _deck()),
-                    Expanded(child: _info()),
-                  ],
-                ),
-        ),
-      ),
+    return CoverPickerScaffold(
+      title: 'Месецослов',
+      covers: _covers,
+      index: _index,
+      onIndexChanged: (i) => setState(() => _index = i),
+      onOpen: _open,
+      flowKey: _flow,
+      infoBuilder: (_, __) => _info(),
+      landscapeLabel: (i) =>
+          '${_volumes[i].month} · том ${_volumes[i].roman}',
     );
   }
 }

@@ -10,6 +10,16 @@ class AppSettings {
   // true = стар стил е водещ (вляво), false = нов стил е водещ.
   // По подразбиране нов стил, защото повечето хора очакват точно него.
   static bool oldStyleFirst = false;
+
+  /// Показва ли се въвеждащият екран с изборa на стил при стартиране.
+  ///
+  /// По подразбиране ДА: човек, който отваря календара за пръв път, трябва
+  /// да реши по кой стил да го чете, а това решение не бива да е скрито в
+  /// настройките зад таблица, която вече е избрала вместо него.
+  ///
+  /// Изключва се от чекбокса на самия екран или от суича в настройките —
+  /// двете пипат едно и също поле.
+  static bool showWelcome = true;
   // Текуща страница
   static int currentPage = 0;
   // Днешната дата (по нов стил) — постоянно маркирана
@@ -44,6 +54,7 @@ class AppSettings {
   // работа на диска.
   static const String _kIsOldStyle = 'settings_is_old_style';
   static const String _kOldStyleFirst = 'settings_old_style_first';
+  static const String _kShowWelcome = 'settings_show_welcome';
 
   /// Зарежда запазените настройки. Вика се ВЕДНЪЖ, преди runApp (виж
   /// main.dart) — базата данни се избира според isOldStyle, така че
@@ -52,12 +63,14 @@ class AppSettings {
     final prefs = await SharedPreferences.getInstance();
     isOldStyle = prefs.getBool(_kIsOldStyle) ?? isOldStyle;
     oldStyleFirst = prefs.getBool(_kOldStyleFirst) ?? oldStyleFirst;
+    showWelcome = prefs.getBool(_kShowWelcome) ?? showWelcome;
   }
 
   static Future<void> save() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kIsOldStyle, isOldStyle);
     await prefs.setBool(_kOldStyleFirst, oldStyleFirst);
+    await prefs.setBool(_kShowWelcome, showWelcome);
   }
 
   // --- Отложен запис ---------------------------------------------------
