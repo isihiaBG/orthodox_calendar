@@ -46,8 +46,8 @@ const List<_Style> _styles = [
   _Style(
     cover: 'assets/calendar_covers/Cover_01.jpg',
     name: 'Нов стил',
-    note: 'Църковните дати съвпадат с гражданските.\n'
-        'Така е в повечето български храмове.',
+    note: 'Празниците са по Григорианския календар.\n'
+        'Показва се само нов стил',
     isOldStyle: false,
     oldStyleFirst: false,
   ),
@@ -62,7 +62,7 @@ const List<_Style> _styles = [
   _Style(
     cover: 'assets/calendar_covers/Cover_03.jpg',
     name: 'Стар стил',
-    note: 'Водеща е църковната дата, а гражданската справочно след нея.\n'
+    note: 'Водеща е църковната дата, а гражданската стои справочно след нея.\n'
         'По трудно е за ориентиране.',
     isOldStyle: true,
     oldStyleFirst: true,

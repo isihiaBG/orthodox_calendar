@@ -126,12 +126,15 @@ List<_Block> _parseBlocks(String html) {
     if (text.isEmpty) continue;
     final clsMatch =
         RegExp(r'class="([^"]*)"', caseSensitive: false).firstMatch(attrs);
+    final cls = clsMatch?.group(1) ?? ''; // <- беше пропуснато
+    
     blocks.add(_Block(
       text,
       isHeading: tag != 'p',
       isItalic: attrs.contains('italic-center') ||
           attrs.contains('trans') ||
-          attrs.contains('source'),
+          attrs.contains('source') ||
+          cls.contains('memorydate'), //My Bugfix #1
       startsItalic:
           RegExp(r'^\s*<(?:em|i)\b', caseSensitive: false).hasMatch(inner),
       cls: clsMatch?.group(1) ?? '',
@@ -346,15 +349,28 @@ class _Note {
 List<_Note> _collectNotes(String html) {
   final out = <_Note>[];
   final seen = <String>{};
+
+  // Търси и двата варианта:   [My Bugfix #2]
+  // 1. <a title="..."><sup>...</sup></a>
+  // 2. <sup><a title="...">...</a></sup>
   final re = RegExp(
-    r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>',
+    r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>|'
+    r'<sup[^>]*>\s*<a\b[^>]*?title="([^"]*)"[^>]*>(.*?)</a>\s*</sup>',
+
+  // final re = RegExp(  // преди търсеше само единия вариант 
+  //   r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>',
     caseSensitive: false,
     dotAll: true,
   );
+  
   for (final m in re.allMatches(html)) {
-    final title = _decodeEntities(m.group(1)!).trim();
-    final num = _decodeEntities(m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), ''))
-        .trim();
+    final title   = m.group(1) ?? m.group(3) ?? '';
+    final numText = m.group(2) ?? m.group(4) ?? '';
+    final num = _decodeEntities(numText.replaceAll(RegExp(r'<[^>]+>'), '').trim());
+
+  //   final title = _decodeEntities(m.group(1)!).trim();
+  //   final num = _decodeEntities(m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), ''))
+  //       .trim();
     if (title.isEmpty || num.isEmpty || !seen.add(num)) continue;
     out.add(_Note(num, title));
   }
@@ -829,12 +845,31 @@ Future<void> sharePdf({
                         ? _dim
                         : _ink),
               );
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              // 🔥 НОВ КОД ЗА MEMORYDATE: центриран с pw.Center + pw.Text
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              if (isMemoryDate) {
+                // Центриран текст - без RichText
+                widgets.add(pw.Center(
+                  child: pw.Text(
+                    blockText,
+                    style: style,
+                    textAlign: pw.TextAlign.center,
+                  ),
+                ));
+                // След memorydate добавяме стандартно отстояние
+                widgets.add(pw.SizedBox(height: 20));
+                continue;  // ← ПРОПУСКАМЕ ОСТАНАЛАТА ЛОГИКА за този блок
+              }
+              // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+              
               // Отстъп на ПЪРВИЯ ред (като tab). pdf пакетът няма
               // "text-indent", затова слагаме невидима кутия като първи
               // inline елемент — тя засяга само първия ред, не пренесените.
               // Абзацът с буквицата и източникът се пропускат, както и
               // остатъкът от абзац, започнат при заглавието си отгоре —
               // той е продължение, а не ново начало.
+              
               final isContinuation = blockText != b.text;
               final indent = (!dropCapUsed ||
                       isContinuation ||
@@ -859,9 +894,11 @@ Future<void> sharePdf({
               final paragraph = pw.RichText(
                 // Редът с паметта е ЦЕНТРИРАН, както в четеца; разлятото
                 // подравняване е за същинския текст.
+                
                 textAlign:
                     isMemoryDate ? pw.TextAlign.center : pw.TextAlign.justify,
                 // Без това дългите абзаци не могат да се разделят на страници.
+                
                 overflow: pw.TextOverflow.span,
                 text: pw.TextSpan(
                   style: style,
@@ -980,6 +1017,15 @@ Future<void> sharePdf({
         // паднали, строиш пак, — което е крехко. Тук са в края, както е
         // обичайно за такива издания (медиана 4 бележки на житие).
         final notes = _collectNotes(bodyHtml);
+        // ВРЕМЕННО за диагностика — да се махне.
+        // ignore: avoid_print
+        final supAt = bodyHtml.indexOf('<sup');
+        print('ДИАГНОСТИКА notes.length=${notes.length} supAt=$supAt');
+        if (supAt >= 0) {
+          final a = (supAt - 120).clamp(0, bodyHtml.length);
+          final b = (supAt + 60).clamp(0, bodyHtml.length);
+          print('ДИАГНОСТИКА около <sup>: ${bodyHtml.substring(a, b)}');
+        }
         if (notes.isNotEmpty) {
           widgets.add(pw.SizedBox(height: 26));
           widgets.add(pw.Container(
