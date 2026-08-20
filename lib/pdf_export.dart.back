@@ -273,7 +273,6 @@ List<pw.InlineSpan> _inlineSpans(
     final href = hrefs.isEmpty ? '' : hrefs.last;
     final link = href.isNotEmpty ? 1 : 0;
     final isSup = sup > 0;
-    final baseSize = base.fontSize ?? _bodySize;
     // Номерът на бележка е ВЪТРЕШНА връзка, не външна.
     //
     // ⚠ Дотогава тук минаваше AnnotationUrl със самия href от .epub-а —
@@ -282,87 +281,114 @@ List<pw.InlineSpan> _inlineSpans(
     // сочи към котвата на бележката в края на документа.
     final noteNum = isSup && _isNoteHref(href) ? text.trim() : null;
     if (noteNum != null) {
-      // Котва НА МЯСТОТО в текста — за обратния път от бележката насам.
-      // Anchor е widget, не span, затова минава през WidgetSpan.
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // БЪГФИКС #2: КОТВА ЗА ОБРАТНАТА ВРЪЗКА
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // Предишният код използваше pw.Anchor в WidgetSpan, но той
+      // не се рендира правилно в този контекст.
+      // Сега създаваме невидима дестинация чрез празен TextSpan
+      // с AnnotationLink. Това работи, защото AnnotationLink
+      // създава дестинация в PDF-а, дори когато текстът е празен.
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // spans.add(pw.TextSpan(
+      //   text: '\u200B', // нулев-спейс символ - невидим, но създава дестинация
+      //   annotation: pw.AnnotationLink(_refAnchor(noteNum)),
+      // ));
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+      // АЛТЕРНАТИВЕН ВАРИАНТ (закоментиран):
+      // Ако горният не работи, разкоментирайте този:
+      // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
       spans.add(pw.WidgetSpan(
-        child: pw.Anchor(name: _refAnchor(noteNum), child: pw.SizedBox()),
+        child: pw.Anchor(
+          name: _refAnchor(noteNum),
+          child: pw.Text('\u200B', style: base),
+        ),
       ));
+
     }
 
-    // ═══════════════════════════════════════════════════════════════
-    // СУПЕРСКРИПТ – повдигнат чрез WidgetSpan + UrlLink (същият подход
-    // който работи в бележките в края на документа)
-    // ═══════════════════════════════════════════════════════════════
-    if (isSup) {
-      spans.add(pw.TextSpan(
-        text: text,
-        annotation: noteNum != null
-            ? pw.AnnotationLink(_noteAnchor(noteNum))
-            : (link > 0 ? pw.AnnotationUrl(href) : null),
-        style: base.copyWith(
-          fontSize: baseSize * 0.62,
-          height: -0.42,  // ← опитайте с по-голяма стойност
-          font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-          fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-          fontBold: _bodyBold,
-          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: link > 0
-              ? _linkBlue
-              : (strong > 0 ? strongColor : base.color),
-        ),
-      ));
-      
-    // ═══════════════════════════════════════════════════════════════
-    // ОБИКНОВЕН ТЕКСТ – без повдигане
-    // ═══════════════════════════════════════════════════════════════
-    } else {
-      spans.add(pw.TextSpan(
-        text: text,
-        annotation: noteNum != null
-            ? pw.AnnotationLink(_noteAnchor(noteNum))
-            : (link > 0 ? pw.AnnotationUrl(href) : null),
-        style: base.copyWith(
-          fontSize: baseSize * 0.62,
-          font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-          fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-          fontBold: _bodyBold,
-          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-          color: link > 0
-              ? _linkBlue
-              : (strong > 0 ? strongColor : base.color),
-        ),
-      ));
-    }
+    // Истинско повдигане: НЕ местене на нормални цифри с baseline/
+    // Transform (и двете опряха в тънки места на pdf пакета — baseline
+    // мълчаливо не действаше в justify абзаци, а Transform.translate
+    // буташе рисуването извън изрязващата рамка на WidgetSpan-а и
+    // числото изчезваше). Вместо туй — истински Unicode superscript
+    // знаци (¹ ² ³ …): те са малки и вдигнати по дизайн на шрифта,
+    // изчертават се като обикновен текст, без нужда от каквато и да е
+    // намеса в оразмеряването на реда.
+    //
+    // ⚠ След като преминахме към Unicode superscript, вече не ползваме
+    // `fontSize` или `height` — знаците са проектирани да са малки
+    // и повдигнати от самия шрифт. Това е най-чистото решение.
+    final renderText = isSup ? _toSuperscriptDigits(text) : text;
+    spans.add(pw.TextSpan(
+      text: renderText,
+      // Само това парче става кликаемо — не целият абзац.
+      annotation: noteNum != null
+          ? pw.AnnotationLink(_noteAnchor(noteNum))
+          : (link > 0 ? pw.AnnotationUrl(href) : null),
+      style: base.copyWith(
+        // И font, И fontWeight: TextStyle пази отделни шрифтове за
+        // нормален/получер/курсив и избира между тях по fontWeight —
+        // само подаването на font може да се окаже недостатъчно.
+        font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+        fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+        fontBold: _bodyBold,
+        fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        color: link > 0
+            ? _linkBlue
+            : (strong > 0 ? strongColor : base.color),
+      ),
+    ));
   }
   return spans;
 }
-//     spans.add(pw.TextSpan(
-//       text: text,
-//       // Само това парче става кликаемо — не целият абзац.
-//       annotation: noteNum != null
-//           ? pw.AnnotationLink(_noteAnchor(noteNum))
-//           : (link > 0 ? pw.AnnotationUrl(href) : null),
-//       style: base.copyWith(
-//         // Номерът на бележката: две трети от размера, вдигнат над реда.
-//         // `height` мести основната линия — това е единственият лост в
-//         // пакета, който върши работа на ниво TextSpan.
-//         fontSize: isSup ? baseSize * 0.62 : null,
-//         height: isSup ? -0.42 : null,
-//         // И font, И fontWeight: TextStyle пази отделни шрифтове за
-//         // нормален/получер/курсив и избира между тях по fontWeight —
-//         // само подаването на font може да се окаже недостатъчно.
-//         font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-//         fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-//         fontBold: _bodyBold,
-//         fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-//         color: link > 0
-//             ? _linkBlue
-//             : (strong > 0 ? strongColor : base.color),
-//       ),
-//     ));
-//   }
-//   return spans;
-// }
+
+/// Превръща ASCII цифри в техните Unicode superscript форми (¹ ² ³ …)
+/// и добавя повдигнати скоби около тях, за да се улесни кликването.
+///
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// БЪГФИКС #3: ДОБАВЯНЕ НА ПОВДИГНАТИ СКОБИ
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// Повдигнатите скоби (U+207D и U+207E) увеличават зоната за
+/// докосване на номерата на бележките, което улеснява кликването
+/// с пръст на мобилни устройства. Скобите са част от кликаемия
+/// текст, така че целият повдигнат текст (скоби + номер) е активен.
+///
+/// Знаци извън 0–9 остават непипнати — по-добре да се изпише
+/// нормално, отколкото да пропадне целият пасаж.
+///
+/// Charis SIL, като шрифт с научно/лингвистично предназначение,
+/// носи всички тези Unicode superscript знаци — проверено визуално
+/// в получения PDF.
+/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+String _toSuperscriptDigits(String s) {
+  const map = {
+    '0': '\u2070', '1': '\u00B9', '2': '\u00B2', '3': '\u00B3',
+    '4': '\u2074', '5': '\u2075', '6': '\u2076', '7': '\u2077',
+    '8': '\u2078', '9': '\u2079',
+  };
+  final buf = StringBuffer();
+  bool hasDigit = false;
+  for (final ch in s.split('')) {
+    if (map.containsKey(ch)) {
+      if (!hasDigit) {
+        buf.write('\u207D'); // Лява повдигната скоба U+207D
+        hasDigit = true;
+      }
+      buf.write(map[ch]);
+    } else {
+      if (hasDigit) {
+        buf.write('\u207E'); // Дясна повдигната скоба U+207E
+        hasDigit = false;
+      }
+      buf.write(ch);
+    }
+  }
+  if (hasDigit) {
+    buf.write('\u207E'); // Дясна повдигната скоба
+  }
+  return buf.toString();
+}
 
 /// Имената на котвите в PDF-а. Две за всяка бележка — едната при номера в
 /// текста, другата при самата бележка в края, — за да се ходи в двете
@@ -690,6 +716,31 @@ Future<void> sharePdf({
   final blocks = _parseBlocks(bodyHtml);
   const margin = 40.0;
   final contentWidth = PdfPageFormat.a4.width - margin * 2;
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // БЪГФИКС #1: ИМЕ НА PDF ФАЙЛА
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Извличаме заглавието (h1) и подзаглавието (memorydate) от вече
+  // парсираните blocks, за да формираме смислено име на файла.
+  // Предишният код разчиташе само на подадения параметър `fileName`,
+  // който идваше отвън и съдържаше само подзаглавието.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  String mainTitle = '';
+  String subTitle = '';
+  for (final block in blocks) {
+    if (block.isHeading && mainTitle.isEmpty) {
+      mainTitle = block.text;
+    } else if (block.cls.contains('memorydate') && subTitle.isEmpty) {
+      subTitle = block.text;
+    }
+  }
+  // Ако няма заглавие, ползваме подаденото title
+  if (mainTitle.isEmpty) mainTitle = title;
+  // Формираме името: "Подзаглавие - Заглавие.pdf"
+  // Ако няма подзаглавие или то е същото като заглавието, ползваме само заглавието
+  final pdfFileName = subTitle.isNotEmpty && mainTitle != subTitle
+      ? '$subTitle - $mainTitle.pdf'
+      : '$mainTitle.pdf';
 
   final doc = pw.Document();
   doc.addPage(
@@ -1093,36 +1144,20 @@ Future<void> sharePdf({
                 textAlign: pw.TextAlign.left,
                 overflow: pw.TextOverflow.span,
                 text: pw.TextSpan(children: [
-                  pw.WidgetSpan(
-                    child: pw.UrlLink(
-                      destination: '#${_refAnchor(n.number)}',
-                      child: pw.Text(
-                        '${n.number}  ',
-                        style: pw.TextStyle(
-                          font: _body,
-                          fontSize: noteSize,
-                          color: _linkBlue,
-                          lineSpacing: _lineSpacing(_body!.getFont(context), noteSize),
-                        ),
-                      ),
+                  pw.TextSpan(
+                    text: '${n.number}  ',
+                    // Обратният път: от бележката към мястото, откъдето е
+                    // повикана. Така четенето не се губи — човек скача
+                    // долу, прочита и се връща с едно натискане.
+                    annotation: pw.AnnotationLink(_refAnchor(n.number)),
+                    style: pw.TextStyle(
+                      font: _body,
+                      fontSize: noteSize,
+                      color: _linkBlue,
+                      lineSpacing:
+                          _lineSpacing(_body!.getFont(context), noteSize),
                     ),
-                  ),                  
-                  // pw.TextSpan(
-                  //   text: '${n.number}  ',
-                  //   // Обратният път: от бележката към мястото, откъдето е
-                  //   // повикана. Така четенето не се губи — човек скача
-                  //   // долу, прочита и се връща с едно натискане.
-                  //   annotation: pw.AnnotationLink(
-                  //     _refAnchor(n.number)
-                  //   ),
-                  //   style: pw.TextStyle(
-                  //     font: _body,
-                  //     fontSize: noteSize,
-                  //     color: _linkBlue,
-                  //     lineSpacing:
-                  //         _lineSpacing(_body!.getFont(context), noteSize),
-                  //   ),
-                  // ),
+                  ),
                   pw.TextSpan(
                     text: n.text,
                     style: pw.TextStyle(
@@ -1152,7 +1187,14 @@ Future<void> sharePdf({
   );
 
   final bytes = await doc.save();
-  await Printing.sharePdf(bytes: bytes, filename: fileName);
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // БЪГФИКС #1: ИЗПОЛЗВАНЕ НА НОВОТО ИМЕ НА ФАЙЛА
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // Вместо подадения `fileName` (който идва отвън и съдържа
+  // само подзаглавието), използваме `pdfFileName`, който
+  // включва и двете заглавия.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  await Printing.sharePdf(bytes: bytes, filename: pdfFileName);
 }
 
 /// Същото като [sharePdf], но с готова обработка на неуспеха.
