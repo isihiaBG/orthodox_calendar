@@ -330,9 +330,9 @@ class _PreparedContent {
 _PreparedContent _prepareReaderContent(_PrepareArgs args) {
   final html = _buildHtmlFor(args.mode, args.texts);
   final isLife = args.mode == _ReaderMode.life;
-  final (beforeHtml, dropCap, firstP, afterHtml) = isLife
+  final (beforeHtml, _, dropCap, firstP, afterHtml) = isLife
       ? splitDropCap(html)
-      : (html, '', '', '');
+      : (html, '', '', '', '');
 
   // Житието има ли собствено заглавие (<h1>..<h6> преди първия абзац)? Ако
   // да — нашето име отгоре е излишно и се пропуска, за да няма два почти

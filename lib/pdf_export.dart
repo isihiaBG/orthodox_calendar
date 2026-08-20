@@ -492,10 +492,36 @@ List<pw.InlineSpan> _spansAfter(List<pw.InlineSpan> spans, int skip) {
   return out;
 }
 
+/// Отваряща кавичка от какъвто и да е вид — виж коментара при
+/// [_dropCapLetterInfo] по-долу.
+const _openQuotes = {
+  '„', '\u201c', '\u201d', '«', '\u2039', '\u2018', '\u2019', '"', "'",
+};
+
+/// Кой знак носи буквицата и колко знака трябва да отпаднат от началото на
+/// текста, за да продължи нормалният поток. Обикновено е просто първият
+/// знак (skip: 1). Ако абзацът започва с отваряща кавичка, последвана от
+/// истинска буква ("„Да се пази…"), буквицата пада на БУКВАТА (не на
+/// кавичката), а кавичката се връща отделно, за да увисне вляво от
+/// буквицата — вижте употребата ѝ в [_dropCapWidgets].
+///
+/// Преди кавичка от този вид изхвърляше целия абзац от буквицата — тя
+/// кацаше на следващия, съвсем различен абзац. Виж същия проблем и
+/// поправка в четеца (drop_cap.dart, splitDropCap).
+({String quote, String cap, int skip}) _dropCapLetterInfo(String text) {
+  if (text.isEmpty) return (quote: '', cap: '', skip: 0);
+  final first = text.substring(0, 1);
+  if (_openQuotes.contains(first) && text.length > 1) {
+    return (quote: first, cap: text.substring(1, 2), skip: 2);
+  }
+  return (quote: '', cap: first, skip: 1);
+}
+
 /// Кой абзац заслужава буквица — същите правила като в четеца
-/// (_splitDropCap): пропускат се редакторски бележки в скоби, цитати,
-/// курсивни акценти и всичко, което не започва с истинска буква. Търси се
-/// само в началото на текста, не насред него.
+/// (_splitDropCap): пропускат се редакторски бележки в скоби, курсивни
+/// акценти и всичко, което не започва с истинска буква (евентуално през
+/// отваряща кавичка — виж [_dropCapLetterInfo]). Търси се само в началото
+/// на текста, не насред него.
 bool _eligibleForDropCap(_Block b) {
   if (b.isHeading || b.isItalic || b.startsItalic) return false;
   // ⚠ Редът с паметта („Памет на 9 август") е УКАЗАНИЕ, не начало на
@@ -506,10 +532,14 @@ bool _eligibleForDropCap(_Block b) {
   // без нея буквицата кацаше върху него и излизаше „П|амет на 9 август",
   // а истинското начало („Когато на престола…") оставаше без нея.
   if (b.cls.contains('memorydate')) return false;
-  const skipChars = {'(', "'", '*', '/', '«', '"', '['};
-  final first = b.text.isEmpty ? '' : b.text.substring(0, 1);
-  if (first.isEmpty || skipChars.contains(first)) return false;
-  return RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(first);
+  // Наистина "скипващи" знаци — бележки в скоби, звездички, разделител
+  // на сцена. Кавичките НЕ са тук вече — те минават през _dropCapLetterInfo.
+  const skipChars = {'(', '*', '/', '['};
+  if (b.text.isEmpty) return false;
+  final first = b.text.substring(0, 1);
+  if (skipChars.contains(first)) return false;
+  final info = _dropCapLetterInfo(b.text);
+  return RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(info.cap);
 }
 
 /// Колко реда заема текстът при дадена ширина.
@@ -586,6 +616,11 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
       font: _body, fontSize: _bodySize,
       lineSpacing: _lineSpacing(measureFont, _bodySize), color: _ink);
 
+  // Буквата на буквицата и евентуалната кавичка пред нея — смятаме го
+  // ВЕДНЪЖ тук, защото трябва навсякъде долу: колко знака да отпаднат от
+  // текста (skip) И самите знаци за рисуване накрая.
+  final dropInfo = _dropCapLetterInfo(blocks[start].text);
+
   final beside = <pw.Widget>[]; // фрагментите вдясно от буквицата
   final tail = <pw.Widget>[]; // онова, което продължава под нея
   var consumed = 0;
@@ -606,8 +641,8 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
 
     var spans = _inlineSpans(b.inner.isEmpty ? b.text : b.inner, style,
         strongColor: strongColor);
-    // Първата буква вече е нарисувана като буквица.
-    if (isFirst) spans = _spansAfter(spans, 1);
+    // Първият знак (или кавичка + знак) вече е нарисуван като буквица.
+    if (isFirst) spans = _spansAfter(spans, dropInfo.skip);
     // Само текстовите парчета — котвите нямат ширина и не влизат в
     // мярката на редовете.
     final plain =
@@ -667,7 +702,6 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
     break;
   }
 
-  final letter = blocks[start].text;
   return (
     consumed: consumed == 0 ? 1 : consumed,
     widgets: [
@@ -683,13 +717,48 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
           // блока. Глифът просто "виси" извън кутията — точно каквото искаме.
           width: capWidth,
           height: capLines * lineHeightPt,
-          child: pw.Transform.translate(
-            // Положителна стойност = НАГОРЕ (проверено емпирично:
-            // отрицателната свали буквата върху следващия ред).
-            offset: PdfPoint(0, capShift),
-            child: pw.Text(letter.isEmpty ? '' : letter.substring(0, 1),
-                style: pw.TextStyle(
-                    font: _dropCapFont, fontSize: capFontSize, color: _wine)),
+          // Stack, не просто Transform: кавичката (ако има) виси ОТВЪН тази
+          // кутия, вляво — `pw.Positioned` с отрицателен `left`.
+          //
+          // ⚠ pw.Stack по подразбиране изрязва децата си на границите си
+          // (overflow: Overflow.clip) — точно обратното на нужното тук.
+          // Без изричното overflow: Overflow.visible кавичката просто
+          // изчезва, също като квадратчето за непознат символ по-рано.
+          child: pw.Stack(
+            overflow: pw.Overflow.visible,
+            children: [
+              pw.Transform.translate(
+                // Положителна стойност = НАГОРЕ (проверено емпирично:
+                // отрицателната свали буквата върху следващия ред).
+                offset: PdfPoint(0, capShift),
+                child: pw.Text(dropInfo.cap,
+                    style: pw.TextStyle(
+                        font: _dropCapFont,
+                        fontSize: capFontSize,
+                        color: _wine)),
+              ),
+              if (dropInfo.quote.isNotEmpty)
+                pw.Positioned(
+                  // ⚠ "На око", за разлика от Transform по-горе тук
+                  // top/left са в обичайната посока (надолу/наляво),
+                  // както навсякъде другаде в pdf пакета (напр.
+                  // EdgeInsets.only(top:...)) — Positioned е layout
+                  // widget, не суров canvas transform. Буквицата има
+                  // голямо празно поле над истинския си глиф, затова
+                  // визуално стърчи над реда въпреки capShift — кавичката
+                  // трябва да излезе на височината на ПЪРВИЯ РЕД от
+                  // съседния текст (там, където той тръгва след
+                  // EdgeInsets.only(top: capRise) вдясно), не на върха на
+                  // буквата. Провери визуално и подкарай тези константи.
+                  top: capRise * 0.15,
+                  left: -_bodySize * 0.25, //0.95,
+                  child: pw.Text(dropInfo.quote,
+                      style: pw.TextStyle(
+                          font: _body,
+                          fontSize: _bodySize * 1.35,
+                          color: _wine)), //_ink)),
+                ),
+            ],
           ),
         ),
         pw.SizedBox(width: 8),

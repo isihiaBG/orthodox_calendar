@@ -751,12 +751,7 @@ class _BookReaderState extends State<BookReader>
   /// Регионите на текущата глава — същото деление, което рисува build().
   List<ReaderRegion> _currentRegions() {
     final body = _normalize(widget.book.readFile(_current.href) ?? '');
-    // ⚠ splitDropCap сега връща и евентуална отваряща кавичка пред
-    // буквицата (виж drop_cap.dart) — не се ползва тук (само за преброяване
-    // на региони), затова е "_" и не се подава на computeRegions: тя строи
-    // региони от текст (beforeHtml/firstP/afterHtml), не от глифа на
-    // буквицата — той се подава директно на DropCapParagraph по-долу.
-    final (beforeHtml, _, dropCap, firstP, afterHtml) = splitDropCap(body);
+    final (beforeHtml, dropCap, firstP, afterHtml) = splitDropCap(body);
     return computeRegions(beforeHtml, dropCap, firstP, afterHtml);
   }
 
@@ -1297,8 +1292,7 @@ class _BookReaderState extends State<BookReader>
     //
     // Маркирането се нанася ПО РЕГИОНИ, с текущо отместване на броя, за да
     // остане номерацията на съвпаденията същата като преди.
-    final (beforeHtml, leadingQuote, dropCap, firstP, afterHtml) =
-        splitDropCap(body);
+    final (beforeHtml, dropCap, firstP, afterHtml) = splitDropCap(body);
     final regions = computeRegions(beforeHtml, dropCap, firstP, afterHtml);
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
@@ -1368,9 +1362,6 @@ class _BookReaderState extends State<BookReader>
           child: DropCapParagraph(
             key: _dropCapKey,
             dropCap: dropCap,
-            // Отварящата кавичка (ако има) пред буквицата — виси вляво от
-            // нея, виж drop_cap.dart.
-            leadingQuote: leadingQuote,
             // Същата сметка като в четеца на жития: 5,5 реда височина, с
             // корекция за ascender-а на Bukvica.
             dropCapSize: lineHeightPx * 5.5 * 0.82,

@@ -189,10 +189,6 @@ class DropCapParagraph extends StatefulWidget {
   final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
   final double lineFactor;   // коефициентът за TextStyle.height (напр. 1.25)
   final String firstParagraph; // HTML съдържанието на първия <p> (без буквата)
-  /// Отваряща кавичка ПРЕДИ буквицата ("„Думи…" → буквицата е "Д", тук е
-  /// „). Празен низ — обичайният случай, без кавичка. Виси вляво от
-  /// буквицата (виж build()), не заема отделен ред в потока на текста.
-  final String leadingQuote;
   /// Следващият абзац. Влиза вдясно от буквицата, ако първият не запълва
   /// петте реда; иначе се изписва под нея, както би стоял и без това.
   final String secondParagraph;
@@ -221,7 +217,6 @@ class DropCapParagraph extends StatefulWidget {
     required this.inkColor,
     required this.linkColor,
     required this.onLinkTap,
-    this.leadingQuote = '',
     this.searchQuery = '',
     this.firstGlobalMatchIndex = 0,
     this.currentGlobalMatch = -1,
@@ -690,50 +685,17 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               children: [
                 SizedBox(
                   width: capWidth,
-                  // Stack, не просто Transform: кавичката виси ОТВЪН тази
-                  // кутия (отрицателен `left`), а Stack по подразбиране
-                  // изрязва децата си по границите си — clipBehavior.none
-                  // го спира.
-                  child: Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-                      Transform.translate(
-                        offset: const Offset(0, 2),
-                        child: Text(
-                          widget.dropCap,
-                          style: TextStyle(
-                            fontFamily: kDropCapFamily,
-                            fontSize: widget.dropCapSize,
-                            height: 1.0,
-                            color: widget.capColor,
-                          ),
-                        ),
+                  child: Transform.translate(
+                    offset: const Offset(0, 2),
+                    child: Text(
+                      widget.dropCap,
+                      style: TextStyle(
+                        fontFamily: kDropCapFamily,
+                        fontSize: widget.dropCapSize,
+                        height: 1.0,
+                        color: widget.capColor,
                       ),
-                      if (widget.leadingQuote.isNotEmpty)
-                        Positioned(
-                          // ⚠ Тези три числа са "на око" — буквицата има
-                          // голямо празно поле над истинския си глиф
-                          // (затова визуално стърчи над реда въпреки
-                          // Offset(0,2) по-горе), а кавичката трябва да
-                          // излезе на височината на ПЪРВИЯ ред от
-                          // текста, не на върха на буквицата. Провери
-                          // визуално и подкарай тези константи, ако не
-                          // паснат за конкретния шрифт/размер.
-                          top: widget.fontSize * -0.5,
-                          left: -widget.fontSize * 0.25, //0.95,
-                          child: Text(
-                            widget.leadingQuote,
-                            style: TextStyle(
-                              fontSize: widget.fontSize * 1.35,
-                              height: 1.0,
-                              // Пунктуация от основния текст, не част от
-                              // орнамента на буквицата — затова inkColor,
-                              // не capColor.
-                              color: widget.capColor, //color: widget.inkColor,
-                            ),
-                          ),
-                        ),
-                    ],
+                    ),
                   ),
                 ),
                 const SizedBox(width: gap),
@@ -781,26 +743,20 @@ class DropCapParagraphState extends State<DropCapParagraph> {
   }
 }
 
-/// Отделя: (HTML преди абзаца с буквицата; евентуална отваряща кавичка ПРЕДИ
-/// буквата; самата буква; текстът на този абзац без кавичката и буквата;
-/// останалият HTML).
+/// Отделя: (HTML преди абзаца с буквицата; първата буква; текстът на
+/// този абзац без буквата; останалият HTML).
 ///
-/// Обхожда абзаците, докато намери такъв, който започва с истинска буква —
-/// евентуално предшествана от отваряща кавичка от какъвто и да е вид ( „ “
-/// ” « ‹ ‘ ’ и правите " ' ). Преди кавичка от този вид просто ИЗХВЪРЛЯШЕ
-/// целия абзац (буквицата кацаше на следващия, съвсем различен абзац —
-/// точно оплакването, което доведе до тази поправка). Сега кавичката не
-/// отменя буквицата: тя пада на буквата ВЕДНАГА след кавичката, а самата
-/// кавичка се връща отделно (3-тия резултат по-долу), за да увисне вляво
-/// от буквицата — виж рисуването ѝ в DropCapParagraph.build().
-(String, String, String, String, String) splitDropCap(String html) {
-  // Тези наистина нямат какво да търсят до буквица — редакторски бележки в
-  // скоби, звездички, наклонена черта за разделител на сцена.
-  const skipChars = {'(', '*', '/', '['};
-  // Отварящи кавички от всякакъв вид — третират се по-специално, виж горе.
-  const openQuotes = {
-    '„', '\u201c', '\u201d', '«', '\u2039', '\u2018', '\u2019', '"', "'",
-  };
+/// Обхожда абзаците, докато намери такъв, който започва с истинска буква.
+/// Така редакторски бележки в скоби ("(не путать с …)"), стоящи между
+/// заглавието и житието, отиват в beforeHtml и се рендват нормално, а
+/// буквицата пада върху първия същински абзац.
+(String, String, String, String) splitDropCap(String html) {
+  // Абзац се ПРОПУСКА, ако същинският му текст започва с един от тези
+  // знаци — редакторски бележки, цитати, бележки под линия и др. —
+  // ИЛИ ако абзацът започва с курсивен таг (<em>/<i>): акцент/курсив
+  // не бива да носи буквица. Курсивните абзаци допълнително се
+  // центрират (клас .italic-center, виж readerStyles).
+  const skipChars = {'(', "'", '*', '/', '«', '"', '['};
   final italicStart = RegExp(r'^\s*<(?:em|i)\b[^>]*>', caseSensitive: false);
 
   int scanned = 0;
@@ -819,48 +775,29 @@ class DropCapParagraphState extends State<DropCapParagraph> {
       continue;
     }
 
-    // Първите ДВА значими символа, прескачайки HTML тагове и интервали —
-    // вторият е нужен само за да проверим какво стои зад евентуална
-    // кавичка на позиция първа.
-    final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)(?:\s|<[^>]+>)*(\S)?')
-        .firstMatch(inner);
+    // Търсим първия ЗНАЧИМ символ, като прескачаме HTML таговете.
+    // Така заглавие в <strong>/<b> в началото на абзаца не пречи —
+    // буквицата пада върху първата истинска буква след тага.
+    final cm = RegExp(r'^(?:\s|<[^>]+>)*(\S)').firstMatch(inner);
     if (cm == null) continue;
     final ch = cm.group(1)!;
 
+    // Пропускаме абзаца при изрично изброените знаци.
     if (skipChars.contains(ch)) continue;
-
-    var quote = '';
-    var capChar = ch;
-    var matchEnd = cm.end; // по подразбиране: режем само първия знак
-    //var matchEnd = cm.end(1); // по подразбиране: режем само първия знак
-
-    if (openQuotes.contains(ch)) {
-      final second = cm.group(2);
-      if (second == null ||
-          !RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(second)) {
-        // Кавичка, последвана от нещо друго освен буква (напр. тире или
-        // край на абзаца) — старото поведение: пропускаме абзаца.
-        continue;
-      }
-      quote = ch;
-      capChar = second;
-      matchEnd = cm.end; // сега режем кавичката И буквата заедно
-    } else if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) {
-      continue; // не е буква (цифра, тире и пр.)
-    }
+    // Пропускаме и ако не е буква (цифри, тирета и пр.).
+    if (!RegExp(r'[А-Яа-яA-Za-zЀ-ӿ]').hasMatch(ch)) continue;
 
     before.write(html.substring(cursor, m.start));
     return (
       before.toString(),
-      quote,
-      capChar,
-      // Запазваме таговете преди буквата (напр. отварящ <strong>), за да
-      // не се загуби форматирането на останалия текст.
-      inner.substring(0, cm.start) + inner.substring(matchEnd),
+      ch,
+      // Запазваме таговете преди буквата (напр. отварящ <strong>),
+      // за да не се загуби форматирането на останалия текст.
+      inner.substring(0, cm.start) + inner.substring(cm.end),
       html.substring(m.end),
     );
   }
   // Няма подходящ абзац за буквица — връщаме html, но със запазени
   // центрирания за курсивните абзаци, засечени дотук.
-  return (before.toString() + html.substring(cursor), '', '', '', '');
+  return (before.toString() + html.substring(cursor), '', '', '');
 }
