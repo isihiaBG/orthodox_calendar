@@ -288,33 +288,81 @@ List<pw.InlineSpan> _inlineSpans(
         child: pw.Anchor(name: _refAnchor(noteNum), child: pw.SizedBox()),
       ));
     }
-    spans.add(pw.TextSpan(
-      text: text,
-      // Само това парче става кликаемо — не целият абзац.
-      annotation: noteNum != null
-          ? pw.AnnotationLink(_noteAnchor(noteNum))
-          : (link > 0 ? pw.AnnotationUrl(href) : null),
-      style: base.copyWith(
-        // Номерът на бележката: две трети от размера, вдигнат над реда.
-        // `height` мести основната линия — това е единственият лост в
-        // пакета, който върши работа на ниво TextSpan.
-        fontSize: isSup ? baseSize * 0.62 : null,
-        height: isSup ? 0.42 : null,
-        // И font, И fontWeight: TextStyle пази отделни шрифтове за
-        // нормален/получер/курсив и избира между тях по fontWeight —
-        // само подаването на font може да се окаже недостатъчно.
-        font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-        fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-        fontBold: _bodyBold,
-        fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-        color: link > 0
-            ? _linkBlue
-            : (strong > 0 ? strongColor : base.color),
-      ),
-    ));
+
+    // ═══════════════════════════════════════════════════════════════
+    // СУПЕРСКРИПТ – повдигнат чрез WidgetSpan + UrlLink (същият подход
+    // който работи в бележките в края на документа)
+    // ═══════════════════════════════════════════════════════════════
+    if (isSup) {
+      spans.add(pw.TextSpan(
+        text: text,
+        annotation: noteNum != null
+            ? pw.AnnotationLink(_noteAnchor(noteNum))
+            : (link > 0 ? pw.AnnotationUrl(href) : null),
+        style: base.copyWith(
+          fontSize: baseSize * 0.62,
+          height: -0.42,  // ← опитайте с по-голяма стойност
+          font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+          fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+          fontBold: _bodyBold,
+          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: link > 0
+              ? _linkBlue
+              : (strong > 0 ? strongColor : base.color),
+        ),
+      ));
+      
+    // ═══════════════════════════════════════════════════════════════
+    // ОБИКНОВЕН ТЕКСТ – без повдигане
+    // ═══════════════════════════════════════════════════════════════
+    } else {
+      spans.add(pw.TextSpan(
+        text: text,
+        annotation: noteNum != null
+            ? pw.AnnotationLink(_noteAnchor(noteNum))
+            : (link > 0 ? pw.AnnotationUrl(href) : null),
+        style: base.copyWith(
+          fontSize: baseSize * 0.62,
+          font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+          fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+          fontBold: _bodyBold,
+          fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+          color: link > 0
+              ? _linkBlue
+              : (strong > 0 ? strongColor : base.color),
+        ),
+      ));
+    }
   }
   return spans;
 }
+//     spans.add(pw.TextSpan(
+//       text: text,
+//       // Само това парче става кликаемо — не целият абзац.
+//       annotation: noteNum != null
+//           ? pw.AnnotationLink(_noteAnchor(noteNum))
+//           : (link > 0 ? pw.AnnotationUrl(href) : null),
+//       style: base.copyWith(
+//         // Номерът на бележката: две трети от размера, вдигнат над реда.
+//         // `height` мести основната линия — това е единственият лост в
+//         // пакета, който върши работа на ниво TextSpan.
+//         fontSize: isSup ? baseSize * 0.62 : null,
+//         height: isSup ? -0.42 : null,
+//         // И font, И fontWeight: TextStyle пази отделни шрифтове за
+//         // нормален/получер/курсив и избира между тях по fontWeight —
+//         // само подаването на font може да се окаже недостатъчно.
+//         font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+//         fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+//         fontBold: _bodyBold,
+//         fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+//         color: link > 0
+//             ? _linkBlue
+//             : (strong > 0 ? strongColor : base.color),
+//       ),
+//     ));
+//   }
+//   return spans;
+// }
 
 /// Имената на котвите в PDF-а. Две за всяка бележка — едната при номера в
 /// текста, другата при самата бележка в края, — за да се ходи в двете
@@ -1045,20 +1093,36 @@ Future<void> sharePdf({
                 textAlign: pw.TextAlign.left,
                 overflow: pw.TextOverflow.span,
                 text: pw.TextSpan(children: [
-                  pw.TextSpan(
-                    text: '${n.number}  ',
-                    // Обратният път: от бележката към мястото, откъдето е
-                    // повикана. Така четенето не се губи — човек скача
-                    // долу, прочита и се връща с едно натискане.
-                    annotation: pw.AnnotationLink(_refAnchor(n.number)),
-                    style: pw.TextStyle(
-                      font: _body,
-                      fontSize: noteSize,
-                      color: _linkBlue,
-                      lineSpacing:
-                          _lineSpacing(_body!.getFont(context), noteSize),
+                  pw.WidgetSpan(
+                    child: pw.UrlLink(
+                      destination: '#${_refAnchor(n.number)}',
+                      child: pw.Text(
+                        '${n.number}  ',
+                        style: pw.TextStyle(
+                          font: _body,
+                          fontSize: noteSize,
+                          color: _linkBlue,
+                          lineSpacing: _lineSpacing(_body!.getFont(context), noteSize),
+                        ),
+                      ),
                     ),
-                  ),
+                  ),                  
+                  // pw.TextSpan(
+                  //   text: '${n.number}  ',
+                  //   // Обратният път: от бележката към мястото, откъдето е
+                  //   // повикана. Така четенето не се губи — човек скача
+                  //   // долу, прочита и се връща с едно натискане.
+                  //   annotation: pw.AnnotationLink(
+                  //     _refAnchor(n.number)
+                  //   ),
+                  //   style: pw.TextStyle(
+                  //     font: _body,
+                  //     fontSize: noteSize,
+                  //     color: _linkBlue,
+                  //     lineSpacing:
+                  //         _lineSpacing(_body!.getFont(context), noteSize),
+                  //   ),
+                  // ),
                   pw.TextSpan(
                     text: n.text,
                     style: pw.TextStyle(
