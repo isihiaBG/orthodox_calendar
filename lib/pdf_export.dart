@@ -313,16 +313,6 @@ List<pw.InlineSpan> _inlineSpans(
     // ⚠ След като преминахме към Unicode superscript, вече не ползваме
     // `fontSize` или `height` — знаците са проектирани да са малки
     // и повдигнати от самия шрифт. Това е най-чистото решение.
-    // 
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // БЪГФИКС: ГРУПИРАНЕ НА ДУМАТА + НОМЕРА
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // За да не се пренася номерът на бележката сам на нов ред
-    // и за да не се раздалечават думата и номерът при justify,
-    // слепваме думата и повдигнатия номер в един TextSpan.
-    // Тъй като superscript глифовете са Unicode символи, те
-    // се изчертават правилно от шрифта като част от текста.
-    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     final renderText = isSup ? _toSuperscriptDigits(text) : text;
     spans.add(pw.TextSpan(
       text: renderText,
@@ -362,8 +352,7 @@ List<pw.InlineSpan> _inlineSpans(
 /// нормално, отколкото да пропадне целият пасаж.
 ///
 /// Charis SIL, като шрифт с научно/лингвистично предназначение,
-/// носи всички тези Unicode superscript знаци — проверено визуално
-/// в получения PDF.
+/// носи всички тези Unicode superscript знаци 
 /// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 String _toSuperscriptDigits(String s) {
   const map = {
@@ -376,20 +365,20 @@ String _toSuperscriptDigits(String s) {
   for (final ch in s.split('')) {
     if (map.containsKey(ch)) {
       if (!hasDigit) {
-        buf.write('\u207D'); // Лява повдигната скоба U+207D
+        //buf.write('\u207D'); // Лява повдигната скоба U+207D
         hasDigit = true;
       }
       buf.write(map[ch]);
     } else {
       if (hasDigit) {
-        buf.write('\u207E'); // Дясна повдигната скоба U+207E
+        //buf.write('\u207E'); // Дясна повдигната скоба U+207E
         hasDigit = false;
       }
       buf.write(ch);
     }
   }
   if (hasDigit) {
-    buf.write('\u207E'); // Дясна повдигната скоба
+    //buf.write('\u207E'); // Дясна повдигната скоба
   }
   return buf.toString();
 }
