@@ -109,6 +109,23 @@ class _Block {
       this.inner = ''});
 }
 
+/// Премахва интервалите около таговете за бележки (<a> и <sup>),
+/// за да няма разстояние между думата и номера на бележката.
+/// 
+/// Това е ключовата поправка за залепването на номерата на бележките
+/// към предходната дума. Без нея интервалът от HTML-а остава и
+/// номерът се отделя от думата, което води до пренасяне на номера
+/// на нов ред при textAlign.justify.
+String _cleanNoteSpacing(String html) {
+  var cleaned = html;
+  cleaned = cleaned.replaceAll(RegExp(r'\s+<sup'), '<sup');
+  cleaned = cleaned.replaceAll(RegExp(r'</sup>\s+'), '</sup>');
+  cleaned = cleaned.replaceAll(RegExp(r'</a>\s+'), '</a>');
+  cleaned = cleaned.replaceAll(RegExp(r'\s+<a\s'), ' <a ');
+  cleaned = cleaned.replaceAll(RegExp(r'\s+<a\b'), '<a');
+  return cleaned;
+}
+
 /// Разделя HTML-а на абзаци/заглавия и маха таговете. Оформлението тук е
 /// нарочно просто — PDF-ът е за четене и печат, не за пресъздаване на
 /// всяка подробност от екрана.
@@ -120,7 +137,9 @@ List<_Block> _parseBlocks(String html) {
     final tag = m.group(1)!.toLowerCase();
     final attrs = m.group(2) ?? '';
     final inner = m.group(3)!;
-    final text = _decodeEntities(inner.replaceAll(RegExp(r'<[^>]+>'), ''))
+    // Почистваме интервалите около таговете за бележки още преди парсването
+    final cleanedInner = _cleanNoteSpacing(inner);
+    final text = _decodeEntities(cleanedInner.replaceAll(RegExp(r'<[^>]+>'), ''))
         .replaceAll(RegExp(r'\s+'), ' ')
         .trim();
     if (text.isEmpty) continue;
@@ -138,7 +157,7 @@ List<_Block> _parseBlocks(String html) {
       startsItalic:
           RegExp(r'^\s*<(?:em|i)\b', caseSensitive: false).hasMatch(inner),
       cls: clsMatch?.group(1) ?? '',
-      inner: inner,
+      inner: cleanedInner, // <- използваме почистения inner
     ));
   }
   // Ако HTML-ът няма нито един <p> (рядко, но възможно), пускаме всичко
@@ -150,6 +169,25 @@ List<_Block> _parseBlocks(String html) {
     if (text.isNotEmpty) blocks.add(_Block(text));
   }
   return blocks;
+}
+
+/// Текстът на един span — включително скрития във WidgetSpan.
+///
+/// ⚠ Дума+номер на бележка живеят във WidgetSpan (виж _inlineSpans), тъй
+/// че `whereType<TextSpan>()` ги пропуска. Мерките за редове и за
+/// разрязване трябва да ги броят, инак излизат по-къси от истинското.
+/// Котвите нямат текст и добавят празен низ.
+String _spanPlainText(pw.InlineSpan s) {
+  if (s is pw.TextSpan) {
+    final own = s.text ?? '';
+    final kids = (s.children ?? const <pw.InlineSpan>[]).map(_spanPlainText);
+    return own + kids.join();
+  }
+  if (s is pw.WidgetSpan) {
+    final child = s.child;
+    if (child is pw.RichText) return _spanPlainText(child.text);
+  }
+  return '';
 }
 
 /// Разделя текста на "първите maxLines реда" и остатък, като мери
@@ -198,6 +236,10 @@ List<pw.InlineSpan> _inlineSpans(
   String inner,
   pw.TextStyle base, {
   required PdfColor strongColor,
+  /// Шрифтът, чиито вертикални мерки движат поправката на изместването
+  /// при слятата двойка дума+номер на бележка — виж бележката до
+  /// `mergeBaseline` по-долу и `_lineSpacing()` за същия похват.
+  required PdfFont font,
   /// Целият блок вече е получер (напр. заглавният ред на тропара). Без
   /// това стиловете тук биха го върнали на нормален, защото вътре в него
   /// няма <strong> — точно това "изяде" удебеляването веднъж.
@@ -273,6 +315,7 @@ List<pw.InlineSpan> _inlineSpans(
     final href = hrefs.isEmpty ? '' : hrefs.last;
     final link = href.isNotEmpty ? 1 : 0;
     final isSup = sup > 0;
+
     // Номерът на бележка е ВЪТРЕШНА връзка, не външна.
     //
     // ⚠ Дотогава тук минаваше AnnotationUrl със самия href от .epub-а —
@@ -280,6 +323,149 @@ List<pw.InlineSpan> _inlineSpans(
     // излизаше син (тоест изглеждаше кликаем), а не водеше никъде. Сега
     // сочи към котвата на бележката в края на документа.
     final noteNum = isSup && _isNoteHref(href) ? text.trim() : null;
+
+    // Думата ПРЕД номера на бележка не бива да се разделя от него — нито с
+    // прекъсване на реда (само числото да остане на нов ред), нито с
+    // разтягане при justify (сякаш са отделни "думи"). И двете идват от
+    // ЕДНО и също: буквален интервал в изходния HTML точно преди <sup> —
+    // в едни бележки го има ("Лука <sup>1</sup>"), в други не
+    // ("Мануил<sup>2</sup>"), в зависимост как си е бил написан
+    // изходникът. Пренасянето и justify в pdf пакета работят по обичайния
+    // начин — режат/разтягат само на интервали, не на границите между
+    // span-овете сами по себе си. Без интервал между тях думата и номерът
+    // стават ЕДНА непрекъсната последователност от непразни знаци —
+    // недвижима и неразделима.
+    // ⚠ Този интервал се маха ПРЕДИ сливането по-долу и е условие за
+    // него: остане ли, „последната дума" пред номера излиза празна и
+    // залепването се пропуска мълчаливо.
+    if (isSup && spans.isNotEmpty && spans.last is pw.TextSpan) {
+      final prev = spans.last as pw.TextSpan;
+      final trimmed = (prev.text ?? '').replaceFirst(RegExp(r'\s+$'), '');
+      if (trimmed != prev.text) {
+        spans[spans.length - 1] = pw.TextSpan(
+          text: trimmed,
+          style: prev.style,
+          annotation: prev.annotation,
+        );
+      }
+    }
+
+    // Истинско повдигане: НЕ местене на нормални цифри с baseline/
+    // Transform (и двете опряха в тънки места на pdf пакета — baseline
+    // мълчаливо не действаше в justify абзаци, а Transform.translate
+    // буташе рисуването извън изрязващата рамка на WidgetSpan-а и
+    // числото изчезваше). Вместо туй — истински Unicode superscript
+    // знаци (¹ ² ³ …): те са малки и вдигнати по дизайн на шрифта,
+    // изчертават се като обикновен текст, без нужда от каквато и да е
+    // намеса в оразмеряването на реда.
+    var renderText = text;
+    if (isSup) renderText = _toSuperscriptDigits(renderText.trim());
+
+    final spanStyle = base.copyWith(
+        // И font, И fontWeight: TextStyle пази отделни шрифтове за
+        // нормален/получер/курсив и избира между тях по fontWeight —
+        // само подаването на font може да се окаже недостатъчно.
+        font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+        fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
+        fontBold: _bodyBold,
+        fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        color: link > 0
+            ? _linkBlue
+            : (strong > 0 ? strongColor : base.color),
+      );
+    final spanAnnotation = noteNum != null
+        ? pw.AnnotationLink(_noteAnchor(noteNum))
+        : (link > 0 ? pw.AnnotationUrl(href) : null);
+
+    // ⚠ НОМЕРЪТ НА БЕЛЕЖКА СЕ ЗАЛЕПВА ЗА ДУМАТА ПРЕД СЕБЕ СИ.
+    //
+    // Причината е в самия pdf пакет: layout-ът обхожда спановете един по
+    // един и реже по интервали ВЪТРЕ във всеки (`_layout` в
+    // widgets/text.dart). Тоест ГРАНИЦАТА МЕЖДУ ДВА TextSpan-А Е САМА ПО
+    // СЕБЕ СИ ГРАНИЦА МЕЖДУ ДУМИ — съседни спанове никога не се съшиват.
+    // Затова „Ликия" и „²⁰" в два спана са две отделни думи: justify ги
+    // разтяга, пренасянето ги разделя, и махането на интервала помежду им
+    // НЕ помага.
+    //
+    // WidgetSpan обаче се мери НАВЕДНЪЖ и не се дели — затова двете
+    // влизат в него, с вложен RichText, който пази двата различни цвята.
+    if (noteNum != null && spans.isNotEmpty && spans.last is pw.TextSpan) {
+      final prev = spans.last as pw.TextSpan;
+      final prevText = prev.text ?? '';
+      // Само ПОСЛЕДНАТА дума се откъсва — останалото си остава обикновен
+      // текст, който се пренася и подравнява свободно.
+      final cut = prevText.lastIndexOf(' ');
+      final head = cut < 0 ? '' : prevText.substring(0, cut + 1);
+      final word = cut < 0 ? prevText : prevText.substring(cut + 1);
+      if (word.isNotEmpty) {
+        spans.removeLast();
+        if (head.isNotEmpty) {
+          spans.add(pw.TextSpan(
+              text: head, style: prev.style, annotation: prev.annotation));
+        }
+        spans.add(pw.WidgetSpan(
+          annotation: spanAnnotation,
+          // ⚠⚠ СТИЛЪТ Е ТОЗИ НА НОМЕРА (синия), а НЕ на думата — и това
+          // НЕ е дреболия.
+          //
+          // `_RichTextState.paint` помни последния зададен цвят и
+          // ПРОПУСКА `setFillColor`, когато новият съвпада с него.
+          // Вложеният тук RichText рисува зад гърба на този отчет: щом
+          // вътре смени цвета на синьо за номера, външният цикъл
+          // продължава да смята, че текущият е черен — и следващият
+          // (черен) TextSpan не задава нищо, тъй че НАСЛЕДЯВА синьото.
+          // Така синьото изтичаше върху целия текст до следващата
+          // бележка.
+          //
+          // Като обявим тук цвета, с който вложеното РЕАЛНО завършва,
+          // отчетът на пакета съвпада с PDF потока и следващият span си
+          // задава своя цвят както трябва.
+          style: spanStyle,
+          // ⚠⚠ ЦЯЛАТА ДУМА+НОМЕР ИЗПЛУВАШЕ НАД РЕДА — трети капан в pdf
+          // пакета, отделен от предишните два.
+          //
+          // Стойността по-долу НЕ е изведена от кода на пакета — двата
+          // опита с чиста теория (пълният обхват на шрифта, после
+          // "истинските" per-glyph метрики на думата+числото) уцелиха
+          // погрешно, единия път думата увисна над реда, другия — под
+          // него. Намерена е ЕКСПЕРИМЕНТАЛНО: самостоятелен Dart скрипт
+          // (без Flutter/adb — само `package:pdf`) построи един и същ
+          // ред с WidgetSpan при десетки различни `baseline`, записа
+          // резултата в PDF и той се прегледа директно. `font.descent`
+          // (без ascent) уцели точно централата на широка "плоска зона"
+          // (0.24–0.32 × естествения ред на шрифта се четат еднакво
+          // добре) — тоест не е ръб на бръснач, а стабилна стойност.
+          //
+          // ⚠ `font.stringMetrics(word)` тук НЕ дава истински per-glyph
+          // ascent/descent — пада на fallback по ЦЕЛИЯ шрифт (проверено:
+          // за "Ликия" и "²⁰" излизат буквално еднакви числа с
+          // `font.ascent`/`font.descent`). Затова формулата е константа
+          // на шрифта, не мярка на конкретния текст — но пак се смята от
+          // самия шрифт (`_lineSpacing()` също прави точно това), тъй че
+          // смяна на шрифт пак не иска промяна тук.
+          baseline: font.descent * (base.fontSize ?? _bodySize),
+          child: pw.RichText(
+            softWrap: false,
+            text: pw.TextSpan(children: [
+              pw.TextSpan(text: word, style: prev.style),
+              pw.TextSpan(text: renderText, style: spanStyle),
+            ]),
+          ),
+        ));
+        // Котвата за обратния път — СЛЕД двойката, за да не дели нищо.
+        spans.add(pw.WidgetSpan(
+          child: pw.Anchor(name: _refAnchor(noteNum), child: pw.SizedBox()),
+        ));
+        continue;
+      }
+    }
+
+    spans.add(pw.TextSpan(
+      text: renderText,
+      annotation: spanAnnotation,
+      style: spanStyle,
+    ));
+
     if (noteNum != null) {
       // Котва НА МЯСТОТО в текста — за обратния път от бележката насам.
       // Anchor е widget, не span, затова минава през WidgetSpan.
@@ -296,64 +482,27 @@ List<pw.InlineSpan> _inlineSpans(
       // и нямайки такъв, показва квадратче за непознат символ вместо да
       // го скрие. SizedBox няма никакъв текст за изчертаване, значи няма
       // и какво да се обърка.
+      //
+      // ⚠ КОТВАТА Е СЛЕД ЧИСЛОТО, НЕ ПРЕДИ: това е новото тук. Досега
+      // седеше между думата и числото (дума → котва → число) — и въпреки
+      // нулевата си ширина, изглежда pdf пакетът я третираше като валидна
+      // точка за пренасяне на реда, също като истински интервал. Затова
+      // числото понякога хвърчеше самò на нов ред. Като застава СЛЕД
+      // числото, вече не разделя нищо: дума+число остават една непрекъсната
+      // последователност без никакъв обект помежду им.
       spans.add(pw.WidgetSpan(
         child: pw.Anchor(name: _refAnchor(noteNum), child: pw.SizedBox()),
       ));
     }
-
-    // Истинско повдигане: НЕ местене на нормални цифри с baseline/
-    // Transform (и двете опряха в тънки места на pdf пакета — baseline
-    // мълчаливо не действаше в justify абзаци, а Transform.translate
-    // буташе рисуването извън изрязващата рамка на WidgetSpan-а и
-    // числото изчезваше). Вместо туй — истински Unicode superscript
-    // знаци (¹ ² ³ …): те са малки и вдигнати по дизайн на шрифта,
-    // изчертават се като обикновен текст, без нужда от каквато и да е
-    // намеса в оразмеряването на реда.
-    //
-    // ⚠ След като преминахме към Unicode superscript, вече не ползваме
-    // `fontSize` или `height` — знаците са проектирани да са малки
-    // и повдигнати от самия шрифт. Това е най-чистото решение.
-    final renderText = isSup ? _toSuperscriptDigits(text) : text;
-    spans.add(pw.TextSpan(
-      text: renderText,
-      // Само това парче става кликаемо — не целият абзац.
-      annotation: noteNum != null
-          ? pw.AnnotationLink(_noteAnchor(noteNum))
-          : (link > 0 ? pw.AnnotationUrl(href) : null),
-      style: base.copyWith(
-        // И font, И fontWeight: TextStyle пази отделни шрифтове за
-        // нормален/получер/курсив и избира между тях по fontWeight —
-        // само подаването на font може да се окаже недостатъчно.
-        font: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-        fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
-        fontBold: _bodyBold,
-        fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
-        color: link > 0
-            ? _linkBlue
-            : (strong > 0 ? strongColor : base.color),
-      ),
-    ));
   }
   return spans;
 }
 
-/// Превръща ASCII цифри в техните Unicode superscript форми (¹ ² ³ …)
-/// и добавя повдигнати скоби около тях, за да се улесни кликването.
+/// Превръща ASCII цифри в техните Unicode superscript форми (¹ ² ³ …).
+/// Знаци извън 0–9 остават непипнати — по-добре да се изпише нормално,
+/// отколкото да пропадне целият пасаж.
 ///
-/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/// БЪГФИКС #3: ДОБАВЯНЕ НА ПОВДИГНАТИ СКОБИ
-/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-/// Повдигнатите скоби (U+207D и U+207E) увеличават зоната за
-/// докосване на номерата на бележките, което улеснява кликването
-/// с пръст на мобилни устройства. Скобите са част от кликаемия
-/// текст, така че целият повдигнат текст (скоби + номер) е активен.
-///
-/// Знаци извън 0–9 остават непипнати — по-добре да се изпише
-/// нормално, отколкото да пропадне целият пасаж.
-///
-/// Charis SIL, като шрифт с научно/лингвистично предназначение,
-/// носи всички тези Unicode superscript знаци 
-/// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+/// Charis SIL, като шрифт с научно/лингвистично предназначение, ги носи.
 String _toSuperscriptDigits(String s) {
   const map = {
     '0': '\u2070', '1': '\u00B9', '2': '\u00B2', '3': '\u00B3',
@@ -361,24 +510,8 @@ String _toSuperscriptDigits(String s) {
     '8': '\u2078', '9': '\u2079',
   };
   final buf = StringBuffer();
-  bool hasDigit = false;
   for (final ch in s.split('')) {
-    if (map.containsKey(ch)) {
-      if (!hasDigit) {
-        //buf.write('\u207D'); // Лява повдигната скоба U+207D
-        hasDigit = true;
-      }
-      buf.write(map[ch]);
-    } else {
-      if (hasDigit) {
-        //buf.write('\u207E'); // Дясна повдигната скоба U+207E
-        hasDigit = false;
-      }
-      buf.write(ch);
-    }
-  }
-  if (hasDigit) {
-    //buf.write('\u207E'); // Дясна повдигната скоба
+    buf.write(map[ch] ?? ch);
   }
   return buf.toString();
 }
@@ -423,9 +556,6 @@ List<_Note> _collectNotes(String html) {
   final re = RegExp(
     r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>|'
     r'<sup[^>]*>\s*<a\b[^>]*?title="([^"]*)"[^>]*>(.*?)</a>\s*</sup>',
-
-  // final re = RegExp(  // преди търсеше само единия вариант 
-  //   r'<a\b[^>]*?title="([^"]*)"[^>]*>\s*<sup[^>]*>(.*?)</sup>',
     caseSensitive: false,
     dotAll: true,
   );
@@ -435,9 +565,6 @@ List<_Note> _collectNotes(String html) {
     final numText = m.group(2) ?? m.group(4) ?? '';
     final num = _decodeEntities(numText.replaceAll(RegExp(r'<[^>]+>'), '').trim());
 
-  //   final title = _decodeEntities(m.group(1)!).trim();
-  //   final num = _decodeEntities(m.group(2)!.replaceAll(RegExp(r'<[^>]+>'), ''))
-  //       .trim();
     if (title.isEmpty || num.isEmpty || !seen.add(num)) continue;
     out.add(_Note(num, title));
   }
@@ -458,6 +585,21 @@ List<pw.InlineSpan> _spansAfter(List<pw.InlineSpan> spans, int skip) {
   var left = skip;
   for (final s in spans) {
     if (s is pw.WidgetSpan) {
+      // ⚠ Дума+номер на бележка живеят в WidgetSpan и НОСЯТ текст. Той
+      // трябва да се брои в [skip], инак всичко след него се реже с
+      // толкова знака встрани.
+      final w = _spanPlainText(s);
+      if (w.isNotEmpty) {
+        if (left >= w.length) {
+          left -= w.length;
+          continue;
+        }
+        // Прекъсването пада ВЪТРЕ в неделимата двойка — тя отива цяла в
+        // остатъка, за да не се разцепи точно това, което слепихме.
+        left = 0;
+        out.add(s);
+        continue;
+      }
       // Котвите (WidgetSpan) нямат текст и не влизат в мярката на редовете
       // — но затова пък позицията им спрямо прекъсването [skip] не личи от
       // дължина на текст, а само от това дали вече сме подминали [skip]
@@ -639,13 +781,15 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
     }
 
     var spans = _inlineSpans(b.inner.isEmpty ? b.text : b.inner, style,
-        strongColor: strongColor);
+        strongColor: strongColor, font: measureFont);
     // Първият знак (или кавичка + знак) вече е нарисуван като буквица.
     if (isFirst) spans = _spansAfter(spans, dropInfo.skip);
     // Само текстовите парчета — котвите нямат ширина и не влизат в
     // мярката на редовете.
-    final plain =
-        spans.whereType<pw.TextSpan>().map((x) => x.text ?? '').join();
+    // ⚠ И текстът, скрит в WidgetSpan-овете (дума+номер на бележка), се
+    // брои: инак редовете се мерят по-къси, отколкото са, и разрязването
+    // на абзаца пада на грешно място.
+    final plain = spans.map(_spanPlainText).join();
     if (plain.isEmpty) break;
 
     final maxLines = budget.floor();
@@ -1067,6 +1211,7 @@ Future<void> sharePdf({
                       : (b.inner.isEmpty ? b.text : b.inner),
                   style,
                   strongColor: strongIsWine ? _wine : _ink,
+                  font: _body!.getFont(context),
                   baseBold: isPrayerHead,
                   // ⚠ И memorydate: без него _inlineSpans строи спановете
                   // с прав шрифт и презаписва курсива, зададен в `style`
@@ -1198,15 +1343,6 @@ Future<void> sharePdf({
         // паднали, строиш пак, — което е крехко. Тук са в края, както е
         // обичайно за такива издания (медиана 4 бележки на житие).
         final notes = _collectNotes(bodyHtml);
-        // ВРЕМЕННО за диагностика — да се махне.
-        // ignore: avoid_print
-        final supAt = bodyHtml.indexOf('<sup');
-        print('ДИАГНОСТИКА notes.length=${notes.length} supAt=$supAt');
-        if (supAt >= 0) {
-          final a = (supAt - 120).clamp(0, bodyHtml.length);
-          final b = (supAt + 60).clamp(0, bodyHtml.length);
-          print('ДИАГНОСТИКА около <sup>: ${bodyHtml.substring(a, b)}');
-        }
         if (notes.isNotEmpty) {
           widgets.add(pw.SizedBox(height: 26));
           widgets.add(pw.Container(
