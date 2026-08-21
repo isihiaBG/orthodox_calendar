@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
 import 'app_settings.dart';
+import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
 import 'app_drawer.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
@@ -314,11 +315,19 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       drawer: const AppDrawer(),
       onEndDrawerChanged: (isOpen) {
         if (!isOpen) {
+          // Флъш ПРЕДИ saveNow — ако графичният избор на стил чака
+          // отлагането си (виж CalendarStylePicker), затварянето не бива
+          // да го остави да увисне цяла секунда след като панелът вече не
+          // се вижда.
+          flushPendingCalendarStylePick?.call();
           setState(() {});
           AppSettings.saveNow();
         }
       },
-      endDrawer: SettingsDrawer(onChanged: _onSettingsChanged),
+      endDrawer: SettingsDrawer(
+        onChanged: _onSettingsChanged,
+        sections: const {SettingsSection.calendar},
+      ),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight:   AppSizes.toolbarHeight, // 40 >> височина на toolbar-а 
@@ -451,7 +460,21 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           ),
         ],
       ),
-      body: _isMonthView
+      // ⚠ САМО ляво/дясно, НЕ SafeArea. SafeArea би "изял" MediaQuery.padding.top
+      // за наследниците (замества го с 0, след като веднъж го е компенсирала
+      // визуално) — а MonthScreen.getMiddleVisibleDate() чете точно тази
+      // стойност за toolbarOffset (виж month_screen.dart) и разчита тя да е
+      // НЕПОКътната. Обикновен Padding не пипа MediaQuery, само добавя място,
+      // тъй че съществуващата сметка остава вярна. Горе/долу не се пипат — там
+      // проблем не е докладван (лентата с инструменти вече е добре), а само
+      // ляво/дясно е нужно в легнало положение, докато изрезът на камерата
+      // застане отстрани (докладвано 21.08.2026).
+      body: Padding(
+        padding: EdgeInsets.only(
+          left: MediaQuery.of(context).padding.left,
+          right: MediaQuery.of(context).padding.right,
+        ),
+        child: _isMonthView
           ? MonthScreen(
               key: _monthScreenKey,
 							initialDate: _isMonthView 
@@ -504,6 +527,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                 date: _dateForPage(index),
               ),
             ),
+      ),
     );
   }
 }

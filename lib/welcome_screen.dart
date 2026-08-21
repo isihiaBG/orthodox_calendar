@@ -13,6 +13,11 @@
 // Устроен е като „Месецослов" НАРОЧНО: същото тесте корици, същото
 // разположение, същият градиент отдолу. Скелетът е общ
 // (cover_picker.dart), тъй че двата екрана не могат да се разминат.
+//
+// CalendarStyleOption/kCalendarStyleOptions по-долу са ПУБЛИЧНИ (21.08.2026)
+// — освен тук ги ползва и мащабираният picker в настройките
+// (calendar_style_picker.dart), тъй че списъкът с корици/имена/бележки да
+// не се дублира на две места и да не се разминава.
 
 import 'package:flutter/material.dart';
 
@@ -22,7 +27,7 @@ import 'cover_flow.dart';
 import 'cover_picker.dart';
 
 /// Един стил на четене — корица и какво значи.
-class _Style {
+class CalendarStyleOption {
   final String cover;
   final String name;
   final String note;
@@ -33,7 +38,7 @@ class _Style {
   final bool isOldStyle;
   final bool oldStyleFirst;
 
-  const _Style({
+  const CalendarStyleOption({
     required this.cover,
     required this.name,
     required this.note,
@@ -42,28 +47,28 @@ class _Style {
   });
 }
 
-const List<_Style> _styles = [
-  _Style(
+const List<CalendarStyleOption> kCalendarStyleOptions = [
+  CalendarStyleOption(
     cover: 'assets/calendar_covers/Cover_01.jpg',
     name: 'Нов стил',
-    note: 'Празниците са по Григорианския календар.\n'
-        'Показва се само нов стил',
+    note: 'Празниците са по Григорианския календар. '
+        'Показва се само нов стил.',
     isOldStyle: false,
     oldStyleFirst: false,
   ),
-  _Style(
+  CalendarStyleOption(
     cover: 'assets/calendar_covers/Cover_02.jpg',
     name: 'Стар стил',
-    note: 'Празниците вървят по Юлианския календар,\n'
+    note: 'Празниците вървят по Юлианския календар, '
         'а водеща датата отпред е гражданската.',
     isOldStyle: true,
     oldStyleFirst: false,
   ),
-  _Style(
+  CalendarStyleOption(
     cover: 'assets/calendar_covers/Cover_03.jpg',
     name: 'Стар стил',
-    note: 'Водеща е църковната дата, а гражданската стои справочно след нея.\n'
-        'По трудно е за ориентиране.',
+    note: 'Водеща е църковната дата, а гражданската стои справочно след нея. '
+        'По-трудно е за ориентиране.',
     isOldStyle: true,
     oldStyleFirst: true,
   ),
@@ -86,7 +91,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   bool _dontShowAgain = false;
 
   int _currentIndex() {
-    final i = _styles.indexWhere((s) =>
+    final i = kCalendarStyleOptions.indexWhere((s) =>
         s.isOldStyle == AppSettings.isOldStyle &&
         (!s.isOldStyle || s.oldStyleFirst == AppSettings.oldStyleFirst));
     return i < 0 ? 0 : i;
@@ -95,13 +100,13 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    for (final s in _styles) {
+    for (final s in kCalendarStyleOptions) {
       precacheImage(AssetImage(s.cover), context);
     }
   }
 
   void _choose(int i) {
-    final s = _styles[i];
+    final s = kCalendarStyleOptions[i];
     AppSettings.isOldStyle = s.isOldStyle;
     AppSettings.oldStyleFirst = s.oldStyleFirst;
     AppSettings.showWelcome = !_dontShowAgain;
@@ -115,19 +120,19 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   Widget build(BuildContext context) {
     return CoverPickerScaffold(
       title: 'Изберете календар',
-      covers: [for (final s in _styles) AssetImage(s.cover)],
+      covers: [for (final s in kCalendarStyleOptions) AssetImage(s.cover)],
       index: _index,
       onIndexChanged: (i) => setState(() => _index = i),
       onOpen: _choose,
       flowKey: _flow,
       infoBuilder: (_, i) => _info(i),
-      landscapeLabel: (i) => _styles[i].name,
+      landscapeLabel: (i) => kCalendarStyleOptions[i].name,
       extra: _checkbox(),
     );
   }
 
   Widget _info(int i) {
-    final s = _styles[i];
+    final s = kCalendarStyleOptions[i];
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 4, 24, 4),
       child: Column(

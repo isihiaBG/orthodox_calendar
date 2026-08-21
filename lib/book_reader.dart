@@ -94,7 +94,7 @@ class BookReader extends StatefulWidget {
 }
 
 class _BookReaderState extends State<BookReader>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   /// Последно отваряното четиво в ТОЗИ том — за текста на опашката под
   /// заглавната страница и за маркирането в съдържанието. null = томът не
   /// е отварян (или е отваряна само заглавната му страница).
@@ -128,7 +128,8 @@ class _BookReaderState extends State<BookReader>
   late final List<EpubTocEntry> _chapters;
 
   int _index = 0;
-  final ScrollController _scroll = ScrollController();
+  // ⚠ НЕ final — _reanchorScroll() го пресъздава, виж бележката там.
+  ScrollController _scroll = ScrollController();
 
   // ── Търсене в главата ───────────────────────────────────────────────
   //
@@ -226,6 +227,7 @@ class _BookReaderState extends State<BookReader>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _chapters = widget.book.toc
         .expand((e) => e.flattened())
         .where((e) => e.href.isNotEmpty)
@@ -341,6 +343,7 @@ class _BookReaderState extends State<BookReader>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     ReaderFontSize.flush();
     ReaderTheme.flush();
     // Прибираме евентуален висящ SnackBar веднага — ScaffoldMessenger е ОБЩ
@@ -688,7 +691,109 @@ class _BookReaderState extends State<BookReader>
     });
   }
 
+  /// Скролира до (регион, знак) — същата геометрия като в _jumpToSaved, но
+  /// БЕЗ страничните ѝ ефекти (тя е за подканата за връщане и пипа
+  /// _promptShown/_saved/_awaitingDecision). Ползва се при завъртане на
+  /// екрана (виж _restoreAfterRotation) и при превключване на търсенето
+  /// (виж _toggleSearch).
+  ///
+  /// [extraOffset] — ръчна корекция в пиксели след изчисленото
+  /// подравняване; виж бележката в _toggleSearch защо е нужна.
+  void _jumpToLine(int region, int charInRegion, {double extraOffset = 0}) {
+    if (!mounted || !_scroll.hasClients) return;
+    if (region < 0 || region >= _regionKeys.length) return;
+    final position = _scroll.position;
+    final ctx = _regionKeys[region].currentContext;
+    final box = ctx?.findRenderObject() as RenderBox?;
+    final line = box == null
+        ? null
+        : _lineForChar(
+            _currentRegions(), region, charInRegion, box.size.width);
+    if (box == null || line == null) return;
+    final target = RenderAbstractViewport.of(box)
+            .getOffsetToReveal(
+              box,
+              0.0,
+              rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
+            )
+            .offset +
+        extraOffset;
+    _scroll
+        .jumpTo(target.clamp(position.minScrollExtent, position.maxScrollExtent));
+  }
+
+  // ---------------------------------------------------------------
+  // Завъртане на екрана — пази позицията (докладвано 21.08.2026)
+  // ---------------------------------------------------------------
+
+  /// Последно познатата ориентация — за да различим ИСТИНСКО завъртане от
+  /// друга промяна на метриките (напр. клавиатурата, която сменя само
+  /// височината). null значи "още нищо видяно": първото повикване само го
+  /// запомня, не скролва никъде. Същият похват като в четеца на жития
+  /// (reader_screen._wasLandscape).
+  bool? _wasLandscape;
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final size = views.first.physicalSize;
+    if (size.isEmpty) return;
+    final landscape = size.width > size.height;
+    final was = _wasLandscape;
+    _wasLandscape = landscape;
+    if (was == null || was == landscape) return; // не е завъртане
+    _restoreAfterRotation();
+  }
+
+  /// При търсене — само преизчислява чертичките/позициите на новата
+  /// ширина и скролва пак до ТЕКУЩИЯ (_currentHit не се пипа, "3/8" не се
+  /// губи). Извън търсене — улавя най-горния ред ПРЕДИ прекомпоновката
+  /// (геометрията в момента на didChangeMetrics е още СТАРАТА) и го връща
+  /// най-отгоре пак. За разлика от четеца на жития, тук главата е ЕДИН
+  /// непрекъснат блок (без виртуализация), тъй че не трябва двуфазното
+  /// "скочи приблизително, после прецизирай" — регионите вече са построени.
+  void _restoreAfterRotation() {
+    if (!mounted) return;
+    if (_searchOpen) {
+      if (_currentHit < 0) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (!mounted) return;
+          _recomputeHitYs();
+          _scrollToHit(_currentHit);
+        });
+      });
+      return;
+    }
+    final at = _topmostLine();
+    if (at == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 80), () {
+        if (mounted) _jumpToLine(at.$1, at.$2);
+      });
+    });
+  }
+
   // ── Търсене ─────────────────────────────────────────────────────────
+
+  /// Пресъздава скрол-контролера със стартова позиция = текущата, за да
+  /// прехвърли безшумно офсета към новото Scrollable.
+  ///
+  /// ⚠ Търсенето отворено/затворено сменя ФОРМАТА на дървото (заглавната
+  /// лента влиза/излиза от скрола — виж _toggleSearch и build() по-долу),
+  /// а смяна на формата кара Flutter да построи НОВ Scrollable отдолу.
+  /// Без пресъздаване новият тръгва от подразбиращото се 0.0 и екранът
+  /// скача в началото — точно бъгът, докладван на 21.08.2026. Същият
+  /// похват вече го има четецът на жития (reader_screen._reanchorScrollController).
+  void _reanchorScroll() {
+    final offset = _scroll.hasClients ? _scroll.position.pixels : 0.0;
+    _scroll.removeListener(_rememberPosition);
+    _scroll.dispose();
+    _scroll = ScrollController(initialScrollOffset: offset)
+      ..addListener(_rememberPosition);
+  }
 
   void _toggleSearch() {
     // ⚠ На ЗАГЛАВНАТА страница лупата прави друго: отваря съдържанието с
@@ -702,6 +807,24 @@ class _BookReaderState extends State<BookReader>
       _showToc(focusSearch: true);
       return;
     }
+    // ⚠ Улавяме най-горния видим ред ПРЕДИ превключването — самото
+    // запазване на pixels (_reanchorScroll) не стига. Лентата за търсене
+    // ту стои извън скрола (фиксирана лента отгоре), ту вътре като
+    // sliverHeader.bottom — двете подредби броят различно колко от тази
+    // височина влиза в скрол-координатите, тъй че еднакъв pixels сочи
+    // различно съдържание преди/след (докладвано 21.08.2026, същото и в
+    // четеца на жития). Знакът тук е точен и не зависи от тази сметка за
+    // височините.
+    //
+    // ⚠ Самото подравняване към alignment 0.0 е пиксел-точно спрямо
+    // ГОРНИЯ РЪБ НА СКРОЛИРУЕМАТА ЗОНА — но тя РАСТЕ точно с
+    // _kSearchChromeHeight при затваряне (двете ленти изчезват), тъй че
+    // редът каца пиксел-точно на новия връх, а окото го вижда изместен
+    // нагоре точно с толкова (докладвано 22.08.2026: ~3.5 реда).
+    // extraOffset компенсира — спира скрола толкова по-рано (при
+    // затваряне) или го праща толкова по-нататък (при отваряне, огледално).
+    final wasOpen = _searchOpen;
+    final at = _topmostLine();
     setState(() {
       _searchOpen = !_searchOpen;
       if (!_searchOpen) {
@@ -711,9 +834,24 @@ class _BookReaderState extends State<BookReader>
         _total = 0;
         _currentHit = -1;
       }
+      _reanchorScroll();
     });
     if (_searchOpen) _searchFocus.requestFocus();
+    if (at != null) {
+      final extraOffset = wasOpen ? -_kSearchChromeHeight : _kSearchChromeHeight;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpToLine(at.$1, at.$2, extraOffset: extraOffset);
+      });
+    }
   }
+
+  /// Лентата с инструменти + лентата за търсене — заедно изчезват при
+  /// затваряне на търсенето (и заедно се появяват при отваряне). Смятана
+  /// от СЪЩИТЕ кръстени константи, с които се строят самите ленти
+  /// (reader_toolbar.dart) — не голи числа тук, за да не могат корекцията
+  /// и реалната височина да се разминат при промяна.
+  static const double _kSearchChromeHeight =
+      kReaderToolbarHeight + kSearchBarHeight;
 
   /// Преброява съвпаденията и смята дела им от височината на текста.
   ///
@@ -1160,7 +1298,7 @@ class _BookReaderState extends State<BookReader>
                     child: AppBar(
                       primary: false,
                       backgroundColor: AppColors.toolbar,
-                      toolbarHeight: 44,
+                      toolbarHeight: kReaderToolbarHeight,
                       leading: _toolbarLeading(),
                       leadingWidth: _leadingWidth,
                       titleSpacing: 8,
@@ -1564,7 +1702,7 @@ class _BookReaderState extends State<BookReader>
   PreferredSizeWidget _searchBar() {
     final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
     return PreferredSize(
-      preferredSize: const Size.fromHeight(58),
+      preferredSize: const Size.fromHeight(kSearchBarHeight),
       child: Container(
         height: 58,
         // Дясната страна е по-широка — броячът иначе се залепва за
@@ -1706,12 +1844,45 @@ class _BookReaderState extends State<BookReader>
         canBookmark: _index > 0,
         onThemeToggle: () =>
             setState(() => ReaderTheme.dark = !ReaderTheme.dark),
-        onFontSmaller: () =>
-            setState(() => ReaderFontSize.nudge(-ReaderFontSize.step)),
-        onFontBigger: () =>
-            setState(() => ReaderFontSize.nudge(ReaderFontSize.step)),
+        onFontSmaller: () => _bumpFont(-ReaderFontSize.step),
+        onFontBigger: () => _bumpFont(ReaderFontSize.step),
         onMore: _showMoreMenu,
       );
+
+  /// Смяната на шрифта премества редовете — ако търсенето е активно,
+  /// старите _hitYs (позициите на чертичките/скока до съвпадение) вече
+  /// сочат другаде. Докладвано 22.08.2026: смяна на шрифта по средата на
+  /// търсене разсинхронизираше обхождането ВЕДНАГА от първата стъпка,
+  /// защото тук изобщо липсваше преизчисляване (за разлика от
+  /// reader_screen._bump, който поне се опитваше). Тук е по-просто —
+  /// главата се строи изцяло наведнъж (без виртуализация), тъй че няма
+  /// „регионът още не е построен" усложнение като там.
+  void _bumpFont(double d) {
+    // ⚠ Извън търсене — улавяме най-горния видим ред ПРЕДИ смяна на
+    // шрифта (старата геометрия е още достъпна, layout-ът с новия размер
+    // минава чак на следващия кадър — същият похват като при завъртане
+    // на екрана, виж _restoreAfterRotation). Докладвано 22.08.2026: смяна
+    // на шрифта по средата на дълго житие изгубваше читателя — тук
+    // изобщо не се пазеше позицията, само чертичките за търсене.
+    final searching = _searchOpen && _total > 0;
+    final at = searching ? null : _topmostLine();
+    setState(() => ReaderFontSize.nudge(d));
+    if (searching) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (!mounted) return;
+          _recomputeHitYs();
+          _scrollToHit(_currentHit);
+        });
+      });
+    } else if (at != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (mounted) _jumpToLine(at.$1, at.$2);
+        });
+      });
+    }
+  }
 
   /// Скролируемото тяло. [withHeader] решава дали лентата да е вътре в него
   /// (обикновено четене, прибира се при плъзгане) или не (търсене — тогава
@@ -1730,47 +1901,65 @@ class _BookReaderState extends State<BookReader>
         // Разрешава ВЛАЧЕНЕ на палеца с пръст; без него скролбарът е само
         // показалец. Флагът разширява и зоната за докосване.
         interactive: true,
-        child: CustomScrollView(
-          controller: _scroll,
-          slivers: [
-            if (withHeader)
-              SliverAppBar(
-                primary: false,
-                floating: true,
-                snap: true,
-                backgroundColor: AppColors.toolbar,
-                toolbarHeight: 44,
-                leading: _toolbarLeading(),
-                leadingWidth: _leadingWidth,
-                titleSpacing: 8,
-                title: _toolbarTitle(),
-                actions: _toolbarActions(),
-              ),
-            SliverToBoxAdapter(
-              child: _entering(
-                raw == null
-                    ? Padding(
-                        padding: const EdgeInsets.all(24),
-                        child: Text('Няма ${_current.href}',
-                            style: TextStyle(color: palette.dim)))
-                    : _chapterBody(raw, palette),
-              ),
+        // Маркиране/копиране на текст — ОБЩО с четеца на жития (виж
+        // reader_screen.buildScrollableBody). Липсваше тук (докладвано
+        // 21.08.2026): SelectionArea просто не беше сложена, макар
+        // регионите под нея да са същите Html/DropCapParagraph widget-и,
+        // които вече раждат селектируеми RenderParagraph-и.
+        child: Theme(
+          data: Theme.of(context).copyWith(
+            textSelectionTheme: TextSelectionThemeData(
+              selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+              selectionHandleColor: AppColors.sectionTitle,
+              cursorColor: AppColors.sectionTitle,
             ),
-            // ⚠ Празнина, която избутва опашката ПОД прегъвката, но само
-            // на заглавната страница. Тя е къса — орнамент, заглавие и
-            // месец — тъй че без това опашката се вижда още при
-            // отварянето и заглавната никога не стои сама на екрана.
-            // SliverFillRemaining допълва точно колкото не достига до
-            // дъното на изгледа: при дълга страница добавя нула.
-            if (_index == 0)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: SizedBox.shrink(),
-              ),
-            // Опашката с навигацията — вътре в скрола, не като постоянна
-            // лента: докато се чете, тя не отнема нищо от екрана.
-            SliverToBoxAdapter(child: _footer()),
-          ],
+          ),
+          child: SelectionArea(
+            child: CustomScrollView(
+              controller: _scroll,
+              slivers: [
+                if (withHeader)
+                  SliverAppBar(
+                    primary: false,
+                    floating: true,
+                    snap: true,
+                    backgroundColor: AppColors.toolbar,
+                    toolbarHeight: kReaderToolbarHeight,
+                    leading: _toolbarLeading(),
+                    leadingWidth: _leadingWidth,
+                    titleSpacing: 8,
+                    title: _toolbarTitle(),
+                    actions: _toolbarActions(),
+                  ),
+                SliverToBoxAdapter(
+                  child: _entering(
+                    raw == null
+                        ? Padding(
+                            padding: const EdgeInsets.all(24),
+                            child: Text('Няма ${_current.href}',
+                                style: TextStyle(color: palette.dim)))
+                        : _chapterBody(raw, palette),
+                  ),
+                ),
+                // ⚠ Празнина, която избутва опашката ПОД прегъвката, но
+                // само на заглавната страница. Тя е къса — орнамент,
+                // заглавие и месец — тъй че без това опашката се вижда
+                // още при отварянето и заглавната никога не стои сама на
+                // екрана. SliverFillRemaining допълва точно колкото не
+                // достига до дъното на изгледа: при дълга страница
+                // добавя нула.
+                if (_index == 0)
+                  const SliverFillRemaining(
+                    hasScrollBody: false,
+                    child: SizedBox.shrink(),
+                  ),
+                // Опашката с навигацията — вътре в скрола, не като
+                // постоянна лента: докато се чете, тя не отнема нищо от
+                // екрана.
+                SliverToBoxAdapter(child: _footer()),
+              ],
+            ),
+          ),
         ),
       ),
     );

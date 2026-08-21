@@ -24,6 +24,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'calendar_style_picker.dart';
 import 'fasts_screen.dart';
 import 'holidays_screen.dart';
 import 'memorial_days_screen.dart';
@@ -165,14 +166,22 @@ class _ReferencePagerState extends State<ReferencePager> {
       backgroundColor: AppColors.toolbar,
       drawer: const AppDrawer(),
       onEndDrawerChanged: (isOpen) {
+        if (isOpen) return;
         // При затваряне преизчисляваме — стилът може да е сменен, а
-        // датите в секциите са кеширани.
-        if (!isOpen && mounted) setState(() => _revision++);
-      },
-      endDrawer: SettingsDrawer(onChanged: (styleChanged, [capturedMiddleDate]) {
-        appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
+        // датите в секциите са кеширани. Флъш ПРЕДИ това — ако графичният
+        // избор на стил чака отлагането си (CalendarStylePicker),
+        // затварянето не бива да го остави да увисне цяла секунда след
+        // като панелът вече не се вижда.
+        flushPendingCalendarStylePick?.call();
         if (mounted) setState(() => _revision++);
-      }),
+      },
+      endDrawer: SettingsDrawer(
+        sections: const {SettingsSection.calendar},
+        onChanged: (styleChanged, [capturedMiddleDate]) {
+          appSettingsChangedHook?.call(styleChanged, capturedMiddleDate);
+          if (mounted) setState(() => _revision++);
+        },
+      ),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
         toolbarHeight: 44,

@@ -252,7 +252,6 @@ class _AboutDropCapParagraph extends StatelessWidget {
         if (sp > 0) cut = sp;
       }
 
-      final wrapText = firstParagraph.substring(0, cut).trim();
       final restText = firstParagraph.substring(cut).trim();
       final baseStyle = TextStyle(
         fontFamily: _bodyFamily,
@@ -284,7 +283,21 @@ class _AboutDropCapParagraph extends StatelessWidget {
               ),
               const SizedBox(width: gap),
               Expanded(
-                child: Text(wrapText, textAlign: TextAlign.justify, style: baseStyle),
+                // ⚠ ЦЕЛИЯТ firstParagraph, отрязан визуално с maxLines — не
+                // предварително отрязан низ (както преди). Подаде ли се
+                // готово отрязан текст, Flutter го третира като ЦЕЛИЯ абзац
+                // и никога не разпъва последния му ред (типографско
+                // правило: последният ред на абзац не се justify-ва). С
+                // maxLines пакетът знае, че текстът продължава отвъд, и
+                // разпъва последния ВИДИМ ред нормално — същият похват като
+                // в четеца, viж drop_cap.dart около "maxLines реже точно
+                // там".
+                child: Text(
+                  firstParagraph,
+                  maxLines: capLines,
+                  textAlign: TextAlign.justify,
+                  style: baseStyle,
+                ),
               ),
             ],
           ),

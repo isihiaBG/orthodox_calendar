@@ -584,7 +584,7 @@ class ReaderScreen extends StatefulWidget {
 }
 
 class _ReaderScreenState extends State<ReaderScreen>
-    with SingleTickerProviderStateMixin {
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   // Размерът е static: пази се за цялата сесия, общ за всички екрани
   // на четеца. 17 е базата; стъпка 1.5; разумни граници.
   // Тема на четеца — НЕЗАВИСИМА от темата на приложението.
@@ -631,6 +631,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScrollForBookmark);
     // Темата и размерът се четат заедно — за човека това е един
     // четец и настройките му са общи (виж ReaderTheme.loadOnce).
@@ -680,6 +681,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _bump(double d) {
+    // ⚠ Улавяме най-горния видим ред ПРЕДИ смяна на шрифта — старата
+    // геометрия е още достъпна тук (layout-ът с новия размер минава чак
+    // на следващия кадър, същият похват като при завъртане на екрана —
+    // виж _restoreAfterRotation). Извън търсене досега тук нищо не пазеше
+    // позицията: докладвано 22.08.2026 — смяна на шрифта по средата на
+    // дълго житие изгубваше читателя.
+    final at = _totalMatches > 0 ? null : _topmostLine();
     setState(() {
       ReaderFontSize.nudge(d);
       // Реалните измерени височини важат само за СТАРИЯ размер на шрифта —
@@ -691,7 +699,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       _realItemExtents = null;
       _measuring = false;
     });
-    
+
     // Смяната на шрифта преформатира целия текст (различни височини на
     // абзаците) — ако има активно търсене, текущото съвпадение би могло
     // да "избяга" от изгледа; пренасочваме скрола към него отново.
@@ -699,6 +707,15 @@ class _ReaderScreenState extends State<ReaderScreen>
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Future.delayed(const Duration(milliseconds: 80), () {
           if (mounted) _scrollToCurrent();
+        });
+      });
+    } else if (at != null) {
+      // Извън търсене — връщаме най-горния ред на мястото му, вместо да
+      // оставим скрола на СТАРИЯ пиксел офсет (който при новия размер на
+      // шрифта вече сочи съвсем друго място в текста).
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (mounted) _jumpToLineInstant(at.$1, at.$2);
         });
       });
     }
@@ -790,6 +807,65 @@ class _ReaderScreenState extends State<ReaderScreen>
     _scrollController.dispose();
     _scrollController = ScrollController(initialScrollOffset: offset)
       ..addListener(_onScrollForBookmark);
+  }
+
+  // ---------------------------------------------------------------
+  // Завъртане на екрана — пази позицията (докладвано 21.08.2026)
+  // ---------------------------------------------------------------
+
+  /// Последно познатата ориентация — за да различим ИСТИНСКО завъртане от
+  /// друга промяна на метриките (напр. клавиатурата, която сменя само
+  /// височината, не съотношението). null значи "още нищо видяно": първото
+  /// повикване само го запомня, не скролва никъде.
+  bool? _wasLandscape;
+
+  @override
+  void didChangeMetrics() {
+    super.didChangeMetrics();
+    final views = WidgetsBinding.instance.platformDispatcher.views;
+    if (views.isEmpty) return;
+    final size = views.first.physicalSize;
+    if (size.isEmpty) return;
+    final landscape = size.width > size.height;
+    final was = _wasLandscape;
+    _wasLandscape = landscape;
+    if (was == null || was == landscape) return; // не е завъртане
+    _restoreAfterRotation();
+  }
+
+  /// При завъртане съдържанието се прекомпонова на новата ширина, а
+  /// пиксел-офсетът на скрола остава непроменен — вече сочи към СЪВСЕМ
+  /// друг ред и четецът "скача" безсмислено (докладвано 21.08.2026).
+  ///
+  /// При търсене — просто скролваме ОТНОВО до текущото съвпадение
+  /// (_currentMatch не се пипа никъде тук, тъй че "3/8" не се губи).
+  /// Извън търсене — улавяме кой ред е бил най-отгоре ПРЕДИ
+  /// прекомпоновката (геометрията в момента на didChangeMetrics е още
+  /// СТАРАТА — layout-ът на новата ширина минава едва на следващия кадър,
+  /// виж бележката при _viewportWidth в build()) и го връщаме най-отгоре
+  /// пак, през същия механизъм, който вече върши това за отметките.
+  void _restoreAfterRotation() {
+    if (!mounted) return;
+    if (_searchOpen) {
+      if (_currentMatch < 0) return;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 80), () {
+          if (mounted) _scrollToCurrent();
+        });
+      });
+      return;
+    }
+    final at = _topmostLine();
+    if (at == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      Future.delayed(const Duration(milliseconds: 80), () {
+        // jumpTo (_jumpToLineInstant), НЕ _jumpToBookmarkRegion (animateTo)
+        // — виж бележката там защо: animateTo оставяше 350 ms прозорец, в
+        // който следващо бързо завъртане засичаше скрола по средата на
+        // предишната анимация и натрупваше отместване.
+        if (mounted) _jumpToLineInstant(at.$1, at.$2);
+      });
+    });
   }
 
   // ---------------------------------------------------------------
@@ -973,6 +1049,52 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  /// Вариант на [_jumpToBookmarkRegion] БЕЗ анимация — скача направо
+  /// (jumpTo), не се плъзга (animateTo).
+  ///
+  /// ⚠ Съществува заради конкретен бъг (докладван 22.08.2026): при
+  /// повторно завъртане на екрана, докато предишният animateTo (350 ms)
+  /// още е бил в ход, следващото улавяне на "най-горния ред" засичаше
+  /// СКРОЛА ПО СРЕДА НА АНИМАЦИЯТА — нито старата, нито новата позиция, а
+  /// нещо междинно. Повторено при няколко завъртания едно след друго, това
+  /// натрупваше видимо, все по-растящо отместване надолу. jumpTo е
+  /// атомарен — няма прозорец от време, в който следващо събитие да
+  /// завари скрола "по средата", тъй че грешката не може да се натрупва.
+  /// Ползва се само за случаи, при които самата анимация не носи нищо
+  /// (потребителят вече не гледа този момент) — завъртане на екрана и
+  /// превключване на търсенето. Виж _restoreAfterRotation и _toggleSearch.
+  ///
+  /// [extraOffset] — ръчна корекция в пиксели, добавена към изчисленото
+  /// подравняване. Нужна е при превключване на търсенето (виж
+  /// _toggleSearch): подравняването към alignment 0.0 е пиксел-точно
+  /// спрямо ГОРНИЯ РЪБ НА СКРОЛИРУЕМАТА ЗОНА, но самата тази зона расте с
+  /// височината на двете ленти (лентата с инструменти + лентата за
+  /// търсене, 44+58=102), които изчезват при затваряне. Без корекция
+  /// редът застава пиксел-точно на новия връх, но окото го вижда
+  /// изместен нагоре точно с толкова, колкото тежат изчезналите ленти
+  /// (докладвано 22.08.2026: ~3.5 реда). Отрицателна стойност спира
+  /// скрола по-рано (по-малко разстояние от началото).
+  void _jumpToLineInstant(int regionIndex, int charInRegion,
+      {double extraOffset = 0}) {
+    if (!mounted || !_scrollController.hasClients) return;
+    if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
+    final ctx = _regionKeys[regionIndex].currentContext;
+    final box = ctx?.findRenderObject() as RenderBox?;
+    final line =
+        box == null ? null : _lineForChar(regionIndex, charInRegion, box.size.width);
+    if (box == null || line == null) return;
+    final target = RenderAbstractViewport.of(box)
+            .getOffsetToReveal(
+              box,
+              0.0,
+              rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
+            )
+            .offset +
+        extraOffset;
+    final position = _scrollController.position;
+    position.jumpTo(target.clamp(position.minScrollExtent, position.maxScrollExtent));
+  }
+
   void _onResumePromptJump() {
     final idx = _bookmarkedRegionIndex;
     if (idx != null) _jumpToBookmarkRegion(idx, _bookmarkedChar);
@@ -995,7 +1117,41 @@ class _ReaderScreenState extends State<ReaderScreen>
     });
   }
 
+  /// Лентата с инструменти + лентата за търсене — заедно изчезват при
+  /// затваряне на търсенето (и заедно се появяват при отваряне). Виж
+  /// корекцията в _toggleSearch по-долу. Смятана от СЪЩИТЕ кръстени
+  /// константи, с които се строят самите ленти (reader_toolbar.dart) — не
+  /// голи числа тук, за да не могат корекцията и реалната височина да се
+  /// разминат при промяна.
+  static const double _kSearchChromeHeight =
+      kReaderToolbarHeight + kSearchBarHeight;
+
   void _toggleSearch() {
+    // ⚠ Улавяме най-горния видим ред ПРЕДИ превключването — само
+    // запазването на pixels (_reanchorScrollController) не стига.
+    // Лентата за търсене (58) ту стои ИЗВЪН скрола (фиксирана над
+    // Expanded-а), ту ВЪТРЕ като sliverHeader.bottom — двете подредби
+    // броят различно колко от тази височина влиза в скрол-координатите,
+    // тъй че еднакъв pixels сочи различно съдържание преди/след. Знакът
+    // тук е точен и НЕ зависи от тази сметка за височините — същият
+    // механизъм, който вече пази позицията при завъртане.
+    //
+    // ⚠ Самото подравняване към alignment 0.0 е пиксел-точно спрямо
+    // ГОРНИЯ РЪБ НА СКРОЛИРУЕМАТА ЗОНА — но при затваряне тази зона
+    // РАСТЕ точно с _kSearchChromeHeight (двете ленти изчезват), тъй че
+    // редът каца пиксел-точно на новия връх, а окото го вижда изместен
+    // нагоре точно с толкова (докладвано 22.08.2026: ~3.5 реда).
+    // extraOffset компенсира — спира скрола толкова по-рано (при
+    // затваряне) или го праща толкова по-нататък (при отваряне, огледално).
+    //
+    // ⚠ Не е пиксел-перфектно при всеки размер на шрифта (проверено
+    // 22.08.2026: точно при най-малките два размера, един ред разлика на
+    // третия) — вероятно защото _searchAnim (220 мс) още не е свършила,
+    // когато следващия кадър вече прилага корекцията. Оставено нарочно
+    // — потребителят прецени, че един ред разлика не си струва по-нататъшно
+    // гонене на този пиксел.
+    final wasOpen = _searchOpen;
+    final at = _topmostLine();
     if (_searchOpen) {
       _searchAnim.reverse();
       setState(() {
@@ -1015,6 +1171,12 @@ class _ReaderScreenState extends State<ReaderScreen>
       _searchAnim.forward();
       Future.delayed(const Duration(milliseconds: 120), () {
         if (mounted) _searchFocusNode.requestFocus();
+      });
+    }
+    if (at != null) {
+      final extraOffset = wasOpen ? -_kSearchChromeHeight : _kSearchChromeHeight;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _jumpToLineInstant(at.$1, at.$2, extraOffset: extraOffset);
       });
     }
   }
@@ -1354,26 +1516,49 @@ class _ReaderScreenState extends State<ReaderScreen>
     // maxScrollExtent, който самият той е нестабилен), после прецизиране.
     // Целим самото съвпадение, а не началото на абзаца му: при дълъг абзац
     // това са няколко екрана разлика и вторият, точният ход тръгва отдалеч.
-    if (!_scrollController.hasClients) return;
-    final position = _scrollController.position;
-    _ensureMatchYs();
-    final cumulative = _effectiveCumulativeHeights;
-    final estimateRaw = _currentMatch < _matchYs.length
-        ? _matchYs[_currentMatch] -
-            _scrollController.position.viewportDimension * _matchAlignment
-        : (regionIdx > 0 && regionIdx - 1 < cumulative.length
-            ? cumulative[regionIdx - 1]
-            : 0.0);
-    final estimate = estimateRaw.clamp(
-      position.minScrollExtent,
-      position.maxScrollExtent,
-    );
-    position.jumpTo(estimate);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) refine('after-jump');
+    //
+    // ⚠ Оценката е ХЮРИСТИЧНА, докато _realItemExtents е null — точно
+    // състоянието непосредствено СЛЕД смяна на шрифта (_bump() го нулира
+    // нарочно, за да предизвика ново фоново премерване). Докладвано
+    // 22.08.2026: обхождане на съвпадение точно тогава можеше да скочи
+    // достатъчно далеч от целта, че регионът така и не влизаше в build-
+    // обхвата на мързеливия списък — тогава ЕДНОКРАТНАТА поправка по-долу
+    // мълчаливо се отказваше (ctx == null → return) и потребителят
+    // оставаше на грешно място, без самокорекция. Затова опитът се
+    // ПОВТАРЯ, докато регионът не се построи (или до разумен таван) —
+    // всеки следващ опит пресмята оценката наново от
+    // _effectiveCumulativeHeights, който междувременно се доуточнява от
+    // фоновото премерване.
+    void attemptJump(int attempt) {
+      if (token != _scrollToken || !mounted) return;
+      if (key.currentContext != null) {
+        refine('retry-$attempt');
+        return;
+      }
+      if (attempt >= 6) return; // ~600 мс общо — таван, не безкраен цикъл
+      if (!_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      _ensureMatchYs();
+      final cumulative = _effectiveCumulativeHeights;
+      final estimateRaw = _currentMatch < _matchYs.length
+          ? _matchYs[_currentMatch] -
+              position.viewportDimension * _matchAlignment
+          : (regionIdx > 0 && regionIdx - 1 < cumulative.length
+              ? cumulative[regionIdx - 1]
+              : 0.0);
+      final estimate = estimateRaw.clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      position.jumpTo(estimate);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Future.delayed(const Duration(milliseconds: 100), () {
+          if (mounted) attemptJump(attempt + 1);
+        });
       });
-    });
+    }
+
+    attemptJump(0);
   }
 
   /// Чете реалните построени (Offstage) височини и еднократно превключва
@@ -1677,6 +1862,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     // Прибираме евентуален висящ SnackBar веднага — иначе остава да виси и
     // след като този екран е затворен (ScaffoldMessenger е общ, не
     // локален за reader_screen). removeCurrentSnackBar (не hideCurrentSnackBar)
@@ -1818,7 +2004,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               AppBar(
                 primary: false,
                 backgroundColor: AppColors.toolbar,
-                toolbarHeight: 44,
+                toolbarHeight: kReaderToolbarHeight,
                 title: Text(title),
               ),
               Expanded(
@@ -2199,7 +2385,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     PreferredSizeWidget? searchBarBottom(double value) {
       if (value == 0) return null;
       return PreferredSize(
-        preferredSize: Size.fromHeight(58 * value),
+        preferredSize: Size.fromHeight(kSearchBarHeight * value),
         child: ClipRect(
           child: Align(
             alignment: Alignment.topCenter,
@@ -2220,7 +2406,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         snap: true,
         pinned: false,
         backgroundColor: AppColors.toolbar,
-        toolbarHeight: 44,
+        toolbarHeight: kReaderToolbarHeight,
         title: Text(title),
         actions: headerActions,
         bottom: searchBarBottom(_searchAnim.value),
@@ -2242,7 +2428,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         child: AppBar(
           primary: false,
           backgroundColor: AppColors.toolbar,
-          toolbarHeight: 44,
+          toolbarHeight: kReaderToolbarHeight,
           title: Text(title),
           actions: headerActions,
           bottom: searchBarBottom(_searchAnim.value),
