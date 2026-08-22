@@ -9,11 +9,22 @@ import 'app_strings.dart';
 class MonthScreen extends StatefulWidget {
   final DateTime initialDate;
   final Function(DateTime) onDateSelected;
+  // Истинските граници на наличните данни (от DatabaseHelper.dataMinDate/
+  // dataMaxDate, вижте main.dart._refineDateBoundsFromDatabase) — same
+  // границите, с които вече работи дневният изглед. Без тях PageView-ът
+  // на месеца нямаше как да знае докъде му е позволено да отиде — виж
+  // бележката при _totalMonths по-долу защо точно това е причината човек
+  // да не може да стъпи на 2025/2027 от месечния изглед (докладвано
+  // 22.08.2026).
+  final DateTime startDate;
+  final DateTime endDate;
 
   const MonthScreen({
     super.key,
     required this.initialDate,
     required this.onDateSelected,
+    required this.startDate,
+    required this.endDate,
   });
 
   @override
@@ -27,7 +38,11 @@ class MonthScreenState extends State<MonthScreen> {
   // GlobalKey за достъп до текущата _MonthPage
   final Map<int, GlobalKey<_MonthPageState>> _pageKeys = {};
 
-  static final DateTime _baseDate = DateTime(2026, 1, 1);
+  // ⚠ Първият месец от РЕАЛНИЯ обхват на данните — не голата 2026, каквато
+  // беше досега. Индексът 0 вече значи точно този месец, тъй че вече не е
+  // нужен и изкуственият offset +100 (виж _totalMonths).
+  late final DateTime _baseDate =
+      DateTime(widget.startDate.year, widget.startDate.month, 1);
 
   static const _monthNames = [
     '', 'Януари', 'Февруари', 'Март', 'Април', 'Май', 'Юни',
@@ -43,20 +58,32 @@ class MonthScreenState extends State<MonthScreen> {
     '', 'пн', 'вт', 'ср', 'чт', 'пт', 'сб', 'нд'
   ];
 
-  static DateTime _indexToMonth(int index) {
+  DateTime _indexToMonth(int index) {
     int year  = _baseDate.year + index ~/ 12;
     int month = _baseDate.month + index % 12;
     if (month > 12) { month -= 12; year++; }
     return DateTime(year, month, 1);
   }
 
-  static int _monthToIndex(DateTime date) {
+  int _monthToIndex(DateTime date) {
     return (date.year - _baseDate.year) * 12 + (date.month - _baseDate.month);
   }
 
+  // ⚠ ТУК Е БЪГЪТ, поправен 22.08.2026: PageView.builder по-долу нямаше
+  // itemCount — „безкраен" списък. Дневният изглед винаги е бил ограничен
+  // (itemCount: _totalDays в main.dart) и animateToPage там уцелваше
+  // всяка позволена година безпроблемно; месечният, без ограничение,
+  // мълчаливо не стигаше далечни, никога непосетени страници (напр. скок
+  // от резултат на търсене в друга година) — Flutter не може да смята
+  // точен maxScrollExtent за списък без известен край. Сега броят страници
+  // е точен, изведен от същите граници на данните като дневния изглед.
+  late final int _totalMonths =
+      _monthToIndex(DateTime(widget.endDate.year, widget.endDate.month, 1)) + 1;
+
 	DateTime get currentDate {
-	  final index = _pageController.page?.round() ?? _currentMonthIndex;
-	  final monthDate = _indexToMonth(index - 100);
+	  final index = (_pageController.page?.round() ?? _currentMonthIndex)
+        .clamp(0, _totalMonths - 1);
+	  final monthDate = _indexToMonth(index);
 	  // При водещ стар стил — конвертираме към нов стил за датепикъра
 	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  if (AppSettings.isOldStyle && oldIsLeading) {
@@ -72,8 +99,9 @@ class MonthScreenState extends State<MonthScreen> {
     // Инициализираме днешната дата
     final now = DateTime.now();
     AppSettings.today = DateTime(now.year, now.month, now.day);
-    _currentMonthIndex = _monthToIndex(widget.initialDate);
-    _pageController = PageController(initialPage: _currentMonthIndex + 100);
+    _currentMonthIndex =
+        _monthToIndex(widget.initialDate).clamp(0, _totalMonths - 1);
+    _pageController = PageController(initialPage: _currentMonthIndex);
   }
 
   @override
@@ -91,8 +119,12 @@ class MonthScreenState extends State<MonthScreen> {
 		  ? date.subtract(const Duration(days: 13))  // конвертираме към стар стил
 		  : date;
 
-	  final targetIndex = _monthToIndex(leadingDate);  // месец по водещия стил
-	  final targetPage  = targetIndex + 100;
+	  // Ограничено до истинския обхват — дата извън него (напр. ръбов
+	  // случай около стар/нов стил на границата на данните) не бива да
+	  // праща animateToPage() отвъд наличните страници.
+	  final targetIndex =
+		  _monthToIndex(leadingDate).clamp(0, _totalMonths - 1);
+	  final targetPage  = targetIndex;
 
 	  if (flash) {
       AppSettings.flashDate = date;
@@ -133,10 +165,11 @@ class MonthScreenState extends State<MonthScreen> {
   Widget build(BuildContext context) {
     return PageView.builder(
       controller: _pageController,
-      onPageChanged: (page) => setState(() => _currentMonthIndex = page - 100),
+      itemCount: _totalMonths,
+      onPageChanged: (page) => setState(() => _currentMonthIndex = page),
       itemBuilder: (context, page) {
-        final monthDate  = _indexToMonth(page - 100);
-        final monthIndex = page - 100;
+        final monthDate  = _indexToMonth(page);
+        final monthIndex = page;
 
         _pageKeys[monthIndex] ??= GlobalKey<_MonthPageState>();
 

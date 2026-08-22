@@ -477,10 +477,17 @@ class _CalendarPageViewState extends State<CalendarPageView> {
         child: _isMonthView
           ? MonthScreen(
               key: _monthScreenKey,
-							initialDate: _isMonthView 
+							initialDate: _isMonthView
 								? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
 								: _dateForPage(_currentPage),
-              
+              // Същите граници като дневния изглед (вижте
+              // _refineDateBoundsFromDatabase) — без тях PageView-ът на
+              // месеца не можеше да достигне година извън закованата 2026
+              // (докладвано 22.08.2026, напр. при скок от резултат на
+              // търсене в друга година).
+              startDate: _startDate,
+              endDate: _startDate.add(Duration(days: _totalDays - 1)),
+
               onDateSelected: (date) {
                 // Навигираме до избрания ден и обновяваме _currentDate.
                 // Важно: ползваме _dateForPage след clamp за да е сигурно
