@@ -59,7 +59,10 @@ class _ExpandableSectionState extends State<ExpandableSection> {
         InkWell(
           onTap: () => setState(() => _expanded = !_expanded),
           child: Container(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+            // Ляво поле по-малко от дясното — иначе знакът (📖/🕯️/📜/⛪)
+            // застава по-навътре от булетите на светиите и менюто горе,
+            // и трите извън същата визуална колона.
+            padding: const EdgeInsets.fromLTRB(0, 12, 4, 12),
             decoration: BoxDecoration(
               border: Border(
                 top: BorderSide(color: AppColors.sectionDivider, width: 0.5),
