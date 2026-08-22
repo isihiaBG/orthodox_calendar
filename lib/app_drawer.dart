@@ -170,7 +170,7 @@ class AppDrawer extends StatelessWidget {
       // Text глифът виси надолу спрямо реда си (за разлика от Icon,
       // чиято кутия е центрирана по замисъл) — компенсираме на око.
       leading: Transform.translate(
-        offset: const Offset(0, -6),
+        offset: const Offset(0.5, -4),
         child: Text(symbol,
             style: const TextStyle(color: AppColors.drawerIcon, fontSize: 30)),
       ),
