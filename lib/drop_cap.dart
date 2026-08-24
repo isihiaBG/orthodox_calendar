@@ -57,11 +57,15 @@ const double kSupScale = 0.62;
 /// (на око), не по формула — виж бележката в CLAUDE.md.
 const Map<String, double> kDropCapOffsetFactor = {
   'Д': -0.09,
-  'М': -0.04,
+  'М': -0.00,
+  'В': -0.07,
+  'Р': -0.04,
   'Ш': -0.13,
-  'Щ': -0.00,
-  'Ж':  0.03,
-  'Ф':  0.03,
+  'Щ': -0.02,
+  'С': -0.02,
+  'К': -0.01,
+  'Ж':  0.00,
+  'Ф':  0.00,
   'Ю': -0.00,
   'Х':  0.02,
 };
@@ -78,6 +82,79 @@ const Map<String, double> kDropCapOffsetFactor = {
 /// като все още няма трите размера.
 double dropCapOffsetX(String letter, double size, {double scaleMultiplier = 1.0}) =>
     (kDropCapOffsetFactor[letter] ?? 0) * size * scaleMultiplier;
+
+/// Три групи по РЕАЛНА ширина на глифа в Bukvica (от `hmtx`, не на око) —
+/// виж измерването с fontTools в разговора от 24.08.2026. Буквите в
+/// шрифта имат голяма амплитуда по ширина (от 0.224 до 0.555 от em, а Ъ/Ь
+/// стигат чак 1.229 — практически неизползваеми като буквица, но все пак
+/// класифицирани), а бялото петно за буквицата е ЕДНА обща ширина —
+/// затова тесните букви зейват в него, а широките се притискат.
+enum DropCapWidthGroup { narrow, normal, wide }
+
+/// Границите (в дял от em, `hmtx`/`unitsPerEm`):
+///   тесни   0.224–0.281  З Я Х Ч Ж С О У К Н И Й
+///   средни  0.281–0.363  Т Ц П Ф Щ Е Л Р Г А Б В
+///   широки  0.408+       Ю М Д Ш Ъ Ь
+/// Разделено по ЕСТЕСТВЕНИ разриви в данните (виж разговора), не на равни
+/// части — между „средни" и „широки" има реален скок (+0.045 при Ю, после
+/// +0.118 при Д), докато тесни/средни са по-плавно разделени по средата.
+const Map<String, DropCapWidthGroup> kDropCapWidthGroup = {
+  'З': DropCapWidthGroup.narrow,
+  'Я': DropCapWidthGroup.narrow,
+  'Х': DropCapWidthGroup.narrow,
+  'Ч': DropCapWidthGroup.narrow,
+  'Ж': DropCapWidthGroup.narrow,
+  'С': DropCapWidthGroup.narrow,
+  'О': DropCapWidthGroup.narrow,
+  'У': DropCapWidthGroup.narrow,
+  'К': DropCapWidthGroup.narrow,
+  'Н': DropCapWidthGroup.narrow,
+  'И': DropCapWidthGroup.narrow,
+  'Й': DropCapWidthGroup.narrow,
+  'Т': DropCapWidthGroup.normal,
+  'Ц': DropCapWidthGroup.normal,
+  'П': DropCapWidthGroup.normal,
+  'Ф': DropCapWidthGroup.normal,
+  'Щ': DropCapWidthGroup.normal,
+  'Е': DropCapWidthGroup.normal,
+  'Л': DropCapWidthGroup.normal,
+  'Р': DropCapWidthGroup.normal,
+  'Г': DropCapWidthGroup.normal,
+  'А': DropCapWidthGroup.normal,
+  'Б': DropCapWidthGroup.normal,
+  'В': DropCapWidthGroup.normal,
+  'Ю': DropCapWidthGroup.wide,
+  'М': DropCapWidthGroup.wide,
+  'Д': DropCapWidthGroup.wide,
+  'Ш': DropCapWidthGroup.wide,
+  'Ъ': DropCapWidthGroup.wide,
+  'Ь': DropCapWidthGroup.wide,
+};
+
+/// Буква без запис в [kDropCapWidthGroup] пада в „нормална" — безопасно по
+/// подразбиране, а не изключение (за разлика от [kDropCapOffsetFactor]).
+DropCapWidthGroup dropCapWidthGroupOf(String letter) =>
+    kDropCapWidthGroup[letter] ?? DropCapWidthGroup.normal;
+
+/// Множител върху ШИРИНАТА на бялото петно за буквицата — по група, за
+/// ЧЕТЦИТЕ (двата). „Нормална" е нарочно 1.0: множителят възпроизвежда
+/// сегашната ширина, не задава нова — за да е сравним между трите размера
+/// на буквицата (dropCapSize), които вече се менят от настройките.
+///
+/// PDF експортът има СВОЙ, ОТДЕЛЕН комплект (виж pdf_export.dart) —
+/// потвърдено от потребителя 24.08.2026, че пропорциите там се разминават
+/// достатъчно от екрана, за да не може един комплект да свърши работа и на
+/// двете места.
+const Map<DropCapWidthGroup, double> kDropCapWidthFactor = {
+  DropCapWidthGroup.narrow: 0.7,
+  DropCapWidthGroup.normal: 0.8,
+  DropCapWidthGroup.wide: 1.1,
+};
+
+/// Множителят за буквата [letter], готов за директно умножение по
+/// сегашната ширина на бялото петно.
+double dropCapWidthFactorFor(String letter) =>
+    kDropCapWidthFactor[dropCapWidthGroupOf(letter)] ?? 1.0;
 
 /// Разлага HTML на парчета. Публична, защото по същите парчета мери и
 /// text_line_locator.dart — двете трябва да виждат ЕДИН И СЪЩ текст., като разкодира entity-тата и слепва поредните
@@ -452,7 +529,12 @@ class DropCapParagraphState extends State<DropCapParagraph> {
 
     final widgetTree = LayoutBuilder(
       builder: (context, constraints) {
-        final capWidth = widget.dropCapSize * 0.40; // приблизителна ширина
+        // Приблизителна ширина, коригирана по група (тясна/средна/широка
+        // буква) — виж dropCapWidthFactorFor и бележката при
+        // kDropCapWidthFactor.
+        final capWidth = widget.dropCapSize *
+            0.40 *
+            dropCapWidthFactorFor(widget.dropCap);
         const gap = 4.0;
         final narrowWidth = constraints.maxWidth - capWidth - gap;
 

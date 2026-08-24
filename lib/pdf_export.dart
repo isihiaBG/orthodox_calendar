@@ -18,7 +18,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
-import 'drop_cap.dart' show dropCapOffsetX;
+import 'drop_cap.dart'
+    show dropCapOffsetX, DropCapWidthGroup, dropCapWidthGroupOf;
 import 'drop_cap_scale.dart'
     show ReaderDropCapScale, DropCapScaleMetrics, DropCapScale;
 import 'external_link.dart' show decodeHref;
@@ -91,9 +92,22 @@ const Map<DropCapScale, double> _kPdfCapSizeFactor = {
 };
 
 const Map<DropCapScale, double> _kPdfCapYShiftFactor = {
-  DropCapScale.small:  1.0,
+  DropCapScale.small:  1.3,
   DropCapScale.medium: 2.0,
   DropCapScale.large:  3.0,  //Move Up
+};
+
+/// Множител върху ШИРИНАТА на бялото петно по ГРУПА (тясна/средна/широка
+/// буква — виж DropCapWidthGroup в drop_cap.dart, споделената
+/// класификация по реална ширина на глифа). ОТДЕЛЕН комплект от този на
+/// четците (kDropCapWidthFactor там) — потвърдено от потребителя
+/// 24.08.2026, че пропорциите тук се разминават достатъчно от екрана, за
+/// да не свърши работа един общ комплект и на двете места. „Нормална" пак
+/// е 1.0 — възпроизвежда сегашната ширина за тази група.
+const Map<DropCapWidthGroup, double> _kPdfCapWidthGroupFactor = {
+  DropCapWidthGroup.narrow: 0.6,
+  DropCapWidthGroup.normal: 0.7,
+  DropCapWidthGroup.wide: 1.0,
 };
 
 /// Общият ред, който искаме — в кратни на размера на шрифта.
@@ -791,7 +805,16 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   // се пренесе на нов ред, така че широчината на кутията не го застрашава.
   final capFontSize =
       lineHeightPt * capLines * 0.85 * (_kPdfCapSizeFactor[scale] ?? 1.0);
-  final capWidth = capFontSize * 0.45 * _kPdfCapWidthFactor;
+  // Буквата на буквицата и евентуалната кавичка пред нея — смятаме го
+  // ВЕДНЪЖ тук (по-рано, отколкото стоеше преди — capWidth вече има нужда
+  // от нея за груповата корекция по-долу), защото трябва навсякъде долу:
+  // колко знака да отпаднат от текста (skip) И самите знаци за рисуване
+  // накрая.
+  final dropInfo = _dropCapLetterInfo(blocks[start].text);
+  final capWidth = capFontSize *
+      0.45 *
+      _kPdfCapWidthFactor *
+      (_kPdfCapWidthGroupFactor[dropCapWidthGroupOf(dropInfo.cap)] ?? 1.0);
   // Буквицата трябва да НАДВИШАВА горния ръб на първия ред (както в
   // четеца). Постига се с отстъп отгоре на съседния текст: самата буква
   // започва най-горе в блока, а текстът тръгва по-надолу. Bukvica има
@@ -810,11 +833,6 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   final style = pw.TextStyle(
       font: _body, fontSize: _bodySize,
       lineSpacing: _lineSpacing(measureFont, _bodySize), color: _ink);
-
-  // Буквата на буквицата и евентуалната кавичка пред нея — смятаме го
-  // ВЕДНЪЖ тук, защото трябва навсякъде долу: колко знака да отпаднат от
-  // текста (skip) И самите знаци за рисуване накрая.
-  final dropInfo = _dropCapLetterInfo(blocks[start].text);
 
   final beside = <pw.Widget>[]; // фрагментите вдясно от буквицата
   final tail = <pw.Widget>[]; // онова, което продължава под нея

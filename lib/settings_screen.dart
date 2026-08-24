@@ -318,7 +318,7 @@ class _SettingsContentState extends State<SettingsContent> {
     return [
       Padding(
         padding: const EdgeInsets.only(bottom: 12),
-        child: Text('РАЗМЕР НА БУКВИЦАТА',
+        child: Text('РАЗМЕР НА ВОДЕЩАТА БУКВА',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11,
@@ -348,7 +348,12 @@ class _SettingsContentState extends State<SettingsContent> {
             for (final s in DropCapScale.values)
               ButtonSegment(
                 value: s,
-                label: Text(s.label, style: const TextStyle(height: 1.0)),
+                label: Text(  //--- Етикетите за размера на Буквицата
+                  s.label, 
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: TextOverflow.visible,
+                  style: const TextStyle(height: 1.0)),
               ),
           ],
           selected: {_dropCapScale},
