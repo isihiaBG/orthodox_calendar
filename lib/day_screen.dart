@@ -212,7 +212,11 @@ class _DayScreenState extends State<DayScreen>
              (SELECT kind, count(*) AS n FROM lives.hymns
               WHERE slug = s.slug GROUP BY kind)) AS hymn_counts,
           (l.life    IS NOT NULL AND l.life    != '') AS has_life,
-          (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
+          (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba,
+          -- Четивата по Димитрий Ростовски, кодирани по същия принцип:
+          -- "num:kind,num:kind" (виж saint_expandable_tile.parseDmitryRefs).
+          (SELECT group_concat(num || ':' || kind, ',') FROM
+             lives.saint_dmitry_refs WHERE slug = s.slug) AS dmitry_refs
     FROM saints s
     LEFT JOIN saint_ranks r ON s.rank = r.id
     LEFT JOIN saint_groups sg ON s.group_code = sg.code
@@ -570,6 +574,7 @@ class _DayScreenState extends State<DayScreen>
           hymnCounts: parseHymnCounts(saint.hymnCounts),
           hasLife: saint.hasLife,
           hasSluzhba: saint.hasSluzhba,
+          dmitryRefs: parseDmitryRefs(saint.dmitryRefs),
           lifeLabel: lifeLabelFor(rank: saint.rank, name: saint.name),
           loadTexts: () => _loadSaintTexts(saint.id),
           lookup: lookupBySlug,

@@ -29,7 +29,7 @@ import 'dual_date_text.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
 import 'saint_expandable_tile.dart'
-    show SaintExpandableTile, SaintLookup, parseHymnCounts;
+    show DmitryRef, SaintExpandableTile, SaintLookup, parseDmitryRefs, parseHymnCounts;
 
 // Системният шрифт на телефона, не Charis SIL — `null` значи „каквото дава
 // устройството". Същото решение както в дневния и месечния изглед: тези
@@ -187,7 +187,9 @@ class _FastsSectionState extends State<FastsSection> {
                   (SELECT kind, count(*) AS n FROM lives.hymns
                    WHERE slug = t.slug GROUP BY kind)) AS hymn_counts,
                (t.life    IS NOT NULL AND t.life    != '') AS has_life,
-               (t.sluzhba IS NOT NULL AND t.sluzhba != '') AS has_sluzhba
+               (t.sluzhba IS NOT NULL AND t.sluzhba != '') AS has_sluzhba,
+               (SELECT group_concat(num || ':' || kind, ',') FROM
+                  lives.saint_dmitry_refs WHERE slug = t.slug) AS dmitry_refs
         FROM lives.texts t WHERE t.slug = ? LIMIT 1
       ''', [slug]);
       if (rows.isEmpty) continue;
@@ -196,6 +198,7 @@ class _FastsSectionState extends State<FastsSection> {
         hymnCounts: parseHymnCounts(r['hymn_counts'] as String?),
         hasLife: (r['has_life'] as int? ?? 0) == 1,
         hasSluzhba: (r['has_sluzhba'] as int? ?? 0) == 1,
+        dmitryRefs: parseDmitryRefs(r['dmitry_refs'] as String?),
       );
     }
     if (mounted) setState(() {});
@@ -223,6 +226,7 @@ class _FastsSectionState extends State<FastsSection> {
       hymnCounts: flags.hymnCounts,
       hasLife: flags.hasLife,
       hasSluzhba: flags.hasSluzhba,
+      dmitryRefs: flags.dmitryRefs,
       lifeLabel: 'Сказание',
       loadTexts: () async => widget.lookup(spec.slug!),
       lookup: widget.lookup,
@@ -370,9 +374,11 @@ class _TextFlags {
   final Map<String, int> hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
+  final List<DmitryRef> dmitryRefs;
   const _TextFlags({
     this.hymnCounts = const {},
     required this.hasLife,
     required this.hasSluzhba,
+    this.dmitryRefs = const [],
   });
 }

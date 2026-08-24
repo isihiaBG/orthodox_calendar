@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'dmitry_life.dart';
+import 'lives_index.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
 
@@ -163,6 +165,41 @@ Future<List<Hymn>> loadHymns(String slug) async {
   return rows.map(Hymn.fromMap).toList();
 }
 
+/// Едно четиво по Димитрий Ростовски — ред от saint_dmitry_refs
+/// (assets/db/lives.db), виж CLAUDE.md за архитектурата (slug вместо
+/// saints.id, защото последният се преномерира при всяко прегенериране).
+class DmitryRef {
+  /// Номерът на статията в azbyka.ru — ключ в assets/lives_index.json.
+  final int num;
+
+  /// main (основно сказание) | slovo (проповед) | sub (втори епизод от
+  /// същото събитие/спътник, споменат в общ ред) — виж CLAUDE.md.
+  final String kind;
+
+  const DmitryRef({required this.num, required this.kind});
+}
+
+/// От низа, който заявката връща: "num:kind,num:kind" — същия принцип
+/// като hymn_counts, за да не се добавя JOIN, който би размножил реда.
+List<DmitryRef> parseDmitryRefs(String? packed) {
+  if (packed == null || packed.isEmpty) return const [];
+  final out = <DmitryRef>[];
+  for (final pair in packed.split(',')) {
+    final i = pair.indexOf(':');
+    if (i <= 0) continue;
+    final num = int.tryParse(pair.substring(0, i));
+    if (num == null) continue;
+    out.add(DmitryRef(num: num, kind: pair.substring(i + 1)));
+  }
+  // По РЕДА, в който четивата стоят в самата книга — не по вид. "main"
+  // не значи непременно "първо в книгата": на Рождество Христово напр.
+  // книгата подрежда встъпителна част (sub), после сказанието (main),
+  // после отделен епизод (sub) — sortирането по kind разбъркваше реда и
+  // объркваше кой ред носи генеричния етикет.
+  out.sort((a, b) => a.num.compareTo(b.num));
+  return out;
+}
+
 /// Кой раздел се отваря при тап върху секция.
 enum _Section { prayers, life, sluzhba }
 
@@ -281,6 +318,12 @@ class SaintExpandableTile extends StatefulWidget {
   /// "Житие" или "Сказание" — виж lifeLabelFor().
   final String lifeLabel;
 
+  /// Четивата по Димитрий Ростовски за този светия — 0 или повече (виж
+  /// DmitryRef). Идват готови от заявката, не се зареждат лениво —
+  /// самите заглавия (за sub/slovo редовете) се разрешават през
+  /// LivesIndex чак при рисуване на разгънатата секция.
+  final List<DmitryRef> dmitryRefs;
+
   /// Зарежда пълните текстове от базата — вика се чак при тап.
   final Future<SaintTexts?> Function() loadTexts;
 
@@ -300,6 +343,7 @@ class SaintExpandableTile extends StatefulWidget {
     required this.hasSluzhba,
     this.hymnCounts = const {},
     this.lifeLabel = 'Житие',
+    this.dmitryRefs = const [],
     required this.loadTexts,
     required this.lookup,
     this.arrowSlotWidth,
@@ -315,7 +359,10 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
   String get _prayersLabel => prayersLabel(widget.hymnCounts);
 
   bool get _hasAnything =>
-      _prayersLabel.isNotEmpty || widget.hasLife || widget.hasSluzhba;
+      _prayersLabel.isNotEmpty ||
+      widget.hasLife ||
+      widget.hasSluzhba ||
+      widget.dmitryRefs.isNotEmpty;
 
   void _toggle() {
     if (!_hasAnything) return;
@@ -414,6 +461,12 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                           label: 'Служба',
                           onTap: () => _open(_Section.sluzhba),
                         ),
+                      for (final entry in widget.dmitryRefs.asMap().entries)
+                        _DmitryRow(
+                          ref: entry.value,
+                          mainLabel: widget.lifeLabel,
+                          isFirst: entry.key == 0,
+                        ),
                     ],
                   ),
                 ),
@@ -451,6 +504,47 @@ class _SectionRow extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Един ред за четиво по Димитрий Ростовски. Заглавието следва
+/// ПОЗИЦИЯТА след сортирането по книжен ред (num), НЕ полето `kind` —
+/// първият ред (`isFirst`) носи генеричния етикет Житие/Сказание (viж
+/// lifeLabelFor — подаден отвън като mainLabel, за да не се смята
+/// повторно) + "по Димитрий Ростовски"; ВСЕКИ СЛЕДВАЩ показва СВОЕТО
+/// СОБСТВЕНО заглавие от книгата. Причината `kind=='main'` не върши тази
+/// работа: книгата понякога подрежда встъпителна част (sub) ПРЕДИ
+/// сказанието (напр. Рождество Христово) — тогава "main" не е първият
+/// ред по книжен ред, а решено е първото МЯСТО в списъка да носи
+/// генеричния етикет, не конкретният вид.
+class _DmitryRow extends StatelessWidget {
+  final DmitryRef ref;
+  final String mainLabel;
+  final bool isFirst;
+
+  const _DmitryRow(
+      {required this.ref, required this.mainLabel, required this.isFirst});
+
+  Future<String> _label() async {
+    if (isFirst) return '$mainLabel по Димитрий Ростовски';
+    final index = await LivesIndex.load();
+    return index[ref.num.toString()]?.title ?? 'Слово по Димитрий Ростовски';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: _label(),
+      builder: (context, snap) {
+        final fallback =
+            isFirst ? '$mainLabel по Димитрий Ростовски' : 'Слово по Димитрий Ростовски';
+        return _SectionRow(
+          icon: Icons.import_contacts_outlined,
+          label: snap.data ?? fallback,
+          onTap: () => openDmitryLife(context, ref.num),
+        );
+      },
     );
   }
 }

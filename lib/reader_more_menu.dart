@@ -36,6 +36,17 @@ class ReaderMenuItem {
 /// отметките, а споделянето като PDF го нямаше — не по решение, а защото
 /// някой е добавил точката само на едното място. Нов елемент се слага
 /// веднъж и се появява в двата.
+/// Отваря настройките, скопирани само до SettingsSection.reader („За
+/// четивата") — виж settings_screen.dart. Първи ред в менюто нарочно
+/// (23.08.2026, по молба на потребителя): единствената настройка там
+/// засега е размерът на буквицата, но мястото е за всичко, свързано с
+/// показването на четивото, не с календара.
+const ReaderMenuItem kReaderSettingsMenuItem = ReaderMenuItem(
+  icon: Icons.settings_outlined,
+  label: 'За четивата',
+  value: 'reader_settings',
+);
+
 const ReaderMenuItem kBookmarksMenuItem = ReaderMenuItem(
   icon: Icons.bookmarks_outlined,
   label: 'Списък с отметки',
@@ -50,6 +61,7 @@ const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
 
 /// Пълното меню на четеца. Ползва се и от двата.
 const List<ReaderMenuItem> kReaderMenuItems = [
+  kReaderSettingsMenuItem,
   kBookmarksMenuItem,
   kSharePdfMenuItem,
 ];
@@ -95,28 +107,6 @@ Future<String?> showReaderMoreMenu(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // Лента за затваряне най-отгоре — менюто се прибира
-                        // и с тап встрани, но стрелката прави изхода
-                        // очевиден.
-                        Align(
-                          alignment: Alignment.centerRight,
-                          child: InkWell(
-                            onTap: () => Navigator.of(ctx).pop(),
-                            customBorder: const CircleBorder(),
-                            child: const Padding(
-                              padding: EdgeInsets.fromLTRB(14, 10, 14, 6),
-                              child: Icon(
-                                Icons.arrow_forward,
-                                size: 22,
-                                color: AppColors.textSecondary,
-                              ),
-                            ),
-                          ),
-                        ),
-                        const Divider(
-                          height: 1,
-                          color: AppColors.sectionDivider,
-                        ),
                         for (final item in items)
                           InkWell(
                             onTap: () => Navigator.of(ctx).pop(item.value),

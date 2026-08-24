@@ -21,15 +21,18 @@ class ReaderRegion {
   final bool isHtml;
   final String content;
 
-  /// САМО за региона с буквицата: следващият абзац, който може да влезе
-  /// вдясно от нея, ако първият не запълва редовете ѝ. Той се маха от
-  /// списъка с обикновени региони, за да не се изпише два пъти.
-  final String second;
+  /// САМО за региона с буквицата: следващите абзаци, по ред, които МОГАТ
+  /// да влязат вдясно от нея, ако мястото стигне (при по-голяма буквица —
+  /// по няколко наведнъж, виж drop_cap.dart). Махат се от списъка с
+  /// обикновени региони, за да не се изпишат втори път — самата буквица
+  /// решава колко от тях реално застават до нея, а остатъкът пада в
+  /// собствената ѝ опашка.
+  final List<String> rest;
 
   const ReaderRegion.html(this.content)
       : isHtml = true,
-        second = '';
-  const ReaderRegion.dropcapPlain(this.content, {this.second = ''})
+        rest = const [];
+  const ReaderRegion.dropcapPlain(this.content, {this.rest = const []})
       : isHtml = false;
 }
 
@@ -72,19 +75,22 @@ List<ReaderRegion> computeRegions(
   if (dropCap.isNotEmpty) {
     if (beforeHtml.trim().isNotEmpty) regions.add(ReaderRegion.html(beforeHtml));
     final blocks = splitBlocks(afterHtml);
-    // Следващият блок отива при буквицата САМО ако е обикновен абзац:
-    // заглавие или центриран курсив не бива да се притискат в тясната
-    // колона. Ако не потрябва, кутията си го изписва под буквицата — на
-    // мястото, където би стоял и без това.
-    var second = '';
-    if (blocks.isNotEmpty) {
-      final m = RegExp(r'^<p>(.*)</p>$', dotAll: true).firstMatch(blocks.first);
-      if (m != null) {
-        second = m.group(1)!;
-        blocks.removeAt(0);
-      }
+    // Всички ПОРЕДНИ обикновени абзаци в началото отиват при буквицата —
+    // не само първият: с по-голяма буквица може да им стигне мястото на
+    // повече от един. Заглавие или центриран курсив СПИРАТ поредицата
+    // (не бива да се притискат в тясната колона) — оттам нататък блоковете
+    // остават обикновени региони, изписват се където биха стояли и без
+    // това. Самата буквица (drop_cap.dart) после решава колко от
+    // изтеглените реално застават до нея — тук само ги подаваме готови.
+    final rest = <String>[];
+    final pRe = RegExp(r'^<p>(.*)</p>$', dotAll: true);
+    while (blocks.isNotEmpty) {
+      final m = pRe.firstMatch(blocks.first);
+      if (m == null) break;
+      rest.add(m.group(1)!);
+      blocks.removeAt(0);
     }
-    regions.add(ReaderRegion.dropcapPlain(firstP, second: second));
+    regions.add(ReaderRegion.dropcapPlain(firstP, rest: rest));
     for (final block in blocks) {
       regions.add(ReaderRegion.html(block));
     }

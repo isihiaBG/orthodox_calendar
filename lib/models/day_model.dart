@@ -70,6 +70,9 @@ class Saint {
   final String? hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
+  /// Четивата по Димитрий Ростовски, както идват от заявката:
+  /// "num:kind,num:kind". Разчита се с parseDmitryRefs().
+  final String? dmitryRefs;
 
 
   Saint({
@@ -83,6 +86,7 @@ class Saint {
     this.hymnCounts,
     this.hasLife    = false,
     this.hasSluzhba = false,
+    this.dmitryRefs,
   });
 
   factory Saint.fromMap(Map<String, dynamic> map) {
@@ -97,6 +101,7 @@ class Saint {
       hymnCounts: map['hymn_counts'] as String?,
       hasLife:    (map['has_life']    ?? 0) == 1,
       hasSluzhba: (map['has_sluzhba'] ?? 0) == 1,
+      dmitryRefs: map['dmitry_refs'] as String?,
     );
   }
 }

@@ -41,6 +41,8 @@ import 'bookmarks_all.dart';
 import 'pdf_export.dart';
 import 'round_icon_button.dart';
 import 'drop_cap.dart';
+import 'drop_cap_scale.dart';
+import 'settings_screen.dart';
 import 'external_link.dart';
 import 'text_line_locator.dart';
 import 'reader_font_size.dart';
@@ -190,10 +192,11 @@ class _ExactListDelegate extends SliverChildListDelegate {
 
 int _countInRegion(ReaderRegion r, String foldedQuery) {
   if (r.isHtml) return _countMatchesHtml(r.content, foldedQuery);
-  return _countMatchesPlain(_plainTextOf(r.content), foldedQuery) +
-      (r.second.isEmpty
-          ? 0
-          : _countMatchesPlain(_plainTextOf(r.second), foldedQuery));
+  var total = _countMatchesPlain(_plainTextOf(r.content), foldedQuery);
+  for (final p in r.rest) {
+    total += _countMatchesPlain(_plainTextOf(p), foldedQuery);
+  }
+  return total;
 }
 
 enum _ReaderMode { life, prayers, sluzhba }
@@ -639,6 +642,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (mounted) setState(() {});
     });
     ReaderFontSize.loadOnce().then((_) {
+      if (mounted) setState(() {});
+    });
+    ReaderDropCapScale.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
 
@@ -1269,16 +1275,22 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (state == null) return null;
       final folded = fold(_committedQuery).text;
       final starts = matchStartsOf(_plainTextOf(region.content), folded);
-      // Регионът на буквицата може да носи И следващия абзац (изтегля се
-      // вдясно от инициала, когато първият е къс). Съвпаденията в него
-      // продължават номерацията на първия.
-      final double? dy;
+      // Регионът на буквицата може да носи и следващите абзаци (изтеглят
+      // се вдясно от инициала, докато остава място). Съвпаденията им
+      // продължават номерацията на първия, по ред.
+      double? dy;
       if (ordinal < starts.length) {
         dy = state.dyForChar(starts[ordinal]);
       } else {
-        final starts2 = matchStartsOf(_plainTextOf(region.second), folded);
-        final k = ordinal - starts.length;
-        dy = k < starts2.length ? state.dyForCharInSecond(starts2[k]) : null;
+        var remaining = ordinal - starts.length;
+        for (var i = 0; i < region.rest.length; i++) {
+          final startsI = matchStartsOf(_plainTextOf(region.rest[i]), folded);
+          if (remaining < startsI.length) {
+            dy = state.dyForCharInRest(i, startsI[remaining]);
+            break;
+          }
+          remaining -= startsI.length;
+        }
       }
       if (dy == null) return null;
       // Кутията с буквицата няма поле отгоре — започва направо от реда с
@@ -1668,16 +1680,23 @@ class _ReaderScreenState extends State<ReaderScreen>
       if (!region.isHtml) {
         final state = _dropCapKey.currentState;
         final starts = matchStartsOf(_plainTextOf(region.content), folded);
-        final starts2 = region.second.isEmpty
-            ? const <int>[]
-            : matchStartsOf(_plainTextOf(region.second), folded);
+        final restStarts = [
+          for (final p in region.rest) matchStartsOf(_plainTextOf(p), folded)
+        ];
         for (int k = 0; k < count; k++) {
           double? dy;
           if (state != null) {
             if (k < starts.length) {
               dy = state.dyForChar(starts[k]);
-            } else if (k - starts.length < starts2.length) {
-              dy = state.dyForCharInSecond(starts2[k - starts.length]);
+            } else {
+              var remaining = k - starts.length;
+              for (var i = 0; i < restStarts.length; i++) {
+                if (remaining < restStarts[i].length) {
+                  dy = state.dyForCharInRest(i, restStarts[i][remaining]);
+                  break;
+                }
+                remaining -= restStarts[i].length;
+              }
             }
           }
           ys.add(dy == null ? top : top + dy);
@@ -1939,7 +1958,14 @@ class _ReaderScreenState extends State<ReaderScreen>
     // Точките живеят в reader_more_menu.dart — общи с четеца на книги.
     final selected = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || selected == null) return;
-    if (selected == kBookmarksMenuItem.value) {
+    if (selected == kReaderSettingsMenuItem.value) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              const SettingsScreen(sections: {SettingsSection.reader}),
+        ),
+      );
+    } else if (selected == kBookmarksMenuItem.value) {
       Navigator.of(context).push(
         MaterialPageRoute(
         builder: (_) => BookmarksListScreen(
@@ -2033,9 +2059,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     final regions = prepared.regions;
     final hasGap = prepared.hasGap;
 
-    // Височина на водещата буква ≈ 5–6 реда основен текст.
+    // Височина на водещата буква ≈ 5–6 реда основен текст (малка), 7–8
+    // (средна) или 10–11 (голяма) — виж drop_cap_scale.dart.
     final lineHeightPx = ReaderFontSize.value * kReaderLineHeight; //1.5;
-    final dropCapSize = lineHeightPx * 5.5 * 0.82; // корекция за ascender
+    final dropCapSize = lineHeightPx *
+        ReaderDropCapScale.value.linesMultiplier *
+        0.82; // корекция за ascender
 
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
@@ -2115,10 +2144,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             key: _dropCapKey,
             dropCap: dropCap,
             dropCapSize: dropCapSize,
+            offsetScale: ReaderDropCapScale.value.offsetMultiplier,
             lineHeight: lineHeightPx,
             lineFactor: kReaderLineHeight,
             firstParagraph: r.content,
-            secondParagraph: r.second,
+            restParagraphs: r.rest,
             fontSize: ReaderFontSize.value,
             capColor: _wine,
             inkColor: _ink,
@@ -2204,10 +2234,11 @@ class _ReaderScreenState extends State<ReaderScreen>
             child: DropCapParagraph(
               dropCap: dropCap,
               dropCapSize: dropCapSize,
+              offsetScale: ReaderDropCapScale.value.offsetMultiplier,
               lineHeight: lineHeightPx,
               lineFactor: kReaderLineHeight,
               firstParagraph: r.content,
-              secondParagraph: r.second,
+              restParagraphs: r.rest,
               fontSize: ReaderFontSize.value,
               capColor: _wine,
               inkColor: _ink,

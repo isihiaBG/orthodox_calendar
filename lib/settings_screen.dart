@@ -3,6 +3,7 @@ import 'app_theme.dart';
 import 'app_settings.dart';
 import 'calendar_style_picker.dart';
 import 'database_helper.dart';
+import 'drop_cap_scale.dart';
 
 /// Превключва между графичния избор на стил (трите корици, като на
 /// въвеждащия екран) и старите двойка превключватели. Стойността по
@@ -25,7 +26,7 @@ const _kAllSections = {SettingsSection.calendar, SettingsSection.reader};
 
 const _kSectionTitles = {
   SettingsSection.calendar: 'КАЛЕНДАР',
-  SettingsSection.reader: 'ЧЕТЕЦ',
+  SettingsSection.reader: 'ЗА ЧЕТИВАТА',
 };
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
@@ -48,6 +49,18 @@ class _SettingsContentState extends State<SettingsContent> {
   bool _isOldStyle = AppSettings.isOldStyle;
   bool _oldStyleFirst = AppSettings.oldStyleFirst;
   bool _showWelcome = AppSettings.showWelcome;
+  DropCapScale _dropCapScale = ReaderDropCapScale.value;
+
+  @override
+  void initState() {
+    super.initState();
+    // Настройките може да се отворят и БЕЗ да е минато през четец преди
+    // това (напр. направо от главното меню) — тогава ReaderDropCapScale
+    // още не е зареден от диска.
+    ReaderDropCapScale.loadOnce().then((_) {
+      if (mounted) setState(() => _dropCapScale = ReaderDropCapScale.value);
+    });
+  }
 
   /// Заглавието на секция. Разделителна линия само ако НЕ е първата
   /// показана секция — инак виси самотна над нищото.
@@ -299,9 +312,44 @@ class _SettingsContentState extends State<SettingsContent> {
     ];
   }
 
-  /// Общи настройки за четеца (жития + книги) — предстоят. Празна секция
-  /// не рисува нищо, дори заглавие — виж build().
-  List<Widget> _readerSection() => const [];
+  /// Общи настройки за четеца (жития + книги). Първата, за размера на
+  /// буквицата — виж drop_cap_scale.dart.
+  List<Widget> _readerSection() {
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Text('РАЗМЕР НА БУКВИЦАТА',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11,
+              letterSpacing: 1.5,
+            )),
+      ),
+      Center(
+        child: SegmentedButton<DropCapScale>(
+          style: SegmentedButton.styleFrom(
+            backgroundColor: AppColors.backgroundCard,
+            foregroundColor: AppColors.textMuted,
+            selectedForegroundColor: AppColors.textPrimary,
+            selectedBackgroundColor: AppColors.appBarWeekday,
+          ),
+          segments: [
+            for (final s in DropCapScale.values)
+              ButtonSegment(
+                value: s,
+                label: Text(s.label, style: const TextStyle(height: 1.0)),
+              ),
+          ],
+          selected: {_dropCapScale},
+          onSelectionChanged: (value) {
+            final v = value.first;
+            setState(() => _dropCapScale = v);
+            ReaderDropCapScale.set(v);
+          },
+        ),
+      ),
+    ];
+  }
 
   @override
   Widget build(BuildContext context) {

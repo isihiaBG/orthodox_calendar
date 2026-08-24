@@ -37,6 +37,8 @@ import 'book_title_extension.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'drop_cap.dart';
+import 'drop_cap_scale.dart';
+import 'settings_screen.dart';
 import 'epub_source.dart';
 import 'external_link.dart';
 import 'lives_index.dart';
@@ -260,6 +262,9 @@ class _BookReaderState extends State<BookReader>
     ReaderFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+    ReaderDropCapScale.loadOnce().then((_) {
+      if (mounted) setState(() {});
+    });
     // Кое четиво е било последно в този том — решава какво пише опашката
     // под заглавната страница и кой ред е маркиран в съдържанието.
     BookLastReadStore.load(widget.book.assetPath).then((v) {
@@ -375,6 +380,33 @@ class _BookReaderState extends State<BookReader>
   }
 
   EpubTocEntry get _current => _chapters[_index];
+
+  /// Намира индекса на следващото/предишното РЕАЛНО четиво за бутоните
+  /// „предишно"/„следващо" — направление +1/-1. `_chapters` е ПЪЛНОТО,
+  /// плоско съдържание (виж `flattened()` в epub_source.dart) и носи и
+  /// двете нива наведнъж: дните („Памет на N <месец>") И самите жития
+  /// под тях. Без филтриране ±1 понякога каца на дневния възел вместо на
+  /// четиво.
+  ///
+  /// ⚠ Денят и ПЪРВОТО му житие делят един и същ файл (сверено директно
+  /// в .ncx на тома за август — и двата src="…652.xhtml") — тоест по
+  /// href+anchor са НЕРАЗЛИЧИМИ едно от друго. Затова освен деня се
+  /// прескача и всеки съседен запис, чийто href+anchor съвпада с
+  /// ТЕКУЩИЯ — инак „следващо" от ден с повече от едно четиво връща
+  /// същото съдържание, което вече се вижда (денят или неговото първо
+  /// четиво, каквото и от двете да е текущият `_index`).
+  int? _adjacentReading(int direction) {
+    final cur = _chapters[_index];
+    var i = _index + direction;
+    while (i >= 0 && i < _chapters.length) {
+      final e = _chapters[i];
+      final isDay = e.children.isNotEmpty;
+      final sameAsCurrent = e.href == cur.href && e.anchor == cur.anchor;
+      if (!isDay && !sameAsCurrent) return i;
+      i += direction;
+    }
+    return null;
+  }
 
   Future<void> _goTo(int i) async {
     if (i < 0 || i >= _chapters.length) return;
@@ -870,7 +902,7 @@ class _BookReaderState extends State<BookReader>
     final regions = _currentRegions();
     var total = 0;
     for (final r in regions) {
-      total += _countIn(r.content, q) + _countIn(r.second, q);
+      total += _countIn(r.content, q) + _countInList(r.rest, q);
     }
     setState(() {
       _query = q;
@@ -911,6 +943,16 @@ class _BookReaderState extends State<BookReader>
     return n;
   }
 
+  /// Сборът на [_countIn] по няколко HTML низа — за
+  /// [ReaderRegion.rest] (следващите абзаци до буквицата).
+  int _countInList(List<String> htmls, String foldedQuery) {
+    var n = 0;
+    for (final html in htmls) {
+      n += _countIn(html, foldedQuery);
+    }
+    return n;
+  }
+
   /// Абсолютното отместване (в скрола) на всяко съвпадение.
   ///
   /// По РЕАЛНАТА геометрия на построените региони плюс реда вътре в тях —
@@ -927,7 +969,7 @@ class _BookReaderState extends State<BookReader>
     final ys = <double>[];
     for (int i = 0; i < regions.length && i < _regionKeys.length; i++) {
       final r = regions[i];
-      final count = _countIn(r.content, _query) + _countIn(r.second, _query);
+      final count = _countIn(r.content, _query) + _countInList(r.rest, _query);
       if (count == 0) continue;
       final ctx = _regionKeys[i].currentContext;
       final box = ctx?.findRenderObject() as RenderBox?;
@@ -987,11 +1029,16 @@ class _BookReaderState extends State<BookReader>
         final dy = state.dyForChar(starts[k]);
         return dy == null ? null : (dy, lineH);
       }
-      final starts2 = matchStartsOf(_plainOf(r.second), _query);
-      final k2 = k - starts.length;
-      if (k2 >= starts2.length) return null;
-      final dy = state.dyForCharInSecond(starts2[k2]);
-      return dy == null ? null : (dy, lineH);
+      var remaining = k - starts.length;
+      for (var pi = 0; pi < r.rest.length; pi++) {
+        final startsI = matchStartsOf(_plainOf(r.rest[pi]), _query);
+        if (remaining < startsI.length) {
+          final dy = state.dyForCharInRest(pi, startsI[remaining]);
+          return dy == null ? null : (dy, lineH);
+        }
+        remaining -= startsI.length;
+      }
+      return null;
     }
 
     final (base, topMargin) = _measureStyleFor(r.content);
@@ -1172,7 +1219,14 @@ class _BookReaderState extends State<BookReader>
     // reader_more_menu.dart (kReaderMenuItems), за да не се разминат.
     final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || choice == null) return;
-    if (choice == kBookmarksMenuItem.value) {
+    if (choice == kReaderSettingsMenuItem.value) {
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              const SettingsScreen(sections: {SettingsSection.reader}),
+        ),
+      );
+    } else if (choice == kBookmarksMenuItem.value) {
       // Един и същи списък: там са и отметките от житията, и тукашните.
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => BookmarksListScreen(
@@ -1509,15 +1563,18 @@ class _BookReaderState extends State<BookReader>
             // Отварящата кавичка (ако има) пред буквицата — виси вляво от
             // нея, виж drop_cap.dart.
             leadingQuote: leadingQuote,
-            // Същата сметка като в четеца на жития: 5,5 реда височина, с
+            // Същата сметка като в четеца на жития: 5,5–10,5 реда височина
+            // (според избрания мащаб — виж drop_cap_scale.dart), с
             // корекция за ascender-а на Bukvica.
-            dropCapSize: lineHeightPx * 5.5 * 0.82,
+            dropCapSize:
+                lineHeightPx * ReaderDropCapScale.value.linesMultiplier * 0.82,
+            offsetScale: ReaderDropCapScale.value.offsetMultiplier,
             lineHeight: lineHeightPx,
             lineFactor: kReaderLineHeight,
             firstParagraph: r.content,
             // Вече се подава: при къс първи абзац следващият се изтегля
             // вдясно от инициала, вместо там да зее празно.
-            secondParagraph: r.second,
+            restParagraphs: r.rest,
             fontSize: fontSize,
             capColor: palette.wine,
             inkColor: palette.ink,
@@ -1533,7 +1590,7 @@ class _BookReaderState extends State<BookReader>
             onLinkTap: _onLinkTap,
           ),
         ));
-        matchOffset += _countHits(r.content) + _countHits(r.second);
+        matchOffset += _countHits(r.content) + [for (final p in r.rest) _countHits(p)].fold(0, (a, b) => a + b);
       }
     }
 
@@ -2018,18 +2075,22 @@ class _BookReaderState extends State<BookReader>
     // Житие: назад и напред. ⚠ „Предишно" от ПЪРВОТО житие води към
     // заглавната страница — щом тя е достъпна от съдържанието, няма
     // причина да е недостъпна от навигацията.
+    final prevTarget = _adjacentReading(-1);
+    final nextTarget = _adjacentReading(1);
     return ReaderFooter(
       color: ReaderTheme.palette.dim,
       left: FooterAction(
         icon: Icons.chevron_left,
         label: 'предишно',
-        onTap: () => _goTo(_index - 1),
+        // На практика винаги намира поне заглавната страница (индекс 0) —
+        // резервният ?? 0 е чисто защитен, не се очаква да потрябва.
+        onTap: () => _goTo(prevTarget ?? 0),
       ),
-      right: _index < _chapters.length - 1
+      right: nextTarget != null
           ? FooterAction(
               icon: Icons.chevron_right,
               label: 'следващо',
-              onTap: () => _goTo(_index + 1),
+              onTap: () => _goTo(nextTarget),
             )
           : null,
     );

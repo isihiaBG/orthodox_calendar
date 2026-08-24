@@ -31,6 +31,33 @@ ROOT = os.path.abspath(os.path.join(HERE, '..', '..'))
 OLD = os.path.join(HERE, 'input', 'db', 'calendar_old.db')
 SOURCE_YEAR = 2026  # църковната година, която calendar_old.db представя
 
+# Три жития от Димитрий Ростовски на църковен 29 февруари (виж
+# tools/match_dmitry_lives/) — SOURCE_YEAR (2026) няма такава гражданска
+# дата (datetime.date(2026,2,29) гърми), тъй че не могат да минат по
+# обичайния път (граждански ред в calendar_old.db → church_md() назад).
+# Вписани директно тук. build_saints() ги генерира УСЛОВНО за всяка
+# целева година: високосна → 29.II, самото име; невисокосна → 28.II, с
+# добавка към името (виж LEAP_FALLBACK_NOTE в build.py). Решено от
+# потребителя на 23.08.2026 — вместо два отделни реда (риск от нов
+# дублаж, каквито тъкмо изчистихме), едно правило с два изхода.
+#
+# ⚠ „Прп. Касиан Римлянин" ВЕЧЕ имаше обикновен fixed ред в calendar_old.db
+# (id 192, църковно 28.II, постоянно всяка година) — той е ИЗТРИТ оттам и
+# СЛЯТ тук (запазен е истинският му slug/rank), защото иначе в невисокосна
+# година двата реда (старият постоянен + новия leap_fixed) щяха да излязат
+# на едно и също гражданско число (28.II + офсет = СЪЩАТА дата и за двата,
+# аритметиката съвпада) — видимо повторение на един и същ светия същия ден.
+# Потвърдено от потребителя: остава САМО едно място в месеца — 28.II в
+# невисокосна година, 29.II във високосна, никога и двете.
+LEAP_FIXED = [
+    dict(name='Прп. Касиан Римлянин († 435)', rank=6, group_code='ECUMENICAL',
+         sign='', slug='sv-kassian-ioann-kassian-rimljanin'),
+    dict(name='Прп. Йоан, наречен Варсануфий', rank=6, group_code='ECUMENICAL',
+         sign='', slug='sv-ioann-varsanufij'),
+    dict(name='Мч. Теоктирист, игумен Пеликитски', rank=6, group_code='ECUMENICAL',
+         sign='', slug='sv-teoktirist-pelikitskij'),
+]
+
 ANCHOR_FEAST = {
     'Богоявление': re.compile(r'БОГОЯВЛЕНИЕ'),
     'Въздвижение': re.compile(r'Въздвижение', re.I),
@@ -175,7 +202,7 @@ def extract(db) -> dict:
                 mismatches.append(('anchor', date, name, check))
 
     return dict(fixed=fixed_rules, pascha=pascha_rules, anchor=anchor_rules,
-                manual=manual_rules, skipped=skipped,
+                manual=manual_rules, leap_fixed=list(LEAP_FIXED), skipped=skipped,
                 anchor_church=anchor_church, mismatches=mismatches)
 
 

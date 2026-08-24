@@ -19,11 +19,13 @@ import 'paschalion.dart';
 import 'section_header.dart';
 import 'saint_expandable_tile.dart'
     show
+        DmitryRef,
         SaintExpandableTile,
         SaintLookup,
         SaintTexts,
         lifeLabelFor,
         loadHymns,
+        parseDmitryRefs,
         parseHymnCounts;
 
 // Системният шрифт на телефона, не Charis SIL — `null` значи „каквото дава
@@ -131,6 +133,7 @@ class _FeastResult {
   final Map<String, int> hymnCounts;
   final bool hasLife;
   final bool hasSluzhba;
+  final List<DmitryRef> dmitryRefs;
   const _FeastResult(
     this.spec,
     this.civilDate, {
@@ -140,6 +143,7 @@ class _FeastResult {
     this.hymnCounts = const {},
     this.hasLife = false,
     this.hasSluzhba = false,
+    this.dmitryRefs = const [],
   });
 }
 
@@ -227,7 +231,9 @@ class _HolidaysSectionState extends State<HolidaysSection> {
                  (SELECT kind, count(*) AS n FROM lives.hymns
                   WHERE slug = s.slug GROUP BY kind)) AS hymn_counts,
               (l.life    IS NOT NULL AND l.life    != '') AS has_life,
-              (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba
+              (l.sluzhba IS NOT NULL AND l.sluzhba != '') AS has_sluzhba,
+              (SELECT group_concat(num || ':' || kind, ',') FROM
+                 lives.saint_dmitry_refs WHERE slug = s.slug) AS dmitry_refs
         FROM saints s
         LEFT JOIN lives.texts l ON l.slug = s.slug
         WHERE s.name LIKE ?
@@ -244,6 +250,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         hymnCounts: parseHymnCounts(row?['hymn_counts'] as String?),
         hasLife: (row?['has_life'] as int? ?? 0) == 1,
         hasSluzhba: (row?['has_sluzhba'] as int? ?? 0) == 1,
+        dmitryRefs: parseDmitryRefs(row?['dmitry_refs'] as String?),
       ));
     }
     if (!mounted) return;
@@ -280,6 +287,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       hymnCounts: r.hymnCounts,
       hasLife: r.hasLife,
       hasSluzhba: r.hasSluzhba,
+      dmitryRefs: r.dmitryRefs,
       lifeLabel: lifeLabelFor(rank: r.rank, name: r.spec.displayName),
       // По id на КОНКРЕТНИЯ ред, не по slug: предпразненство/попразненство
       // споделят slug-а на самия празник, така че търсене по slug връща

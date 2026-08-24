@@ -23,6 +23,7 @@
                                                най-добрата налична проверка)
 """
 import argparse
+import calendar as pycalendar
 import datetime
 import os
 import sqlite3
@@ -48,6 +49,11 @@ STATIC_TABLES = ['fast_periods', 'fast_types', 'saint_ranks', 'saint_groups',
 COPY_AS_IS_TABLES = ['readings']
 
 
+# Добавя се към името, когато 29.II (църковно) пада на 28.II в
+# невисокосна целева година — виж LEAP_FIXED в extract_rules.py.
+LEAP_FALLBACK_NOTE = ' (Паметта му се пренася от 29.II)'
+
+
 def build_saints(rules: dict, year: int, old_style: bool) -> list[tuple]:
     """(date, name, rank, group_code, sign, slug) за всеки жив запис,
     сортирано по дата. `rules` е резултатът от extract_rules.extract()."""
@@ -56,6 +62,13 @@ def build_saints(rules: dict, year: int, old_style: bool) -> list[tuple]:
     for r in rules['fixed']:
         d = civil_from_church(year, r['church_month'], r['church_day'], old_style)
         rows.append((d, r))
+
+    for r in rules.get('leap_fixed', []):
+        leap = pycalendar.isleap(year)
+        day = 29 if leap else 28
+        d = civil_from_church(year, 2, day, old_style)
+        name = r['name'] if leap else r['name'] + LEAP_FALLBACK_NOTE
+        rows.append((d, dict(r, name=name)))
 
     for r in rules['pascha']:
         d = pascha_civil(year) + datetime.timedelta(days=r['offset_days'])

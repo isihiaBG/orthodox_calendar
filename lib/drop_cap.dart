@@ -41,6 +41,44 @@ class HtmlRun {
 /// reader_styles.dart, за да изглеждат еднакво в двата начина на рисуване.
 const double kSupScale = 0.62;
 
+/// Ляво/дясно изключение за буквицата — само за буквите, чийто дизайн в
+/// Bukvica видимо ги избутва надясно (стърчащи орнаменти/връхчета), тъй че
+/// без корекция изглеждат разместени спрямо лявата граница на текста. НЕ е
+/// правило за всяка буква — само изрични изключения, установени на око от
+/// потребителя (23.08.2026). Дял от РАЗМЕРА на буквицата (отрицателно =
+/// наляво); прилага се еднакво в двата четеца и в PDF експорта, всеки
+/// върху собствения си мащаб — виж [dropCapOffsetX].
+///
+/// „Д" винаги навлиза надясно заради острите си връхчета — нужна е по-
+/// осезаема корекция наляво, дори с риск лявото връхче да излезе извън
+/// подравняването на текста. „М" почти не се нуждае, но десните ѝ
+/// орнаменти леко избутват основната лява линия — съвсем лека корекция.
+/// Нова буква се добавя тук; стойността ѝ се определя ЕКСПЕРИМЕНТАЛНО
+/// (на око), не по формула — виж бележката в CLAUDE.md.
+const Map<String, double> kDropCapOffsetFactor = {
+  'Д': -0.09,
+  'М': -0.04,
+  'Ш': -0.13,
+  'Щ': -0.00,
+  'Ж':  0.03,
+  'Ф':  0.03,
+  'Ю': -0.00,
+  'Х':  0.02,
+};
+
+/// Хоризонталното отместване (в пиксели/точки) за буквата [letter] при
+/// размер [size] — dropCapSize в двата четеца, capFontSize в PDF-а.
+/// Буква без изключение в [kDropCapOffsetFactor] дава 0 (без корекция).
+///
+/// [scaleMultiplier] — допълнителна корекция по МАЩАБА на буквицата (виж
+/// DropCapScaleMetrics.offsetMultiplier в drop_cap_scale.dart): оптичните
+/// поправки не е задължително да растат линейно с размера, затова има
+/// собствена ос, а не просто по-голямо [size]. По подразбиране 1.0 (без
+/// допълнителна корекция) — PDF експортът засега винаги подава 1.0, тъй
+/// като все още няма трите размера.
+double dropCapOffsetX(String letter, double size, {double scaleMultiplier = 1.0}) =>
+    (kDropCapOffsetFactor[letter] ?? 0) * size * scaleMultiplier;
+
 /// Разлага HTML на парчета. Публична, защото по същите парчета мери и
 /// text_line_locator.dart — двете трябва да виждат ЕДИН И СЪЩ текст., като разкодира entity-тата и слепва поредните
 /// интервали — точно както го прави и чистият текст, по който се мери.
@@ -121,6 +159,39 @@ List<(int, int)> _matchRanges(String text, String foldedQuery) {
   return out;
 }
 
+/// Геометрията на ЕДИН от „следващите" абзаци (не първия — той си остава
+/// отделно в [_CapGeometry], защото винаги носи буквицата). Виж
+/// [_CapGeometry.rest] — списък от точно такива, по един на абзац от
+/// [DropCapParagraph.restParagraphs].
+///
+/// Само ЕДИН елемент от списъка може да е „прерязан" (cut < plainLength,
+/// lines > 0) — той е границата: всички ПРЕДИ него се побират ЦЕЛИ до
+/// буквицата, всички СЛЕД него изобщо не стигат дотам (lines == 0,
+/// cut == 0) и отиват направо в опашката. Естествена последица от това, че
+/// редовете се раздават ПОРЕДНО, отгоре надолу — виж цикъла в build().
+class _RestParaGeom {
+  final List<InlineSpan> narrowSpans; // целият абзац, за мерене
+  final List<InlineSpan> tailSpans;   // от cut нататък, за мерене
+  final int cut;      // 0 = изобщо не е влизал; == plainLength = влязъл цял
+  final int plainLength;
+  final int lines;    // колко реда до буквицата (0 = никакви)
+  // Кумулативни отмествания — ГОТОВИ ПРЕДВАРИТЕЛНО, за да не пресмята
+  // dyForCharInRest/charAtDy наново геометрията на предишните абзаци всеки
+  // път (би било O(n²) при много абзаци, а и по-лесно се разминава).
+  final double besideTop; // Y ВЪТРЕ в „тясната" колона, откъдето тръгва
+  final double tailTop;   // Y ВЪТРЕ в опашката, откъдето тръгва (ПРЕДИ padTop)
+
+  const _RestParaGeom({
+    required this.narrowSpans,
+    required this.tailSpans,
+    required this.cut,
+    required this.plainLength,
+    required this.lines,
+    required this.besideTop,
+    required this.tailTop,
+  });
+}
+
 /// Каквото трябва да се знае, за да се каже на кой пиксел стои даден знак от
 /// абзаца с буквицата. Пълни се при рисуването (виж [DropCapParagraphState]).
 class _CapGeometry {
@@ -133,15 +204,13 @@ class _CapGeometry {
   final TextStyle base;
   final TextScaler scaler;
 
-  // Вторият абзац — влиза вдясно от буквицата, когато първият е къс.
-  final List<InlineSpan> narrowSpans2;
-  final List<InlineSpan> tailSpans2;
-  final int cut2;      // докъде от него е в тясната колона
-  final int lines2;    // колко негови реда са там (0 = не е влизал)
-  final int startsAt2; // откъде започва опашката му
+  /// Следващите абзаци (0..N) — виж [_RestParaGeom]. Влизат вдясно от
+  /// буквицата, докато има място; остатъкът пада в опашката.
+  final List<_RestParaGeom> rest;
   final double firstNarrowHeight; // височината на първия абзац в колоната
   final double tail1Height;       // опашката на първия абзац, ако има
   final double paraGap;
+  final double lineHeightPx;
 
   const _CapGeometry({
     required this.narrowSpans,
@@ -152,14 +221,11 @@ class _CapGeometry {
     required this.rowHeight,
     required this.base,
     required this.scaler,
-    required this.narrowSpans2,
-    required this.tailSpans2,
-    required this.cut2,
-    required this.lines2,
-    required this.startsAt2,
+    required this.rest,
     required this.firstNarrowHeight,
     required this.tail1Height,
     required this.paraGap,
+    required this.lineHeightPx,
   });
 }
 
@@ -186,6 +252,10 @@ class _CapGeometry {
 class DropCapParagraph extends StatefulWidget {
   final String dropCap;
   final double dropCapSize;
+  /// Множител по мащаба (малка/средна/голяма) върху ляво/дясната корекция
+  /// на отделни букви — виж [dropCapOffsetX]. 1.0 = без допълнителна
+  /// корекция (сегашното поведение).
+  final double offsetScale;
   final double lineHeight;   // в ПИКСЕЛИ — за сметките (колко реда до буквата)
   final double lineFactor;   // коефициентът за TextStyle.height (напр. 1.25)
   final String firstParagraph; // HTML съдържанието на първия <p> (без буквата)
@@ -193,9 +263,11 @@ class DropCapParagraph extends StatefulWidget {
   /// „). Празен низ — обичайният случай, без кавичка. Виси вляво от
   /// буквицата (виж build()), не заема отделен ред в потока на текста.
   final String leadingQuote;
-  /// Следващият абзац. Влиза вдясно от буквицата, ако първият не запълва
-  /// петте реда; иначе се изписва под нея, както би стоял и без това.
-  final String secondParagraph;
+  /// Следващите абзаци, по ред. Влизат вдясно от буквицата, докато остава
+  /// място (при по-голяма буквица — по няколко наведнъж); щом свърши
+  /// мястото — от там нататък всичко се изписва под нея на пълна ширина,
+  /// както би стояло и без това. Виж [_RestParaGeom].
+  final List<String> restParagraphs;
   final double fontSize;
   final Color capColor;
   final Color inkColor;
@@ -215,12 +287,13 @@ class DropCapParagraph extends StatefulWidget {
     required this.lineHeight,
     required this.lineFactor,
     required this.firstParagraph,
-    required this.secondParagraph,
+    this.restParagraphs = const [],
     required this.fontSize,
     required this.capColor,
     required this.inkColor,
     required this.linkColor,
     required this.onLinkTap,
+    this.offsetScale = 1.0,
     this.leadingQuote = '',
     this.searchQuery = '',
     this.firstGlobalMatchIndex = 0,
@@ -290,6 +363,19 @@ class DropCapParagraphState extends State<DropCapParagraph> {
   /// Нужно е на отметките — те записват ЗНАК, не пиксел и не ред, защото
   /// само знакът не се мени при смяна на размера на шрифта. Виж
   /// text_line_locator.dart за същото при обикновените абзаци.
+  /// Кой знак стои на пиксел [dy] — БЕЗ да се знае предварително в кой от
+  /// (евентуално няколко) абзаца пада. Ползва се само за отметки (записват
+  /// „най-горния видим знак"), не за търсене — затова връща индекс само в
+  /// РЕГИОНА КАТО ЦЯЛО, не (абзац, знак): достатъчно е за приблизително
+  /// възстановяване на позицията, а точното searchScrollTo минава през
+  /// [dyForChar]/[dyForCharInRest], които ЗНАЯТ кой абзац търсят.
+  ///
+  /// ⚠ Опростяване, наследено от времето с точно ДВА абзаца: dy извън
+  /// първия абзац (обтичащ или опашка) се „лепи" към най-близкия ръб на
+  /// първия, вместо да се смята прецизно вътре в следващите. Достатъчно е
+  /// за отметка (грешка от няколко знака не си личи), а истинско
+  /// (абзац, знак) връщане би поискало callers-ите да пазят двойка вместо
+  /// един int — не си струва за този рядък път.
   int? charAtDy(double dy) {
     final g = _geometry;
     if (g == null) return null;
@@ -307,9 +393,12 @@ class DropCapParagraphState extends State<DropCapParagraph> {
       return pos;
     }
 
-    // Обтичащата зона до инициала.
+    // Обтичащата зона до инициала — само на ПЪРВИЯ абзац (виж бележката
+    // по-горе); следващите абзаци, дори влезли вдясно от буквицата, не се
+    // измерват тук поотделно.
     if (dy < g.rowHeight) {
-      final pos = at(g.narrowSpans, g.narrowWidth, dy);
+      final y = dy < g.firstNarrowHeight ? dy : g.firstNarrowHeight;
+      final pos = at(g.narrowSpans, g.narrowWidth, y);
       // Отвъд отреза текстът вече е в опашката — там горе го няма.
       return pos > g.cut ? g.cut : pos;
     }
@@ -317,13 +406,16 @@ class DropCapParagraphState extends State<DropCapParagraph> {
     return g.cut + at(g.tailSpans, g.fullWidth, dy - g.rowHeight - 2);
   }
 
-  /// Същото, но за знак от ВТОРИЯ абзац (онзи, който при къс първи абзац се
-  /// изтегля вдясно от буквицата). Без него съвпаденията точно на границата
-  /// между двата абзаца се целеха по началото на региона — оттам и
+  /// Същото, но за знак от един от СЛЕДВАЩИТЕ абзаци (тези, които при
+  /// достатъчно място влизат вдясно от буквицата — виж
+  /// [DropCapParagraph.restParagraphs]). [paraIndex] е индексът в него
+  /// (0 = първият следващ абзац). Без това съвпаденията точно на границата
+  /// между два абзаца се целеха по началото на региона — оттам и
   /// „дупката" в чертичките там.
-  double? dyForCharInSecond(int charIndex) {
+  double? dyForCharInRest(int paraIndex, int charIndex) {
     final g = _geometry;
-    if (g == null) return null;
+    if (g == null || paraIndex < 0 || paraIndex >= g.rest.length) return null;
+    final rp = g.rest[paraIndex];
     double caret(List<InlineSpan> spans, double width, int at) {
       final tp = TextPainter(
         text: TextSpan(style: g.base, children: spans),
@@ -337,18 +429,13 @@ class DropCapParagraphState extends State<DropCapParagraph> {
       return dy;
     }
 
-    // В тясната колона, под първия абзац и луфта помежду им.
-    if (g.lines2 > 0 && charIndex < g.cut2) {
-      return g.firstNarrowHeight +
-          g.paraGap +
-          caret(g.narrowSpans2, g.narrowWidth, charIndex);
+    // В тясната колона, вдясно от буквицата — под всичко, влязло преди него.
+    if (rp.lines > 0 && charIndex < rp.cut) {
+      return rp.besideTop + caret(rp.narrowSpans, g.narrowWidth, charIndex);
     }
-    // Иначе — в опашката под буквицата, след опашката на първия абзац.
-    final padTop = g.lines2 > 0 ? 2.0 : g.paraGap / 2;
-    return g.rowHeight +
-        g.tail1Height +
-        padTop +
-        caret(g.tailSpans2, g.fullWidth, charIndex - g.startsAt2);
+    // Иначе — в опашката, след всичко, влязло преди него там.
+    final padTop = rp.lines > 0 ? 2.0 : g.paraGap / 2;
+    return rp.tailTop + padTop + caret(rp.tailSpans, g.fullWidth, charIndex - rp.cut);
   }
 
   @override
@@ -384,14 +471,6 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         final runs = htmlRuns(widget.firstParagraph);
         final plain = runs.map((r) => r.text).join();
         final matches = _matchRanges(plain, widget.searchQuery);
-        // Вторият абзац — може да влезе вдясно от буквицата, ако първият
-        // не стигне до петия ред. Съвпаденията му продължават номерацията
-        // на първия, за да не се разминат броячите.
-        final runs2 = widget.secondParagraph.isEmpty
-            ? const <HtmlRun>[]
-            : htmlRuns(widget.secondParagraph);
-        final plain2 = runs2.map((r) => r.text).join();
-        final matches2 = _matchRanges(plain2, widget.searchQuery);
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от
@@ -576,39 +655,106 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // на останалите (8 отдолу + 8 отгоре).
         const paraGap = 16.0;
         final lineHeightPx = scaler.scale(widget.fontSize) * widget.lineFactor;
+        final firstNarrowHeight = f1.lines * lineHeightPx;
 
-        // Вторият абзац влиза вдясно САМО ако след първия остава място за
-        // поне един негов ред заедно с отстоянието помежду им.
-        var spans2 = <InlineSpan>[];
-        var lines2 = 0;
-        var cut2 = 0;
-        if (runs2.isNotEmpty && f1.cut >= plain.length) {
-          final freeLines =
-              capLines - f1.lines - (paraGap / lineHeightPx).ceil();
-          if (freeLines >= 1) {
-            spans2 = spansOf(runs2, plain2, matches2, base2, 0, plain2.length);
-            final f2 = fit(
-                spansOf(runs2, plain2, matches2, base2, 0, plain2.length,
-                    forMeasure: true),
-                freeLines,
-                plain2.length);
-            lines2 = f2.lines;
-            cut2 = f2.cut;
+        // Следващите абзаци — влизат вдясно от буквицата, докато остава
+        // място (при по-голяма буквица: по няколко наведнъж). Раздават се
+        // РЕДОВЕ ПОРЕДНО, отгоре надолу: щом някой не се побере ЦЯЛ,
+        // той е границата — прерязва се, а всичко СЛЕД него пада направо
+        // в опашката (виж бележката при _RestParaGeom). Съвпаденията им
+        // продължават номерацията от първия абзац, за да не се разминат
+        // броячите на търсенето.
+        final restGeoms = <_RestParaGeom>[];
+        final restBesideSpans = <List<InlineSpan>>[]; // само за draw, lines>0
+        var remainingLines = capLines - f1.lines;
+        var besideCursor = firstNarrowHeight;
+        var tailCursor = 0.0; // попълва се СЛЕД като знаем tail1Height
+        var stillFitting = true;
+        var matchBase = base2;
+        final restTailWidgets = <Widget>[]; // сглобяват се веднага, по ред
+
+        for (final p in widget.restParagraphs) {
+          final runsI = htmlRuns(p);
+          final plainI = runsI.map((r) => r.text).join();
+          final matchesI = _matchRanges(plainI, widget.searchQuery);
+          final matchBaseI = matchBase;
+          matchBase += matchesI.length;
+
+          var cut = 0;
+          var lines = 0;
+          if (stillFitting) {
+            final gapLines = (paraGap / lineHeightPx).ceil();
+            final freeLines = remainingLines - gapLines;
+            if (freeLines >= 1) {
+              final measureI = spansOf(runsI, plainI, matchesI, matchBaseI, 0,
+                  plainI.length, forMeasure: true);
+              final fI = fit(measureI, freeLines, plainI.length);
+              cut = fI.cut;
+              lines = fI.lines;
+              remainingLines -= gapLines + lines;
+              if (cut < plainI.length) stillFitting = false; // прерязан тук
+            } else {
+              stillFitting = false;
+            }
           }
+
+          final besideTop = besideCursor + paraGap;
+          if (lines > 0) {
+            restBesideSpans.add(
+                spansOf(runsI, plainI, matchesI, matchBaseI, 0, cut));
+            besideCursor = besideTop + lines * lineHeightPx;
+          } else {
+            restBesideSpans.add(const <InlineSpan>[]);
+          }
+
+          final tailMeasure = cut < plainI.length
+              ? spansOf(runsI, plainI, matchesI, matchBaseI, cut,
+                  plainI.length, forMeasure: true)
+              : const <InlineSpan>[];
+          var tailTop = 0.0;
+          if (cut < plainI.length) {
+            // ПЪРВИЯТ ред от опашката тръгва СЛЕД тази на първия абзац
+            // (tailCursor е инициализиран точно за това по-долу).
+            tailTop = tailCursor;
+            final padTop = lines > 0 ? 2.0 : paraGap / 2;
+            final tp = TextPainter(
+              text: TextSpan(style: base, children: tailMeasure),
+              textDirection: TextDirection.ltr,
+              textScaler: scaler,
+              textAlign: TextAlign.justify,
+            )..layout(maxWidth: constraints.maxWidth);
+            tailCursor = tailTop + padTop + tp.height;
+            tp.dispose();
+            restTailWidgets.add(Padding(
+              padding: EdgeInsets.only(top: padTop),
+              child: Text.rich(
+                TextSpan(
+                    style: base,
+                    children: spansOf(
+                        runsI, plainI, matchesI, matchBaseI, cut, plainI.length)),
+                textAlign: TextAlign.justify,
+              ),
+            ));
+          }
+
+          restGeoms.add(_RestParaGeom(
+            narrowSpans: spansOf(runsI, plainI, matchesI, matchBaseI, 0,
+                plainI.length, forMeasure: true),
+            tailSpans: tailMeasure,
+            cut: cut,
+            plainLength: plainI.length,
+            lines: lines,
+            besideTop: besideTop,
+            tailTop: tailTop,
+          ));
         }
 
-        // Запомняме измереното, за да може търсенето да пита „на кой пиксел
-        // стои този знак". Пише се по време на build нарочно: това е
-        // кеширане на мярката, която ТОКУ-ЩО направихме — второ смятане
-        // отвън неизбежно би се разминало с тукашните константи.
-        final firstNarrowHeight = f1.lines * lineHeightPx;
-        final narrowColumnHeight = firstNarrowHeight +
-            (lines2 > 0 ? paraGap + lines2 * lineHeightPx : 0.0);
+        final narrowColumnHeight = besideCursor;
         final tailSpans1 = spansOf(runs, plain, matches,
             widget.firstGlobalMatchIndex, f1.cut, plain.length,
             forMeasure: true);
         // Височината на опашката на първия абзац — нужна, за да знаем къде
-        // започва опашката на втория. Мери се само когато има такава.
+        // започва опашката на следващите. Мери се само когато има такава.
         var tail1Height = 0.0;
         if (f1.cut < plain.length) {
           final tp = TextPainter(
@@ -620,37 +766,45 @@ class DropCapParagraphState extends State<DropCapParagraph> {
           tail1Height = tp.height + 2; // + Padding(top: 2)
           tp.dispose();
         }
-        final startsAt2 = lines2 > 0 ? cut2 : 0;
+        final rowHeight = widget.dropCapSize > narrowColumnHeight
+            ? widget.dropCapSize
+            : narrowColumnHeight;
+        // tailCursor по-горе тръгна от 0 — сега се измества с rowHeight и
+        // опашката на първия абзац, точно както rowHeight+tail1Height
+        // правеше за „втория" абзац в старата (двойна) версия.
+        for (var i = 0; i < restGeoms.length; i++) {
+          final rp = restGeoms[i];
+          if (rp.tailTop == 0.0 && rp.cut >= rp.plainLength) continue; // без опашка
+          restGeoms[i] = _RestParaGeom(
+            narrowSpans: rp.narrowSpans,
+            tailSpans: rp.tailSpans,
+            cut: rp.cut,
+            plainLength: rp.plainLength,
+            lines: rp.lines,
+            besideTop: rp.besideTop,
+            tailTop: rp.tailTop + rowHeight + tail1Height,
+          );
+        }
+
         _geometry = _CapGeometry(
           narrowSpans: measure1,
           tailSpans: tailSpans1,
           cut: f1.cut,
           narrowWidth: narrowWidth,
           fullWidth: constraints.maxWidth,
-          rowHeight: widget.dropCapSize > narrowColumnHeight
-              ? widget.dropCapSize
-              : narrowColumnHeight,
+          rowHeight: rowHeight,
           base: base,
           scaler: scaler,
-          narrowSpans2: runs2.isEmpty
-              ? const <InlineSpan>[]
-              : spansOf(runs2, plain2, matches2, base2, 0, plain2.length,
-                  forMeasure: true),
-          tailSpans2: runs2.isEmpty || startsAt2 >= plain2.length
-              ? const <InlineSpan>[]
-              : spansOf(runs2, plain2, matches2, base2, startsAt2,
-                  plain2.length, forMeasure: true),
-          cut2: cut2,
-          lines2: lines2,
-          startsAt2: startsAt2,
+          rest: restGeoms,
           firstNarrowHeight: firstNarrowHeight,
           tail1Height: tail1Height,
           paraGap: paraGap,
+          lineHeightPx: lineHeightPx,
         );
 
-        // Какво остава ПОД буквицата. Трите случая се изключват взаимно:
-        // или първият абзац е пресечен (тогава вторият изобщо не е влизал),
-        // или е влязла част от втория, или вторият стои цял отдолу.
+        // Какво остава ПОД буквицата: опашката на първия абзац (ако е
+        // прерязан), после опашките на следващите — по РЕДА, в който бяха
+        // сглобени в цикъла по-горе (вече Widget-и, готови).
         final tail = <Widget>[];
         if (f1.cut < plain.length) {
           tail.add(Padding(
@@ -664,23 +818,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             ),
           ));
         }
-        if (runs2.isNotEmpty) {
-          final startsAt = lines2 > 0 ? cut2 : 0;
-          if (startsAt < plain2.length) {
-            tail.add(Padding(
-              // Продължение на започнат абзац или съвсем нов — оттам и
-              // различното отстояние отгоре.
-              padding: EdgeInsets.only(top: lines2 > 0 ? 2 : paraGap / 2),
-              child: Text.rich(
-                TextSpan(
-                    style: base,
-                    children: spansOf(runs2, plain2, matches2, base2, startsAt,
-                        plain2.length)),
-                textAlign: TextAlign.justify,
-              ),
-            ));
-          }
-        }
+        tail.addAll(restTailWidgets);
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -698,7 +836,10 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                     clipBehavior: Clip.none,
                     children: [
                       Transform.translate(
-                        offset: const Offset(0, 2),
+                        offset: Offset(
+                            dropCapOffsetX(widget.dropCap, widget.dropCapSize,
+                                scaleMultiplier: widget.offsetScale),
+                            2),
                         child: Text(
                           widget.dropCap,
                           style: TextStyle(
@@ -749,14 +890,16 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                         maxLines: f1.lines,
                         textAlign: TextAlign.justify,
                       ),
-                      if (lines2 > 0) ...[
-                        const SizedBox(height: paraGap),
-                        Text.rich(
-                          TextSpan(style: base, children: spans2),
-                          maxLines: lines2,
-                          textAlign: TextAlign.justify,
-                        ),
-                      ],
+                      for (var i = 0; i < restGeoms.length; i++)
+                        if (restGeoms[i].lines > 0) ...[
+                          const SizedBox(height: paraGap),
+                          Text.rich(
+                            TextSpan(
+                                style: base, children: restBesideSpans[i]),
+                            maxLines: restGeoms[i].lines,
+                            textAlign: TextAlign.justify,
+                          ),
+                        ],
                     ],
                   ),
                 ),

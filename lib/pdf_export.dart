@@ -18,6 +18,8 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
+import 'drop_cap.dart' show dropCapOffsetX;
+
 // Кеш на шрифтовете — зареждат се веднъж за целия живот на приложението.
 pw.Font? _body, _bodyItalic, _bodyBold, _title, _dropCapFont;
 
@@ -872,8 +874,11 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
             children: [
               pw.Transform.translate(
                 // Положителна стойност = НАГОРЕ (проверено емпирично:
-                // отрицателната свали буквата върху следващия ред).
-                offset: PdfPoint(0, capShift),
+                // отрицателната свали буквата върху следващия ред). По X
+                // посоката е обичайната (отрицателно = наляво) — виж
+                // dropCapOffsetX в drop_cap.dart, споделена с четците.
+                offset: PdfPoint(
+                    dropCapOffsetX(dropInfo.cap, capFontSize), capShift),
                 child: pw.Text(dropInfo.cap,
                     style: pw.TextStyle(
                         font: _dropCapFont,
