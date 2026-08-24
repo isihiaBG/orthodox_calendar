@@ -76,7 +76,10 @@ class _SettingsContentState extends State<SettingsContent> {
           ],
           Text(text,
               style: TextStyle(
-                  color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
+                  color: AppColors.textMuted, 
+                  fontSize: 13, 
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.5)),
         ],
       ),
     );
@@ -121,13 +124,13 @@ class _SettingsContentState extends State<SettingsContent> {
           segments: const [
             ButtonSegment(
               value: true,
-              label: Text('Питай за стила', style: TextStyle(height: 1.0)),
+              label: Text('Питай за стила', style: TextStyle(fontSize: 14, height: 1.0)),
               icon: Icon(Icons.auto_stories, size: 16),
             ),
             ButtonSegment(
               value: false,
-              label: Text('Направо в календара', style: TextStyle(height: 1.0)),
-              icon: Icon(Icons.calendar_month, size: 16),
+              label: Text('Направо в календара', style: TextStyle(fontSize: 14, height: 1.0)),
+              icon: Icon(Icons.calendar_month, size: 18),
             ),
           ],
           selected: {_showWelcome},
@@ -342,7 +345,7 @@ class _SettingsContentState extends State<SettingsContent> {
             iconSize: 14,
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
             visualDensity: VisualDensity.compact,
-            textStyle: const TextStyle(fontSize: 13, height: 1.0),
+            textStyle: const TextStyle(fontSize: 14, height: 1.0),
           ),
           segments: [
             for (final s in DropCapScale.values)
