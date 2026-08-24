@@ -332,6 +332,17 @@ class _SettingsContentState extends State<SettingsContent> {
             foregroundColor: AppColors.textMuted,
             selectedForegroundColor: AppColors.textPrimary,
             selectedBackgroundColor: AppColors.appBarWeekday,
+            // ⚠ При избран сегмент Flutter показва отметка ПРЕДИ текста —
+            // и за нея закача фиксиран отстъп (12/16 пункта), който НЕ се
+            // подчинява на `padding` тук (виж segmented_button.dart в
+            // самия Flutter SDK: изрично overwrite, само за сегмента с
+            // икона). С трите надписа („Малка"/„Средна"/„Голяма") това
+            // стигаше „Средна" да се пренесе на втори ред. Свиваме каквото
+            // РЕАЛНО се подчинява — иконата и шрифта — за да остане място.
+            iconSize: 14,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+            textStyle: const TextStyle(fontSize: 13, height: 1.0),
           ),
           segments: [
             for (final s in DropCapScale.values)

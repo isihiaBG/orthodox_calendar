@@ -19,7 +19,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import 'drop_cap.dart' show dropCapOffsetX;
-import 'drop_cap_scale.dart' show ReaderDropCapScale, DropCapScaleMetrics;
+import 'drop_cap_scale.dart'
+    show ReaderDropCapScale, DropCapScaleMetrics, DropCapScale;
 import 'external_link.dart' show decodeHref;
 
 // Кеш на шрифтовете — зареждат се веднъж за целия живот на приложението.
@@ -58,6 +59,42 @@ String _absoluteHref(String href) => decodeHref(href.startsWith('saint://')
 
 const double _bodySize = 20.0;
 const double _lineHeight = 1.45;
+
+/// Корекции за буквицата, САМО в PDF-а — не в четците (там пропорциите са
+/// наред). Причината е междуредието: тук `lineSpacing` е по-голямо, тъй че
+/// грубото „redове × lineHeightPt" пресмятане на мястото за буквицата
+/// (виж _dropCapWidgets) дава друга пропорция бяло петно, отколкото на
+/// екрана, и разликата расте различно на всеки от трите размера.
+///
+/// Стойностите се определят ЕКСПЕРИМЕНТАЛНО (hot reload + преглед на
+/// PDF-а), не по формула — виж CLAUDE.md.
+///
+/// Трите оси, всяка множител върху съществуващата формула:
+///   - [_kPdfCapWidthFactor] — ЕДИН, общ за трите размера: коригира
+///     широчината на бялото петно (capWidth), а с нея расте и самата
+///     буква (capFontSize зависи от capWidth надолу по веригата — виж
+///     употребата). Нарочно по-голям от 1.0 отгоре на самата корекция:
+///     форматът А4 е по-широк от екрана, тъй че буквицата в PDF-а трябва
+///     да излиза малко по-едра и там, където пропорцията вече е вярна.
+///   - [_kPdfCapSizeFactor] — по ТРИ отделни, защото самият размер на
+///     буквата спрямо петното не се разминава еднакво при малка/средна/
+///     голяма.
+///   - [_kPdfCapYShiftFactor] — по ТРИ отделни, върху `capShift`
+///     (изместването на самия глиф нагоре) — колкото по-едра е буквата,
+///     толкова по-различно пада спрямо горния ръб на реда.
+const double _kPdfCapWidthFactor = 1.0;
+
+const Map<DropCapScale, double> _kPdfCapSizeFactor = {
+  DropCapScale.small:  1.2,
+  DropCapScale.medium: 1.2,
+  DropCapScale.large:  1.2,  //Size Up
+};
+
+const Map<DropCapScale, double> _kPdfCapYShiftFactor = {
+  DropCapScale.small:  1.0,
+  DropCapScale.medium: 2.0,
+  DropCapScale.large:  3.0,  //Move Up
+};
 
 /// Общият ред, който искаме — в кратни на размера на шрифта.
 ///
@@ -733,7 +770,8 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   // Според избрания в настройките размер на буквицата — виж
   // drop_cap_scale.dart (общо с двата четеца). .ceil() както при тях
   // (там: (dropCapSize / lineHeight).ceil()).
-  final capLines = ReaderDropCapScale.value.linesMultiplier.ceil();
+  final scale = ReaderDropCapScale.value;
+  final capLines = scale.linesMultiplier.ceil();
   final lineHeightPt = _bodySize * _lineHeight;
   // Отстъпът между блока с буквицата и остатъка от абзаца — там абзацът се
   // пречупва на два widget-а и шевът личи, ако не се премери.
@@ -751,8 +789,9 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   // FittedBox: там глифът се вписваше заедно с празните полета около себе
   // си и изглеждаше дребен и изместен надясно. Единичен знак няма как да
   // се пренесе на нов ред, така че широчината на кутията не го застрашава.
-  final capFontSize = lineHeightPt * capLines * 0.85;
-  final capWidth = capFontSize * 0.45;
+  final capFontSize =
+      lineHeightPt * capLines * 0.85 * (_kPdfCapSizeFactor[scale] ?? 1.0);
+  final capWidth = capFontSize * 0.45 * _kPdfCapWidthFactor;
   // Буквицата трябва да НАДВИШАВА горния ръб на първия ред (както в
   // четеца). Постига се с отстъп отгоре на съседния текст: самата буква
   // започва най-горе в блока, а текстът тръгва по-надолу. Bukvica има
@@ -762,7 +801,7 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   // Освен отстъпа на съседния текст, самата буква се ИЗМЕСТВА нагоре.
   // Само с отстъпа не става: глифът се рисува на фиксирано място спрямо
   // кутията си, затова над определена точка увеличаването му не личеше.
-  final capShift = _bodySize * 1.8;
+  final capShift = _bodySize * 1.8 * (_kPdfCapYShiftFactor[scale] ?? 1.0);
 
   final narrowWidth = pageWidth - capWidth - 8;
   const paraGap = 20.0; // същото отстояние като между абзаците по-долу
