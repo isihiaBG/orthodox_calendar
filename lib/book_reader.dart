@@ -171,6 +171,14 @@ class _BookReaderState extends State<BookReader>
   /// Кутията с буквицата — питаме я на кой пиксел стои даден знак.
   final GlobalKey<DropCapParagraphState> _dropCapKey =
       GlobalKey<DropCapParagraphState>();
+  /// За отварянето на настройките като endDrawer — виж _showMoreMenu().
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Докато е true, лентата с инструменти НЕ се крие (SliverAppBar минава
+  /// от floating+snap на pinned) — виж _bumpFont() и
+  /// _onScrollDirectionForToolbarPin. Същият механизъм като в четеца на
+  /// жития (reader_screen.dart) — виж бележката там защо е нужен.
+  bool _toolbarPinned = false;
 
   /// Уловен в didChangeDependencies: в dispose() context вече не е сигурен
   /// за нови lookup-и, а SnackBar-ът трябва да се прибере точно тогава.
@@ -265,6 +273,10 @@ class _BookReaderState extends State<BookReader>
     ReaderDropCapScale.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+    // Настройката се сменя от drawer, който стои НАД четеца (не го
+    // затваря) — без слушател ефектът се виждаше едва при следващо
+    // отваряне на четивото.
+    ReaderDropCapScale.notifier.addListener(_onDropCapScaleChanged);
     // Кое четиво е било последно в този том — решава какво пише опашката
     // под заглавната страница и кой ред е маркиран в съдържанието.
     BookLastReadStore.load(widget.book.assetPath).then((v) {
@@ -289,6 +301,7 @@ class _BookReaderState extends State<BookReader>
     // положение, където тя отнема чувствителна част от екрана.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     _scroll.addListener(_rememberPosition);
+    _scroll.addListener(_onScrollDirectionForToolbarPin);
     _loadSavedPosition();
 
     if (widget.hintContents) _startNudge();
@@ -346,9 +359,16 @@ class _BookReaderState extends State<BookReader>
     _scaffoldMessenger = ScaffoldMessenger.of(context);
   }
 
+  /// Преначертава при смяна на размера на буквицата от настройките — виж
+  /// слушателя, закачен в initState.
+  void _onDropCapScaleChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
     ReaderFontSize.flush();
     ReaderTheme.flush();
     // Прибираме евентуален висящ SnackBar веднага — ScaffoldMessenger е ОБЩ
@@ -573,6 +593,16 @@ class _BookReaderState extends State<BookReader>
     // Три секунди покой — както в четеца на жития. Пише се при СПИРАНЕ на
     // плъзгането, не по време на него.
     _positionTimer = Timer(const Duration(seconds: 3), _saveIfStillIdle);
+  }
+
+  /// Освобождава закованата лента при ПЪРВОТО истинско влачене надолу —
+  /// СЪЩИЯТ механизъм като в четеца на жития (reader_screen.dart), виж
+  /// бележката там за userScrollDirection срещу programmatic jumpTo.
+  void _onScrollDirectionForToolbarPin() {
+    if (!_toolbarPinned || !_scroll.hasClients) return;
+    if (_scroll.position.userScrollDirection == ScrollDirection.reverse) {
+      setState(() => _toolbarPinned = false);
+    }
   }
 
   void _saveIfStillIdle() {
@@ -822,9 +852,11 @@ class _BookReaderState extends State<BookReader>
   void _reanchorScroll() {
     final offset = _scroll.hasClients ? _scroll.position.pixels : 0.0;
     _scroll.removeListener(_rememberPosition);
+    _scroll.removeListener(_onScrollDirectionForToolbarPin);
     _scroll.dispose();
     _scroll = ScrollController(initialScrollOffset: offset)
-      ..addListener(_rememberPosition);
+      ..addListener(_rememberPosition)
+      ..addListener(_onScrollDirectionForToolbarPin);
   }
 
   void _toggleSearch() {
@@ -1220,12 +1252,9 @@ class _BookReaderState extends State<BookReader>
     final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || choice == null) return;
     if (choice == kReaderSettingsMenuItem.value) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              const SettingsScreen(sections: {SettingsSection.reader}),
-        ),
-      );
+      // Локална настройка — drawer, СЪЩИЯТ принцип като в календара; цял
+      // отделен екран е само за общите настройки от главното меню.
+      _scaffoldKey.currentState?.openEndDrawer();
     } else if (choice == kBookmarksMenuItem.value) {
       // Един и същи списък: там са и отметките от житията, и тукашните.
       Navigator.of(context).push(MaterialPageRoute(
@@ -1315,11 +1344,13 @@ class _BookReaderState extends State<BookReader>
     final raw = widget.book.readFile(_current.href);
 
     return Scaffold(
+      key: _scaffoldKey,
       // Фонът на СКЕЛЕТА е цветът на инструментите, а не на четеца — под
       // него остава само ивицата на системната лента (виж SafeArea долу).
       // Така тя стои еднакво тъмна и в светла тема, вместо да светне
       // кремава заедно със страницата. Точно както в четеца на жития.
       backgroundColor: AppColors.toolbar,
+      endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
       body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
@@ -1923,7 +1954,13 @@ class _BookReaderState extends State<BookReader>
     // изобщо не се пазеше позицията, само чертичките за търсене.
     final searching = _searchOpen && _total > 0;
     final at = searching ? null : _topmostLine();
-    setState(() => ReaderFontSize.nudge(d));
+    // Заковава лентата (виж _toolbarPinned) — иначе jumpTo-то по-долу
+    // изглежда за floating+snap като скрол надолу и лентата се скрива
+    // точно докато пръстът е още на +/-.
+    setState(() {
+      _toolbarPinned = true;
+      ReaderFontSize.nudge(d);
+    });
     if (searching) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Future.delayed(const Duration(milliseconds: 80), () {
@@ -1978,8 +2015,11 @@ class _BookReaderState extends State<BookReader>
                 if (withHeader)
                   SliverAppBar(
                     primary: false,
-                    floating: true,
-                    snap: true,
+                    // Заковава се временно след +/- на шрифта — виж
+                    // _toolbarPinned.
+                    floating: !_toolbarPinned,
+                    snap: !_toolbarPinned,
+                    pinned: _toolbarPinned,
                     backgroundColor: AppColors.toolbar,
                     toolbarHeight: kReaderToolbarHeight,
                     leading: _toolbarLeading(),

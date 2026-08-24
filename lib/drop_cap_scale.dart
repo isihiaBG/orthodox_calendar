@@ -19,6 +19,7 @@
 
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:shared_preferences/shared_preferences.dart';
 
 enum DropCapScale { small, medium, large }
@@ -50,10 +51,16 @@ class ReaderDropCapScale {
   ReaderDropCapScale._();
 
   static const _prefsKey = 'reader_drop_cap_scale';
-  static DropCapScale _value = DropCapScale.small;
   static bool _loaded = false;
 
-  static DropCapScale get value => _value;
+  /// Слушаем, за да могат отворените четци да се преначертаят веднага
+  /// щом изборът се смени в настройките (drawer-ът стои НАД четеца, не
+  /// го затваря) — без слушател смяната се виждаше едва при следващо
+  /// отваряне на четивото.
+  static final ValueNotifier<DropCapScale> notifier =
+      ValueNotifier(DropCapScale.small);
+
+  static DropCapScale get value => notifier.value;
 
   /// Зарежда запазения избор — САМО веднъж на сесия, както при
   /// [ReaderFontSize]/[ReaderTheme].
@@ -65,7 +72,7 @@ class ReaderDropCapScale {
     if (saved == null) return;
     for (final s in DropCapScale.values) {
       if (s.name == saved) {
-        _value = s;
+        notifier.value = s;
         return;
       }
     }
@@ -74,8 +81,8 @@ class ReaderDropCapScale {
   /// Сменя избора и записва веднага — виж бележката най-отгоре защо тук
   /// (за разлика от шрифта) няма нужда от отложен запис.
   static Future<void> set(DropCapScale v) async {
-    if (_value == v) return;
-    _value = v;
+    if (notifier.value == v) return;
+    notifier.value = v;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsKey, v.name);
   }

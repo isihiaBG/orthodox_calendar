@@ -19,6 +19,8 @@ import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 
 import 'drop_cap.dart' show dropCapOffsetX;
+import 'drop_cap_scale.dart' show ReaderDropCapScale, DropCapScaleMetrics;
+import 'external_link.dart' show decodeHref;
 
 // Кеш на шрифтовете — зареждат се веднъж за целия живот на приложението.
 pw.Font? _body, _bodyItalic, _bodyBold, _title, _dropCapFont;
@@ -42,9 +44,17 @@ const PdfColor _linkBlue = PdfColor.fromInt(0xFF4673AA); //(0xFF8A9BB0);
 /// Вътрешните препратки между житията са saint://<слъг> — те имат смисъл
 /// само вътре в приложението. В PDF-а водят към същата страница в мрежата,
 /// откъдето е и текстът.
-String _absoluteHref(String href) => href.startsWith('saint://')
+///
+/// ⚠ decodeHref() ЗАДЪЛЖИТЕЛНО — същата поправка като в четците
+/// (external_link.dart): библейските препратки идват с `&amp;` (правилно
+/// за XHTML атрибут), а PDF-ът пуска href-а директно в AnnotationUrl, без
+/// browser/XML разбор по средата да го разкодира вместо нас. Останал
+/// недекодиран, azbyka.ru вижда параметър `amp;bg~utfcs` вместо
+/// `bg~utfcs` и препратката се отваря само на църковнославянски —
+/// открито от потребителя 24.08.2026.
+String _absoluteHref(String href) => decodeHref(href.startsWith('saint://')
     ? 'https://azbyka.ru/days/${href.substring('saint://'.length)}'
-    : href;
+    : href);
 
 const double _bodySize = 20.0;
 const double _lineHeight = 1.45;
@@ -720,7 +730,10 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
   PdfFont measureFont, {
   required PdfColor strongColor,
 }) {
-  const capLines = 5;
+  // Според избрания в настройките размер на буквицата — виж
+  // drop_cap_scale.dart (общо с двата четеца). .ceil() както при тях
+  // (там: (dropCapSize / lineHeight).ceil()).
+  final capLines = ReaderDropCapScale.value.linesMultiplier.ceil();
   final lineHeightPt = _bodySize * _lineHeight;
   // Отстъпът между блока с буквицата и остатъка от абзаца — там абзацът се
   // пречупва на два widget-а и шевът личи, ако не се премери.
@@ -878,7 +891,10 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
                 // посоката е обичайната (отрицателно = наляво) — виж
                 // dropCapOffsetX в drop_cap.dart, споделена с четците.
                 offset: PdfPoint(
-                    dropCapOffsetX(dropInfo.cap, capFontSize), capShift),
+                    dropCapOffsetX(dropInfo.cap, capFontSize,
+                        scaleMultiplier:
+                            ReaderDropCapScale.value.offsetMultiplier),
+                    capShift),
                 child: pw.Text(dropInfo.cap,
                     style: pw.TextStyle(
                         font: _dropCapFont,

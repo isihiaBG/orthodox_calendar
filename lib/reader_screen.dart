@@ -636,6 +636,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _scrollController.addListener(_onScrollForBookmark);
+    _scrollController.addListener(_onScrollDirectionForToolbarPin);
     // Темата и размерът се четат заедно — за човека това е един
     // четец и настройките му са общи (виж ReaderTheme.loadOnce).
     ReaderTheme.loadOnce().then((_) {
@@ -647,6 +648,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     ReaderDropCapScale.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
+    // Настройката се сменя от drawer, който стои НАД четеца (не го
+    // затваря) — без слушател ефектът се виждаше едва при следващо
+    // отваряне на четивото.
+    ReaderDropCapScale.notifier.addListener(_onDropCapScaleChanged);
 
     // ПЪЛЕН ЕКРАН ЗА ЦЯЛОТО ЧЕТЕНЕ — същото както в четеца на книги (виж
     // book_reader.dart). Включва се веднъж тук, изключва се веднъж в
@@ -695,6 +700,12 @@ class _ReaderScreenState extends State<ReaderScreen>
     // дълго житие изгубваше читателя.
     final at = _totalMatches > 0 ? null : _topmostLine();
     setState(() {
+      // Заковава лентата (виж _toolbarPinned) — иначе jumpTo-то по-долу
+      // изглежда за floating+snap като скрол надолу и лентата се скрива
+      // точно докато пръстът е още на +/-. Освобождава се пак САМО при
+      // истинско влачене надолу (_onScrollDirectionForToolbarPin), не и
+      // от самата корекция тук.
+      _toolbarPinned = true;
       ReaderFontSize.nudge(d);
       // Реалните измерени височини важат само за СТАРИЯ размер на шрифта —
       // със SliverVariedExtentList старите стойности биха ПРИНУДИЛИ новия
@@ -785,6 +796,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// абзац. Тя единствена знае къде е пречупила обтичащата зона.
   final GlobalKey<DropCapParagraphState> _dropCapKey =
       GlobalKey<DropCapParagraphState>();
+  /// За отварянето на настройките като endDrawer — виж _showMoreMenu().
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Докато е true, лентата с инструменти НЕ се крие (SliverAppBar минава
+  /// от floating+snap на pinned) — виж _bump() и _onScrollDirectionForPin.
+  /// Нужно е, защото смяната на шрифта поправя скрол позицията с jumpTo
+  /// (виж _bump), а floating+snap го чете като „скрол надолу" и скрива
+  /// лентата точно докато пръстът е още върху +/- (докладвано 24.08.2026).
+  bool _toolbarPinned = false;
   bool _measuring = false;
   List<GlobalKey> _measureKeys = [];
   final GlobalKey _titleMeasureKey = GlobalKey();
@@ -812,7 +832,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         : 0.0;
     _scrollController.dispose();
     _scrollController = ScrollController(initialScrollOffset: offset)
-      ..addListener(_onScrollForBookmark);
+      ..addListener(_onScrollForBookmark)
+      ..addListener(_onScrollDirectionForToolbarPin);
   }
 
   // ---------------------------------------------------------------
@@ -900,6 +921,21 @@ class _ReaderScreenState extends State<ReaderScreen>
       const Duration(seconds: 3),
       _saveBookmarkIfStillIdle,
     );
+  }
+
+  /// Освобождава закованата лента (виж _toolbarPinned) при ПЪРВОТО истинско
+  /// движение на пръста надолу през текста — не при кое да е движение на
+  /// скрола: `userScrollDirection` е Flutter-ово поле, което се движи само
+  /// докато пръстът реално влачи (ScrollDirection.reverse = съдържанието се
+  /// изтегля нагоре, тоест четивото „слиза"), а НЕ при programmatic jumpTo —
+  /// точно затова е избрано пред грубо слушане по pixels/offset, което би
+  /// хванало и собствената ни корекция след смяна на шрифта.
+  void _onScrollDirectionForToolbarPin() {
+    if (!_toolbarPinned || !_scrollController.hasClients) return;
+    if (_scrollController.position.userScrollDirection ==
+        ScrollDirection.reverse) {
+      setState(() => _toolbarPinned = false);
+    }
   }
 
   void _saveBookmarkIfStillIdle() {
@@ -1879,9 +1915,16 @@ class _ReaderScreenState extends State<ReaderScreen>
     );
   }
 
+  /// Преначертава при смяна на размера на буквицата от настройките — виж
+  /// слушателя, закачен в initState.
+  void _onDropCapScaleChanged() {
+    if (mounted) setState(() {});
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
     // Прибираме евентуален висящ SnackBar веднага — иначе остава да виси и
     // след като този екран е затворен (ScaffoldMessenger е общ, не
     // локален за reader_screen). removeCurrentSnackBar (не hideCurrentSnackBar)
@@ -1959,12 +2002,11 @@ class _ReaderScreenState extends State<ReaderScreen>
     final selected = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || selected == null) return;
     if (selected == kReaderSettingsMenuItem.value) {
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              const SettingsScreen(sections: {SettingsSection.reader}),
-        ),
-      );
+      // Настройка на четеца — като локална, се появява като drawer, СЪЩИЯТ
+      // принцип, който важи навсякъде другаде (виж SettingsDrawer в
+      // календара); цял отделен екран е само за общите настройки от
+      // главното меню.
+      _scaffoldKey.currentState?.openEndDrawer();
     } else if (selected == kBookmarksMenuItem.value) {
       Navigator.of(context).push(
         MaterialPageRoute(
@@ -2433,9 +2475,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       animation: _searchAnim,
       builder: (context, _) => SliverAppBar(
         primary: false,
-        floating: true,
-        snap: true,
-        pinned: false,
+        // Заковава се временно след +/- на шрифта — виж _toolbarPinned.
+        floating: !_toolbarPinned,
+        snap: !_toolbarPinned,
+        pinned: _toolbarPinned,
         backgroundColor: AppColors.toolbar,
         toolbarHeight: kReaderToolbarHeight,
         title: Text(title),
@@ -2545,7 +2588,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         _scaffoldMessenger?.removeCurrentSnackBar();
       },
       child: Scaffold(
+        key: _scaffoldKey,
         backgroundColor: AppColors.toolbar,
+        endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
         body: SafeArea(
           // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
           // SafeArea я поеме и той, отстъпът горе се удвоява.
