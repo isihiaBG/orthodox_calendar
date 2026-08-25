@@ -126,6 +126,31 @@ flutter:
     # Charis SIL е под SIL Open Font License 1.1 (виж OFL-CharisSIL.txt до
     # шрифтовете) — свободна за пакетиране, включително в търговски продукт,
     # и не влиза в спор с GPL-3.0 на хранилището.
+    # Църковнославянският в секцията „Библия" — цс графика (титли, ѣ, ꙋ,
+    # надредни знаци). Под SIL Open Font License 1.1, като Charis SIL:
+    # „Copyright 2025 The Triodion Project Authors"
+    # (https://github.com/slavonic/Triodion).
+    #
+    # ⚠ ЗАЩО Е НУЖЕН, а не просто по-хубав: системният шрифт покрива 126 от
+    # 127-те знака в църковнославянския текст, но НЕ носи `ᲂ` (U+1C82, тясно
+    # „о") — а той се среща 6159 пъти и излизаше като квадратче. Измерено
+    # срещу самата база; Triodion го има.
+    #
+    # ⚠ Charis SIL НЕ ВЪРШИ тази работа и не бива да се слага за резерв тук:
+    # той няма нито ꙋ, нито ѧ, нито ѡ, нито титлата. Резервът е СИСТЕМНИЯТ —
+    # за петте гръцки знака (β, ά, τ, ο, ς), които се срещат по веднъж в
+    # целия текст и които Triodion няма.
+    - family: Triodion
+      fonts:
+        - asset: assets/fonts/Triodion-Regular.ttf
+    # Резервът за Triodion — по-широк (815 знака срещу 527): добавя 132
+    # латински, 56 кирилски и 43 надредни. Също SIL OFL 1.1,
+    # „Copyright 2025 The Monomakh Project Authors"
+    # (https://github.com/slavonic/Monomakh/). И двата са от Slavonic
+    # Computing Initiative — sci.ponomar.net.
+    - family: Monomakh
+      fonts:
+        - asset: assets/fonts/Monomakh-Regular.ttf
     - family: CharisSIL
       fonts:
         - asset: assets/fonts/CharisSIL-Regular.ttf

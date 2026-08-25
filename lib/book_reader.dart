@@ -179,6 +179,9 @@ class _BookReaderState extends State<BookReader>
   /// _onScrollDirectionForToolbarPin. Същият механизъм като в четеца на
   /// жития (reader_screen.dart) — виж бележката там защо е нужен.
   bool _toolbarPinned = false;
+  /// Докато е true, `_onScrollDirectionForToolbarPin` НЕ отключва лентата
+  /// — виж бележката там и в reader_screen.dart._toolbarPinBusy.
+  bool _toolbarPinBusy = false;
 
   /// Уловен в didChangeDependencies: в dispose() context вече не е сигурен
   /// за нови lookup-и, а SnackBar-ът трябва да се прибере точно тогава.
@@ -599,6 +602,7 @@ class _BookReaderState extends State<BookReader>
   /// СЪЩИЯТ механизъм като в четеца на жития (reader_screen.dart), виж
   /// бележката там за userScrollDirection срещу programmatic jumpTo.
   void _onScrollDirectionForToolbarPin() {
+    if (_toolbarPinBusy) return; // виж бележката при _toolbarPinBusy
     if (!_toolbarPinned || !_scroll.hasClients) return;
     if (_scroll.position.userScrollDirection == ScrollDirection.reverse) {
       setState(() => _toolbarPinned = false);
@@ -1946,7 +1950,28 @@ class _BookReaderState extends State<BookReader>
   /// главата се строи изцяло наведнъж (без виртуализация), тъй че няма
   /// „регионът още не е построен" усложнение като там.
   void _bumpFont(double d) {
-    // ⚠ Извън търсене — улавяме най-горния видим ред ПРЕДИ смяна на
+    if (!_toolbarPinned) {
+      // ⚠ Заковаваме лентата ПЪРВО, САМА, и изчакваме кадър, преди изобщо
+      // да пипаме позицията — докладвано от потребителя 24.08.2026 (и в
+      // двата четеца, тук по-осезаемо). Причината: „улавянето" на
+      // най-горния ред става ПРЕДИ смяна на шрифта, а „връщането" —
+      // СЛЕД нея; ако лентата мине от floating (евентуално скрита в
+      // момента) на pinned В СЪЩИЯ преход, улавянето и връщането виждат
+      // ДВЕ РАЗЛИЧНИ подредби на скрола. Изчакването на кадър тук
+      // гарантира, че закованата лента вече е част от подредбата, която
+      // ще вижда и улавянето, и връщането — и двете под ЕДНА И СЪЩА
+      // геометрия. Виж същия лек в reader_screen.dart._bump.
+      setState(() => _toolbarPinned = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _bumpFont(d);
+      });
+      return;
+    }
+    // Спира автоматичното отключване на лентата, докато трае целият
+    // преход по-долу (вкл. финалния jumpTo) — виж бележката при
+    // _toolbarPinBusy. Пуска се пак чак след като позицията е върната.
+    _toolbarPinBusy = true;
+    // Извън търсене — улавяме най-горния видим ред ПРЕДИ смяна на
     // шрифта (старата геометрия е още достъпна, layout-ът с новия размер
     // минава чак на следващия кадър — същият похват като при завъртане
     // на екрана, виж _restoreAfterRotation). Докладвано 22.08.2026: смяна
@@ -1954,11 +1979,7 @@ class _BookReaderState extends State<BookReader>
     // изобщо не се пазеше позицията, само чертичките за търсене.
     final searching = _searchOpen && _total > 0;
     final at = searching ? null : _topmostLine();
-    // Заковава лентата (виж _toolbarPinned) — иначе jumpTo-то по-долу
-    // изглежда за floating+snap като скрол надолу и лентата се скрива
-    // точно докато пръстът е още на +/-.
     setState(() {
-      _toolbarPinned = true;
       ReaderFontSize.nudge(d);
     });
     if (searching) {
@@ -1967,14 +1988,18 @@ class _BookReaderState extends State<BookReader>
           if (!mounted) return;
           _recomputeHitYs();
           _scrollToHit(_currentHit);
+          _toolbarPinBusy = false;
         });
       });
     } else if (at != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         Future.delayed(const Duration(milliseconds: 80), () {
           if (mounted) _jumpToLine(at.$1, at.$2);
+          _toolbarPinBusy = false;
         });
       });
+    } else {
+      _toolbarPinBusy = false;
     }
   }
 

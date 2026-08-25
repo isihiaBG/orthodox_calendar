@@ -127,12 +127,20 @@ double _estimateRegionHeight(
   // Грубо средна широчина на знак спрямо fontSize за серифния шрифт Charis SIL.
   final avgCharWidth = fontSize * 0.52;
   final charsPerLine = (availableWidth / avgCharWidth).floor().clamp(10, 300);
-  final lines = (plainText.length / charsPerLine).ceil().clamp(1, 2000);
-  final base = lines * (fontSize * lineHeight) + 16; // + margin на <p>
+  // „\n" разделя абзаците в един регион (регионът с буквицата носи и
+  // изтеглените до нея — виж _prepare). Броим ги ПООТДЕЛНО, защото всеки
+  // си има собствено закръгляне до цял ред и собствен отстъп: слепени в
+  // един низ, N абзаца се подценяват с до N реда плюс N отстъпа — а
+  // подценяването тук се вижда като препълване в изгледа.
+  var total = 0.0;
+  for (final para in plainText.split('\n')) {
+    final lines = (para.length / charsPerLine).ceil().clamp(1, 2000);
+    total += lines * (fontSize * lineHeight) + 16; // + margin на <p>
+  }
   // Абзаци с няколко линка един до друг систематично подценяваха реалната
   // височина (наблюдение от чертичките на скролбара) — грубо компенсираме
   // на линк, докато не измерим точната причина в самия flutter_html рендер.
-  return base + linkCount * (fontSize * 0.4);
+  return total + linkCount * (fontSize * 0.4);
 }
 
 /// SliverChildListDelegate с наша собствена преценка за общата дължина на
@@ -368,8 +376,25 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
   final plainTexts = <String>[];
   final linkCounts = <int>[];
   for (final r in regions) {
-    plainTexts.add(_plainTextOf(r.content));
-    linkCounts.add('href='.allMatches(r.content).length);
+    // ⚠ И ИЗТЕГЛЕНИТЕ до буквицата абзаци (r.rest), не само r.content.
+    // Регионът с буквицата РИСУВА първия абзац плюс всички изтеглени, а
+    // оценката тук определя височината на кутията, в която
+    // SliverVariedExtentList го заковава. Броеше ли се само първият,
+    // кутията излиза драстично по-ниска от съдържанието: видимо като
+    // препълване (жълти ивици) и — по-коварно — като разминаване с цели
+    // екрани при всяко позициониране, защото сборът на височините под
+    // него става грешен. Дребно, докато буквицата дърпаше най-много един
+    // абзац; катастрофално, откакто дърпа много (24.08.2026).
+    //
+    // Разделителят „\n" бележи границите на абзаците — виж
+    // _estimateRegionHeight, който сумира по абзац, за да отчете и
+    // отстоянието между тях.
+    plainTexts.add([
+      _plainTextOf(r.content),
+      for (final p in r.rest) _plainTextOf(p),
+    ].join('\n'));
+    linkCounts.add('href='.allMatches(r.content).length +
+        r.rest.fold<int>(0, (n, p) => n + 'href='.allMatches(p).length));
   }
 
   return _PreparedContent(
@@ -692,20 +717,42 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   void _bump(double d) {
-    // ⚠ Улавяме най-горния видим ред ПРЕДИ смяна на шрифта — старата
+    if (!_toolbarPinned) {
+      // ⚠ Заковаваме лентата ПЪРВО, САМА, и изчакваме кадър, преди изобщо
+      // да пипаме позицията — докладвано от потребителя 24.08.2026.
+      // Причината: „улавянето" на най-горния ред (виж по-долу) става ПРЕДИ
+      // смяна на шрифта, а „връщането" — СЛЕД нея; ако лентата мине от
+      // floating (евентуално скрита в момента) на pinned В СЪЩИЯ преход,
+      // улавянето и връщането виждат ДВЕ РАЗЛИЧНИ подредби на скрола —
+      // разликата е точно височината на лентата и остава като видимо
+      // отместване на текста, дори самата смяна на шрифта да е компенсирана
+      // правилно. Изчакването на кадър тук гарантира, че закованата лента
+      // вече е част от подредбата, която ще вижда и улавянето, и връщането
+      // — и двете под ЕДНА И СЪЩА геометрия.
+      setState(() => _toolbarPinned = true);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _bump(d);
+      });
+      return;
+    }
+    // Спира автоматичното отключване на лентата, докато трае целият
+    // преход по-долу (вкл. финалния jumpTo) — виж бележката при
+    // _toolbarPinBusy. Пуска се пак чак след като позицията е върната.
+    _toolbarPinBusy = true;
+    // Улавяме най-горния видим ред ПРЕДИ смяна на шрифта — старата
     // геометрия е още достъпна тук (layout-ът с новия размер минава чак
     // на следващия кадър, същият похват като при завъртане на екрана —
     // виж _restoreAfterRotation). Извън търсене досега тук нищо не пазеше
     // позицията: докладвано 22.08.2026 — смяна на шрифта по средата на
     // дълго житие изгубваше читателя.
-    final at = _totalMatches > 0 ? null : _topmostLine();
+    // ⚠ Ако предишно натискане още чака да върне позицията, скролът стои
+    // на СТАРИЯ, невъзстановен пиксел — ново улавяне оттам би запомнило
+    // грешен ред и грешката би се наслагвала. Затова държим първата цел.
+    final at = _totalMatches > 0
+        ? null
+        : (_pendingRestoreLine ?? _topmostLine());
+    _pendingRestoreLine = at;
     setState(() {
-      // Заковава лентата (виж _toolbarPinned) — иначе jumpTo-то по-долу
-      // изглежда за floating+snap като скрол надолу и лентата се скрива
-      // точно докато пръстът е още на +/-. Освобождава се пак САМО при
-      // истинско влачене надолу (_onScrollDirectionForToolbarPin), не и
-      // от самата корекция тук.
-      _toolbarPinned = true;
       ReaderFontSize.nudge(d);
       // Реалните измерени височини важат само за СТАРИЯ размер на шрифта —
       // със SliverVariedExtentList старите стойности биха ПРИНУДИЛИ новия
@@ -721,21 +768,72 @@ class _ReaderScreenState extends State<ReaderScreen>
     // абзаците) — ако има активно търсене, текущото съвпадение би могло
     // да "избяга" от изгледа; пренасочваме скрола към него отново.
     if (_totalMatches > 0) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Future.delayed(const Duration(milliseconds: 80), () {
-          if (mounted) _scrollToCurrent();
-        });
+      _afterRealExtents(() {
+        if (mounted) _scrollToCurrent();
+        _toolbarPinBusy = false;
       });
     } else if (at != null) {
       // Извън търсене — връщаме най-горния ред на мястото му, вместо да
       // оставим скрола на СТАРИЯ пиксел офсет (който при новия размер на
       // шрифта вече сочи съвсем друго място в текста).
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Future.delayed(const Duration(milliseconds: 80), () {
-          if (mounted) _jumpToLineInstant(at.$1, at.$2);
-        });
+      _afterRealExtents(() {
+        if (mounted) _jumpToLineInstant(at.$1, at.$2);
+        _pendingRestoreLine = null;
+        _toolbarPinBusy = false;
       });
+    } else {
+      _pendingRestoreLine = null;
+      _toolbarPinBusy = false;
     }
+  }
+
+  /// Уловеният ред, който ЧАКА да бъде върнат на мястото си, докато трае
+  /// премерването. null = нищо не чака.
+  ///
+  /// ⚠ Нужен е, защото +/- се натискат НЕТЪРПЕЛИВО, по няколко пъти
+  /// подред. Второто натискане идва, докато скролът още стои на стария
+  /// (невъзстановен) пиксел — уловеше ли `_topmostLine()` наново там, то
+  /// би запомнило вече ГРЕШЕН ред и грешката би се наслагвала с всяко
+  /// следващо натискане. Затова целта се улавя ВЕДНЪЖ и се пази до
+  /// действителното връщане.
+  (int, int)? _pendingRestoreLine;
+
+  /// Изпълнява [action], щом фоновото премерване напълни
+  /// `_realItemExtents` — тоест щом sliver-ът мине на ТОЧНИТЕ височини.
+  ///
+  /// ⚠ Това замени фиксираните 80 ms и е сърцевината на поправката от
+  /// 25.08.2026. Дотогава връщането на позицията тръгваше по часовник,
+  /// докато `_realItemExtents` още беше `null` (нулиран няколко реда
+  /// по-горе), тъй че `getOffsetToReveal` смяташе целта върху ХЮРИСТИЧНИ
+  /// височини на всички региони НАД нея. Хюристиката подценява системно
+  /// (виж avgCharWidth), а подценяванията се СУМИРАТ — оттам „недоскролва,
+  /// и толкова повече, колкото по-дълго е житието".
+  ///
+  /// ⚠ Защо точно надбягване с часовник: премерването строи ЦЕЛИЯ невидим
+  /// слой и се повтаря по кадър, докато всички региони се построят (виж
+  /// _finishMeasuring). При кратко житие се вмества в 80 ms и бъгът не се
+  /// вижда; при дълго — не се вмества. Затова симптомът зависеше от
+  /// дължината и изглеждаше необяснимо.
+  ///
+  /// След като височините станат точни, се изчаква ОЩЕ ЕДИН кадър:
+  /// превключването към SliverVariedExtentList е промяна в подредбата и
+  /// `getOffsetToReveal` трябва да я види вече приложена.
+  void _afterRealExtents(VoidCallback action, {int attempt = 0}) {
+    if (!mounted) return;
+    // Таван (~1.5 сек. при 60 кадъра) — при съвсем дълго житие или заето
+    // устройство премерването може да се проточи, но потребителят не бива
+    // да остане без връщане изобщо. Тогава се пада на хюристиката: неточно,
+    // но по-добро от нищо.
+    const maxAttempts = 90;
+    if (_realItemExtents != null || attempt >= maxAttempts) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) action();
+      });
+      return;
+    }
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _afterRealExtents(action, attempt: attempt + 1);
+    });
   }
 
   // ---------------------------------------------------------------
@@ -805,6 +903,16 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// (виж _bump), а floating+snap го чете като „скрол надолу" и скрива
   /// лентата точно докато пръстът е още върху +/- (докладвано 24.08.2026).
   bool _toolbarPinned = false;
+  /// Докато е true, `_onScrollDirectionForToolbarPin` НЕ отключва лентата
+  /// — виж бележката там. Обхваща целия преход „закови → смени шрифта →
+  /// върни позицията", вкл. и самия jumpTo на връщането: докладвано
+  /// 24.08.2026, скокът на позицията след +/- излизаше МНОГО по-голям
+  /// (над цял екран) точно когато лентата се отключеше веднага след
+  /// jumpTo-то — независимо дали причината е буквално jumpTo да отчита
+  /// userScrollDirection, или нещо друго в прехода pinned→floating, по-
+  /// сигурно е да не се случва ДОКАТО корекцията тече, отколкото да се
+  /// доказва точният механизъм.
+  bool _toolbarPinBusy = false;
   bool _measuring = false;
   List<GlobalKey> _measureKeys = [];
   final GlobalKey _titleMeasureKey = GlobalKey();
@@ -875,23 +983,22 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (!mounted) return;
     if (_searchOpen) {
       if (_currentMatch < 0) return;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        Future.delayed(const Duration(milliseconds: 80), () {
-          if (mounted) _scrollToCurrent();
-        });
+      // Завъртането сменя ШИРИНАТА, а тя обезсилва измерените височини
+      // (виж проверката по _measuredForWidth) — тъй че тук важи същото
+      // като при +/-: чака се реалната геометрия, не часовник.
+      _afterRealExtents(() {
+        if (mounted) _scrollToCurrent();
       });
       return;
     }
     final at = _topmostLine();
     if (at == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 80), () {
-        // jumpTo (_jumpToLineInstant), НЕ _jumpToBookmarkRegion (animateTo)
-        // — виж бележката там защо: animateTo оставяше 350 ms прозорец, в
-        // който следващо бързо завъртане засичаше скрола по средата на
-        // предишната анимация и натрупваше отместване.
-        if (mounted) _jumpToLineInstant(at.$1, at.$2);
-      });
+    _afterRealExtents(() {
+      // jumpTo (_jumpToLineInstant), НЕ _jumpToBookmarkRegion (animateTo)
+      // — виж бележката там защо: animateTo оставяше 350 ms прозорец, в
+      // който следващо бързо завъртане засичаше скрола по средата на
+      // предишната анимация и натрупваше отместване.
+      if (mounted) _jumpToLineInstant(at.$1, at.$2);
     });
   }
 
@@ -931,6 +1038,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// точно затова е избрано пред грубо слушане по pixels/offset, което би
   /// хванало и собствената ни корекция след смяна на шрифта.
   void _onScrollDirectionForToolbarPin() {
+    if (_toolbarPinBusy) return; // виж бележката при _toolbarPinBusy
     if (!_toolbarPinned || !_scrollController.hasClients) return;
     if (_scrollController.position.userScrollDirection ==
         ScrollDirection.reverse) {
@@ -1117,14 +1225,44 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// (докладвано 22.08.2026: ~3.5 реда). Отрицателна стойност спира
   /// скрола по-рано (по-малко разстояние от началото).
   void _jumpToLineInstant(int regionIndex, int charInRegion,
-      {double extraOffset = 0}) {
+      {double extraOffset = 0, int attempt = 0}) {
     if (!mounted || !_scrollController.hasClients) return;
     if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
     final ctx = _regionKeys[regionIndex].currentContext;
     final box = ctx?.findRenderObject() as RenderBox?;
     final line =
         box == null ? null : _lineForChar(regionIndex, charInRegion, box.size.width);
-    if (box == null || line == null) return;
+    if (box == null || line == null) {
+      // ⚠ Дотук тук стоеше голо `return` — ТИХ ОТКАЗ, и точно той се
+      // виждаше като „недоскролва" (докладвано 25.08.2026). Списъкът е
+      // МЪРЗЕЛИВ: целевият регион може да не е построен в мига на
+      // връщането, а не построи ли се, скролът остава на СТАРИЯ пиксел.
+      // При по-едър шрифт същият пиксел сочи по-рано в текста — оттам и
+      // впечатлението, че е спрял твърде рано, толкова по-силно, колкото
+      // по-дълго е житието.
+      //
+      // Лекът е двуфазен, по вече използвания в _scrollToCurrent образец:
+      // приближаваме се по кумулативната ОЦЕНКА (само за да принудим
+      // региона да се построи) и опитваме пак; построи ли се, минава
+      // точната сметка по-долу и оценката става без значение.
+      if (attempt >= 8) return;
+      if (box == null) {
+        final cumulative = _effectiveCumulativeHeights;
+        final position = _scrollController.position;
+        final estimate = (regionIndex > 0 && regionIndex - 1 < cumulative.length
+                ? cumulative[regionIndex - 1]
+                : 0.0)
+            .clamp(position.minScrollExtent, position.maxScrollExtent);
+        position.jumpTo(estimate);
+      }
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _jumpToLineInstant(regionIndex, charInRegion,
+              extraOffset: extraOffset, attempt: attempt + 1);
+        }
+      });
+      return;
+    }
     final target = RenderAbstractViewport.of(box)
             .getOffsetToReveal(
               box,

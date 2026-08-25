@@ -147,7 +147,21 @@ List<Widget> readerToolbarActions({
   /// се на заглавната страница на том, която не е четиво.
   bool canBookmark = true,
   VoidCallback? onMore,
+
+  /// Кой размер на шрифта управляват +/-.
+  ///
+  /// ⚠ По подразбиране това е [ReaderFontSize] — общият за житията и
+  /// книгите. Секцията „Библия" обаче има СВОЙ ([BibleFontSize]), тъй че ако
+  /// тези три стойности не се подадат, бутоните ѝ биха се посивявали по чужд
+  /// размер: човек стига до горната граница на Библията, а плюсът стои жив,
+  /// защото четивният размер още има накъде.
+  double? fontValue,
+  double? fontMin,
+  double? fontMax,
 }) {
+  final fv = fontValue ?? ReaderFontSize.value;
+  final fmin = fontMin ?? ReaderFontSize.min;
+  final fmax = fontMax ?? ReaderFontSize.max;
   final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
   final out = <Widget>[];
 
@@ -185,7 +199,7 @@ List<Widget> readerToolbarActions({
     ..add(RoundIconButton(
       icon: Icons.remove,
       tooltip: 'По-дребен шрифт',
-      enabled: ReaderFontSize.value > ReaderFontSize.min,
+      enabled: fv > fmin,
       onTap: onFontSmaller,
       size: kReaderBtnSize,
     ))
@@ -193,7 +207,7 @@ List<Widget> readerToolbarActions({
     ..add(RoundIconButton(
       icon: Icons.add,
       tooltip: 'По-едър шрифт',
-      enabled: ReaderFontSize.value < ReaderFontSize.max,
+      enabled: fv < fmax,
       onTap: onFontBigger,
       size: kReaderBtnSize,
     ));

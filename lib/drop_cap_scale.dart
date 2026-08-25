@@ -29,7 +29,7 @@ enum DropCapScale { small, medium, large }
 /// подкарай ги тук, ако не паснат визуално.
 extension DropCapScaleMetrics on DropCapScale {
   double get linesMultiplier => switch (this) {
-        DropCapScale.small => 5.5, // ≈5 реда (6 с опашка) — сегашният вид
+        DropCapScale.small => 5.5, // ≈5 реда (6 с опашка) — първоначалният вид
         DropCapScale.medium => 7.5, // ≈7 реда (8 с опашка)
         DropCapScale.large => 10.5, // ≈10 реда (11 с опашка)
       };
@@ -57,8 +57,13 @@ class ReaderDropCapScale {
   /// щом изборът се смени в настройките (drawer-ът стои НАД четеца, не
   /// го затваря) — без слушател смяната се виждаше едва при следващо
   /// отваряне на четивото.
+  /// ⚠ Стойността тук е тази ПРИ ПЪРВО СТАРТИРАНЕ (преди изобщо да има
+  /// запазен избор) — `loadOnce()` я оставя недокосната, когато в
+  /// SharedPreferences няма нищо. Сменена от `small` на `medium` по молба
+  /// на потребителя (25.08.2026). Съществуващите инсталации не се засягат:
+  /// техният избор вече е записан и печели.
   static final ValueNotifier<DropCapScale> notifier =
-      ValueNotifier(DropCapScale.small);
+      ValueNotifier(DropCapScale.medium);
 
   static DropCapScale get value => notifier.value;
 

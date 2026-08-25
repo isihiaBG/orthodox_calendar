@@ -289,6 +289,12 @@ class _CapGeometry {
   final double paraGap;
   final double lineHeightPx;
 
+  /// Дължината (в знаци) на самия ПЪРВИ абзац — границата, от която нататък
+  /// [DropCapParagraphState.dyForChar]/[DropCapParagraphState.charAtDy]
+  /// адресират [rest] вместо него. Виж бележката там защо е нужна отделно
+  /// поле, а не просто `cut` (той спира на отреза, не на края на абзаца).
+  final int firstLength;
+
   const _CapGeometry({
     required this.narrowSpans,
     required this.tailSpans,
@@ -303,6 +309,7 @@ class _CapGeometry {
     required this.tail1Height,
     required this.paraGap,
     required this.lineHeightPx,
+    required this.firstLength,
   });
 }
 
@@ -399,60 +406,80 @@ class DropCapParagraphState extends State<DropCapParagraph> {
   _CapGeometry? _geometry;
 
   /// Отместването (в пиксели, спрямо върха на този абзац) на реда, в който
-  /// стои знак [charIndex] от ПЪРВИЯ абзац.
+  /// стои знак [charIndex] от ВИРТУАЛНАТА обща номерация на региона: от 0
+  /// до дължината на ПЪРВИЯ абзац е самият той; нататък — поред всеки от
+  /// [_CapGeometry.rest] (виж [charAtDy], обратната посока — там е и защо
+  /// номерацията е точно такава).
   ///
   /// null, ако още не е рисувано (значи няма геометрия) — тогава
   /// извикващият да ползва началото на абзаца.
   double? dyForChar(int charIndex) {
     final g = _geometry;
     if (g == null) return null;
-    // Обтичащата зона: знакът е в тясната колона до буквицата.
-    if (charIndex < g.cut) {
+    if (charIndex < g.firstLength) {
+      // Обтичащата зона: знакът е в тясната колона до буквицата.
+      if (charIndex < g.cut) {
+        final tp = TextPainter(
+          text: TextSpan(style: g.base, children: g.narrowSpans),
+          textDirection: TextDirection.ltr,
+          textScaler: g.scaler,
+          textAlign: TextAlign.justify,
+        )..layout(maxWidth: g.narrowWidth);
+        final dy = tp
+            .getOffsetForCaret(TextPosition(offset: charIndex), Rect.zero)
+            .dy;
+        tp.dispose();
+        return dy;
+      }
+      // Опашката под буквицата — цяла ширина, започва наново от отреза.
       final tp = TextPainter(
-        text: TextSpan(style: g.base, children: g.narrowSpans),
+        text: TextSpan(style: g.base, children: g.tailSpans),
         textDirection: TextDirection.ltr,
         textScaler: g.scaler,
         textAlign: TextAlign.justify,
-      )..layout(maxWidth: g.narrowWidth);
+      )..layout(maxWidth: g.fullWidth);
       final dy = tp
-          .getOffsetForCaret(TextPosition(offset: charIndex), Rect.zero)
+          .getOffsetForCaret(TextPosition(offset: charIndex - g.cut), Rect.zero)
           .dy;
       tp.dispose();
-      return dy;
+      // 2 пиксела отстъп отгоре — виж Padding-а при опашката в build().
+      return g.rowHeight + 2 + dy;
     }
-    // Опашката под буквицата — цяла ширина, започва наново от отреза.
-    final tp = TextPainter(
-      text: TextSpan(style: g.base, children: g.tailSpans),
-      textDirection: TextDirection.ltr,
-      textScaler: g.scaler,
-      textAlign: TextAlign.justify,
-    )..layout(maxWidth: g.fullWidth);
-    final dy = tp
-        .getOffsetForCaret(TextPosition(offset: charIndex - g.cut), Rect.zero)
-        .dy;
-    tp.dispose();
-    // 2 пиксела отстъп отгоре — виж Padding-а при опашката в build().
-    return g.rowHeight + 2 + dy;
+    // Отвъд първия абзац — поред всеки следващ, докато не попаднем в
+    // неговия обхват. Пресмятането Е СЪЩОТО, каквото вече ползва
+    // търсенето (dyForCharInRest) — не се повтаря тук.
+    var offset = g.firstLength;
+    for (var i = 0; i < g.rest.length; i++) {
+      final len = g.rest[i].plainLength;
+      if (charIndex < offset + len) return dyForCharInRest(i, charIndex - offset);
+      offset += len;
+    }
+    // Отвъд всичко видяно (напр. текстът е бил поправен междувременно) —
+    // залепва се за края на последния абзац, не за началото на региона.
+    if (g.rest.isNotEmpty) {
+      final last = g.rest.length - 1;
+      return dyForCharInRest(last, g.rest[last].plainLength);
+    }
+    return null;
   }
 
   /// Обратното на [dyForChar]: кой знак стои на пиксел [dy].
   ///
-  /// Нужно е на отметките — те записват ЗНАК, не пиксел и не ред, защото
-  /// само знакът не се мени при смяна на размера на шрифта. Виж
-  /// text_line_locator.dart за същото при обикновените абзаци.
-  /// Кой знак стои на пиксел [dy] — БЕЗ да се знае предварително в кой от
-  /// (евентуално няколко) абзаца пада. Ползва се само за отметки (записват
-  /// „най-горния видим знак"), не за търсене — затова връща индекс само в
-  /// РЕГИОНА КАТО ЦЯЛО, не (абзац, знак): достатъчно е за приблизително
-  /// възстановяване на позицията, а точното searchScrollTo минава през
-  /// [dyForChar]/[dyForCharInRest], които ЗНАЯТ кой абзац търсят.
+  /// Нужно е на отметките (записват ЗНАК, не пиксел и не ред — само той не
+  /// се мени при смяна на размера на шрифта, виж text_line_locator.dart за
+  /// същото при обикновените абзаци) И на улавянето на позицията при смяна
+  /// на шрифта/завъртане/затваряне на търсенето (_topmostLine в двата
+  /// четеца) — затова връща индекс във ВИРТУАЛНАТА обща номерация на целия
+  /// регион (виж [dyForChar]), а не само в първия абзац.
   ///
-  /// ⚠ Опростяване, наследено от времето с точно ДВА абзаца: dy извън
-  /// първия абзац (обтичащ или опашка) се „лепи" към най-близкия ръб на
-  /// първия, вместо да се смята прецизно вътре в следващите. Достатъчно е
-  /// за отметка (грешка от няколко знака не си личи), а истинско
-  /// (абзац, знак) връщане би поискало callers-ите да пазят двойка вместо
-  /// един int — не си струва за този рядък път.
+  /// ⚠ До 24.08.2026 тук спираше при първия абзац: dy отвъд него (обтичащ
+  /// или опашка) се „лепеше" към неговия край, БЕЗ значение колко далеч
+  /// надолу в следващите абзаци всъщност е бил pixel-ът. За четиво с малко
+  /// абзаци до буквицата грешката минаваше незабелязано; откакто
+  /// [computeRegions] изтегля ПОДРЕД всички водещи `<p>` (не само първите
+  /// два), региони с дълга поредица кратки абзаци в началото натрупваха
+  /// огромно разминаване — точно бъгът с „+/- винаги ме връща на един и
+  /// същ абзац, без значение откъде съм тръгнал", докладван от потребителя.
   int? charAtDy(double dy) {
     final g = _geometry;
     if (g == null) return null;
@@ -470,17 +497,66 @@ class DropCapParagraphState extends State<DropCapParagraph> {
       return pos;
     }
 
-    // Обтичащата зона до инициала — само на ПЪРВИЯ абзац (виж бележката
-    // по-горе); следващите абзаци, дори влезли вдясно от буквицата, не се
-    // измерват тук поотделно.
-    if (dy < g.rowHeight) {
-      final y = dy < g.firstNarrowHeight ? dy : g.firstNarrowHeight;
-      final pos = at(g.narrowSpans, g.narrowWidth, y);
-      // Отвъд отреза текстът вече е в опашката — там горе го няма.
-      return pos > g.cut ? g.cut : pos;
+    int restOffset(int i) {
+      var off = g.firstLength;
+      for (var k = 0; k < i; k++) {
+        off += g.rest[k].plainLength;
+      }
+      return off;
     }
-    // Опашката под буквицата; 2 пиксела отстъп отгоре (виж build).
-    return g.cut + at(g.tailSpans, g.fullWidth, dy - g.rowHeight - 2);
+
+    if (dy < g.rowHeight) {
+      // Обтичащата (тясна) колона: първо самият първи абзац, после
+      // следващите — едно под друго, в реда, в който реално застават до
+      // буквицата (виж besideCursor в build()).
+      final firstPos = at(g.narrowSpans, g.narrowWidth, dy);
+      var best = firstPos > g.cut ? g.cut : firstPos;
+      final besideIdxs = [
+        for (var i = 0; i < g.rest.length; i++)
+          if (g.rest[i].lines > 0) i,
+      ];
+      var nextStart =
+          besideIdxs.isEmpty ? double.infinity : g.rest[besideIdxs.first].besideTop;
+      if (dy < nextStart) return best;
+      for (var k = 0; k < besideIdxs.length; k++) {
+        final i = besideIdxs[k];
+        final rp = g.rest[i];
+        final local = at(rp.narrowSpans, g.narrowWidth, dy - rp.besideTop);
+        best = restOffset(i) + (local > rp.cut ? rp.cut : local);
+        nextStart = k + 1 < besideIdxs.length
+            ? g.rest[besideIdxs[k + 1]].besideTop
+            : double.infinity;
+        if (dy < nextStart) return best;
+      }
+      return best;
+    }
+    // Опашката под буквицата: първо тази на първия абзац (ако има; 2
+    // пиксела отстъп отгоре, виж build), после следващите — по реда, в
+    // който бяха сглобени там.
+    final tailIdxs = [
+      for (var i = 0; i < g.rest.length; i++)
+        if (!(g.rest[i].tailTop <= 0 && g.rest[i].cut >= g.rest[i].plainLength))
+          i,
+    ];
+    if (g.cut < g.firstLength) {
+      final best = g.cut + at(g.tailSpans, g.fullWidth, dy - g.rowHeight - 2);
+      final nextStart =
+          tailIdxs.isEmpty ? double.infinity : g.rest[tailIdxs.first].tailTop;
+      if (dy < nextStart) return best;
+    }
+    var best = g.firstLength;
+    for (var k = 0; k < tailIdxs.length; k++) {
+      final i = tailIdxs[k];
+      final rp = g.rest[i];
+      final padTop = rp.lines > 0 ? 2.0 : g.paraGap / 2;
+      final local = at(rp.tailSpans, g.fullWidth, dy - rp.tailTop - padTop);
+      final maxLocal = rp.plainLength - rp.cut;
+      best = restOffset(i) + rp.cut + (local > maxLocal ? maxLocal : local);
+      final nextStart =
+          k + 1 < tailIdxs.length ? g.rest[tailIdxs[k + 1]].tailTop : double.infinity;
+      if (dy < nextStart) return best;
+    }
+    return best;
   }
 
   /// Същото, но за знак от един от СЛЕДВАЩИТЕ абзаци (тези, които при
@@ -882,6 +958,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
           tail1Height: tail1Height,
           paraGap: paraGap,
           lineHeightPx: lineHeightPx,
+          firstLength: plain.length,
         );
 
         // Какво остава ПОД буквицата: опашката на първия абзац (ако е
