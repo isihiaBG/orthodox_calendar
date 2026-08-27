@@ -19,6 +19,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'book_open_transition.dart';
 import 'book_reader.dart';
@@ -255,6 +256,8 @@ class _LibraryScreenState extends State<LibraryScreen>
       onIndexChanged: (i) => setState(() => _index = i),
       onOpen: _open,
       flowKey: _flow,
+      // Хамбургер вместо стрелка „назад" — както във всяка друга секция.
+      drawer: const AppDrawer(),
       infoBuilder: (_, __) => _info(),
       landscapeLabel: (i) =>
           '${_volumes[i].month} · том ${_volumes[i].roman}',

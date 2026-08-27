@@ -30,7 +30,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
 
-/// Съотношението на кориците (ширина към височина). Томовете са 479×741.
+/// Съотношението на кориците по подразбиране (ширина към височина).
+/// Томовете на „Месецослов" са 479×741.
+///
+/// ⚠ Само ПОДРАЗБИРАНЕ — виж [CoverFlow.aspect]. Кориците на „Библия" са
+/// 523×741, тоест забележимо по-широки; наложи ли им се това число, те се
+/// свиват по ширина и рисунката им излиза издължена. Изображението трябва да
+/// диктува пропорцията, не контролът.
 const double kCoverAspect = 479 / 741;
 
 // ⚠ ФИЗИКАТА НАРОЧНО Е СТАНДАРТНАТА на `PageView` (`PageScrollPhysics`):
@@ -45,8 +51,12 @@ const double kCoverAspect = 479 / 741;
 // Мекотата НЕ идва оттам, а от догонването (виж `_follow` по-долу).
 
 class CoverFlow extends StatefulWidget {
+  /// Ширина към височина на самите изображения. Подава се от повикващия,
+  /// защото различните комплекти корици имат различни пропорции.
   /// Кориците, отляво надясно.
   final List<ImageProvider> covers;
+
+  final double aspect;
 
   final int initialIndex;
 
@@ -60,6 +70,7 @@ class CoverFlow extends StatefulWidget {
   const CoverFlow({
     super.key,
     required this.covers,
+    this.aspect = kCoverAspect,
     this.initialIndex = 0,
     this.onSelected,
     this.onOpen,
@@ -617,7 +628,7 @@ class CoverFlowState extends State<CoverFlow> {
         // Останалата височина се дели между корицата и отражението ѝ.
         final deck = c.maxHeight - _padTop;
         final h = deck / (1 + _reflect) * (wide ? _fillWide : _fillTall);
-        final w = h * kCoverAspect;
+        final w = h * widget.aspect;
         final size = Size(c.maxWidth, c.maxHeight);
         _lastW = w;
         _lastH = h;

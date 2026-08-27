@@ -63,6 +63,7 @@ class _SettingsContentState extends State<SettingsContent> {
   bool _showWelcome = AppSettings.showWelcome;
   DropCapScale _dropCapScale = ReaderDropCapScale.value;
   bool _zachala = BibleZachala.value;
+  bool _bibleWelcome = BibleWelcome.value;
 
   @override
   void initState() {
@@ -72,6 +73,18 @@ class _SettingsContentState extends State<SettingsContent> {
     // още не е зареден от диска.
     ReaderDropCapScale.loadOnce().then((_) {
       if (mounted) setState(() => _dropCapScale = ReaderDropCapScale.value);
+    });
+    // ⚠ Същото важи и за двете настройки на „Библия": те се четат от диска в
+    // `BibleContents._load` и в `_openBible`, тоест ЧАК при влизане в
+    // секцията. Отвори ли се този екран пръв след пускане на приложението,
+    // без тях суичовете показват подразбирането вместо запазеното — тихо и
+    // правдоподобно, докато човек не забележи, че е „изключил" нещо, което
+    // вече е било изключено.
+    BibleZachala.loadOnce().then((_) {
+      if (mounted) setState(() => _zachala = BibleZachala.value);
+    });
+    BibleWelcome.loadOnce().then((_) {
+      if (mounted) setState(() => _bibleWelcome = BibleWelcome.value);
     });
   }
 
@@ -407,6 +420,23 @@ class _SettingsContentState extends State<SettingsContent> {
             builder: (_) => const BiblePacksScreen())),
       ),
       const Divider(height: 18, color: AppColors.sectionDivider, thickness: 1),
+      // ⚠ Редът в секцията върви от общото към частното: какви преводи имаш →
+      // как се влиза → какво се вижда в самия текст. Затова въвеждащият екран
+      // стои между двете, а не най-долу.
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        value: _bibleWelcome,
+        onChanged: (v) {
+          setState(() => _bibleWelcome = v);
+          BibleWelcome.set(v);
+        },
+        title: const Text('Показвай въвеждащия екран'),
+        subtitle: Text(
+          'Изборът с трите корици, преди съдържанието.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        ),
+      ),
       SwitchListTile(
         contentPadding: EdgeInsets.zero,
         dense: true,

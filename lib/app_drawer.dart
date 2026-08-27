@@ -13,6 +13,8 @@ import 'about_screen.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'bible_contents.dart';
+import 'bible_welcome_screen.dart';
+import 'bible_settings.dart';
 import 'library_screen.dart';
 import 'reference_pager.dart';
 import 'settings_screen.dart';
@@ -24,6 +26,48 @@ import 'settings_screen.dart';
 typedef SettingsChangedHook = void Function(bool styleChanged,
     [DateTime? capturedMiddleDate]);
 SettingsChangedHook? appSettingsChangedHook;
+
+/// Отваря „Библия" — през въвеждащия екран с трите корици, ако не е изключен.
+///
+/// ⚠ Изборът се ЧАКА (`await`) и чак тогава се отваря съдържанието, тъй че
+/// „назад" от кориците връща там, откъдето е тръгнало, вместо да пропадне в
+/// раздел, който човек не е избрал.
+///
+/// ⚠ `BibleWelcome.loadOnce()` се вика ТУК, а не в съдържанието: решението
+/// дали изобщо да се стигне до него се взима преди него.
+Future<void> _openBible(BuildContext context) async {
+  // ⚠ НАВИГАТОРЪТ СЕ ВЗИМА ВЕДНАГА, преди първото изчакване, и после се
+  // ползва само той.
+  //
+  // Подаденият `context` е на реда в менюто, а менюто се затваря още преди
+  // тази функция да е стигнала донякъде. Първата версия проверяваше
+  // `context.mounted` след всяко `await` — изглеждаше правилно и мина през
+  // анализатора, но се държеше така: екранът с кориците се отваряше, човек
+  // избираше… и попадаше в ДНЕВНИЯ изглед. Причината е, че докато той е
+  // гледал кориците, редът от менюто отдавна е разрушен, тъй че втората
+  // проверка е вярна и функцията се отказва мълчаливо ТОЧНО преди да отвори
+  // съдържанието.
+  //
+  // `NavigatorState` живее, докато живее приложението — затова е безопасен
+  // през изчакване, за разлика от контекста на изчезващ widget.
+  final nav = Navigator.of(context);
+
+  await BibleWelcome.loadOnce();
+  await BibleLastPart.loadOnce();
+
+  var tab = 0;
+  if (BibleWelcome.value) {
+    final picked = await nav.push<int>(
+      MaterialPageRoute(builder: (_) => const BibleWelcomeScreen()),
+    );
+    // Върнал се е назад, без да избере — тогава и съдържанието не се отваря.
+    if (picked == null) return;
+    tab = picked;
+  }
+  await nav.push(
+    MaterialPageRoute(builder: (_) => BibleContents(initialTab: tab)),
+  );
+}
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -95,9 +139,7 @@ class AppDrawer extends StatelessWidget {
           _item(Icons.auto_stories, 'Молитвослов', () {}),
           _item(Icons.book, 'Библия', () {
             Navigator.of(context).pop();
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const BibleContents(),
-            ));
+            _openBible(context);
           }),
           // „Месецослов" — кътът за четене на книги: тесте корици, което се
           // разлиства (library_screen.dart).

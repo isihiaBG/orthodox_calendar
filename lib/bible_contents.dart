@@ -123,7 +123,14 @@ const List<_BookGroup> _kOtGroups = [
 ];
 
 class BibleContents extends StatefulWidget {
-  const BibleContents({super.key});
+  /// С кой таб да се отвори — 0 Нов завет, 1 Стар завет, 2 Псалтир.
+  ///
+  /// Подава го въвеждащият екран с трите корици
+  /// (bible_welcome_screen.dart). Влезе ли се без него — изключен е от
+  /// настройките — остава Новият завет, най-четеният.
+  final int initialTab;
+
+  const BibleContents({super.key, this.initialTab = 0});
 
   @override
   State<BibleContents> createState() => _BibleContentsState();
@@ -131,7 +138,8 @@ class BibleContents extends StatefulWidget {
 
 class _BibleContentsState extends State<BibleContents>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 3, vsync: this);
+  late final TabController _tabs =
+      TabController(length: 3, vsync: this, initialIndex: widget.initialTab);
 
   List<BibleBook> _books = const [];
   bool _loading = true;
@@ -568,12 +576,23 @@ class _BibleContentsState extends State<BibleContents>
           tabs: [
             for (final t in const ['Нов завет', 'Стар завет', 'Псалтир'])
               Tab(
-                // Височина за два реда — иначе прегънатият надпис се реже.
-                height: BibleTocFontSize.value * 2.1 + 16,
-                child: Text(t,
-                    maxLines: 2,
-                    textAlign: TextAlign.center,
-                    softWrap: true),
+                // ⚠ Височина за ЕДИН ред, не за два.
+                //
+                // Дотук се пазеше място за прегънат надпис — но трите имена
+                // („Нов завет", „Стар завет", „Псалтир") се събират на един
+                // ред при всеки размер на шрифта, тъй че вторият стоеше празен
+                // ВИНАГИ. В легнало положение това е чист разкош: лентата яде
+                // от малкото височина, останала за самия текст.
+                //
+                // Вместо да се пази запас „за всеки случай", надписът е
+                // едноредов и се свива, ако някога не се побере — виж
+                // FittedBox по-долу. Така лентата е точно толкова висока,
+                // колкото ѝ трябва, и нищо не може да се реже.
+                height: BibleTocFontSize.value * 1.35 + 12,
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(t, maxLines: 1, softWrap: false),
+                ),
               ),
           ],
         ),

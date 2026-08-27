@@ -45,6 +45,25 @@ class CoverPickerScaffold extends StatefulWidget {
   /// централната корица при отваряне (виж CoverFlowState.centerCoverRect).
   final GlobalKey<CoverFlowState>? flowKey;
 
+  /// Главното меню, ако този екран трябва да го има.
+  ///
+  /// ⚠ Подава се ОТВЪН, вместо тук да се внася `AppDrawer`. Причината не е
+  /// само чистота: `app_drawer.dart` сам внася въвеждащия екран на „Библия",
+  /// тъй че обратният внос затваря кръг. По-важното обаче е, че екранът за
+  /// избор на КАЛЕНДАР (welcome_screen.dart) стъпва на същия скелет, а той е
+  /// стартов и меню там няма къде да води.
+  ///
+  /// Има ли меню, `AppBar` сам слага хамбургера вместо стрелката „назад" —
+  /// затова второ поле за това не е нужно.
+  final Widget? drawer;
+
+  /// Ширина към височина на кориците — подава се нататък на [CoverFlow].
+  ///
+  /// ⚠ Различните комплекти имат различни пропорции: томовете са 479×741, а
+  /// трите книги на „Библия" — 523×741. Наложи ли се чуждо съотношение,
+  /// рисунката се разтяга и това се вижда веднага.
+  final double aspect;
+
   /// Допълнително съдържание НАД панела — например чекбоксът „не показвай
   /// повече". Изправено стои между тестето и панела; легнало не се показва
   /// (там няма място, а и екранът се отваря наново при следващо пускане).
@@ -64,6 +83,8 @@ class CoverPickerScaffold extends StatefulWidget {
     required this.infoBuilder,
     this.landscapeLabel,
     this.flowKey,
+    this.drawer,
+    this.aspect = kCoverAspect,
     this.extra,
     this.keepImmersiveOnExit = false,
   });
@@ -133,6 +154,7 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
   Widget _deck() => CoverFlow(
         key: widget.flowKey,
         covers: widget.covers,
+        aspect: widget.aspect,
         initialIndex: widget.index,
         onSelected: widget.onIndexChanged,
         onOpen: widget.onOpen,
@@ -208,6 +230,7 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
         MediaQuery.orientationOf(context) == Orientation.landscape;
     return Scaffold(
       backgroundColor: const Color(0xFF0A0A0C),
+      drawer: widget.drawer,
       extendBodyBehindAppBar: landscape,
       appBar: landscape
           ? null
