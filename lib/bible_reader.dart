@@ -36,6 +36,7 @@ import 'bible_language_pair.dart';
 import 'bible_settings.dart';
 import 'package:flutter/services.dart';
 
+import 'external_link.dart';
 import 'reader_footer.dart';
 import 'reader_more_menu.dart';
 import 'reader_font_size.dart';
@@ -164,6 +165,7 @@ class _BibleReaderState extends State<BibleReader>
   List<BibleRow> _rows = const [];
   List<BibleLanguage> _langs = const [];
   List<BibleBook> _allBooks = const [];
+
   /// Подзаглавията, по превод и по стих: `_titles[lang][verse]`.
   ///
   /// ⚠ По ПРЕВОД, не само за показвания. Заглавието влиза ВЪТРЕ в плъзгащата
@@ -194,8 +196,6 @@ class _BibleReaderState extends State<BibleReader>
   /// пълно плъзгане. Мери се веднъж при построяване и се ползва от жеста, за
   /// да превърне изминатото от пръста в дял от прехода.
   double _textWidth = 1;
-
-
 
   /// Лентата да не се крие, докато трае наша собствена корекция на скрола.
   /// Виж бележката при SliverAppBar в [_body].
@@ -262,8 +262,11 @@ class _BibleReaderState extends State<BibleReader>
       if (book == null) throw StateError('Няма книга „${widget.bookCode}"');
 
       final pair = BibleLanguages.value;
-      final rows =
-          await BibleDb.alignChapter(book.code, widget.chapter, pair.both);
+      final rows = await BibleDb.alignChapter(
+        book.code,
+        widget.chapter,
+        pair.both,
+      );
       final titles = await _titlesForBoth(book.code, pair);
       final zachala = await BibleDb.zachala(book.code, widget.chapter);
 
@@ -319,17 +322,22 @@ class _BibleReaderState extends State<BibleReader>
     if (pair.first == _loadedFirst && pair.second == _loadedSecond) {
       final target = pair.active.toDouble();
       if ((_slide.value - target).abs() > 0.001) {
-        _slide.animateTo(target,
-            duration: const Duration(milliseconds: 260),
-            curve: Curves.easeOutCubic);
+        _slide.animateTo(
+          target,
+          duration: const Duration(milliseconds: 260),
+          curve: Curves.easeOutCubic,
+        );
       }
       return;
     }
 
     // Сменена е самата ДВОЙКА (от падащото меню) — това вече иска четене.
     _pendingAnchor ??= _topmostVerse();
-    final rows =
-        await BibleDb.alignChapter(_book!.code, widget.chapter, pair.both);
+    final rows = await BibleDb.alignChapter(
+      _book!.code,
+      widget.chapter,
+      pair.both,
+    );
     final titles = await _titlesForBoth(_book!.code, pair);
     final zachala = await BibleDb.zachala(_book!.code, widget.chapter);
     if (!mounted) return;
@@ -346,7 +354,9 @@ class _BibleReaderState extends State<BibleReader>
 
   /// Подзаглавията за ДВАТА превода наведнъж.
   Future<Map<String, Map<String, List<String>>>> _titlesForBoth(
-      String book, BibleLanguagePair pair) async {
+    String book,
+    BibleLanguagePair pair,
+  ) async {
     final out = <String, Map<String, List<String>>>{};
     for (final lang in pair.both) {
       out[lang] = await BibleDb.titles(book, widget.chapter, lang);
@@ -390,8 +400,9 @@ class _BibleReaderState extends State<BibleReader>
       if (ctx == null) continue;
       final box = ctx.findRenderObject() as RenderBox?;
       if (box == null || !box.hasSize) continue;
-      final reveal =
-          RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+      final reveal = RenderAbstractViewport.of(
+        box,
+      ).getOffsetToReveal(box, 0.0).offset;
       // Търси се последният ред, който още НЕ е излязъл над горния ръб —
       // тоест онзи, който човекът вижда пръв.
       if (reveal <= now + 1) {
@@ -453,12 +464,17 @@ class _BibleReaderState extends State<BibleReader>
     final target = viewport
         .getOffsetToReveal(box, 0.0)
         .offset
-        .clamp(_scroll.position.minScrollExtent,
-            _scroll.position.maxScrollExtent);
+        .clamp(
+          _scroll.position.minScrollExtent,
+          _scroll.position.maxScrollExtent,
+        );
 
     if (animate) {
-      _scroll.animateTo(target,
-          duration: const Duration(milliseconds: 260), curve: Curves.easeOut);
+      _scroll.animateTo(
+        target,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOut,
+      );
     } else {
       _scroll.jumpTo(target);
     }
@@ -700,17 +716,20 @@ class _BibleReaderState extends State<BibleReader>
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(_error!,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: palette.dim, fontSize: 16)),
+          child: Text(
+            _error!,
+            textAlign: TextAlign.center,
+            style: TextStyle(color: palette.dim, fontSize: 16),
+          ),
         ),
       );
     }
 
     final pair = BibleLanguages.value;
     final content = Theme(
-      data: Theme.of(context)
-          .copyWith(scrollbarTheme: readerScrollbarTheme(palette)),
+      data: Theme.of(
+        context,
+      ).copyWith(scrollbarTheme: readerScrollbarTheme(palette)),
       child: Scrollbar(
         controller: _scroll,
         child: CustomScrollView(
@@ -821,24 +840,26 @@ class _BibleReaderState extends State<BibleReader>
         : (_slide.value >= 0.5 ? 1.0 : 0.0);
 
     _slide
-        .animateTo(target,
-            duration: const Duration(milliseconds: 220),
-            curve: Curves.easeOutCubic)
+        .animateTo(
+          target,
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+        )
         .whenComplete(() {
-      if (!mounted) return;
-      final wanted = target == 1.0 ? 1 : 0;
-      // ⚠ Двойката се чете НАНОВО, а не се ползва уловената горе.
-      //
-      // Между потеглянето и доиграването минават 220 ms — предостатъчно
-      // човек да отвори падащото меню и да смени превод. Записът с уловената
-      // отпреди двойка връщаше стария избор върху новия и отвън изглеждаше
-      // като „менюто не сработи". Тук ни трябва само `active`; кои са двата
-      // превода в този миг решава единствено текущото състояние.
-      final now = BibleLanguages.value;
-      if (now.active != wanted) {
-        BibleLanguages.set(now.copyWith(active: wanted));
-      }
-    });
+          if (!mounted) return;
+          final wanted = target == 1.0 ? 1 : 0;
+          // ⚠ Двойката се чете НАНОВО, а не се ползва уловената горе.
+          //
+          // Между потеглянето и доиграването минават 220 ms — предостатъчно
+          // човек да отвори падащото меню и да смени превод. Записът с уловената
+          // отпреди двойка връщаше стария избор върху новия и отвън изглеждаше
+          // като „менюто не сработи". Тук ни трябва само `active`; кои са двата
+          // превода в този миг решава единствено текущото състояние.
+          final now = BibleLanguages.value;
+          if (now.active != wanted) {
+            BibleLanguages.set(now.copyWith(active: wanted));
+          }
+        });
   }
 
   /// Изправено: колонка с номерата, закована по X, и плъзгащи се преводи.
@@ -848,7 +869,10 @@ class _BibleReaderState extends State<BibleReader>
   /// безсмислено трептене. По Y се движи свободно с реда, защото е част от
   /// същия отвесен скрол.
   Widget _slidingColumn(
-      ReaderPalette palette, BibleLanguagePair pair, double textWidth) {
+    ReaderPalette palette,
+    BibleLanguagePair pair,
+    double textWidth,
+  ) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -893,11 +917,20 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ И двата текста са построени ВИНАГИ, не се строи този под пръста.
   /// Заявка към базата по време на жеста би значела празен кадър насред
   /// плъзгането — точно премигването, което трябва да го няма.
-  Widget _slidingPair(ReaderPalette palette, BibleRow row,
-      BibleLanguagePair pair, double w) {
-    final first = SizedBox(width: w, child: _verseBody(palette, row, pair.first));
-    final second =
-        SizedBox(width: w, child: _verseBody(palette, row, pair.second));
+  Widget _slidingPair(
+    ReaderPalette palette,
+    BibleRow row,
+    BibleLanguagePair pair,
+    double w,
+  ) {
+    final first = SizedBox(
+      width: w,
+      child: _verseBody(palette, row, pair.first),
+    );
+    final second = SizedBox(
+      width: w,
+      child: _verseBody(palette, row, pair.second),
+    );
 
     return ClipRect(
       child: AnimatedBuilder(
@@ -907,10 +940,11 @@ class _BibleReaderState extends State<BibleReader>
           return Stack(
             alignment: AlignmentDirectional.topStart,
             children: [
+              Transform.translate(offset: Offset(-t * w, 0), child: first),
               Transform.translate(
-                  offset: Offset(-t * w, 0), child: first),
-              Transform.translate(
-                  offset: Offset((1 - t) * w, 0), child: second),
+                offset: Offset((1 - t) * w, 0),
+                child: second,
+              ),
             ],
           );
         },
@@ -1184,8 +1218,10 @@ class _BibleReaderState extends State<BibleReader>
     } else if (verse == null) {
       // Празна клетка: този превод няма такъв стих. Редът пак се пази, за
       // да не се разместят съседните — виж alignChapter().
-      body = Text('—',
-          style: style.copyWith(color: palette.dim.withValues(alpha: .5)));
+      body = Text(
+        '—',
+        style: style.copyWith(color: palette.dim.withValues(alpha: .5)),
+      );
     } else if ((language?.rubricate ?? false) ||
         _zachaloLabel(lang, row) != null) {
       // ⚠ Рубрикацията на ВСЕКИ стих (червена главна буква) си остава само
@@ -1330,7 +1366,10 @@ class _BibleReaderState extends State<BibleReader>
   /// изглеждаше, че четецът просто няма заглавие: между стрелката и „бг"
   /// зееше празно и човек нямаше как да разбере коя глава чете.
   Widget _portraitBar(
-      Widget title, BibleLanguagePair pair, List<Widget> actions) {
+    Widget title,
+    BibleLanguagePair pair,
+    List<Widget> actions,
+  ) {
     return Row(
       children: [
         const BackButton(),
@@ -1387,11 +1426,15 @@ class _BibleReaderState extends State<BibleReader>
   /// стрелката до десния ръб на лявата колона — в която заглавието стои
   /// отляво, а изборът се долепя отдясно. Така подравняването е точно, без
   /// нищо да се качва върху нищо.
-  Widget _landscapeBar(Widget title, BibleLanguagePair pair,
-      List<Widget> actions, double barWidth) {
+  Widget _landscapeBar(
+    Widget title,
+    BibleLanguagePair pair,
+    List<Widget> actions,
+    double barWidth,
+  ) {
     // Огледало на подредбата в `_parallelColumns`.
-    const pad = 16.0;          // SliverPadding отляво/отдясно
-    const dividerBox = 25.0;   // чертата (1) + полето ѝ (12 + 12)
+    const pad = 16.0; // SliverPadding отляво/отдясно
+    const dividerBox = 25.0; // чертата (1) + полето ѝ (12 + 12)
     final columnWidth =
         (barWidth - 2 * pad - _numberWidth - _kNumberGap - dividerBox) / 2;
     // Докъде стига текстът на ЛЯВАТА колона, мерено от левия ръб на лентата.
@@ -1449,9 +1492,32 @@ class _BibleReaderState extends State<BibleReader>
   }
 
   void _goToChapter((String, int) target) {
-    Navigator.of(context).pushReplacement(MaterialPageRoute(
-      builder: (_) => BibleReader(bookCode: target.$1, chapter: target.$2),
-    ));
+    Navigator.of(context).pushReplacement(
+      MaterialPageRoute(
+        builder: (_) => BibleReader(bookCode: target.$1, chapter: target.$2),
+      ),
+    );
+  }
+
+  /// Адресът на ТАЗИ глава в azbyka.ru — откъдето е свален целият текст.
+  ///
+  /// Строи се машинно, по същия шаблон, с който конвейерът е теглил
+  /// главите (`BASE_URL` в `02_fetch_chapters.py`):
+  ///
+  ///     https://azbyka.ru/biblia/?{книга}.{глава}&{езици}
+  ///
+  /// ⚠ `books.code` В БАЗАТА Е ТОЧНО КЛЮЧЪТ НА AZBYKA („Mt", „Ps", „Gen") —
+  /// така е замислена колоната, тъй че тук не трябва никакво преобразуване.
+  ///
+  /// ⚠ ДВАТА ПОКАЗАНИ ПРЕВОДА ОТИВАТ ЗАЕДНО, разделени с „~" — това е
+  /// собственият език на сайта за успоредно четене (`?Ps.111:2&bg~utfcs`,
+  /// същият вид адрес, който стои и в томовете по св. Димитрий Ростовски).
+  /// Тъй че страницата отсреща показва същата двойка, която човек чете тук.
+  String? _azbykaUrl() {
+    final book = _book;
+    if (book == null) return null;
+    final langs = BibleLanguages.value.both.join('~');
+    return 'https://azbyka.ru/biblia/?${book.code}.${widget.chapter}&$langs';
   }
 
   /// Опашката под четивото — ОБЩИЯТ [ReaderFooter], същият като в четеца на
@@ -1459,8 +1525,11 @@ class _BibleReaderState extends State<BibleReader>
   Widget _footer(ReaderPalette palette) {
     final prev = _adjacentChapter(-1);
     final next = _adjacentChapter(1);
+    final source = _azbykaUrl();
     return ReaderFooter(
       color: palette.dim,
+      sourceLabel: source == null ? null : 'Източник на текста: azbyka.ru',
+      onSourceTap: source == null ? null : () => openExternal(context, source),
       left: prev == null
           ? null
           : FooterAction(
@@ -1495,8 +1564,7 @@ class _BibleReaderState extends State<BibleReader>
   /// (`_settleSlide`), а дотогава — и след това, ако нищо не е предизвикало
   /// ново построяване — уловената в лентата двойка носи СТАРАТА стойност.
   /// Плъзгачът, обратно, винаги показва къде реално е човекът.
-  int _focusedSlot(int? column) =>
-      column ?? (_slide.value >= 0.5 ? 1 : 0);
+  int _focusedSlot(int? column) => column ?? (_slide.value >= 0.5 ? 1 : 0);
 
   /// Прилага избор от менюто върху превода, който е в полето.
   ///
@@ -1529,16 +1597,16 @@ class _BibleReaderState extends State<BibleReader>
     if (code == shown) return;
 
     if (code == other) {
-      BibleLanguages.set(BibleLanguagePair(
-        first: pair.second,
-        second: pair.first,
-        active: slot,
-      ));
+      BibleLanguages.set(
+        BibleLanguagePair(first: pair.second, second: pair.first, active: slot),
+      );
       return;
     }
-    BibleLanguages.set(slot == 0
-        ? pair.copyWith(first: code, active: slot)
-        : pair.copyWith(second: code, active: slot));
+    BibleLanguages.set(
+      slot == 0
+          ? pair.copyWith(first: code, active: slot)
+          : pair.copyWith(second: code, active: slot),
+    );
   }
 
   /// Кой превод стои в дадено меню.
@@ -1575,10 +1643,10 @@ class _BibleReaderState extends State<BibleReader>
                   l.code == shown
                       ? Icons.radio_button_checked
                       : (l.code == pair.first || l.code == pair.second)
-                          // Другата половина се вижда, че е заета — избере ли
-                          // се, двата се разменят, вместо да станат еднакви.
-                          ? Icons.swap_horiz
-                          : Icons.radio_button_unchecked,
+                      // Другата половина се вижда, че е заета — избере ли
+                      // се, двата се разменят, вместо да станат еднакви.
+                      ? Icons.swap_horiz
+                      : Icons.radio_button_unchecked,
                   size: 18,
                   color: Colors.white70,
                 ),
@@ -1587,9 +1655,10 @@ class _BibleReaderState extends State<BibleReader>
                 // полето остава само то.
                 SizedBox(
                   width: 30,
-                  child: Text(l.abbr,
-                      style: const TextStyle(
-                          color: Colors.white70, fontSize: 13)),
+                  child: Text(
+                    l.abbr,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13),
+                  ),
                 ),
                 Text(l.short, style: const TextStyle(color: Colors.white)),
               ],
@@ -1609,8 +1678,10 @@ class _BibleReaderState extends State<BibleReader>
             // е бяло — а приглушеното сред ярко се чете като ИЗКЛЮЧЕНО.
             // Стрелчицата остава по-тиха: тя е указател към менюто, не
             // самото сведение.
-            Text(current?.abbr ?? '—',
-                style: const TextStyle(color: Colors.white, fontSize: 15)),
+            Text(
+              current?.abbr ?? '—',
+              style: const TextStyle(color: Colors.white, fontSize: 15),
+            ),
             const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
           ],
         ),

@@ -51,6 +51,14 @@ const double kFooterLabelSize = 16;
 const double kFooterTopGap = 112;
 const double kFooterBottomGap = 40;
 
+/// Въздухът между края на текста и реда с ИЗТОЧНИКА, когато го има.
+///
+/// ⚠ Чувствително по-малък от [kFooterTopGap] нарочно. Източникът
+/// принадлежи на четивото — той казва откъде е самият текст — тъй че
+/// стои близо до него; опашката с бутоните е навигация и си остава
+/// отделена от двете с голямата празнина.
+const double kFooterSourceTopGap = 44;
+
 /// Един край на опашката: стрелка и надпис към нея.
 class FooterAction {
   final IconData icon;
@@ -80,6 +88,17 @@ class ReaderFooter extends StatelessWidget {
   /// [right] — надписът и стрелката са едно действие.
   final VoidCallback? onCenterTap;
 
+  /// Ред с ИЗТОЧНИКА на четивото, над бутоните. null = няма такъв ред.
+  ///
+  /// Ползва се в четеца на Библията, където всяка глава има свой адрес в
+  /// azbyka.ru. Стои ТУК, а не в текста, защото не е част от Писанието —
+  /// казва откъде е то.
+  final String? sourceLabel;
+
+  /// Какво прави тапът върху реда с източника. Обикновено отваря навън
+  /// през `openExternal`, тъй че човек вижда адреса, преди да излезе.
+  final VoidCallback? onSourceTap;
+
   /// Цветът на бутоните и надписите.
   ///
   /// ⚠ Идва ОТВЪН, от палитрата на четеца (`palette.dim`), а не от
@@ -96,71 +115,111 @@ class ReaderFooter extends StatelessWidget {
     this.right,
     this.centerLabel,
     this.onCenterTap,
+    this.sourceLabel,
+    this.onSourceTap,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-          16, kFooterTopGap, 16, kFooterBottomGap),
-      child: Row(
-        // Централно по вертикала: надпис на два реда остава центриран
-        // спрямо кръгчетата, вместо да ги избутва нагоре.
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          // Левият край. SizedBox, а не нищо — държи мястото, когато го
-          // няма (виж бележката най-горе).
-          SizedBox(
-            width: kFooterButtonSize,
-            child: left == null ? null : _button(left!),
-          ),
-          if (left != null) ...[
-            const SizedBox(width: 10),
-            _label(left!.label, left!.onTap),
-          ],
-          Expanded(
-            child: centerLabel == null
-                ? const SizedBox.shrink()
-                : Center(
-                    child: _label(
-                      centerLabel!,
-                      onCenterTap,
-                      align: TextAlign.center,
-                    ),
-                  ),
-          ),
-          if (right != null) ...[
-            _label(right!.label, right!.onTap, align: TextAlign.right),
-            const SizedBox(width: 10),
-          ],
-          SizedBox(
-            width: kFooterButtonSize,
-            child: right == null ? null : _button(right!),
-          ),
+    final row = Row(
+      // Централно по вертикала: надпис на два реда остава центриран
+      // спрямо кръгчетата, вместо да ги избутва нагоре.
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        // Левият край. SizedBox, а не нищо — държи мястото, когато го
+        // няма (виж бележката най-горе).
+        SizedBox(
+          width: kFooterButtonSize,
+          child: left == null ? null : _button(left!),
+        ),
+        if (left != null) ...[
+          const SizedBox(width: 10),
+          _label(left!.label, left!.onTap),
         ],
+        Expanded(
+          child: centerLabel == null
+              ? const SizedBox.shrink()
+              : Center(
+                  child: _label(
+                    centerLabel!,
+                    onCenterTap,
+                    align: TextAlign.center,
+                  ),
+                ),
+        ),
+        if (right != null) ...[
+          _label(right!.label, right!.onTap, align: TextAlign.right),
+          const SizedBox(width: 10),
+        ],
+        SizedBox(
+          width: kFooterButtonSize,
+          child: right == null ? null : _button(right!),
+        ),
+      ],
+    );
+
+    return Padding(
+      // Има ли източник, горният въздух се дели на две: малкият остава над
+      // него, а голямият слиза между него и бутоните — вижте
+      // [kFooterSourceTopGap]. Без източник всичко е както преди.
+      padding: EdgeInsets.fromLTRB(
+        16,
+        sourceLabel == null ? kFooterTopGap : kFooterSourceTopGap,
+        16,
+        kFooterBottomGap,
       ),
+      child: sourceLabel == null
+          ? row
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                _source(sourceLabel!),
+                const SizedBox(height: kFooterTopGap),
+                row,
+              ],
+            ),
     );
   }
+
+  /// Редът с източника: центриран, с една степен по-дребен от табелките и
+  /// подчертан, за да се чете като връзка навън, а не като бутон.
+  Widget _source(String text) => GestureDetector(
+    onTap: onSourceTap,
+    behavior: HitTestBehavior.opaque,
+    child: Text(
+      text,
+      textAlign: TextAlign.center,
+      style: TextStyle(
+        fontSize: kFooterLabelSize - 2,
+        color: color,
+        height: 1.3,
+        decoration: TextDecoration.underline,
+        decorationColor: color,
+      ),
+    ),
+  );
 
   Widget _button(FooterAction a) =>
       _FooterButton(icon: a.icon, onTap: a.onTap, color: color);
 
-  Widget _label(String text, VoidCallback? onTap,
-          {TextAlign align = TextAlign.left}) =>
-      GestureDetector(
-        onTap: onTap,
-        behavior: HitTestBehavior.opaque,
-        child: Text(
-          text,
-          textAlign: align,
-          style: TextStyle(
-            // Без fontFamily → системният шрифт на телефона.
-            fontSize: kFooterLabelSize,
-            color: color,
-            height: 1.25,
-          ),
-        ),
-      );
+  Widget _label(
+    String text,
+    VoidCallback? onTap, {
+    TextAlign align = TextAlign.left,
+  }) => GestureDetector(
+    onTap: onTap,
+    behavior: HitTestBehavior.opaque,
+    child: Text(
+      text,
+      textAlign: align,
+      style: TextStyle(
+        // Без fontFamily → системният шрифт на телефона.
+        fontSize: kFooterLabelSize,
+        color: color,
+        height: 1.25,
+      ),
+    ),
+  );
 }
 
 /// Кръгчето със стрелка. Различава се от [RoundIconButton] по размера и по
