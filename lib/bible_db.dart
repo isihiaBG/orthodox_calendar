@@ -20,6 +20,7 @@
 
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' show join;
 import 'package:sqflite/sqflite.dart';
@@ -237,14 +238,37 @@ class BibleDb {
   }
 
   /// Затваря пакет — при изтриване от настройките.
+  /// ⚠ НЕ известява — само забравя кеша. Вика се ПРЕДИ самото изтриване на
+  /// файла, тъй че в този миг [BiblePacks.installed] още го брои за налично
+  /// и [languages] би сглобил списък с превод, който след миг го няма.
+  /// Сигналът се бута от викащия, СЛЕД като файлът наистина е изтрит — виж
+  /// `_remove` в bible_packs_screen.dart.
   static Future<void> closePack(String lang) async {
     final db = _packs.remove(lang);
     await db?.close();
     _languages = null; // списъкът с преводи се сглобява наново
   }
 
-  /// Забравя запомнения списък с преводи — след сваляне на нов пакет.
-  static void forgetLanguages() => _languages = null;
+  /// Забравя запомнения списък с преводи — след сваляне или изтриване на
+  /// пакет — и ИЗВЕСТЯВА за това.
+  static void forgetLanguages() {
+    _languages = null;
+    languagesRevision.value++;
+  }
+
+  /// Расте при всяка промяна в НАБОРА от налични преводи.
+  ///
+  /// ⚠ Изчистването на кеша само по себе си НЕ Е достатъчно, макар да
+  /// изглежда така: то върши работа за следващия, който извика [languages] —
+  /// но четецът не вика. Той пази списъка от `initState`, а панелът с
+  /// настройките (откъдето се свалят преводите) стои НАД него и НЕ го
+  /// затваря, тъй че `initState` няма да се повика втори път. Без този
+  /// сигнал новосвален превод се появява в менюто чак при следващо пускане
+  /// на приложението.
+  ///
+  /// Същият урок вече беше платен два пъти — виж [ReaderDropCapScale]
+  /// (drop_cap_scale.dart) и [BibleZachala] (bible_settings.dart).
+  static final ValueNotifier<int> languagesRevision = ValueNotifier<int>(0);
 
   // ── Указатели, кеширани за сесията ─────────────────────────────────────
   // Книгите са 77, преводите — дузина. Четат се веднъж и стоят: съдържанието

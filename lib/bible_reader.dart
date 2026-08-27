@@ -224,6 +224,10 @@ class _BibleReaderState extends State<BibleReader>
     // прерисуване — текстът не се презарежда, защото зачалата вече не се
     // намесват в него (виж [BibleDb.chapter]).
     BibleZachala.notifier.addListener(_onZachalaChanged);
+    // ⚠ Наборът от свалени преводи също се мени ИЗПОД четеца — панелът с
+    // настройките стои над него и не го затваря. Виж
+    // [BibleDb.languagesRevision].
+    BibleDb.languagesRevision.addListener(_onInstalledLanguagesChanged);
     _scroll.addListener(_releaseToolbarOnDrag);
     _load();
   }
@@ -233,6 +237,7 @@ class _BibleReaderState extends State<BibleReader>
     WidgetsBinding.instance.removeObserver(this);
     BibleLanguages.notifier.removeListener(_onLanguageChanged);
     BibleZachala.notifier.removeListener(_onZachalaChanged);
+    BibleDb.languagesRevision.removeListener(_onInstalledLanguagesChanged);
     ReaderTheme.flush();
     ReaderFontSize.flush();
     BibleFontSize.flush();
@@ -244,6 +249,26 @@ class _BibleReaderState extends State<BibleReader>
 
   void _onZachalaChanged() {
     if (mounted) setState(() {});
+  }
+
+  /// Свален или изтрит е езиков пакет, докато четецът стои отворен.
+  ///
+  /// ⚠ Списъкът се чете НАНОВО, а не се допълва: [BibleDb.languages] го
+  /// сглобява от основната база плюс всеки свален пакет и го подрежда по
+  /// `ord`, тъй че новият превод застава на своето място, а не най-отзад.
+  void _onInstalledLanguagesChanged() {
+    if (!mounted) return;
+    () async {
+      final langs = await BibleDb.languages();
+      if (!mounted) return;
+      setState(() => _langs = langs);
+      // При ИЗТРИВАНЕ на превод, който в момента се чете, двойката се
+      // подменя — а това пък задейства [_onLanguageChanged], който
+      // презарежда самия текст. При обикновено сваляне тук няма какво да се
+      // свери и нищо повече не се случва: показваното четиво не се пипа,
+      // тъй че мястото в главата се запазва.
+      BibleLanguages.reconcile([for (final l in langs) l.code]);
+    }();
   }
 
   // ── Зареждане ────────────────────────────────────────────────────────

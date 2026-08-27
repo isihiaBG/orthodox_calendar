@@ -120,6 +120,32 @@ class BibleLanguages {
     );
   }
 
+  /// Сверява двойката срещу преводите, които РЕАЛНО са налични в момента.
+  ///
+  /// Вика се, когато наборът се промени, докато приложението върви — тоест
+  /// при изтриване на езиков пакет от настройките. При СВАЛЯНЕ няма какво да
+  /// свери (изборът си е валиден) и нищо не се случва.
+  ///
+  /// ⚠ Отделен метод, а не повторно [loadOnce]: той е пазен с `_loaded` и
+  /// освен това чете от SharedPreferences: пуснат наново, би върнал стария
+  /// запис върху текущия избор.
+  ///
+  /// Правилото за подмяна е същото като в [loadOnce] — изчезнал превод се
+  /// заменя с първия наличен, а двете половини не бива да станат еднакви.
+  static void reconcile(List<String> available) {
+    if (available.isEmpty) return;
+    final p = notifier.value;
+    var first = p.first;
+    var second = p.second;
+    if (available.contains(first) && available.contains(second)) return;
+
+    if (!available.contains(first)) first = available.first;
+    if (!available.contains(second) || second == first) {
+      second = available.firstWhere((c) => c != first, orElse: () => first);
+    }
+    set(p.copyWith(first: first, second: second));
+  }
+
   static void set(BibleLanguagePair pair) {
     if (notifier.value == pair) return;
     notifier.value = pair;

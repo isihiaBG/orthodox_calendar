@@ -75,9 +75,9 @@ const List<BiblePack> kBiblePacks = [
   BiblePack(code: 'el-r', title: 'Гръцки (Септуагинта)', short: 'Гръцки (LXX)', bytes: 8523776),
   BiblePack(code: 'g', title: 'Гръцки (Нов завет)', short: 'Гръцки (НЗ)', bytes: 2113536),
   BiblePack(code: 'l', title: 'Латински (Nova Vulgata)', short: 'Латински', bytes: 5910528),
-  BiblePack(code: 'en-kjv', title: 'Английски (KJV)', short: 'Английски', bytes: 8290304),
+  BiblePack(code: 'en-kjv', title: 'Английски (KJV)', short: 'Английски', bytes: 8486912),
   BiblePack(code: 'sb', title: 'Сръбски (синодален)', short: 'Сръбски', bytes: 8966144),
-  BiblePack(code: 'i', title: 'Иврит', short: 'Иврит', bytes: 7450624),
+  BiblePack(code: 'i', title: 'Иврит', short: 'Иврит', bytes: 7536640),
   BiblePack(code: 'u', title: 'Грузински', short: 'Грузински', bytes: 11608064),
   BiblePack(code: 'y', title: 'Грузински (древен)', short: 'Грузински (др.)', bytes: 2752512),
 ];

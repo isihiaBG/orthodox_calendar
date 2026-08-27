@@ -107,6 +107,11 @@ class _BiblePacksScreenState extends State<BiblePacksScreen> {
     // забравя и списъка с преводи.
     await BibleDb.closePack(pack.code);
     await BiblePacks.remove(pack.code);
+    // ⚠ ЧАК СЕГА, след като файлът е изтрит — дотук `installed()` още го
+    // брои за налично. Сигналът кара отворения четец да сглоби списъка
+    // наново и, ако изтритият превод е бил един от двата показвани, да
+    // подмени двойката (`BibleLanguages.reconcile`).
+    BibleDb.forgetLanguages();
     await _refresh();
   }
 
