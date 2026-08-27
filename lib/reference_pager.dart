@@ -55,8 +55,17 @@ class ReferencePager extends StatefulWidget {
   /// `Navigator.of` върху него мълчи. Виж `_navigatorOf` в app_drawer.dart.
   static Future<void> open(
       NavigatorState navigator, ReferenceSection section) {
+    // ⚠ Не стига `mounted` — екранът трябва да е и ВИДИМ.
+    //
+    // Живият, но покрит от други маршрути екран мълчаливо поглъщаше избора:
+    // прелистваше се той, а човекът гледаше нещо друго. Викащите вече чистят
+    // стека, тъй че до това не бива да се стига — но проверката остава,
+    // защото цената ѝ е един ред, а симптомът е „нищо не се случва".
     final active = _ReferencePagerState._active;
-    if (active != null && active.mounted) {
+    final visible = active != null &&
+        active.mounted &&
+        (ModalRoute.of(active.context)?.isCurrent ?? false);
+    if (visible) {
       active._jumpTo(section);
       return Future.value();
     }

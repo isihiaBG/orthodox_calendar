@@ -52,6 +52,18 @@ Future<void> _openBible(BuildContext context) async {
   // през изчакване, за разлика от контекста на изчезващ widget.
   final nav = Navigator.of(context);
 
+  // ⚠ ПЪРВО до календара, чак после навътре — както прави и `_openScreen`.
+  //
+  // Без това стекът расте при всяка разходка: „Празници" → „Библия" оставяше
+  // справочния екран ЖИВ под кориците. Оттам идваше бъг, който изглеждаше
+  // случаен („веднъж работи, втория път не"): `ReferencePager.open` вижда, че
+  // има активен екран, и вместо да отвори нов, ПРЕЛИСТВА стария — а той стои
+  // невидим под два маршрута, тъй че отвън не се случва нищо.
+  //
+  // Календарът никога не страдаше от това именно защото пътят към него
+  // (`_backToCalendar`) чисти стека.
+  nav.popUntil((route) => route.isFirst);
+
   await BibleWelcome.loadOnce();
   await BibleLastPart.loadOnce();
 
@@ -166,12 +178,8 @@ class AppDrawer extends StatelessWidget {
           }),
           // „Месецослов" — кътът за четене на книги: тесте корици, което се
           // разлиства (library_screen.dart).
-          _item(Icons.menu_book, 'Месецослов', () {
-            Navigator.of(context).pop();
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const LibraryScreen(),
-            ));
-          }),
+          _item(Icons.menu_book, 'Месецослов',
+              () => _openScreen(context, (_) => const LibraryScreen())),
           // Четирите справочни секции живеят в ОБЩ екран с плъзгане
           // настрани (reference_pager.dart). Менюто само посочва коя да е
           // отгоре; ако екранът вече е отворен, ReferencePager.open просто
