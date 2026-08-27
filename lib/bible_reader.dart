@@ -197,18 +197,13 @@ class _BibleReaderState extends State<BibleReader>
   final ScrollController _scroll = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
 
+  /// Преводите от показваната двойка, които нямат НИТО ЕДИН стих тук.
+  ///
+  /// Смята се ВЕДНЪЖ при зареждане, не на всеки ред — обхожда всички редове.
+  Set<String> _missingLangs = const {};
+
   /// Групите в режим „цитати". Празно в обикновено четене.
   List<_QuoteGroup> _groups = const [];
-
-  /// Двойката, която РЕАЛНО се показва.
-  ///
-  /// ⚠ Може да се разминава с избраната: препратка от житие сочи място, което
-  /// текущият превод понякога няма изобщо (четеш на гръцки Нов завет, а
-  /// препратката е към Битие). Човек не е избирал това място — довела го е
-  /// връзка, — тъй че по-добре да види цитата на българския и
-  /// църковнославянския, отколкото празен екран. При избор ОТ СЪДЪРЖАНИЕТО
-  /// падане няма: там изборът е негов и „не е свалена" е честният отговор.
-  BibleLanguagePair? _shownPair;
 
   /// Показва ли се нещо различно от избраното — за тихата бележка отгоре.
   bool _pairFellBack = false;
@@ -349,9 +344,29 @@ class _BibleReaderState extends State<BibleReader>
   /// Двойката, с която РЕАЛНО е зареден екранът.
   ///
   /// ⚠ Всичко, което рисува, минава оттук, а не направо през
-  /// `BibleLanguages.value` — инак при падане (виж [_shownPair]) текстът идва
-  /// от единия чифт преводи, а лентата отгоре пише другия.
-  BibleLanguagePair get _pair => _shownPair ?? BibleLanguages.value;
+  /// `BibleLanguages.value` — инак при падане към вградените преводи текстът
+  /// идва от единия чифт, а лентата отгоре пише другия.
+  ///
+  /// ⚠ ИЗВЕЖДА СЕ от [_loadedFirst]/[_loadedSecond], а НЕ се пази като свое
+  /// поле. Първата версия държеше отделно `_shownPair`, зададено само в
+  /// `_load` — и това беше тих регрес: `_onLanguageChanged` презарежда
+  /// редовете с новата двойка и обновява `_loadedFirst`/`_loadedSecond`, но
+  /// не пипаше него. Тъй че след смяна на превод редовете вече носеха новия
+  /// език, а рисуването още търсеше стария — и колоната излизаше ПРАЗНА.
+  /// Изведено оттук, „кое се показва" не може да се разсинхронизира с „кое е
+  /// заредено", защото е едно и също състояние.
+  BibleLanguagePair get _pair {
+    final f = _loadedFirst;
+    final s = _loadedSecond;
+    if (f == null || s == null) return BibleLanguages.value;
+    return BibleLanguagePair(
+      first: f,
+      second: s,
+      // Коя от двете половини се гледа е въпрос на РИСУВАНЕ, не на зареждане
+      // — плъзгането го мени, без да пипа базата.
+      active: BibleLanguages.value.active,
+    );
+  }
 
   /// Дошли ли сме тук по препратка от четиво, а не от съдържанието.
   bool get _fromLink => widget.quotes != null || widget.highlight != null;
@@ -396,7 +411,7 @@ class _BibleReaderState extends State<BibleReader>
       var pair = BibleLanguages.value;
       var fellBack = false;
 
-      // ⚠ Падането важи САМО когато сме дошли по ПРЕПРАТКА. Виж [_shownPair]:
+      // ⚠ Падането важи САМО когато сме дошли по ПРЕПРАТКА. Виж [_pair]:
       // при избор от съдържанието човек сам е избрал превода и празният
       // резултат е верният отговор, а тиха подмяна би го объркала.
       if (_fromLink) {
@@ -424,7 +439,9 @@ class _BibleReaderState extends State<BibleReader>
         _langs = langs;
         _rows = rows;
         _groups = groups;
-        _shownPair = pair;
+        _missingLangs = _missingFrom(
+            groups.isNotEmpty ? [for (final g in groups) ...g.rows] : rows,
+            pair);
         _pairFellBack = fellBack;
         _titles = titles;
         _zachala = zachala;
@@ -501,6 +518,7 @@ class _BibleReaderState extends State<BibleReader>
       _zachala = zachala;
       _loadedFirst = pair.first;
       _loadedSecond = pair.second;
+      _missingLangs = _missingFrom(rows, pair);
     });
     _slide.value = pair.active.toDouble();
     _restorePending();
@@ -1091,6 +1109,66 @@ class _BibleReaderState extends State<BibleReader>
     return '${book.abbr} $shown${rest > 0 ? ' +$rest' : ''}';
   }
 
+  /// Преводите от показваната двойка, които нямат НИТО ЕДИН стих тук.
+  ///
+  /// ⚠ Пет от дванайсетте покриват само част от Писанието — ивритът и
+  /// Септуагинтата нямат Нов завет, гръцкият Нов завет и древногрузинският
+  /// нямат Стар, а KJV е без единайсетте второканонични книги. Отвореше ли се
+  /// книга извън обхвата им, колоната им оставаше празна БЕЗ ДУМА обяснение и
+  /// приличаше на несвалена или счупена.
+  /// ⚠ Смята се от ПОДАДЕНИТЕ редове, не от `_rows` — вика се вътре в
+  /// `setState`, преди полето да е присвоено.
+  Set<String> _missingFrom(List<BibleRow> rows, BibleLanguagePair pair) {
+    if (rows.isEmpty) return const {};
+    final out = <String>{};
+    for (final code in pair.both) {
+      if (!rows.any((r) => r[code] != null)) out.add(code);
+    }
+    return out;
+  }
+
+  /// Защо този превод го няма ТУК — изведено от обхвата му И от книгата.
+  ///
+  /// ⚠ Двата случая са различни и смесването им ПОДВЕЖДА:
+  ///
+  ///   • книгата е от другия завет — „налични са само за Стария завет";
+  ///   • книгата е от СЪЩИЯ завет, но преводът я няма — тогава горното е
+  ///     направо невярно. Ивритът например обхваща Стария завет, но по
+  ///     ЕВРЕЙСКИЯ канон: Товит е старозаветна книга и пак я няма. Кажеш ли
+  ///     там „само за Стария завет", човек чете глупост, защото точно в
+  ///     Стария завет се намира.
+  String _whyMissing(BibleLanguage l) {
+    final testament = _book?.testament;
+    if (l.scope == 'ot' && testament == 'NT') {
+      return 'Текстовете на ${l.short} са налични само за Стария завет.';
+    }
+    if (l.scope == 'nt' && testament == 'OT') {
+      return 'Текстовете на ${l.short} са налични само за Новия завет.';
+    }
+    return 'Тази книга не е включена в превода „${l.short}".';
+  }
+
+  /// Бележката за непълно покритие — В КОЛОНАТА на липсващия превод.
+  ///
+  /// ⚠ Тук, а не над цялата глава: съседната колона си е наред и текстът ѝ се
+  /// чете нормално. Обща бележка отгоре би обявила празнота, каквато има само
+  /// от едната страна.
+  Widget _coverageNote(ReaderPalette palette, String code) {
+    final lang = _languageOf(code);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Text(
+        lang == null ? 'Този превод няма тази книга.' : _whyMissing(lang),
+        style: TextStyle(
+          fontSize: 13,
+          height: 1.35,
+          color: palette.dim,
+          fontStyle: FontStyle.italic,
+        ),
+      ),
+    );
+  }
+
   /// Тиха бележка, когато показваме друг превод от избрания.
   ///
   /// ⚠ Казва се ВЕДНЪЖ и приглушено. Човек е тапнал препратка в житие; той не
@@ -1547,6 +1625,16 @@ class _BibleReaderState extends State<BibleReader>
   /// навън, то би отместило само едната колона и подравняването щеше да се
   /// разпадне точно при плъзгане.
   Widget _verseBody(ReaderPalette palette, BibleRow row, String lang) {
+    // ⚠ Липсва ли преводът за цялата глава, вместо низ от празни клетки стои
+    // ЕДНА бележка — на мястото на първия стих, в неговата колона.
+    if (_missingLangs.contains(lang)) {
+      final rows =
+          _groups.isNotEmpty ? [for (final g in _groups) ...g.rows] : _rows;
+      final isFirst = rows.isNotEmpty && identical(rows.first, row);
+      return isFirst
+          ? _coverageNote(palette, lang)
+          : const SizedBox.shrink();
+    }
     final titles = _titles[lang]?[row.verse];
     final text = _verseText(palette, row, lang);
     if (titles == null || titles.isEmpty) return text;

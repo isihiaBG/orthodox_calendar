@@ -50,13 +50,16 @@ class ReferencePager extends StatefulWidget {
   /// четирите и избира друга през менюто), само прелиства до нея — така
   /// избраната година оцелява. Иначе се бута нов екран, отгоре на
   /// календара, и годината започва от текущата.
-  static Future<void> open(BuildContext context, ReferenceSection section) {
+  /// ⚠ Приема НАВИГАТОРА, а не `BuildContext`. Викащият го взима, преди да
+  /// затвори менюто — подир това контекстът на реда е мъртъв и
+  /// `Navigator.of` върху него мълчи. Виж `_navigatorOf` в app_drawer.dart.
+  static Future<void> open(
+      NavigatorState navigator, ReferenceSection section) {
     final active = _ReferencePagerState._active;
     if (active != null && active.mounted) {
       active._jumpTo(section);
       return Future.value();
     }
-    final navigator = Navigator.of(context);
     navigator.popUntil((route) => route.isFirst);
     return navigator.push(MaterialPageRoute(
       builder: (_) => ReferencePager(initial: section),

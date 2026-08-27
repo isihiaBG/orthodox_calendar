@@ -23,7 +23,7 @@ import 'app_theme.dart';
 import 'cover_flow.dart';
 
 class CoverPickerScaffold extends StatefulWidget {
-  /// Заглавието на лентата. Легнало лента няма — виж [_floatingBack].
+  /// Заглавието на лентата. Легнало лента няма — виж [_floatingExit].
   final String title;
 
   final List<ImageProvider> covers;
@@ -96,6 +96,15 @@ class CoverPickerScaffold extends StatefulWidget {
 class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
   bool _immersive = false;
 
+  /// ⚠ Нужен, за да се отвори менюто от ЛЕГНАЛИЯ изглед.
+  ///
+  /// Там няма лента, тъй че копчето е плаващо и се строи в `body`. Първата
+  /// версия ползваше `Scaffold.of(context)` — и не работеше: подаденият
+  /// контекст е този на `build`, тоест НАД скелета, който същият `build`
+  /// създава. `Scaffold.of` търси НАГОРЕ по дървото и не го намира.
+  /// Ключът сочи право към него и не зависи от това откъде се вика.
+  final GlobalKey<ScaffoldState> _scaffold = GlobalKey<ScaffoldState>();
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -160,17 +169,21 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
         onOpen: widget.onOpen,
       );
 
-  /// Стрелката „назад" за легналия изглед.
+  /// Изходът за легналия изглед — плаващо копче горе вляво.
   ///
   /// Легнало лента няма — тя би отнела височина тъкмо там, където всяка е
   /// нужна на кориците, и би разбила тъмнината. Но с нея си отива и
-  /// единственият изход от екрана, тъй че стрелката остава сама, като
-  /// плаващо копче.
+  /// единственият изход от екрана, тъй че копчето остава само.
   ///
-  /// Мястото и размерът ѝ са ТОЧНО тези на лентовата стрелка: гнездо 56×44,
-  /// иконка в средата му. Така, ако човек завърти телефона, копчето не
-  /// подскача.
-  Widget _floatingBack(BuildContext context) {
+  /// ⚠ ЕДНАКВО с изправено: има ли меню, тук стои ХАМБУРГЕР, не стрелка.
+  /// Дотук легнало винаги излизаше „назад", а изправено — в менюто; тоест
+  /// едно и също копче на едно и също място вършеше две различни неща според
+  /// това как човек държи телефона.
+  ///
+  /// Мястото и размерът са ТОЧНО тези на лентовото копче: гнездо 56×44,
+  /// иконка в средата. Така при завъртане то не подскача.
+  Widget _floatingExit(BuildContext context) {
+    final hasMenu = widget.drawer != null;
     return Positioned(
       left: 0,
       top: 0,
@@ -183,11 +196,14 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
             shape: const CircleBorder(),
             clipBehavior: Clip.antiAlias,
             child: InkWell(
-              onTap: () => Navigator.of(context).maybePop(),
-              child: const SizedBox(
+              // ⚠ През КЛЮЧА, не през `Scaffold.of` — виж [_scaffold].
+              onTap: () => hasMenu
+                  ? _scaffold.currentState?.openDrawer()
+                  : Navigator.of(context).maybePop(),
+              child: SizedBox(
                 width: 40,
                 height: 40,
-                child: Icon(Icons.arrow_back,
+                child: Icon(hasMenu ? Icons.menu : Icons.arrow_back,
                     size: 22, color: AppColors.textPrimary),
               ),
             ),
@@ -202,7 +218,7 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
     return Stack(
       children: [
         Positioned.fill(child: _deck()),
-        _floatingBack(context),
+        _floatingExit(context),
         if (label != null)
           Positioned(
             left: 0,
@@ -229,6 +245,7 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
     final landscape =
         MediaQuery.orientationOf(context) == Orientation.landscape;
     return Scaffold(
+      key: _scaffold,
       backgroundColor: const Color(0xFF0A0A0C),
       drawer: widget.drawer,
       extendBodyBehindAppBar: landscape,

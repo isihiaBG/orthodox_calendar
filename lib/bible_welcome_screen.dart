@@ -25,7 +25,9 @@ import 'package:flutter/material.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'bible_contents.dart';
 import 'bible_settings.dart';
+import 'book_open_transition.dart';
 import 'cover_flow.dart';
 import 'cover_picker.dart';
 
@@ -88,6 +90,16 @@ const List<_Part> _parts = [
 /// Индексът, на който се отваря тестето, когато още нищо не е избирано —
 /// Новият завет. Оттам нататък печели запомненото ([BibleLastPart]).
 
+/// Табът, отговарящ на последно избраната книга.
+///
+/// Нужен е, когато въвеждащият екран е ИЗКЛЮЧЕН от настройките: тогава никой
+/// не избира корица, но запомненото пак важи — човек е казал коя книга чете.
+///
+/// ⚠ Съответствието индекс→таб живее само в `_parts` и никъде другаде; затова
+/// се чете оттам, а не се преписва като второ число.
+int bibleTabForLastPart() =>
+    _parts[BibleLastPart.value.clamp(0, _parts.length - 1)].tab;
+
 class BibleWelcomeScreen extends StatefulWidget {
   const BibleWelcomeScreen({super.key});
 
@@ -95,11 +107,42 @@ class BibleWelcomeScreen extends StatefulWidget {
   State<BibleWelcomeScreen> createState() => _BibleWelcomeScreenState();
 }
 
-class _BibleWelcomeScreenState extends State<BibleWelcomeScreen> {
+class _BibleWelcomeScreenState extends State<BibleWelcomeScreen>
+    with TickerProviderStateMixin {
   final GlobalKey<CoverFlowState> _flow = GlobalKey<CoverFlowState>();
 
   late int _index = BibleLastPart.value;
   bool _dontShowAgain = false;
+
+  /// Тикването на чекбокса се ЗАПИСВА ВЕДНАГА.
+  ///
+  /// ⚠ Дотук се записваше заедно с избора на книга — както прави и екранът за
+  /// избор на календар. Там е вярно: изборът на стил е задължителен и без
+  /// него „изключен екран" е половинчато състояние. ТУК не е: човек може да
+  /// тикне чекбокса и да излезе през менюто, без изобщо да избира книга — и
+  /// желанието му се губеше мълчаливо.
+  ///
+  /// ⚠ Полярността е ОБРАТНА: `_dontShowAgain == true` значи
+  /// `BibleWelcome.value == false`.
+  void _setDontShow(bool v) {
+    setState(() => _dontShowAgain = v);
+    BibleWelcome.set(!v);
+  }
+  bool _opening = false;
+
+  /// Ходът на излитащата корица и на вдигането на пелената след това —
+  /// дословно както в библиотеката (виж book_open_transition.dart).
+  late final AnimationController _launch =
+      AnimationController(vsync: this, duration: kCoverLaunchDuration);
+  late final AnimationController _reveal =
+      AnimationController(vsync: this, duration: kPageArriveDuration);
+
+  @override
+  void dispose() {
+    _launch.dispose();
+    _reveal.dispose();
+    super.dispose();
+  }
 
   @override
   void didChangeDependencies() {
@@ -117,11 +160,83 @@ class _BibleWelcomeScreenState extends State<BibleWelcomeScreen> {
   /// при всяко тапване на чекбокса. Инак се получава състояние „екранът е
   /// изключен, но човек не е избрал нищо" — той може да размисли и да се
   /// върне назад, а тогава изключването не бива да е влязло в сила.
-  void _choose(int i) {
+  /// Отваря съдържанието — с движение, а не с премигване.
+  ///
+  /// ⚠ ПРЕПИСАНО 1:1 от `_open` в library_screen.dart. Всеки ред тук има
+  /// причина, платена веднъж вече; преди да се „опрости" нещо, чети
+  /// бележките.
+  ///
+  /// ⚠ И тук се ползва `push`, а НЕ `pushReplacement`, макар да е изкушаващо
+  /// (кориците са междинен избор). Заменен, този екран се разрушава ВЕДНАГА,
+  /// а контролерите долу са негови — анимацията, която още тече, остава без
+  /// тикер и с изхвърлени контролери. Затова кориците остават в стека и
+  /// „назад" от съдържанието води при тях, точно както в „Месецослов" води
+  /// обратно в библиотеката.
+  Future<void> _choose(int i) async {
+    if (_opening) return;
+    setState(() => _opening = true);
+
+    // Предпазна мрежа: записът вече е станал при тикването (виж
+    // [_setDontShow]), а `set` не прави нищо, ако стойността съвпада.
     if (_dontShowAgain) BibleWelcome.set(false);
     // ⚠ Запомня се ТУК и никъде другаде — виж [BibleLastPart].
     BibleLastPart.set(i);
-    Navigator.of(context).pop(_parts[i].tab);
+
+    final rect = _flow.currentState?.centerCoverRect();
+    OverlayEntry? flying;
+
+    try {
+      if (rect != null) {
+        _reveal.value = 0;
+        flying = OverlayEntry(
+          builder: (_) => CoverLaunch(
+            from: rect,
+            cover: AssetImage(_parts[i].cover),
+            animation: _launch,
+            reveal: _reveal,
+          ),
+        );
+        // rootOverlay: слоят трябва да мине НАД всички маршрути — и над
+        // лентата, и над съдържанието, докато то се построява.
+        Overlay.of(context, rootOverlay: true).insert(flying);
+        await _launch.forward(from: 0);
+      }
+
+      if (!mounted) return;
+      final opened = Navigator.of(context).push(bookOpenRoute(BibleContents(
+        initialTab: _parts[i].tab,
+        // Кориците стоят без системна лента; съдържанието не бива да я пали
+        // на излизане, инак се вижда премигване при връщането.
+        keepImmersiveOnExit: true,
+      )));
+
+      // Един кадър, колкото съдържанието да се построи ПОД пелената.
+      await Future<void>.delayed(const Duration(milliseconds: 32));
+
+      // ⚠ НЕ `await _reveal.forward()`. Контролерът е с vsync от ТОЗИ екран;
+      // щом съдържанието се отвори отгоре, Flutter спира тикерите на покритите
+      // маршрути, анимацията замръзва и нейният Future не се резолвва НИКОГА.
+      // Тогава редовете под него не се изпълняват, слоят остава в rootOverlay
+      // и черната му пелена виси върху всичко — точно бъгът с „бледите
+      // екрани". `finally` не спасява: той чака `await opened`, тоест докато
+      // човек затвори съдържанието.
+      //
+      // Затова изчакването е ПО ВРЕМЕ: `Future.delayed` не зависи от тикери и
+      // тече дори когато екранът е покрит.
+      _reveal.forward(from: 0);
+      await Future<void>.delayed(
+          kPageArriveDuration + const Duration(milliseconds: 60));
+      flying?.remove();
+      flying = null;
+
+      await opened;
+    } finally {
+      // Предпазна мрежа: счупи ли се нещо по пътя, слоят пак трябва да си
+      // отиде — инак пелената остава върху приложението.
+      flying?.remove();
+      _launch.value = 0;
+      if (mounted) setState(() => _opening = false);
+    }
   }
 
   @override
@@ -186,7 +301,7 @@ class _BibleWelcomeScreenState extends State<BibleWelcomeScreen> {
           ),
           const SizedBox(height: 18),
           FilledButton.icon(
-            onPressed: () => _choose(i),
+            onPressed: _opening ? null : () => _choose(i),
             icon: const Icon(Icons.menu_book, size: 18),
             label: const Text('Отвори'),
             style: FilledButton.styleFrom(
@@ -208,7 +323,7 @@ class _BibleWelcomeScreenState extends State<BibleWelcomeScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
-        onTap: () => setState(() => _dontShowAgain = !_dontShowAgain),
+        onTap: () => _setDontShow(!_dontShowAgain),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -220,8 +335,7 @@ class _BibleWelcomeScreenState extends State<BibleWelcomeScreen> {
                 height: 22,
                 child: Checkbox(
                   value: _dontShowAgain,
-                  onChanged: (v) =>
-                      setState(() => _dontShowAgain = v ?? false),
+                  onChanged: (v) => _setDontShow(v ?? false),
                   side: const BorderSide(
                       color: AppColors.textSecondary, width: 1.4),
                   checkColor: Colors.white,

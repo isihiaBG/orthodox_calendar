@@ -130,7 +130,19 @@ class BibleContents extends StatefulWidget {
   /// настройките — остава Новият завет, най-четеният.
   final int initialTab;
 
-  const BibleContents({super.key, this.initialTab = 0});
+  /// Да НЕ пали системната лента при излизане.
+  ///
+  /// ⚠ Точно като [BookReader.keepImmersiveOnExit] и по същата причина: щом
+  /// оттук се излиза към екран, който сам стои без лента (въвеждащите корици),
+  /// паленето тук е само едно премигване — следващият я гаси веднага.
+  /// Подава се `true` САМО когато сме дошли от кориците.
+  final bool keepImmersiveOnExit;
+
+  const BibleContents({
+    super.key,
+    this.initialTab = 0,
+    this.keepImmersiveOnExit = false,
+  });
 
   @override
   State<BibleContents> createState() => _BibleContentsState();
@@ -152,9 +164,6 @@ class _BibleContentsState extends State<BibleContents>
   /// Кои глави РЕАЛНО ги има за показвания превод. Клетка без текст зад себе
   /// си стои приглушена и не се натиска — по-добре, отколкото да отвори
   /// празен екран.
-  Set<int> _available = const {};
-  String? _availableFor;
-
   /// Наличните псалми. ⚠ ОТДЕЛНО поле, а не общото [_available].
   ///
   /// Табът „Псалтир" показва решетката си винаги, без да минава през списък,
@@ -228,7 +237,9 @@ class _BibleContentsState extends State<BibleContents>
 
   @override
   void dispose() {
-    SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    if (!widget.keepImmersiveOnExit) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+    }
     for (final c in _scrollers.values) {
       c.dispose();
     }
@@ -315,16 +326,10 @@ class _BibleContentsState extends State<BibleContents>
       }
     });
 
-    if (tab != 2) {
-      BibleDb.availableChapters(book, BibleLanguages.value.activeCode)
-          .then((have) {
-        if (!mounted) return;
-        setState(() {
-          _available = have;
-          _availableFor = BibleLanguages.value.activeCode;
-        });
-      });
-    }
+    // ⚠ Дотук тук се питаше кои глави ги има за активния превод, за да се
+    // сивеят останалите. Клетките вече са ВИНАГИ живи (виж `_chapterGrid`),
+    // тъй че заявката отпадна заедно със сивото — пътьом спестява по едно
+    // четене при всяко отваряне на книга.
 
     WidgetsBinding.instance
         .addPostFrameCallback((_) => unawaited(_revealAnchor(tab, 0)));
@@ -469,14 +474,8 @@ class _BibleContentsState extends State<BibleContents>
       setState(() => _openBook = null);
       return;
     }
-    final lang = BibleLanguages.value.activeCode;
-    final have = await BibleDb.availableChapters(book.code, lang);
     if (!mounted) return;
-    setState(() {
-      _openBook = book.code;
-      _available = have;
-      _availableFor = lang;
-    });
+    setState(() => _openBook = book.code);
   }
 
   @override
@@ -939,8 +938,6 @@ class _BibleContentsState extends State<BibleContents>
   /// легнало положение и таблет дават повече колони сами.
   Widget _chapterGrid(BibleBook book,
       {Set<int>? available, bool? known, List<int>? numbers}) {
-    final have = available ?? _available;
-    final isKnown = known ?? (_availableFor == BibleLanguages.value.activeCode);
     final cells = numbers ?? [for (var c = 1; c <= book.chapters; c++) c];
 
     // ⚠ Отстъпът е СЪЩИЯТ като на реда с книгата (16), не 12, и сметката
@@ -965,10 +962,22 @@ class _BibleContentsState extends State<BibleContents>
         runSpacing: _kCellGap,
         children: [
           for (final ch in cells)
-            _chapterCell(book, ch, side,
-                // Докато не знаем какво има за този превод, всички клетки са
-                // живи — по-добре, отколкото всички да са сиви.
-                enabled: !isKnown || have.contains(ch)),
+            // ⚠ ВСИЧКИ клетки са живи, независимо какво носи избраният превод.
+            //
+            // Дотук главите извън обхвата му се сивееха и не се отваряха. Това
+            // е грешно на две нива. Първо, сивото не КАЗВА нищо: човек го чете
+            // като „повредено" или „несвалено", а истината е друга — този
+            // превод просто не включва тази книга (ивритът няма Нов завет,
+            // гръцкият Нов завет няма Стар и т.н.).
+            //
+            // Второ и по-важно: показваните преводи са ДВА. При двойка
+            // „български + иврит" и отворен Нов завет българският го ИМА —
+            // забраната пречеше да се стигне до текст, който е налице.
+            //
+            // Сега главата се отваря винаги, а липсата се обяснява ТАМ, в
+            // колоната на превода, който я няма (виж `_coverageNote` в
+            // bible_reader.dart).
+            _chapterCell(book, ch, side, enabled: true),
         ],
       ),
     );

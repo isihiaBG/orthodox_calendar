@@ -155,3 +155,79 @@ Route<T> bookOpenRoute<T>(Widget page) {
     },
   );
 }
+
+/// Летящата корица, която САМА си кара движението.
+///
+/// Другият вид ([CoverLaunch]) приема двата хода отвън и разчита екранът, от
+/// който тръгва, да ги кара. Това върши работа, когато той остава в стека —
+/// библиотеката и въвеждащият екран на „Библия" правят `push` и оцеляват.
+///
+/// ⚠ НЕ ВЪРШИ работа, когато екранът се ЗАТВАРЯ по средата на прехода —
+/// какъвто е изборът на календар: той прави `pop` и се разрушава, а
+/// контролерите са негови. Затова тук те живеят в самия слой.
+///
+/// Страничната печалба е, че тук `await` върху анимацията Е безопасен: слоят
+/// стои в `rootOverlay`, тоест НАД всички маршрути, и никой не го покрива —
+/// значи тикерът му не спира. Точно това е капанът в другия вид (виж
+/// бележката при `_reveal.forward` в library_screen.dart).
+class SelfDrivenCoverLaunch extends StatefulWidget {
+  final Rect from;
+  final ImageProvider cover;
+
+  /// Пелената е плътна — тук е мигът да се смени екранът отдолу.
+  final VoidCallback onCovered;
+
+  /// Всичко свърши — слоят трябва да се махне.
+  final VoidCallback onDone;
+
+  const SelfDrivenCoverLaunch({
+    super.key,
+    required this.from,
+    required this.cover,
+    required this.onCovered,
+    required this.onDone,
+  });
+
+  @override
+  State<SelfDrivenCoverLaunch> createState() => _SelfDrivenCoverLaunchState();
+}
+
+class _SelfDrivenCoverLaunchState extends State<SelfDrivenCoverLaunch>
+    with TickerProviderStateMixin {
+  late final AnimationController _launch =
+      AnimationController(vsync: this, duration: kCoverLaunchDuration);
+  late final AnimationController _reveal =
+      AnimationController(vsync: this, duration: kPageArriveDuration);
+
+  @override
+  void initState() {
+    super.initState();
+    _run();
+  }
+
+  Future<void> _run() async {
+    await _launch.forward();
+    if (!mounted) return;
+    widget.onCovered();
+    // Един кадър, колкото екранът отдолу да се подреди ПОД пелената.
+    await Future<void>.delayed(const Duration(milliseconds: 32));
+    if (!mounted) return;
+    await _reveal.forward();
+    widget.onDone();
+  }
+
+  @override
+  void dispose() {
+    _launch.dispose();
+    _reveal.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CoverLaunch(
+        from: widget.from,
+        cover: widget.cover,
+        animation: _launch,
+        reveal: _reveal,
+      );
+}

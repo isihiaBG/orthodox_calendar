@@ -22,7 +22,9 @@
 import 'package:flutter/material.dart';
 
 import 'app_settings.dart';
+import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'book_open_transition.dart';
 import 'cover_flow.dart';
 import 'cover_picker.dart';
 
@@ -89,6 +91,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
   late int _index = _currentIndex();
 
   bool _dontShowAgain = false;
+  bool _opening = false;
 
   int _currentIndex() {
     final i = kCalendarStyleOptions.indexWhere((s) =>
@@ -105,7 +108,8 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     }
   }
 
-  void _choose(int i) {
+  /// Прилага избора — без анимация, само настройките.
+  void _apply(int i) {
     final s = kCalendarStyleOptions[i];
     AppSettings.isOldStyle = s.isOldStyle;
     AppSettings.oldStyleFirst = s.oldStyleFirst;
@@ -113,7 +117,52 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     // Записва се веднага, не с отлагане: оттук се излиза и екранът се
     // разрушава, тъй че отложен запис би могъл да не се случи.
     AppSettings.saveNow();
-    Navigator.of(context).pop(true);
+  }
+
+  /// Избраната корица политва към човека, пелената почернява, а изпод нея се
+  /// открива календарът — същото движение, с което се отварят том в
+  /// „Месецослов" и дял в „Библия".
+  ///
+  /// ⚠ ТУК механизмът е ДРУГ, макар движението да е същото. Онези два екрана
+  /// правят `push` и остават в стека, тъй че могат сами да карат хода. Този
+  /// прави `pop` и се РАЗРУШАВА по средата — негови контролери не биха
+  /// доживели вдигането на пелената. Затова слоят е самоуправляващ се
+  /// ([SelfDrivenCoverLaunch]): живее в `rootOverlay`, кара се сам и сменя
+  /// екрана отдолу в мига, в който пелената е плътна.
+  void _choose(int i) {
+    if (_opening) return;
+    setState(() => _opening = true);
+
+    final rect = _flow.currentState?.centerCoverRect();
+    if (rect == null) {
+      // Без геометрия няма какво да лети — прилагаме направо, вместо да
+      // оставим човека пред екран, който не отговаря.
+      _apply(i);
+      Navigator.of(context).pop(true);
+      return;
+    }
+
+    // ⚠ И двете се взимат ПРЕДИ анимацията: подир `pop` този контекст вече
+    // не е валиден, а слоят трябва да се махне точно тогава.
+    final nav = Navigator.of(context);
+    final overlay = Overlay.of(context, rootOverlay: true);
+
+    OverlayEntry? entry;
+    entry = OverlayEntry(
+      builder: (_) => SelfDrivenCoverLaunch(
+        from: rect,
+        cover: AssetImage(kCalendarStyleOptions[i].cover),
+        onCovered: () {
+          _apply(i);
+          nav.pop(true);
+        },
+        onDone: () {
+          entry?.remove();
+          entry = null;
+        },
+      ),
+    );
+    overlay.insert(entry!);
   }
 
   @override
@@ -125,6 +174,10 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
       onIndexChanged: (i) => setState(() => _index = i),
       onOpen: _choose,
       flowKey: _flow,
+      // ⚠ Хамбургер вместо ✕ — по-спокойно е за окото и е същото копче,
+      // каквото стои във всяка друга секция. Екранът е стартов, но НЕ е
+      // единственият: той е върху календара, тъй че менюто има къде да води.
+      drawer: const AppDrawer(),
       infoBuilder: (_, i) => _info(i),
       landscapeLabel: (i) => kCalendarStyleOptions[i].name,
       extra: _checkbox(),
@@ -175,13 +228,30 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
     );
   }
 
-  /// „Не показвай повече" — само отбелязва желанието; записва се заедно с
-  /// избора, за да няма състояние „изключен екран без избран стил".
+  /// Тикването се ЗАПИСВА ВЕДНАГА.
+  ///
+  /// ⚠ Дотук се записваше само заедно с избора на стил, с довода „да няма
+  /// състояние «изключен екран без избран стил»". Доводът не издържа: стил
+  /// ВИНАГИ има — или запазен, или подразбиращият се, — тъй че такова
+  /// състояние не съществува. Затова пък се губеше нещо истинско: човек
+  /// тиква чекбокса, излиза през менюто (или ✕) без да избира, и желанието
+  /// му изчезва мълчаливо.
+  ///
+  /// ⚠ Полярността е ОБРАТНА: `_dontShowAgain == true` значи
+  /// `AppSettings.showWelcome == false`.
+  void _setDontShow(bool v) {
+    setState(() => _dontShowAgain = v);
+    AppSettings.showWelcome = !v;
+    // Веднага на диска: оттук се излиза и екранът се разрушава, тъй че
+    // отложен запис може и да не се случи.
+    AppSettings.saveNow();
+  }
+
   Widget _checkbox() {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
       child: InkWell(
-        onTap: () => setState(() => _dontShowAgain = !_dontShowAgain),
+        onTap: () => _setDontShow(!_dontShowAgain),
         borderRadius: BorderRadius.circular(8),
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -193,8 +263,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> {
                 height: 22,
                 child: Checkbox(
                   value: _dontShowAgain,
-                  onChanged: (v) =>
-                      setState(() => _dontShowAgain = v ?? false),
+                  onChanged: (v) => _setDontShow(v ?? false),
                   side: const BorderSide(
                       color: AppColors.textSecondary, width: 1.4),
                   checkColor: Colors.white,

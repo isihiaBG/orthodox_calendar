@@ -55,28 +55,50 @@ Future<void> _openBible(BuildContext context) async {
   await BibleWelcome.loadOnce();
   await BibleLastPart.loadOnce();
 
-  var tab = 0;
+  // ⚠ Въвеждащият екран отваря съдържанието САМ — заради прехода с летящата
+  // корица, който изисква push от екрана, на който тя стои (виж `_choose` в
+  // bible_welcome_screen.dart). Затова тук няма какво да се чака: подир него
+  // не следва нищо, а „назад" без избор просто се връща в менюто.
   if (BibleWelcome.value) {
-    final picked = await nav.push<int>(
+    await nav.push(
       MaterialPageRoute(builder: (_) => const BibleWelcomeScreen()),
     );
-    // Върнал се е назад, без да избере — тогава и съдържанието не се отваря.
-    if (picked == null) return;
-    tab = picked;
+    return;
   }
-  await nav.push(
-    MaterialPageRoute(builder: (_) => BibleContents(initialTab: tab)),
-  );
+
+  // Изключен екран — влиза се направо, но пак на запомнената книга.
+  await nav.push(MaterialPageRoute(
+    builder: (_) => BibleContents(initialTab: bibleTabForLastPart()),
+  ));
 }
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
 
+  /// Навигаторът, взет ДОКАТО контекстът още е валиден.
+  ///
+  /// ⚠ ЗАДЪЛЖИТЕЛНО преди `pop`-а на менюто. Затварянето му разрушава реда, от
+  /// който идва `context`; всяко следващо `Navigator.of(context)` работи върху
+  /// умрял елемент и мълчи. Оттам идваше бъг, който изглеждаше необясним:
+  /// четирите справочни секции („Празници", „Дни за помени", „Пости",
+  /// „Справочник") не се отваряха от менюто, ако то е било вдигнато от
+  /// съдържанието на „Библия" или от кориците на „Месецослов" — а от календара
+  /// работеха.
+  ///
+  /// Разликата е в ДЪЛБОЧИНАТА на стека: от календара менюто стои на първия
+  /// маршрут и `popUntil(isFirst)` няма какво да маха, тъй че оцеляването на
+  /// контекста е без значение. Навътре има какво — и тогава личи.
+  /// Оттам и „понякога": зависи откъде е отворено менюто, не от секцията.
+  ///
+  /// `NavigatorState` живее, докато живее приложението — затова е безопасен.
+  NavigatorState _navigatorOf(BuildContext context) => Navigator.of(context);
+
   /// Затваря менюто и се връща до календара (първия екран в стека), ако в
   /// момента сме навътре в някой вторичен екран.
   void _backToCalendar(BuildContext context) {
-    Navigator.pop(context); // менюто
-    Navigator.of(context).popUntil((route) => route.isFirst);
+    final navigator = _navigatorOf(context);
+    navigator.pop(); // менюто
+    navigator.popUntil((route) => route.isFirst);
   }
 
   /// Затваря менюто, връща се до календара и оттам отваря новия екран —
@@ -84,8 +106,8 @@ class AppDrawer extends StatelessWidget {
   /// Future-а на push-а, за да може извикващият да реагира на затварянето
   /// на новия екран (виж употребата при "Настройки").
   Future<void> _openScreen(BuildContext context, WidgetBuilder builder) {
-    Navigator.pop(context); // менюто
-    final navigator = Navigator.of(context);
+    final navigator = _navigatorOf(context);
+    navigator.pop(); // менюто
     navigator.popUntil((route) => route.isFirst);
     return navigator.push(MaterialPageRoute(builder: builder));
   }
@@ -93,8 +115,9 @@ class AppDrawer extends StatelessWidget {
   /// Справочните секции — само затваря менюто и оставя ReferencePager да
   /// реши дали да прелисти (вече е отворен) или да бутне нов екран.
   void _openSection(BuildContext context, ReferenceSection section) {
-    Navigator.pop(context); // менюто
-    ReferencePager.open(context, section);
+    final navigator = _navigatorOf(context);
+    navigator.pop(); // менюто
+    ReferencePager.open(navigator, section);
   }
 
   @override
