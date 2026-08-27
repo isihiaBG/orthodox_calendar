@@ -43,6 +43,7 @@ import 'round_icon_button.dart';
 import 'drop_cap.dart';
 import 'drop_cap_scale.dart';
 import 'settings_screen.dart';
+import 'bible_link.dart';
 import 'external_link.dart';
 import 'text_line_locator.dart';
 import 'reader_font_size.dart';
@@ -2118,6 +2119,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
       return;
     }
+
+    // Библейска препратка — отваря се ВЪТРЕ в приложението (bible_link.dart).
+    // Не поеме ли (непозната книга, повредена препратка), пада към външната.
+    if (mounted && await openBibleLink(context, url)) return;
 
     // Външен линк (https://…) — с питане и с разкодиран адрес.
     // Виж external_link.dart: `&amp;` от XHTML стигаше до браузъра както си

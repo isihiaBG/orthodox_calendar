@@ -21,6 +21,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'bible_link.dart';
 import 'external_link.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
@@ -99,6 +100,13 @@ class _MiniReaderState extends State<MiniReader> {
       return;
     }
 
+    // Библейска препратка — отваря се ВЪТРЕ в приложението (bible_link.dart).
+    // Не поеме ли (непозната книга, повредена препратка), пада към външната.
+    if (mounted && await openBibleLink(context, url)) return;
+
+    // Външен линк (https://…) — с питане и с разкодиран адрес.
+    // Виж external_link.dart: `&amp;` от XHTML стигаше до браузъра както си
+    // е и azbyka.ru отваряше Писанието само на църковнославянски.
     if (mounted) await openExternal(context, url);
   }
 

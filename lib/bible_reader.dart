@@ -33,6 +33,7 @@ import 'package:flutter/rendering.dart';
 import 'app_theme.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
+import 'bible_ref.dart';
 import 'bible_settings.dart';
 import 'package:flutter/services.dart';
 
@@ -117,6 +118,28 @@ const Map<String, List<String>> _kFontFamilies = {
   'charis': [kBodyFamily],
 };
 
+/// Един пасаж от препратка, с вече прочетените му стихове.
+///
+/// ⚠ Групата е по ГЛАВА, не по диапазон — „Мк.9:43,45" е една група с два
+/// диапазона. Така „Чети в контекст" сочи еднозначно към една глава.
+class _QuoteGroup {
+  final BiblePassage passage;
+  final BibleBook? book;
+
+  /// Само поисканите редове, по реда им в главата.
+  final List<BibleRow> rows;
+
+  const _QuoteGroup({
+    required this.passage,
+    required this.book,
+    required this.rows,
+  });
+
+  /// „Мат. 5:3-12" — съкратеното име на книгата плюс мястото.
+  String get label =>
+      '${book?.abbr ?? passage.book} ${passage.whereLabel}';
+}
+
 class BibleReader extends StatefulWidget {
   final String bookCode;
   final int chapter;
@@ -124,12 +147,46 @@ class BibleReader extends StatefulWidget {
   /// Стих, на който да се отвори (от търсене, от отметка, от дневно четиво).
   final String? initialVerse;
 
+  /// Местата в ТАЗИ глава, посочени от препратка — рисуват се с фон.
+  ///
+  /// Пълни се само при „Чети в контекст": главата се показва цяла, но
+  /// поисканото личи. `null` е обикновено четене.
+  final BiblePassage? highlight;
+
+  /// Режим „цитати" — вместо главата се показват САМО поисканите стихове,
+  /// групирани по пасаж, всеки със свой бутон „Чети в контекст".
+  ///
+  /// ⚠ Достъпен САМО през препратка от четиво, никога от съдържанието.
+  /// Съдържанието води към ГЛАВА; цитатът е нещо друго — извадка, поискана
+  /// от текст, който човек чете другаде.
+  final BibleRef? quotes;
+
   const BibleReader({
     super.key,
     required this.bookCode,
     required this.chapter,
     this.initialVerse,
+    this.highlight,
+    this.quotes,
   });
+
+  /// Отваря препратка от житие: списък с цитати, ако местата са няколко или
+  /// частични; направо главата, ако е поискана цялата.
+  ///
+  /// ⚠ Цяла глава („Лк.15") НЕ минава през списъка — той би показал буквално
+  /// същото, което и контекстът, и човек би тапвал бутон за нищо. Такива са
+  /// 303 от 6369-те препратки в проекта.
+  static Widget forRef(BibleRef ref) {
+    final first = ref.passages.first;
+    if (ref.isWholeChapterOnly) {
+      return BibleReader(bookCode: first.book, chapter: first.chapter);
+    }
+    return BibleReader(
+      bookCode: first.book,
+      chapter: first.chapter,
+      quotes: ref,
+    );
+  }
 
   @override
   State<BibleReader> createState() => _BibleReaderState();
@@ -139,6 +196,22 @@ class _BibleReaderState extends State<BibleReader>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  /// Групите в режим „цитати". Празно в обикновено четене.
+  List<_QuoteGroup> _groups = const [];
+
+  /// Двойката, която РЕАЛНО се показва.
+  ///
+  /// ⚠ Може да се разминава с избраната: препратка от житие сочи място, което
+  /// текущият превод понякога няма изобщо (четеш на гръцки Нов завет, а
+  /// препратката е към Битие). Човек не е избирал това място — довела го е
+  /// връзка, — тъй че по-добре да види цитата на българския и
+  /// църковнославянския, отколкото празен екран. При избор ОТ СЪДЪРЖАНИЕТО
+  /// падане няма: там изборът е негов и „не е свалена" е честният отговор.
+  BibleLanguagePair? _shownPair;
+
+  /// Показва ли се нещо различно от избраното — за тихата бележка отгоре.
+  bool _pairFellBack = false;
 
   /// Докъде е плъзнат преводът: 0 = първият от двойката, 1 = вторият.
   ///
@@ -273,6 +346,40 @@ class _BibleReaderState extends State<BibleReader>
 
   // ── Зареждане ────────────────────────────────────────────────────────
 
+  /// Двойката, с която РЕАЛНО е зареден екранът.
+  ///
+  /// ⚠ Всичко, което рисува, минава оттук, а не направо през
+  /// `BibleLanguages.value` — инак при падане (виж [_shownPair]) текстът идва
+  /// от единия чифт преводи, а лентата отгоре пише другия.
+  BibleLanguagePair get _pair => _shownPair ?? BibleLanguages.value;
+
+  /// Дошли ли сме тук по препратка от четиво, а не от съдържанието.
+  bool get _fromLink => widget.quotes != null || widget.highlight != null;
+
+  /// Чете стиховете на всеки пасаж от препратката.
+  ///
+  /// ⚠ Всяка глава се чете ОТДЕЛНО и се пресява — няма как да се вземат
+  /// „стиховете" накуп, защото пасажите може да са в различни глави и дори в
+  /// различни книги.
+  Future<List<_QuoteGroup>> _loadQuoteGroups(BibleLanguagePair pair) async {
+    final out = <_QuoteGroup>[];
+    for (final p in widget.quotes!.passages) {
+      final rows = await BibleDb.alignChapter(p.book, p.chapter, pair.both);
+      final picked = p.isWholeChapter
+          ? rows
+          : rows.where((r) {
+              final n = int.tryParse(r.verse);
+              return n != null && p.marks(n);
+            }).toList();
+      out.add(_QuoteGroup(
+        passage: p,
+        book: await BibleDb.book(p.book),
+        rows: picked,
+      ));
+    }
+    return out;
+  }
+
   Future<void> _load() async {
     try {
       await ReaderTheme.loadOnce();
@@ -286,12 +393,27 @@ class _BibleReaderState extends State<BibleReader>
       final book = await BibleDb.book(widget.bookCode);
       if (book == null) throw StateError('Няма книга „${widget.bookCode}"');
 
-      final pair = BibleLanguages.value;
-      final rows = await BibleDb.alignChapter(
-        book.code,
-        widget.chapter,
-        pair.both,
-      );
+      var pair = BibleLanguages.value;
+      var fellBack = false;
+
+      // ⚠ Падането важи САМО когато сме дошли по ПРЕПРАТКА. Виж [_shownPair]:
+      // при избор от съдържанието човек сам е избрал превода и празният
+      // резултат е верният отговор, а тиха подмяна би го объркала.
+      if (_fromLink) {
+        final probe = await BibleDb.alignChapter(
+            widget.bookCode, widget.chapter, pair.both);
+        if (probe.isEmpty) {
+          pair = const BibleLanguagePair(first: 'bg', second: 'utfcs');
+          fellBack = true;
+        }
+      }
+
+      final rows = widget.quotes != null
+          ? const <BibleRow>[]
+          : await BibleDb.alignChapter(book.code, widget.chapter, pair.both);
+      final groups = widget.quotes == null
+          ? const <_QuoteGroup>[]
+          : await _loadQuoteGroups(pair);
       final titles = await _titlesForBoth(book.code, pair);
       final zachala = await BibleDb.zachala(book.code, widget.chapter);
 
@@ -301,13 +423,20 @@ class _BibleReaderState extends State<BibleReader>
         _allBooks = allBooks;
         _langs = langs;
         _rows = rows;
+        _groups = groups;
+        _shownPair = pair;
+        _pairFellBack = fellBack;
         _titles = titles;
         _zachala = zachala;
         _loadedFirst = pair.first;
         _loadedSecond = pair.second;
         _slide.value = pair.active.toDouble();
         _loading = false;
-        _error = rows.isEmpty ? 'Тази глава още не е свалена.' : null;
+        _error = widget.quotes != null
+            ? (groups.every((g) => g.rows.isEmpty)
+                ? 'Тези стихове още не са свалени.'
+                : null)
+            : (rows.isEmpty ? 'Тази глава още не е свалена.' : null);
       });
 
       if (widget.initialVerse != null) {
@@ -421,7 +550,7 @@ class _BibleReaderState extends State<BibleReader>
     String? best;
     double bestReveal = double.negativeInfinity;
     for (final row in _rows) {
-      final ctx = _rowKeys[row.verse]?.currentContext;
+      final ctx = _keyFor(row.verse).currentContext;
       if (ctx == null) continue;
       final box = ctx.findRenderObject() as RenderBox?;
       if (box == null || !box.hasSize) continue;
@@ -480,7 +609,7 @@ class _BibleReaderState extends State<BibleReader>
   /// новата позиция — така грешката се натрупва. Същият урок е записан в
   /// CLAUDE.md за другите два четеца.
   void _jumpToVerse(String verse, {bool animate = true}) {
-    final ctx = _rowKeys[verse]?.currentContext;
+    final ctx = _keyFor(verse).currentContext;
     if (ctx == null || !_scroll.hasClients) return;
     final box = ctx.findRenderObject() as RenderBox?;
     if (box == null) return;
@@ -622,7 +751,7 @@ class _BibleReaderState extends State<BibleReader>
   Widget _chapterSpine() {
     final book = _book;
     if (book == null) return const SizedBox.shrink();
-    final label = '${book.abbr} ${widget.chapter}';
+    final label = _headerLabel(book);
 
     final mq = MediaQuery.of(context);
     final pad = mq.padding;
@@ -750,7 +879,7 @@ class _BibleReaderState extends State<BibleReader>
       );
     }
 
-    final pair = BibleLanguages.value;
+    final pair = _pair;
     final content = Theme(
       data: Theme.of(
         context,
@@ -814,10 +943,16 @@ class _BibleReaderState extends State<BibleReader>
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        landscape
-                            ? _parallelColumns(palette, pair)
-                            : _slidingColumn(palette, pair, _textWidth),
-                        _footer(palette),
+                        if (_pairFellBack) _fallbackNote(palette),
+                        ...(_groups.isNotEmpty
+                            ? _quoteBodies(palette, pair, landscape)
+                            : [
+                                landscape
+                                    ? _parallelColumns(palette, pair)
+                                    : _slidingColumn(
+                                        palette, pair, _textWidth),
+                                _footer(palette),
+                              ]),
                       ],
                     );
                   },
@@ -887,6 +1022,124 @@ class _BibleReaderState extends State<BibleReader>
         });
   }
 
+  /// Тялото в режим „цитати": пасажите един под друг, всеки със заглавие и
+  /// свой бутон за контекст.
+  ///
+  /// ⚠ Заглавие има САМО когато пасажите са повече от един. При единствен
+  /// пасаж горе в лентата вече пише същото („Мат. 5:3-12") и повторението на
+  /// един екран изглежда като недоглеждане.
+  List<Widget> _quoteBodies(
+      ReaderPalette palette, BibleLanguagePair pair, bool landscape) {
+    final many = _groups.length > 1;
+    final out = <Widget>[];
+    for (var gi = 0; gi < _groups.length; gi++) {
+      final g = _groups[gi];
+      if (many) out.add(_quoteHeading(palette, g));
+      if (g.rows.isEmpty) {
+        out.add(Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Text('Тези стихове още не са свалени.',
+              style: TextStyle(color: palette.dim, fontSize: 15)),
+        ));
+      } else {
+        out.add(landscape
+            ? _parallelColumns(palette, pair,
+                rows: g.rows, chapter: g.passage.chapter)
+            : _slidingColumn(palette, pair, _textWidth,
+                rows: g.rows, chapter: g.passage.chapter));
+      }
+      out.add(_contextButton(palette, g, last: gi == _groups.length - 1));
+    }
+    return out;
+  }
+
+  /// Каквото да пише горе — в лентата и в ивицата до камерата.
+  ///
+  /// ⚠ В режим „цитати" това НЕ е глава, а самата препратка. „Мат. 5" би
+  /// било подвеждащо: на екрана не стои глава 5, а извадка от нея. При
+  /// няколко пасажа се изброяват, докато се съберат, а останалите се сбиват
+  /// в „+2" — заглавието е за ориентир, не за препис на препратката.
+  String _headerLabel(BibleBook book) {
+    if (_groups.isEmpty) return '${book.abbr} ${widget.chapter}';
+    if (_groups.length == 1) {
+      return '${book.abbr} ${_groups.first.passage.whereLabel}';
+    }
+    final shown = _groups.take(2).map((g) => g.passage.whereLabel).join(', ');
+    final rest = _groups.length - 2;
+    return '${book.abbr} $shown${rest > 0 ? ' +$rest' : ''}';
+  }
+
+  /// Тиха бележка, когато показваме друг превод от избрания.
+  ///
+  /// ⚠ Казва се ВЕДНЪЖ и приглушено. Човек е тапнал препратка в житие; той не
+  /// е искал да смени езика и не бива да го гони съобщение — трябва само да
+  /// разбере защо текстът пред него не е на онова, което четеше.
+  Widget _fallbackNote(ReaderPalette palette) => Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Text(
+          'Избраният превод няма това място. Показано на български и '
+          'църковнославянски.',
+          style: TextStyle(
+            fontSize: 13,
+            height: 1.35,
+            color: palette.dim,
+            fontStyle: FontStyle.italic,
+          ),
+        ),
+      );
+
+  /// Съкратеният запис над пасажа — „Мат. 5:3-12".
+  Widget _quoteHeading(ReaderPalette palette, _QuoteGroup g) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(
+          g.label,
+          style: TextStyle(
+            fontFamily: kTitleFamily,
+            fontFamilyFallback: kTitleFallback,
+            fontSize: BibleFontSize.value * 0.92,
+            fontWeight: FontWeight.w600,
+            color: palette.dim,
+          ),
+        ),
+      );
+
+  /// „Чети в контекст" — отваря ГЛАВАТА на този пасаж с маркирани места.
+  ///
+  /// ⚠ Бутонът е на всяка ГРУПА, не на екрана: „Йн.3:1-21, 7:50-52" са две
+  /// различни глави и един общ бутон не би знаел коя да отвори.
+  ///
+  /// Връщането оттам води обратно ТУК, в списъка — човек може да обиколи
+  /// пасажите един по един, без да се губи. За това не е нужно нищо особено:
+  /// това е обикновен `push`, тъй че системният „назад" сам връща където
+  /// трябва.
+  Widget _contextButton(ReaderPalette palette, _QuoteGroup g,
+          {required bool last}) =>
+      Padding(
+        padding: EdgeInsets.only(top: 6, bottom: last ? 8 : 28),
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            style: TextButton.styleFrom(
+              foregroundColor: palette.dim,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              visualDensity: VisualDensity.compact,
+            ),
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => BibleReader(
+                  bookCode: g.passage.book,
+                  chapter: g.passage.chapter,
+                  highlight: g.passage,
+                  initialVerse: g.rows.isEmpty ? null : g.rows.first.verse,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.menu_book_outlined, size: 17),
+            label: const Text('Чети в контекст', style: TextStyle(fontSize: 14)),
+          ),
+        ),
+      );
+
   /// Изправено: колонка с номерата, закована по X, и плъзгащи се преводи.
   ///
   /// ⚠ Номерът стои ИЗВЪН плъзгащото се. Той е един и същ за двата превода —
@@ -896,23 +1149,29 @@ class _BibleReaderState extends State<BibleReader>
   Widget _slidingColumn(
     ReaderPalette palette,
     BibleLanguagePair pair,
-    double textWidth,
-  ) {
+    double textWidth, {
+    List<BibleRow>? rows,
+    int? chapter,
+  }) {
+    final list = rows ?? _rows;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final row in _rows)
-          Container(
-            key: _keyFor(row.verse),
-            padding: const EdgeInsets.only(bottom: _kVerseGap),
-            child: Row(
+        for (var i = 0; i < list.length; i++)
+          _rowShell(
+            palette,
+            i,
+            list,
+            chapter: chapter,
+            Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(width: _numberWidth, child: _number(palette, row)),
+                SizedBox(
+                    width: _numberWidth, child: _number(palette, list[i])),
                 const SizedBox(width: _kNumberGap),
                 SizedBox(
                   width: textWidth,
-                  child: _slidingPair(palette, row, pair, textWidth),
+                  child: _slidingPair(palette, list[i], pair, textWidth),
                 ),
               ],
             ),
@@ -982,21 +1241,30 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Тук подравняването иска `IntrinsicHeight`, за да се разтегне и
   /// ЧЕРТАТА по цялата височина на реда. В изправено положение черта няма и
   /// стекът се справя сам — виж `_slidingPair`.
-  Widget _parallelColumns(ReaderPalette palette, BibleLanguagePair pair) {
+  Widget _parallelColumns(
+    ReaderPalette palette,
+    BibleLanguagePair pair, {
+    List<BibleRow>? rows,
+    int? chapter,
+  }) {
+    final list = rows ?? _rows;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final row in _rows)
-          Container(
-            key: _keyFor(row.verse),
-            padding: const EdgeInsets.only(bottom: _kVerseGap),
-            child: IntrinsicHeight(
+        for (var i = 0; i < list.length; i++)
+          _rowShell(
+            palette,
+            i,
+            list,
+            chapter: chapter,
+            IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(width: _numberWidth, child: _number(palette, row)),
+                  SizedBox(
+                      width: _numberWidth, child: _number(palette, list[i])),
                   const SizedBox(width: _kNumberGap),
-                  Expanded(child: _verseBody(palette, row, pair.first)),
+                  Expanded(child: _verseBody(palette, list[i], pair.first)),
                   // Чертата по средата — тънка и приглушена: тя разделя, а не
                   // рисува таблица. Границите между РЕДОВЕТЕ нарочно ги няма.
                   Container(
@@ -1004,12 +1272,65 @@ class _BibleReaderState extends State<BibleReader>
                     margin: const EdgeInsets.symmetric(horizontal: 12),
                     color: palette.dim.withValues(alpha: 0.25),
                   ),
-                  Expanded(child: _verseBody(palette, row, pair.second)),
+                  Expanded(child: _verseBody(palette, list[i], pair.second)),
                 ],
               ),
             ),
           ),
       ],
+    );
+  }
+
+  /// Маркиран ли е този стих от препратката, довела човека тук.
+  ///
+  /// ⚠ `row.verse` е ТЕКСТ, не число — при надписание на псалом е „0", а
+  /// понякога носи буква. Затова се минава през `tryParse`, а не през
+  /// `int.parse`: нечисловият ред просто не е маркиран, вместо да гръмне
+  /// насред рисуването.
+  bool _isQuoted(BibleRow row) {
+    final p = widget.highlight;
+    if (p == null || p.isWholeChapter) return false;
+    final n = int.tryParse(row.verse);
+    return n != null && p.marks(n);
+  }
+
+  /// Кутията около един ред — тя носи фона, когато редът е част от цитата.
+  ///
+  /// ⚠ Празнината под стиха влиза ВЪТРЕ във фона само когато СЛЕДВАЩИЯТ ред
+  /// също е маркиран. Иначе диапазон от десет стиха би изглеждал като десет
+  /// отделни плочки със светли процепи помежду им, вместо като един цитат.
+  /// По същата причина ъглите се закръглят само на КРАИЩАТА на блока —
+  /// закръглени навсякъде, те правят същата стълба.
+  Widget _rowShell(
+    ReaderPalette palette,
+    int i,
+    List<BibleRow> rows,
+    Widget child, {
+    int? chapter,
+  }) {
+    final row = rows[i];
+    final key = _keyFor(row.verse, chapter);
+    if (!_isQuoted(row)) {
+      return Container(
+        key: key,
+        padding: const EdgeInsets.only(bottom: _kVerseGap),
+        child: child,
+      );
+    }
+    final prevMarked = i > 0 && _isQuoted(rows[i - 1]);
+    final nextMarked = i + 1 < rows.length && _isQuoted(rows[i + 1]);
+    return Container(
+      key: key,
+      padding: EdgeInsets.only(bottom: nextMarked ? _kVerseGap : 0),
+      margin: EdgeInsets.only(bottom: nextMarked ? 0 : _kVerseGap),
+      decoration: BoxDecoration(
+        color: palette.quote,
+        borderRadius: BorderRadius.vertical(
+          top: Radius.circular(prevMarked ? 0 : 4),
+          bottom: Radius.circular(nextMarked ? 0 : 4),
+        ),
+      ),
+      child: child,
     );
   }
 
@@ -1152,10 +1473,18 @@ class _BibleReaderState extends State<BibleReader>
   /// Дотук стоеше `OverflowBox`, за да може рядкото трицифрено число да
   /// изпълзи наляво извън тясна колонка. Отхвърлено — вътре в скрол той
   /// получава нулева височина и РЕДОВЕТЕ СЕ НАСЛАГВАТ един върху друг.
+  /// ⚠ Броят се и редовете на ГРУПИТЕ. В режим „цитати" `_rows` е празен, тъй
+  /// че само по него колонката оставаше широка колкото за две цифри — а
+  /// цитат от Псалтира спокойно стига до три и номерът се отрязваше.
   double get _numberWidth {
     var digits = 2;
     for (final r in _rows) {
       if (r.verse.length > digits) digits = r.verse.length;
+    }
+    for (final g in _groups) {
+      for (final r in g.rows) {
+        if (r.verse.length > digits) digits = r.verse.length;
+      }
     }
     return BibleFontSize.value * _kNumberWidthFactor * (digits / 2);
   }
@@ -1302,8 +1631,12 @@ class _BibleReaderState extends State<BibleReader>
     return (chain.first, chain.length > 1 ? chain.sublist(1) : null);
   }
 
-  GlobalKey _keyFor(String verse) =>
-      _rowKeys.putIfAbsent(verse, () => GlobalKey());
+  /// ⚠ Ключът носи и ГЛАВАТА. В режим „цитати" на екрана стоят стихове от
+  /// няколко глави и номерата им се повтарят (гл. 12 стих 3 и гл. 20 стих 3);
+  /// само по номер два widget-а биха получили един и същ `GlobalKey`, а това
+  /// е изключение по време на рисуване, не тиха грешка.
+  GlobalKey _keyFor(String verse, [int? chapter]) => _rowKeys.putIfAbsent(
+      '${chapter ?? widget.chapter}:$verse', () => GlobalKey());
 
   BibleLanguage? _languageOf(String code) {
     for (final l in _langs) {
@@ -1330,7 +1663,7 @@ class _BibleReaderState extends State<BibleReader>
   /// функционалност, която само тази секция има.
   Widget _toolbar(ReaderPalette palette, bool landscape) {
     final book = _book;
-    final pair = BibleLanguages.value;
+    final pair = _pair;
 
     final actions = readerToolbarActions(
       context: context,
@@ -1361,7 +1694,7 @@ class _BibleReaderState extends State<BibleReader>
     final title = _hasSpine
         ? const SizedBox.shrink()
         : Text(
-            book == null ? '' : '${book.abbr} ${widget.chapter}',
+            book == null ? '' : _headerLabel(book),
             // ⚠ СИСТЕМНИЯТ шрифт, не TamburinModern: лентата е управление,
             // не четиво, а Tamburin е за заглавия ВЪТРЕ в текста.
             style: const TextStyle(color: Colors.white, fontSize: 16),

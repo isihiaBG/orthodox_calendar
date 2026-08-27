@@ -40,6 +40,7 @@ import 'drop_cap.dart';
 import 'drop_cap_scale.dart';
 import 'settings_screen.dart';
 import 'epub_source.dart';
+import 'bible_link.dart';
 import 'external_link.dart';
 import 'lives_index.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
@@ -532,9 +533,12 @@ class _BookReaderState extends State<BookReader>
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
 
-    // Външните препратки (библейските към azbyka.ru) водят навън — с питане
-    // и с разкодиран адрес; виж external_link.dart защо и двете са нужни.
     if (url.startsWith('http')) {
+      // Библейската препратка се отваря ВЪТРЕ в приложението — целият текст
+      // на Писанието и без това пътува с него (bible_link.dart).
+      if (mounted && await openBibleLink(context, url)) return;
+      // Останалите външни („Отечник" и подобни) водят навън — с питане и с
+      // разкодиран адрес; виж external_link.dart защо и двете са нужни.
       if (mounted) await openExternal(context, url);
       return;
     }
