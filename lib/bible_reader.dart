@@ -33,6 +33,7 @@ import 'package:flutter/rendering.dart';
 import 'app_theme.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
+import 'bible_settings.dart';
 import 'package:flutter/services.dart';
 
 import 'reader_footer.dart';
@@ -171,12 +172,14 @@ class _BibleReaderState extends State<BibleReader>
   /// другият не.
   Map<String, Map<String, List<String>>> _titles = const {};
 
-  /// Богослужебните зачала, по превод и по стих: `_zachala[lang][verse]`.
+  /// Богослужебните зачала в главата: `стих → номер` („1", „125А").
   ///
-  /// Вадеха се от самото начало, но досега не се показваха никъде. Сега стоят
-  /// в началото на своя стих, в червено — както в печатните богослужебни
-  /// книги.
-  Map<String, Map<String, List<String>>> _zachala = const {};
+  /// ⚠ ЕДНА карта за цялата глава, БЕЗ разбивка по превод. Зачалото е
+  /// свойство на МЯСТОТО в Писанието, а не на езика, на който го четеш —
+  /// затова и се рисува еднакво във всяка колона. Обединяването на
+  /// източниците става в [BibleDb.zachala]; там е и описан бъгът, който
+  /// доведе до тази промяна.
+  Map<String, String> _zachala = const {};
 
   bool _loading = true;
   String? _error;
@@ -215,6 +218,12 @@ class _BibleReaderState extends State<BibleReader>
     // екрана се вижда като премигване — записано в CLAUDE.md.
     SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
     BibleLanguages.notifier.addListener(_onLanguageChanged);
+    // ⚠ Слушател, а не еднократно четене: настройката се мени от панела,
+    // който стои НАД четеца и НЕ го затваря, тъй че без него зачалата биха
+    // се появили/скрили чак при следващо отваряне на глава. Само
+    // прерисуване — текстът не се презарежда, защото зачалата вече не се
+    // намесват в него (виж [BibleDb.chapter]).
+    BibleZachala.notifier.addListener(_onZachalaChanged);
     _scroll.addListener(_releaseToolbarOnDrag);
     _load();
   }
@@ -223,6 +232,7 @@ class _BibleReaderState extends State<BibleReader>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     BibleLanguages.notifier.removeListener(_onLanguageChanged);
+    BibleZachala.notifier.removeListener(_onZachalaChanged);
     ReaderTheme.flush();
     ReaderFontSize.flush();
     BibleFontSize.flush();
@@ -230,6 +240,10 @@ class _BibleReaderState extends State<BibleReader>
     _scroll.removeListener(_releaseToolbarOnDrag);
     _scroll.dispose();
     super.dispose();
+  }
+
+  void _onZachalaChanged() {
+    if (mounted) setState(() {});
   }
 
   // ── Зареждане ────────────────────────────────────────────────────────
@@ -251,7 +265,7 @@ class _BibleReaderState extends State<BibleReader>
       final rows =
           await BibleDb.alignChapter(book.code, widget.chapter, pair.both);
       final titles = await _titlesForBoth(book.code, pair);
-      final zachala = await _zachalaForBoth(book.code, pair);
+      final zachala = await BibleDb.zachala(book.code, widget.chapter);
 
       if (!mounted) return;
       setState(() {
@@ -317,7 +331,7 @@ class _BibleReaderState extends State<BibleReader>
     final rows =
         await BibleDb.alignChapter(_book!.code, widget.chapter, pair.both);
     final titles = await _titlesForBoth(_book!.code, pair);
-    final zachala = await _zachalaForBoth(_book!.code, pair);
+    final zachala = await BibleDb.zachala(_book!.code, widget.chapter);
     if (!mounted) return;
     setState(() {
       _rows = rows;
@@ -328,16 +342,6 @@ class _BibleReaderState extends State<BibleReader>
     });
     _slide.value = pair.active.toDouble();
     _restorePending();
-  }
-
-  /// Зачалата за ДВАТА превода наведнъж.
-  Future<Map<String, Map<String, List<String>>>> _zachalaForBoth(
-      String book, BibleLanguagePair pair) async {
-    final out = <String, Map<String, List<String>>>{};
-    for (final lang in pair.both) {
-      out[lang] = await BibleDb.zachala(book, widget.chapter, lang);
-    }
-    return out;
   }
 
   /// Подзаглавията за ДВАТА превода наведнъж.
@@ -356,27 +360,46 @@ class _BibleReaderState extends State<BibleReader>
   ///
   /// Мери се по РЕАЛНАТА геометрия на построените редове, а не по оценка:
   /// цялата глава е в дървото, тъй че всеки ред има кутия.
+  /// ⚠ Мери се в ПРОСТРАНСТВОТО НА СКРОЛА, а не в глобални пиксели.
+  ///
+  /// Дотук тук стоеше „вземи глобалното Y на реда минус глобалното Y на
+  /// собствения widget". Вторият обаче е СКЕЛЕТЪТ, а скролируемата зона
+  /// започва по-надолу — под `SafeArea`. Тоест нулата беше горният ръб на
+  /// ЕКРАНА, не на изгледа, и всички разстояния излизаха с една лента на
+  /// състоянието по-малки.
+  ///
+  /// Оттам и странната несиметричност, по която бъгът се разпозна: в
+  /// ИЗПРАВЕНО горното поле е към 30 dp, тъй че се улавяше стихът с ЕДИН
+  /// по-нагоре; в ЛЕГНАЛО (потопен режим, изрезът е отстрани) полето е
+  /// почти нула и сметката излизаше вярна. Затова завъртането натам местеше
+  /// с един стих, а обратното — не, и при многократно въртене изместването
+  /// се трупаше.
+  ///
+  /// Сега величината е СЪЩАТА, с която [_jumpToVerse] връща позицията —
+  /// `getOffsetToReveal(box, 0.0)`, тоест „при кой офсет този ред застава
+  /// най-горе". Улавянето и връщането вече не могат да се разминат по
+  /// определение: при непроменена геометрия двете са една и съща стойност.
   String? _topmostVerse() {
     if (!_scroll.hasClients) return null;
-    final viewportBox = context.findRenderObject() as RenderBox?;
-    if (viewportBox == null) return null;
-    final top = viewportBox.localToGlobal(Offset.zero).dy;
+    final now = _scroll.offset;
 
     String? best;
-    double bestDy = double.negativeInfinity;
+    double bestReveal = double.negativeInfinity;
     for (final row in _rows) {
       final ctx = _rowKeys[row.verse]?.currentContext;
       if (ctx == null) continue;
       final box = ctx.findRenderObject() as RenderBox?;
       if (box == null || !box.hasSize) continue;
-      final dy = box.localToGlobal(Offset.zero).dy - top;
+      final reveal =
+          RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
       // Търси се последният ред, който още НЕ е излязъл над горния ръб —
       // тоест онзи, който човекът вижда пръв.
-      if (dy <= 1 && dy > bestDy) {
-        bestDy = dy;
-        best = row.verse;
-      }
-      if (dy > 1) {
+      if (reveal <= now + 1) {
+        if (reveal > bestReveal) {
+          bestReveal = reveal;
+          best = row.verse;
+        }
+      } else {
         best ??= row.verse;
         break;
       }
@@ -386,9 +409,26 @@ class _BibleReaderState extends State<BibleReader>
 
   /// Връща изгледа на запомнения стих. Изчаква кадър, за да е построена
   /// новата подредба.
+  ///
+  /// ⚠ ЛЕНТАТА СЕ ЗАКОВАВА ТУК, а не при всеки повикващ поотделно.
+  /// Защитата е нужна на всяко програмно връщане, тъй че мястото ѝ е при
+  /// самото връщане; държана при повикващите, тя се пише на три места и
+  /// рано или късно се забравя на четвъртото. Точно това се беше случило:
+  /// `_bumpFont` я имаше, смяната на превода и завъртането — не.
+  ///
+  /// ⚠ ЗАЩО ЛИЧЕШЕ САМО В НАЧАЛОТО НА ГЛАВАТА. `getOffsetToReveal(box, 0.0)`
+  /// подравнява реда с горния ръб на ИЗГЛЕДА, а лентата стои ВЪТРЕ в скрола,
+  /// над първия стих. За да излезе стих 1 най-горе, трябва да се скролне
+  /// надолу точно с нейната височина — а `floating` лента чете всяко
+  /// движение надолу като „скрий се", включително програмното. По-надолу в
+  /// текста лентата и без това вече е изпревъртяна, скокът е почти на място
+  /// и нищо не помръдва — оттам и усещането, че бъгът е само отгоре.
   void _restorePending() {
     final verse = _pendingAnchor;
     if (verse == null) return;
+    // Заковаването трябва да е в сила ПРЕДИ скока, тъй че минава през
+    // построяване; самият скок се отлага с кадър и заварва лентата закована.
+    if (!_toolbarPinned) setState(() => _toolbarPinned = true);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _jumpToVerse(verse, animate: false);
@@ -459,7 +499,8 @@ class _BibleReaderState extends State<BibleReader>
 
   void _bumpFont(double delta) {
     _pendingAnchor ??= _topmostVerse();
-    _toolbarPinned = true;
+    // ⚠ Заковаването на лентата вече НЕ Е тук — премести се в
+    // [_restorePending], където важи за всяко програмно връщане.
     setState(() => BibleFontSize.nudge(delta));
     _restorePending();
   }
@@ -479,24 +520,176 @@ class _BibleReaderState extends State<BibleReader>
       // скелета, ивицата на системната лента светва кремава заедно със
       // страницата — същият похват като в другите два четеца.
       backgroundColor: AppColors.toolbar,
-      endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
-      body: SafeArea(
-        child: Container(
-          color: palette.bg,
-          // ⚠ Лентата е ВЪТРЕ в скрола (виж _body), не над него — иначе не
-          // може да се скрива. При зареждане и при грешка обаче тя трябва да
-          // се вижда неподвижно, затова тогава се рисува отделно.
-          child: (_loading || _error != null)
-              ? Column(
-                  children: [
-                    _toolbar(palette, landscape),
-                    Expanded(child: _body(palette, landscape)),
-                  ],
-                )
-              : _body(palette, landscape),
-        ),
+      // ⚠ КАТЕГОРИЯТА Е „БИБЛИЯ", не „ЗА ЧЕТИВАТА". Втората носи размера на
+      // буквицата — нещо, което в Писанието изобщо не се среща. Всеки екран
+      // подава СВОЯТА категория; общото „всичко" се вижда само от пълния
+      // екран с настройки в главното меню.
+      endDrawer: const SettingsDrawer(sections: {SettingsSection.bible}),
+      // ⚠ `Stack`, за да може етикетът с главата да се рисува ВЪТРЕ в изреза
+      // — тоест ИЗВЪН `SafeArea`, върху ивицата, която тя иначе просто
+      // оставя черна. Виж [_chapterSpine].
+      body: Stack(
+        children: [
+          SafeArea(
+            child: Container(
+              color: palette.bg,
+              // ⚠ Лентата е ВЪТРЕ в скрола (виж _body), не над него — иначе
+              // не може да се скрива. При зареждане и при грешка обаче тя
+              // трябва да се вижда неподвижно, затова тогава се рисува
+              // отделно.
+              child: (_loading || _error != null)
+                  ? Column(
+                      children: [
+                        _toolbar(palette, landscape),
+                        Expanded(child: _body(palette, landscape)),
+                      ],
+                    )
+                  : _body(palette, landscape),
+            ),
+          ),
+          _chapterSpine(),
+        ],
       ),
     );
+  }
+
+  /// Името на главата — В САМИЯ ИЗРЕЗ, като етикет върху гръб на книга.
+  ///
+  /// ⚠ ЗАЩО НЕ В ЛЕНТАТА. Лентата е `floating` и се скрива при скрол надолу,
+  /// тоест „в коя глава съм" го няма точно докато човек чете. Изрезът е
+  /// ИЗВЪН скрола — там надписът стои винаги. Пътьом лентата се освобождава
+  /// за още едно копче.
+  ///
+  /// ⚠ И НЕ СТРУВА МЯСТО ЗА ЧЕТЕНЕ. Ивицата на изреза и без това е черна:
+  /// `SafeArea` я отделя, а никой не рисува в нея. Мерено на устройството —
+  /// 36 dp, и в двете положения.
+  ///
+  /// ⚠ ИЗРЕЗЪТ НЕ ИЗЧЕЗВА ПРИ ЗАВЪРТАНЕ, А СЕ ПРЕМЕСТВА. Камерата е на един
+  /// и същ физически ръб, тъй че в изправено ивицата е ОТГОРЕ, а в легнало —
+  /// ОТСТРАНИ (отляво или отдясно според накъде е завъртян телефонът).
+  /// Затова в легнало надписът е отвесен: това е единственото, което се
+  /// побира на кант от 36 dp — и е точно видът на гръб на книга.
+  ///
+  /// ⚠ ЕТИКЕТЪТ ТРЪГВА ОТ НАЧАЛОТО НА ИВИЦАТА, НЕ ОТ СРЕДАТА. Самата дупка
+  /// на камерата седи в средата ѝ — сверено с `dumpsys`:
+  /// `boundingRect = Rect(0, 501 – 99, 579)` при 1080 px дължина, тоест
+  /// точно централните 78 px. Центриран надпис би легнал върху обектива.
+  /// Затова етикетът стои в началото и дължината му е ограничена до 40% от
+  /// ивицата — изрезите са центрирани по устройство, тъй че първите 40% са
+  /// свободни навсякъде, без да се пита за точната им геометрия (Flutter и
+  /// без това не я дава — `MediaQuery` носи само отстъпите).
+  Widget _chapterSpine() {
+    final book = _book;
+    if (book == null) return const SizedBox.shrink();
+    final label = '${book.abbr} ${widget.chapter}';
+
+    final mq = MediaQuery.of(context);
+    final pad = mq.padding;
+    final size = mq.size;
+
+    // ⚠ Стил на ЕТИКЕТ, не на заглавие: дребен, приглушен, с разредка.
+    // Той е указател, който стои постоянно пред очите — колкото по-тих,
+    // толкова по-малко пречи на четивото до него.
+    // ⚠ БЕЗ ФОН, нарочно. Плътна плочка тук би направила ДВЕ тъмни ленти
+    // една върху друга — ивицата стои точно над лентата с инструменти — и
+    // би превърнала тихия указател в значка. Освен това ивицата е до самия
+    // обектив: запълни ли се, окото започва да гледа хардуера. Гол текст
+    // оставя кантара да се чете като част от устройството, не като
+    // интерфейс.
+    //
+    // ⚠ 14, не 12.5. Това е надпис, който стои постоянно пред очите и се
+    // чете с бегъл поглед — по-дребното пести място, което тук и без това е
+    // безплатно. Контраст 5,24:1 върху фона на ивицата.
+    final text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: TextStyle(
+        color: AppColors.textSecondary,
+        fontSize: 14,
+        // По-едрият кегел иска по-малко разредка — инак надписът се разсипва.
+        letterSpacing: 0.4,
+        height: 1.0,
+      ),
+    );
+
+    const minStrip = 20.0; // под това ивицата е твърде тясна за надпис
+
+    // ⚠ ПОДРАВНЯВАНЕ С МАРЖИНА НА СЪДЪРЖАНИЕТО (16), а не с първата буква на
+    // стиха. Втората стои на ~48 dp, но това число НЕ Е устойчиво: то е
+    // сборът от колонката с номерата, а тя се мени с размера на шрифта и с
+    // най-дългия номер в главата (Пс. 118 стига до 176). Подравняване по
+    // подвижна цел се разпада при първото натискане на „+".
+    //
+    // 16 е ръбът на самото съдържание (`SliverPadding` в _body) — там
+    // започва блокът със стиховете, там пада и стрелката „назад" в лентата
+    // (глифът ѝ е на 17,5). Тоест по този ръб се подреждат три неща наведнъж.
+    const margin = 16.0;
+
+    if (pad.top >= minStrip) {
+      return Positioned(
+        top: 0,
+        left: margin,
+        height: pad.top,
+        width: size.width * 0.40,
+        child: Align(alignment: Alignment.centerLeft, child: text),
+      );
+    }
+
+    // ⚠ В ЛЕГНАЛО НАДПИСЪТ ЗАПОЧВА ОТ ДОЛНИЯ РЪБ НА ЛЕНТАТА.
+    //
+    // Хоризонталната черта под лентата е най-силната линия на екрана; когато
+    // краят на етикета легне точно на нея, двете се четат като едно
+    // подравняване, а не като два случайни надписа. Оттам и
+    // `kReaderToolbarHeight` — смени ли се утре височината на лентата,
+    // етикетът се мести с нея.
+    //
+    // ⚠ `quarterTurns` следва СТРАНАТА: при ивица отляво надписът се чете
+    // отдолу нагоре (както на гръб на книга, обърнат към лицето ѝ), при
+    // ивица отдясно — отгоре надолу. Обратното кара текста да „бяга" от
+    // страницата.
+    //
+    // ⚠ Дължината е ограничена ДО СРЕДАТА, защото там е обективът: сверено
+    // с `dumpsys`, изрезът заема точно централните 78 px от 1080. Дванайсет
+    // dp резерв, за да не опира.
+    final toCutout = size.height / 2 - kReaderToolbarHeight - 12;
+
+    if (pad.left >= minStrip) {
+      return Positioned(
+        left: 0,
+        top: kReaderToolbarHeight,
+        width: pad.left,
+        height: toCutout,
+        child: RotatedBox(
+          quarterTurns: 3,
+          // Преди завъртането „вдясно" е краят на надписа; след него той
+          // сочи НАГОРЕ, тоест ляга на чертата под лентата.
+          child: Align(alignment: Alignment.centerRight, child: text),
+        ),
+      );
+    }
+    if (pad.right >= minStrip) {
+      return Positioned(
+        right: 0,
+        top: kReaderToolbarHeight,
+        width: pad.right,
+        height: toCutout,
+        child: RotatedBox(
+          quarterTurns: 1,
+          child: Align(alignment: Alignment.centerLeft, child: text),
+        ),
+      );
+    }
+    // Устройство без изрез — етикет няма къде да стои; заглавието остава в
+    // лентата (виж [_portraitBar]).
+    return const SizedBox.shrink();
+  }
+
+  /// Има ли изрез, в който да застане етикетът с главата. Няма ли — името
+  /// остава в лентата с инструменти, за да не изчезне съвсем.
+  bool get _hasSpine {
+    final p = MediaQuery.of(context).padding;
+    return p.top >= 20 || p.left >= 20 || p.right >= 20;
   }
 
   Widget _body(ReaderPalette palette, bool landscape) {
@@ -543,10 +736,26 @@ class _BibleReaderState extends State<BibleReader>
               toolbarHeight: kReaderToolbarHeight,
               titleSpacing: 0,
               title: _toolbar(palette, landscape),
-              // ⚠ ПРАЗЕН списък, а не липсващ. Оставен ли е null, Scaffold
-              // сам добавя копче за `endDrawer` — хамбургер най-вдясно, който
-              // не е наш и разваля реда. Менюто се отваря от трите точки.
-              actions: const [],
+              // ⚠ `automaticallyImplyActions: false` — ТОВА е ключът срещу
+              // хамбургера, а НЕ празен списък в `actions`.
+              //
+              // Дотук стоеше `actions: const []` с обяснението, че така
+              // копчето за `endDrawer` не се добавя. Не е вярно и се виждаше
+              // на екрана: AppBar проверява `actions != null &&
+              // actions!.isNotEmpty` (app_bar.dart), тъй че ПРАЗЕН списък
+              // пропада точно към `else if (hasEndDrawer …)` и слага
+              // `EndDrawerButton` — хамбургер най-вдясно.
+              //
+              // Освен че е излишно второ меню до трите точки, той изместваше
+              // и целия ред навътре: общият `readerToolbarActions` завършва
+              // със `SizedBox(width: 2)`, тъй че трите точки трябва да опират
+              // в десния ръб. С хамбургера подире им между тях зееше дупка,
+              // двойно по-широка от всички останали разстояния в лентата.
+              //
+              // Настройките на четеца се отварят от трите точки
+              // (`kReaderSettingsMenuItem` → `_showMoreMenu`), както в другите
+              // два четеца.
+              automaticallyImplyActions: false,
             ),
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -605,7 +814,6 @@ class _BibleReaderState extends State<BibleReader>
   /// диска и известява слушателите; направено на всеки кадър, това би удряло
   /// SharedPreferences стотици пъти за едно дръпване.
   void _settleSlide(double velocity) {
-    final pair = BibleLanguages.value;
     // Бърз замах решава посоката; бавно пускане — по това коя половина е
     // по-близо.
     final target = velocity.abs() > 320
@@ -619,8 +827,16 @@ class _BibleReaderState extends State<BibleReader>
         .whenComplete(() {
       if (!mounted) return;
       final wanted = target == 1.0 ? 1 : 0;
-      if (BibleLanguages.value.active != wanted) {
-        BibleLanguages.set(pair.copyWith(active: wanted));
+      // ⚠ Двойката се чете НАНОВО, а не се ползва уловената горе.
+      //
+      // Между потеглянето и доиграването минават 220 ms — предостатъчно
+      // човек да отвори падащото меню и да смени превод. Записът с уловената
+      // отпреди двойка връщаше стария избор върху новия и отвън изглеждаше
+      // като „менюто не сработи". Тук ни трябва само `active`; кои са двата
+      // превода в този миг решава единствено текущото състояние.
+      final now = BibleLanguages.value;
+      if (now.active != wanted) {
+        BibleLanguages.set(now.copyWith(active: wanted));
       }
     });
   }
@@ -768,34 +984,73 @@ class _BibleReaderState extends State<BibleReader>
   ///
   /// Червеното е `palette.wine` — същото, с което приложението вече пише
   /// подзаглавията, а не ново.
-  /// Зачалата за този стих в този превод, ако има.
-  /// Зачалата за този стих.
+
+  /// Надписът на зачалото за този стих в този превод — или `null`.
   ///
-  /// ⚠ Ако ТОЗИ превод няма зачало на този стих, се взима от онзи, който
-  /// има. Зачалото е свойство на МЯСТОТО в Писанието, не на превода —
-  /// същото разсъждение като при надписанията. Източникът ги бележи само в
-  /// руския (725), а те важат еднакво за църковнославянския и за българския.
-  List<String>? _zachalaFor(String lang, BibleRow row) {
-    final own = _zachala[lang]?[row.verse];
-    if (own != null && own.isNotEmpty) return own;
-    for (final entry in _zachala.entries) {
-      final list = entry.value[row.verse];
-      if (list != null && list.isNotEmpty) return list;
-    }
-    return null;
+  /// ⚠ ЕДИН И СЪЩ НОМЕР, РАЗЛИЧНО ИЗПИСВАНЕ. Зачалото е свойство на мястото,
+  /// тъй че номерът идва от общата карта и не зависи от превода. Формата на
+  /// съкращението обаче зависи от АЗБУКАТА: в църковнославянската графика
+  /// установеното е „Заⷱ҇" (с надредно „ч"), а на гражданска азбука —
+  /// „Зач.". Изписването е част от текста, не негов превод — затова всяка
+  /// колона го носи по своему, както носи и самия текст.
+  ///
+  /// ⚠ Признакът е „ЦЪРКОВНОСЛАВЯНСКИ ЛИ Е", а НЕ `rubricate` и НЕ шрифтът.
+  ///
+  /// Дълго тук стоеше `rubricate` и работеше — но по СЪВПАДЕНИЕ: единственият
+  /// рубрикиран превод беше и единственият в славянска графика. На
+  /// 26.08.2026 рубрикацията се включи и за гражданската азбука (`cs`) и
+  /// двете се разделиха. `rubricate` значи „червена главна буква" — свойство
+  /// на богослужебната КНИГА; надредното „ч" в „Заⷱ҇" е свойство на самия
+  /// ЕЗИК. Оставен по стария признак, флагът щеше да разнася съкращението
+  /// навсякъде, където някой ден се включи рубрикация.
+  ///
+  /// ⚠ И двата църковнославянски превода получават „Заⷱ҇" — включително
+  /// гражданският, комуто надредната буква строго погледнато е чужда.
+  /// Изрично решение на потребителя (26.08.2026): текстът си е
+  /// църковнославянски, само буквите са граждански, тъй че съкращението му
+  /// подобава.
+  String? _zachaloLabel(String lang, BibleRow row) {
+    if (!BibleZachala.value) return null;
+    final n = _zachala[row.verse];
+    if (n == null) return null;
+    final l = _languageOf(lang);
+    final slavonic = l?.font == 'cslavonic' || l?.code == 'cs';
+    return slavonic ? 'Заⷱ҇ $n' : 'Зач. $n';
   }
 
+  /// Стих с рубрикация: зачалото и главната буква в началото — в червено.
+  ///
+  /// ДВЕ ПРАВИЛА, и двете поискани изрично:
+  ///
+  /// 1. ⚠ Първата буква става червена САМО ако е ГЛАВНА. Много стихове
+  ///    продължават изречение от предишния и започват с малка буква; там
+  ///    рубрикацията би изглеждала произволна, защото не бележи начало на
+  ///    нищо. Червеното трябва да значи „тук започва", а не „тук е ред 5".
+  ///
+  /// 2. Има ли зачало, то и главната буква след него са ЕДНО ЦЯЛО и се
+  ///    оцветяват заедно — така стои и в печатните богослужебни книги.
+  ///    Зачалото се оцветява дори когато буквата подире му е малка: то си е
+  ///    указател и винаги се откроява.
+  ///
+  /// ⚠ Интервалът след скобата влиза В ЧЕРВЕНОТО, за да не увисне черна
+  /// шпация между зачалото и главната буква — двете трябва да се четат като
+  /// един знак.
+  ///
+  /// ⚠ Текстът тук ВЕЧЕ Е ЧИСТ от вградено зачало — маха се на входа, в
+  /// [BibleDb.chapter]. Дотук тази функция разпознаваше „[За…]" в самия низ
+  /// и това ѝ беше най-заплетената част; сега зачалото има един-единствен
+  /// път до екрана и правилото остава само едно.
   Widget _rubricated(
     String text,
     TextStyle style,
     ReaderPalette palette,
-    List<String>? zachala,
+    String? zachalo,
   ) {
     final red = TextStyle(color: palette.wine);
     final spans = <TextSpan>[];
 
-    if (zachala != null && zachala.isNotEmpty) {
-      spans.add(TextSpan(text: '[${zachala.join(' ')}] ', style: red));
+    if (zachalo != null) {
+      spans.add(TextSpan(text: '[$zachalo] ', style: red));
     }
 
     if (text.isEmpty) {
@@ -808,8 +1063,8 @@ class _BibleReaderState extends State<BibleReader>
     // Главна ли е: буквата се мени при снижаване, но не и при повдигане.
     // Тази проверка минава и за знаци без регистър (цифри, кавички) — те
     // остават в основния цвят, което е и желаното.
-    final isCapital = first.toUpperCase() == first &&
-        first.toLowerCase() != first;
+    final isCapital =
+        first.toUpperCase() == first && first.toLowerCase() != first;
 
     if (isCapital) {
       spans.add(TextSpan(text: first, style: red));
@@ -931,8 +1186,14 @@ class _BibleReaderState extends State<BibleReader>
       // да не се разместят съседните — виж alignChapter().
       body = Text('—',
           style: style.copyWith(color: palette.dim.withValues(alpha: .5)));
-    } else if ((language?.rubricate ?? false) || _zachalaFor(lang, row) != null) {
-      body = _rubricated(verse.text, style, palette, _zachalaFor(lang, row));
+    } else if ((language?.rubricate ?? false) ||
+        _zachaloLabel(lang, row) != null) {
+      // ⚠ Рубрикацията на ВСЕКИ стих (червена главна буква) си остава само
+      // за църковнославянския — това е негова книжна конвенция, не украса.
+      // Зачалото обаче се показва във всеки превод, тъй че стих СЪС зачало
+      // минава оттук и на български: там червеното бележи не „начало на
+      // стих", а „начало на богослужебно четиво", което важи еднакво.
+      body = _rubricated(verse.text, style, palette, _zachaloLabel(lang, row));
     } else {
       body = Text(verse.text, style: style, textAlign: TextAlign.start);
     }
@@ -1031,50 +1292,140 @@ class _BibleReaderState extends State<BibleReader>
       ),
     );
 
-    // ⚠ В ЛЕГНАЛО двете менюта стоят В САМИЯ РЕД, всяко в своята половина —
-    // а не в отделен слой върху лентата. Първият опит беше `Stack` с точната
-    // геометрия на колоните отдолу; изглеждаше вярно на хартия, но слоят
-    // ляга ВЪРХУ бутоните и надписите се застъпват с полумесеца и с минуса.
-    // Точното подравняване с текста не си струва счупената лента.
-    final bar = Row(
-      children: [
-        const BackButton(),
-        const SizedBox(width: 8),
-        Flexible(
-          child: Text(
+    // ⚠ ЗАГЛАВИЕТО ОБИКНОВЕНО НЕ Е ТУК. Мястото му е етикетът в изреза
+    // ([_chapterSpine]) — там стои постоянно, докато лентата се скрива при
+    // скрол. В лентата се връща САМО на устройство без изрез, където етикет
+    // няма къде да се сложи; тогава по-добре отрязано име, отколкото
+    // никакво.
+    final title = _hasSpine
+        ? const SizedBox.shrink()
+        : Text(
             book == null ? '' : '${book.abbr} ${widget.chapter}',
             // ⚠ СИСТЕМНИЯТ шрифт, не TamburinModern: лентата е управление,
             // не четиво, а Tamburin е за заглавия ВЪТРЕ в текста.
-            style: const TextStyle(color: Colors.white, fontSize: 17),
+            style: const TextStyle(color: Colors.white, fontSize: 16),
             overflow: TextOverflow.ellipsis,
-          ),
+          );
+
+    // ⚠ `LayoutBuilder`, за да се знае РЕАЛНАТА ширина на лентата. Тя не е
+    // ширината на екрана: в легнало положение изрезът на камерата отнема
+    // ляво поле през `SafeArea`, а лентата и текстът отдолу са ВЪТРЕ в
+    // една и съща SafeArea, тъй че двете тръгват от една и съща нула.
+    // Точно затова сметката по-долу може да сочи ръбовете на колоните.
+    return SizedBox(
+      height: kReaderToolbarHeight,
+      child: LayoutBuilder(
+        builder: (context, c) => landscape
+            ? _landscapeBar(title, pair, actions, c.maxWidth)
+            : _portraitBar(title, pair, actions),
+      ),
+    );
+  }
+
+  /// Лентата в ИЗПРАВЕНО положение.
+  ///
+  /// ⚠ Заглавието е `Expanded`, а НЕ `Flexible` до `Spacer()`. Дотогава
+  /// двете деляха остатъка по равно и при пълен ред бутони на заглавието
+  /// оставаха под 40 dp — толкова, че да не се изпише ИЗОБЩО. Отвън
+  /// изглеждаше, че четецът просто няма заглавие: между стрелката и „бг"
+  /// зееше празно и човек нямаше как да разбере коя глава чете.
+  Widget _portraitBar(
+      Widget title, BibleLanguagePair pair, List<Widget> actions) {
+    return Row(
+      children: [
+        const BackButton(),
+        // ⚠ БЕЗ отстъп след стрелката. `BackButton` е 48 широк, а иконката в
+        // него е 24 и стои центрирана — тоест вдясно от глифа вече има 12
+        // празни. Добавени още 8 отгоре, заглавието тръгваше на 62 dp, при
+        // положение че текстът на стиха под него започва на 48. Разликата се
+        // виждаше като разместена лява граница между лентата и четивото.
+        Expanded(child: title),
+        // ⚠ СЛУША `_slide`. Изборът тук е ЕДИН и трябва да сочи превода,
+        // който в момента е на екрана — а в изправено положение това се мени
+        // с плъзгането, не с натискане.
+        //
+        // `_shownCode` открай време чете `_slide` (виж бележката при него),
+        // но лентата не се преизграждаше при движение: `_slide` е
+        // `AnimationController`, а него го слушаше само плъзгащата се колона
+        // (`_slidingColumn`). Тъй че текстът се сменяше, а надписът над него
+        // оставаше стар — и по-лошо: изборът от менюто заменяше ДРУГАТА
+        // половина от двойката, защото `_pickLanguage` получава същия
+        // остарял `shown`.
+        //
+        // ⚠ Обвивката е САМО тук, в изправено. В легнало менютата са две и
+        // всяко си знае колоната изрично (`column` 0/1) — там `_slide` няма
+        // никакво значение и слушане би било грешка, защото плъзгане в
+        // легнало изобщо няма.
+        AnimatedBuilder(
+          animation: _slide,
+          builder: (context, _) => _languageButton(pair, null),
         ),
-        if (landscape) ...[
-          // Всяко меню — към своята колона: лявото се долепя надясно в първата
-          // половина, дясното започва отляво във втората.
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: _languageButton(pair, 0),
-            ),
-          ),
-          const SizedBox(width: 25),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: _languageButton(pair, 1),
-            ),
-          ),
-        ] else ...[
-          const SizedBox(width: 10),
-          _languageButton(pair, null),
-          const Spacer(),
-        ],
+        // ⚠ 4, а не 8 или 16 — и сметката НЕ е „колкото между бутоните".
+        //
+        // Изборът на превод носи СВОЙ вътрешен отстъп от 8, а стрелчицата му
+        // (`arrow_drop_down`, 18) е триъгълник в кутия, тъй че вдясно от
+        // самия глиф стоят още към 4 празни. Тоест 16 отгоре даваха ВИДИМА
+        // дупка от близо 28 — двойно спрямо 16-те между иконките — и точно
+        // затова контролът изглеждаше „изтеглен наляво" от групата. 4 + 8 + 4
+        // изравнява оптически, а освободеното отива при заглавието.
+        const SizedBox(width: 4),
         ...actions,
       ],
     );
+  }
 
-    return SizedBox(height: kReaderToolbarHeight, child: bar);
+  /// Лентата в ЛЕГНАЛО положение — с двата избора на превод НАД колоните им.
+  ///
+  /// ⚠ Геометрията се ИЗВЕЖДА от същите числа, които редят и стиховете
+  /// отдолу ([_numberWidth], [_kNumberGap], отстъпът на `SliverPadding`,
+  /// полето около чертата), а не се нагажда на око. Смени ли се утре някое
+  /// от тях, менютата се преместват заедно с колоните.
+  ///
+  /// ⚠ И НЕ Е `Stack` върху лентата. Такъв беше първият опит: слоят ляга
+  /// ВЪРХУ бутоните и надписите се застъпват с полумесеца и с минуса.
+  /// Вместо това лявата половина е кутия с ТОЧНА ширина — от края на
+  /// стрелката до десния ръб на лявата колона — в която заглавието стои
+  /// отляво, а изборът се долепя отдясно. Така подравняването е точно, без
+  /// нищо да се качва върху нищо.
+  Widget _landscapeBar(Widget title, BibleLanguagePair pair,
+      List<Widget> actions, double barWidth) {
+    // Огледало на подредбата в `_parallelColumns`.
+    const pad = 16.0;          // SliverPadding отляво/отдясно
+    const dividerBox = 25.0;   // чертата (1) + полето ѝ (12 + 12)
+    final columnWidth =
+        (barWidth - 2 * pad - _numberWidth - _kNumberGap - dividerBox) / 2;
+    // Докъде стига текстът на ЛЯВАТА колона, мерено от левия ръб на лентата.
+    final leftColumnRight = pad + _numberWidth + _kNumberGap + columnWidth;
+
+    // Мястото, което стрелката „назад" вече е заела.
+    const backWidth = kMinInteractiveDimension + 8;
+    final headWidth = leftColumnRight - backWidth;
+
+    // Не се ли събира (много едър шрифт, тесен екран), се пада към
+    // изправената подредба, вместо да излезе отрицателна ширина.
+    if (headWidth < 80 || columnWidth < 80) {
+      return _portraitBar(title, pair, actions);
+    }
+
+    return Row(
+      children: [
+        const BackButton(),
+        const SizedBox(width: 8),
+        SizedBox(
+          width: headWidth,
+          child: Row(
+            children: [
+              Expanded(child: title),
+              _languageButton(pair, 0),
+            ],
+          ),
+        ),
+        const SizedBox(width: dividerBox),
+        _languageButton(pair, 1),
+        const Spacer(),
+        ...actions,
+      ],
+    );
   }
 
   /// Съседната глава — напред или назад, ПРЕЗ границите на книгите.
@@ -1137,29 +1488,57 @@ class _BibleReaderState extends State<BibleReader>
     }
   }
 
+  /// Коя ПОЛОВИНА от двойката е под фокус: 0 = лявата, 1 = дясната.
+  ///
+  /// ⚠ В ИЗПРАВЕНО ИСТИНАТА Е `_slide`, НЕ `pair.active`. Двете обикновено
+  /// съвпадат, но `active` се записва чак когато плъзгането се доиграе
+  /// (`_settleSlide`), а дотогава — и след това, ако нищо не е предизвикало
+  /// ново построяване — уловената в лентата двойка носи СТАРАТА стойност.
+  /// Плъзгачът, обратно, винаги показва къде реално е човекът.
+  int _focusedSlot(int? column) =>
+      column ?? (_slide.value >= 0.5 ? 1 : 0);
+
   /// Прилага избор от менюто върху превода, който е в полето.
   ///
-  /// ⚠ Не ползва `BibleLanguages.setActiveCode`: то мени „активния", а тук
-  /// целта може да е ДЯСНАТА колона в легнало положение, докато активният е
-  /// левият. Затова се сменя изрично онази половина от двойката, която в
-  /// момента е под фокус.
+  /// ⚠ ДВОЙКАТА СЕ ЧЕТЕ НАНОВО, а не се ползва подадената.
+  ///
+  /// Тук беше бъгът, който се държеше половин ден: в ЛЯВАТА колона всичко
+  /// работеше, а в ДЯСНАТА всяка смяна на език те връщаше вляво и на екрана
+  /// не се виждаше никаква промяна.
+  ///
+  /// Причината: `_toolbar` улавя `pair` при построяване. След плъзгане
+  /// `_settleSlide` записва новото `active`, но `_onLanguageChanged` в клона
+  /// „същата двойка" НЕ вика `setState` — само анимира плъзгача. Тъй че
+  /// лентата продължаваше да носи двойка със старото `active: 0`, а
+  /// `copyWith` го пренаписваше обратно върху новата. В лявата колона нулата
+  /// съвпада с истината по случайност; в дясната — не.
+  ///
+  /// ⚠ И `active` СЕ ЗАДАВА ИЗРИЧНО, а не се наследява. Така изборът на език
+  /// не просто не разваля позицията, а ПОПРАВЯ евентуално разминаване:
+  /// каквото и да е било записано, след избора то сочи колоната, в която
+  /// човек стои. Инак същият клас грешка може да се върне през друг път.
   ///
   /// ⚠ Избере ли се превод, който вече заема ДРУГАТА половина, двете се
   /// РАЗМЕНЯТ вместо да станат еднакви — инак плъзгането не води наникъде.
-  void _pickLanguage(String code, String shown, BibleLanguagePair pair) {
+  /// Човекът пак остава в своята колона и вижда точно избраното.
+  void _pickLanguage(String code, int? column) {
+    final pair = BibleLanguages.value;
+    final slot = _focusedSlot(column);
+    final shown = slot == 0 ? pair.first : pair.second;
+    final other = slot == 0 ? pair.second : pair.first;
     if (code == shown) return;
-    final replacingFirst = shown == pair.first;
-    if (code == (replacingFirst ? pair.second : pair.first)) {
+
+    if (code == other) {
       BibleLanguages.set(BibleLanguagePair(
         first: pair.second,
         second: pair.first,
-        active: pair.active == 0 ? 1 : 0,
+        active: slot,
       ));
       return;
     }
-    BibleLanguages.set(replacingFirst
-        ? pair.copyWith(first: code)
-        : pair.copyWith(second: code));
+    BibleLanguages.set(slot == 0
+        ? pair.copyWith(first: code, active: slot)
+        : pair.copyWith(second: code, active: slot));
   }
 
   /// Кой превод стои в дадено меню.
@@ -1185,7 +1564,7 @@ class _BibleReaderState extends State<BibleReader>
     return PopupMenuButton<String>(
       tooltip: 'Превод',
       color: AppColors.toolbar,
-      onSelected: (code) => _pickLanguage(code, shown, pair),
+      onSelected: (code) => _pickLanguage(code, column),
       itemBuilder: (_) => [
         for (final l in _langs)
           PopupMenuItem<String>(
@@ -1224,8 +1603,14 @@ class _BibleReaderState extends State<BibleReader>
           children: [
             // ⚠ В полето остава САМО съкращението: пълното име изяжда
             // половината лента, а лентата трябва да побере и бутоните.
+            //
+            // ⚠ ЧИСТО БЯЛО, колкото иконките до него. На `white70` то беше
+            // единственото приглушено нещо в лента, в която всичко останало
+            // е бяло — а приглушеното сред ярко се чете като ИЗКЛЮЧЕНО.
+            // Стрелчицата остава по-тиха: тя е указател към менюто, не
+            // самото сведение.
             Text(current?.abbr ?? '—',
-                style: const TextStyle(color: Colors.white70, fontSize: 15)),
+                style: const TextStyle(color: Colors.white, fontSize: 15)),
             const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),
           ],
         ),

@@ -1,4 +1,10 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- ⚠ САМО за сваляне на езиковите пакети на Библията
+         (lib/bible_packs.dart). Приложението иначе чете изцяло офлайн — от
+         базите в assets/ — и не праща нищо навън. Външните препратки към
+         azbyka.ru се отварят в БРАУЗЪРА (external_link.dart), което не иска
+         разрешение. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />

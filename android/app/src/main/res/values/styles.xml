@@ -13,6 +13,25 @@
 
          This Theme is only used starting with V2 of Flutter's Android embedding. -->
     <style name="NormalTheme" parent="@android:style/Theme.Light.NoTitleBar">
+        <!-- Прозорецът се простира ПОД ИЗРЕЗА на камерата.
+
+             Защо: от Android 15 нататък системата и без това налага това на
+             всяко приложение с targetSdk 35+ (нашият е 36), тъй че на новите
+             телефони то важи независимо от нас. На по-старите Android
+             прозорецът се изместваше настрани от изреза и ивицата до
+             камерата оставаше черна и НЕДОСТЪПНА — Flutter изобщо не я
+             отчиташе като поле (`MediaQuery.padding` беше нула).
+
+             Оттам идваше разлика в облика по версия на Android: етикетът с
+             главата (bible_reader._chapterSpine) се виждаше на Android 16 и
+             липсваше на Android 13. Тук поведението се изравнява надолу, а
+             не се чака Android да го наложи.
+
+             ⚠ СЛЕДСТВИЕ: всеки екран вече получава истински отстъпи в
+             `MediaQuery.padding` и е длъжен да ги зачита. Пипне ли се нещо
+             в подредбата на цял екран, проверявай и с изрез отстрани (в
+             легнало), не само отгоре. -->
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="android:windowBackground">?android:colorBackground</item>
     </style>
 </resources>

@@ -24,6 +24,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' show join;
 import 'package:sqflite/sqflite.dart';
 
+import 'bible_packs.dart';
+
 /// Книга от Писанието.
 class BibleBook {
   final String code;        // „Gen", „Ps", „Mt" — ключът на източника
@@ -206,6 +208,44 @@ class BibleDb {
     return _db!;
   }
 
+  /// Отворените езикови пакети — по един на свален превод.
+  ///
+  /// ⚠ Държат се отворени за сесията. Отварянето на SQLite файл е евтино, но
+  /// не е безплатно, а плъзгането между два превода мени показвания език по
+  /// няколко пъти в секунда.
+  static final Map<String, Database> _packs = {};
+
+  /// Коя база отговаря за този превод — основната или неговият пакет.
+  ///
+  /// ⚠ ЕДИНСТВЕНАТА точка, която знае за разделението. Всички заявки по език
+  /// минават оттук, тъй че никоя от тях не се променя, когато превод се
+  /// свали или изтрие; и нито един ВИКАЩ (четецът, съдържанието) не знае
+  /// откъде идва текстът.
+  ///
+  /// ⚠ Липсващ пакет НЕ гърми — връща се основната база. Тогава заявката
+  /// просто не намира стихове и екранът казва „Тази глава още не е свалена",
+  /// вместо да се срине. Това е важно: пакет може да изчезне между две
+  /// пускания (човек чисти паметта на приложението), а последно ползваният
+  /// език се помни в настройките.
+  static Future<Database> _dbFor(String lang) async {
+    if (kBuiltInLangs.contains(lang)) return database;
+    final open = _packs[lang];
+    if (open != null) return open;
+    final path = await BiblePacks.pathFor(lang);
+    if (!await File(path).exists()) return database;
+    return _packs[lang] = await openDatabase(path, readOnly: true);
+  }
+
+  /// Затваря пакет — при изтриване от настройките.
+  static Future<void> closePack(String lang) async {
+    final db = _packs.remove(lang);
+    await db?.close();
+    _languages = null; // списъкът с преводи се сглобява наново
+  }
+
+  /// Забравя запомнения списък с преводи — след сваляне на нов пакет.
+  static void forgetLanguages() => _languages = null;
+
   // ── Указатели, кеширани за сесията ─────────────────────────────────────
   // Книгите са 77, преводите — дузина. Четат се веднъж и стоят: съдържанието
   // ги иска при всяко отваряне, а падащото меню за езика — при всеки тап.
@@ -225,6 +265,13 @@ class BibleDb {
   /// ⚠ Нарочно не се връщат всички редове от `languages`: докато конвейерът
   /// тегли, таблицата вече ги описва, но текст още няма. Показан в менюто,
   /// такъв превод отваря празен екран без никакво обяснение.
+  /// ⚠ ОСНОВНИТЕ ПЛЮС СВАЛЕНИТЕ. Основната база носи само двата вградени
+  /// превода; всеки свален пакет носи СВОЯ ред от `languages` в себе си,
+  /// тъй че описанието му (шрифт, междуредие, рубрикация) пътува заедно с
+  /// текста и не се дублира тук.
+  ///
+  /// Подредбата е по `ord` — същата, каквато е и в източника, независимо кой
+  /// пакет кога е свален.
   static Future<List<BibleLanguage>> languages() async {
     if (_languages != null) return _languages!;
     final db = await database;
@@ -233,7 +280,17 @@ class BibleDb {
       WHERE EXISTS (SELECT 1 FROM verses v WHERE v.lang = l.code)
       ORDER BY l.ord
     ''');
-    return _languages = rows.map(BibleLanguage.fromRow).toList();
+    final out = rows.map(BibleLanguage.fromRow).toList();
+
+    for (final code in await BiblePacks.installed()) {
+      final pack = await _dbFor(code);
+      if (identical(pack, await database)) continue; // не се е отворил
+      final r = await pack.query('languages', where: 'code = ?',
+          whereArgs: [code], limit: 1);
+      if (r.isNotEmpty) out.add(BibleLanguage.fromRow(r.first));
+    }
+    out.sort((a, b) => a.ord.compareTo(b.ord));
+    return _languages = out;
   }
 
   static Future<BibleBook?> book(String code) async {
@@ -249,7 +306,7 @@ class BibleDb {
   /// клетки, зад които стои текст. Липсите са ЗАКОННИ (Септуагинтата няма
   /// Нов завет), не са грешка.
   static Future<Set<int>> availableChapters(String book, String lang) async {
-    final db = await database;
+    final db = await _dbFor(lang);
     final rows = await db.rawQuery(
       'SELECT DISTINCT chapter FROM verses WHERE book = ? AND lang = ?',
       [book, lang],
@@ -260,7 +317,7 @@ class BibleDb {
   /// Стиховете на една глава в един превод, по реда на показване.
   static Future<List<BibleVerse>> chapter(
       String book, int chapter, String lang) async {
-    final db = await database;
+    final db = await _dbFor(lang);
     final rows = await db.query(
       'verses',
       columns: ['verse', 'ord', 'text', 'html'],
@@ -272,7 +329,15 @@ class BibleDb {
         .map((r) => BibleVerse(
               verse: r['verse'] as String,
               ord: r['ord'] as int,
-              text: r['text'] as String,
+              // ⚠ Вграденото зачало се маха ТУК, на входа, а не при рисуване.
+              // В базата църковнославянските стихове го носят в самия текст
+              // („[Заⷱ҇ 1] Зача́ло…"), а другите преводи — не. Оставен вътре,
+              // той се рисува веднъж вграден и веднъж отгоре, и то само в
+              // едната колона. Изчистен на входа, зачалото има ЕДИН път до
+              // екрана — картата от [zachala] — тъй че всички преводи го
+              // получават еднакво, а изключването му от настройките важи
+              // навсякъде.
+              text: stripEmbeddedZachalo(r['text'] as String),
               html: r['html'] as String?,
             ))
         .toList();
@@ -364,7 +429,7 @@ class BibleDb {
   /// Подзаглавията на дяловете в главата (сръбският ги носи), по стих.
   static Future<Map<String, List<String>>> titles(
       String book, int chapter, String lang) async {
-    final db = await database;
+    final db = await _dbFor(lang);
     final rows = await db.query(
       'titles',
       columns: ['verse', 'text'],
@@ -378,22 +443,80 @@ class BibleDb {
     return out;
   }
 
-  /// Богослужебните зачала в главата, по стих.
+  /// Номерът на зачалото в надпис като „Зач. 125А." или „Заⷱ҇ 1".
   ///
-  /// Още не се показват никъде — вадят се и се пазят за дневните четива.
-  static Future<Map<String, List<String>>> zachala(
-      String book, int chapter, String lang) async {
+  /// ⚠ Пази и буквения суфикс („125А") — той е част от означението, не
+  /// украса, и различава двете половини на разделено зачало.
+  static final RegExp _zachaloNumber = RegExp(r'\d+[А-ЯA-Z]?');
+
+  /// Разпознава зачало, ВГРАДЕНО в началото на самия стих — „[Заⷱ҇ 1] …".
+  ///
+  /// ⚠ Признакът е съдържанието на скобата, а не самата скоба. Квадратни
+  /// скоби в началото на стих служат за ДВЕ различни неща: 674 са зачала, а
+  /// 132 са вмъквания на преводача („[Сыновья же] Симовы…", „[Псалом Давида
+  /// о сотворении мира.]"). Вторите са част от четивото и не бива да се
+  /// бъркат с указател към него.
+  static final RegExp _embeddedZachalo = RegExp(r'^\[(За[^\]]{0,10})\]\s*');
+
+  /// Отрязва вграденото зачало от текста на стиха, ако има такова.
+  ///
+  /// ⚠ Текстът се пречиства ВИНАГИ, а зачалото се рисува отделно и еднакво
+  /// за всички преводи. Инак църковнославянският го носеше вграден и
+  /// червен, а българският до него — никакъв, при това една и съща заявка
+  /// даваше различен резултат според това кой превод стои отсреща.
+  static String stripEmbeddedZachalo(String text) =>
+      text.replaceFirst(_embeddedZachalo, '');
+
+  /// Богослужебните зачала в главата, по стих — ОБЕДИНЕНИ от всички
+  /// източници и БЕЗ оглед на показвания превод.
+  ///
+  /// ⚠ ЗАЧАЛОТО Е СВОЙСТВО НА МЯСТОТО В ПИСАНИЕТО, не на превода. Дотук се
+  /// търсеше по език и оттам идваше бъг, който се виждаше отвън като
+  /// прищявка: сложиш ли отдясно руския, зачалата се появяваха и в лявата
+  /// българска колона; сложиш ли църковнославянския — изчезваха. Причината
+  /// е, че таблицата `zachala` пази редове САМО за руския (725), а
+  /// църковнославянският носи зачалата ВГРАДЕНИ в текста си (674), тъй че
+  /// при двойка без руски нямаше откъде да се вземат.
+  ///
+  /// Затова тук се четат и двата източника, за цялата глава наведнъж:
+  ///   • таблицата `zachala`, без филтър по език;
+  ///   • началото на всеки стих, на който и да е превод.
+  /// Обединението покрива 747 места — повече от всеки поотделно (таблицата
+  /// пропуска 22, вграденото — 73).
+  ///
+  /// Връща `стих → номер` („1", „125А"). Как се ИЗПИСВА номерът решава
+  /// четецът, защото формата зависи от азбуката на превода.
+  static Future<Map<String, String>> zachala(String book, int chapter) async {
     final db = await database;
-    final rows = await db.query(
+    final out = <String, String>{};
+
+    for (final r in await db.query(
       'zachala',
       columns: ['verse', 'label'],
-      where: 'book = ? AND chapter = ? AND lang = ?',
-      whereArgs: [book, chapter, lang],
-    );
-    final out = <String, List<String>>{};
-    for (final r in rows) {
-      out.putIfAbsent(r['verse'] as String, () => []).add(r['label'] as String);
+      where: 'book = ? AND chapter = ?',
+      whereArgs: [book, chapter],
+    )) {
+      final n = _zachaloNumber.firstMatch(r['label'] as String)?.group(0);
+      if (n != null) out[r['verse'] as String] = n;
     }
+
+    // ⚠ Заявката е БЕЗ филтър по език — за да улови и превод, който в
+    // момента не се показва. Редовете са шепа: скобата в началото на стих е
+    // рядка, а тук се търси само в една глава.
+    for (final r in await db.query(
+      'verses',
+      columns: ['verse', 'text'],
+      where: "book = ? AND chapter = ? AND text LIKE '[За%'",
+      whereArgs: [book, chapter],
+    )) {
+      final m = _embeddedZachalo.firstMatch(r['text'] as String);
+      if (m == null) continue;
+      final n = _zachaloNumber.firstMatch(m.group(1)!)?.group(0);
+      // ⚠ Таблицата има превес: там номерът е гол текст, а във вградения
+      // вид е минал през разчитане на скоба и съкращение.
+      if (n != null) out.putIfAbsent(r['verse'] as String, () => n);
+    }
+
     return out;
   }
 }

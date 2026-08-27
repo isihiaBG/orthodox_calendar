@@ -3,6 +3,8 @@ import 'app_theme.dart';
 import 'app_settings.dart';
 import 'calendar_style_picker.dart';
 import 'database_helper.dart';
+import 'bible_packs_screen.dart';
+import 'bible_settings.dart';
 import 'drop_cap_scale.dart';
 
 /// Превключва между графичния избор на стил (трите корици, като на
@@ -20,13 +22,23 @@ const bool _kUseGraphicalCalendarStylePicker = true;
 /// ЧЕТЕЦ засега е празна категория (общи настройки за двата четеца —
 /// жития и книги — предстоят); съществува тук, за да не се пренарежда
 /// всичко наново, когато се появят.
-enum SettingsSection { calendar, reader }
+enum SettingsSection { calendar, reader, bible }
 
-const _kAllSections = {SettingsSection.calendar, SettingsSection.reader};
+const _kAllSections = {
+  SettingsSection.calendar,
+  SettingsSection.reader,
+  SettingsSection.bible,
+};
 
+/// ⚠ Заглавията са КРАТКИ нарочно — тук са уместни, защото човекът вече е в
+/// екрана „Настройки" и „ЗА ЧЕТИВАТА" се чете еднозначно като „настройките
+/// за четивата". В МЕНЮТО зад трите точки същият надпис създава съвсем
+/// друга асоциация (звучи като раздел с четива), затова там редът се казва
+/// просто „Настройки" — виж kReaderSettingsMenuItem.
 const _kSectionTitles = {
   SettingsSection.calendar: 'КАЛЕНДАР',
   SettingsSection.reader: 'ЗА ЧЕТИВАТА',
+  SettingsSection.bible: 'БИБЛИЯ',
 };
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
@@ -50,6 +62,7 @@ class _SettingsContentState extends State<SettingsContent> {
   bool _oldStyleFirst = AppSettings.oldStyleFirst;
   bool _showWelcome = AppSettings.showWelcome;
   DropCapScale _dropCapScale = ReaderDropCapScale.value;
+  bool _zachala = BibleZachala.value;
 
   @override
   void initState() {
@@ -370,11 +383,55 @@ class _SettingsContentState extends State<SettingsContent> {
     ];
   }
 
+  /// Настройки САМО за секцията „Библия".
+  ///
+  /// ⚠ Отделна категория, а не под „ЗА ЧЕТИВАТА". Там живеят неща от
+  /// четенето на жития и книги (размерът на буквицата), които в Писанието
+  /// изобщо не се срещат — Библията няма буквици. Смесени, двете се четат
+  /// като „настройки, които може и да не важат тук".
+  List<Widget> _bibleSection() {
+    return [
+      // ⚠ Отделен ЕКРАН, не ред тук: пакетите са десет, всеки с размер,
+      // състояние и лента за напредъка — списък, не превключвател.
+      ListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        leading: Icon(Icons.translate, color: AppColors.textSecondary),
+        title: const Text('Преводи на Библията'),
+        subtitle: Text(
+          'Добавяне и премахване на езици.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        ),
+        trailing: Icon(Icons.chevron_right, color: AppColors.textMuted),
+        onTap: () => Navigator.of(context).push(MaterialPageRoute(
+            builder: (_) => const BiblePacksScreen())),
+      ),
+      const Divider(height: 18, color: AppColors.sectionDivider, thickness: 1),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        value: _zachala,
+        onChanged: (v) {
+          setState(() => _zachala = v);
+          BibleZachala.set(v);
+        },
+        title: const Text('Показвай зачалата'),
+        subtitle: Text(
+          // Обяснението е нужно: „зачало" е богослужебен термин и човек,
+          // който не го знае, няма как да отгатне какво изключва.
+          'Указателите „[Зач. 1]" в началото на богослужебните четива.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        ),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final sectionContent = {
       SettingsSection.calendar: _calendarSection,
       SettingsSection.reader: _readerSection,
+      SettingsSection.bible: _bibleSection,
     };
 
     final children = <Widget>[];

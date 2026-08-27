@@ -36,6 +36,7 @@
 import argparse
 import csv
 import json
+from html import unescape
 import os
 import sqlite3
 import sys
@@ -348,7 +349,17 @@ def main():
                     # HTML-ът се пази САМО ако наистина се различава от голия
                     # текст — инак базата носи два пъти едно и също за
                     # преводите без никаква маркировка (а те са мнозинството).
-                    html_val = v["html"] if v["html"] != v["text"] else None
+                    #
+                    # ⚠ СРАВНЯВА СЕ СЛЕД РАЗКОДИРАНЕ НА СЪЩНОСТИТЕ. Гръцката
+                    # Септуагинта идва с всяка буква като `&Alpha;` вместо
+                    # `Α` — същият текст, само друго кодиране. Сравнен
+                    # буквално, той „се различава" за 27 694 от 28 057 стиха
+                    # и се пазеше втори път: 14,3 MB html срещу 3,2 MB текст,
+                    # тоест пакетът на този превод излизаше 51,9 MB вместо
+                    # към 10. Разкодирането не пипа истинската маркировка
+                    # (`<i>`, `<sup>`) — тя си остава различна и се пази.
+                    html_val = (v["html"]
+                                if unescape(v["html"]) != v["text"] else None)
                     raw_val = v.get("raw") if args.with_raw else None
                     con.execute(
                         "INSERT OR REPLACE INTO verses (book, chapter, verse,"
@@ -359,11 +370,8 @@ def main():
 
                     if v.get("heading"):
                         heading_keys.add((book, chapter, v["verse"]))
-                    for label in v.get("zachala", []):
-                        con.execute(
-                            "INSERT INTO zachala (book, chapter, verse, lang,"
-                            " label) VALUES (?,?,?,?,?)",
-                            (book, chapter, v["verse"], code, label))
+                    # Зачалата се събират ОТДЕЛНО, след всички езици —
+                    # виж бележката там защо не бива да зависят от избора.
                     for note in v.get("notes", []):
                         con.execute(
                             "INSERT INTO notes (book, chapter, verse, lang,"
@@ -396,6 +404,44 @@ def main():
     con.executemany(
         "INSERT OR IGNORE INTO headings (book, chapter, verse) VALUES (?,?,?)",
         sorted(heading_keys))
+
+    # ── Зачалата — от ВСИЧКИ преводи, не само от избраните ───────────────
+    #
+    # ⚠ ЗАЧАЛОТО Е СВОЙСТВО НА МЯСТОТО В ПИСАНИЕТО, не на превода: „Зач. 122"
+    # стои на едно и също място, на който език и да четеш. Затова
+    # приложението ги чете БЕЗ филтър по език (виж BibleDb.zachala).
+    #
+    # ⚠ Източникът обаче е ЕДИН: източникът ги бележи само в руския превод
+    # (740 реда, всичките с lang='r'), а църковнославянският ги носи вградени
+    # в самия текст. Събирани заедно с избраните езици, пускане като
+    # `--langs bg,utfcs,cs,g,el-r` ги оставяше НУЛА — руският не влиза, тъй
+    # че никой не ги внася — и настройката „Показвай зачалата" нямаше какво
+    # да покаже.
+    #
+    # Затова тук се минава ОТДЕЛНО през всички папки в output/json/ и се
+    # взимат само зачалата. Цената е един допълнителен прочит на JSON-ите;
+    # печалбата е, че изборът на езици не може да ги отнесе мълчаливо.
+    n_zach = 0
+    for code in sorted(os.listdir(JSON_DIR)):
+        lang_dir = os.path.join(JSON_DIR, code)
+        if not os.path.isdir(lang_dir):
+            continue
+        for fname in sorted(os.listdir(lang_dir)):
+            if not fname.endswith(".json"):
+                continue
+            with open(os.path.join(lang_dir, fname), encoding="utf-8") as fh:
+                payload = json.load(fh)
+            book = payload["book"]
+            for chapter_str, verses in payload["chapters"].items():
+                chapter = int(chapter_str)
+                for v in verses:
+                    for label in v.get("zachala", []):
+                        con.execute(
+                            "INSERT OR IGNORE INTO zachala (book, chapter,"
+                            " verse, lang, label) VALUES (?,?,?,?,?)",
+                            (book, chapter, v["verse"], code, label))
+                        n_zach += 1
+    print(f"зачала: {n_zach}")
 
     if corrections:
         print(f"поправки по стих: приложени {applied} от {len(corrections)}")
