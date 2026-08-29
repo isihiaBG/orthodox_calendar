@@ -1898,39 +1898,80 @@ class _BibleReaderState extends State<BibleReader>
     final terms = searchTerms(_markQuery);
     if (terms.isEmpty) return spans;
 
+    // ⚠ СЪВПАДЕНИЯТА СЕ ТЪРСЯТ В СЛЕПЕНИЯ ТЕКСТ, не във всяко парче поотделно.
+    //
+    // Тук беше бъгът „намира го, брои го, но не го маркира": рубрикацията реже
+    // стиха на ДВЕ парчета — червената главна буква и остатъка, — тъй че на
+    // църковнославянски „Ї|и҃съ" пресича границата помежду им и търсено поотделно
+    // във всяко, не се улавя никъде. А всеки цс стих започва точно така.
+    //
+    // ⚠ И ПО-ЛОШО ОТ НЕВИДИМОТО: [_runSearch] брои по ЦЕЛИЯ текст, тъй че
+    // броячът показваше съвпадения, за които маркировка нямаше, и обхождането
+    // спираше на празно място.
+    final full = spans.map((s) => s.text ?? '').join();
+    final ranges = matchRanges(full, terms);
+    if (ranges.isEmpty) return spans;
+
+    // Реже се по ОБЕДИНЕНИТЕ граници — на парчетата И на намереното. Така
+    // едно съвпадение може да се раздели между две парчета, без да загуби нито
+    // фона си, нито стила им: червената буква си остава червена, само че вече
+    // и с фон под нея.
+    final cuts = <int>{0, full.length};
+    var at = 0;
+    for (final s in spans) {
+      at += (s.text ?? '').length;
+      cuts.add(at);
+    }
+    for (final r in ranges) {
+      cuts
+        ..add(r.start)
+        ..add(r.end);
+    }
+    final points = cuts.toList()..sort();
+
     final hitColor = ReaderTheme.dark ? AppColors.hitDark : AppColors.hitLight;
     final currentColor =
         ReaderTheme.dark ? AppColors.hitCurrentDark : AppColors.hitCurrentLight;
     final current = _currentHitVerse;
 
-    final out = <InlineSpan>[];
-    // Кое поред е съвпадението В ТОЗИ СТИХ — по него се решава кое е
-    // „текущото", когато в един стих думата стои няколко пъти.
-    var indexInVerse = 0;
-    for (final span in spans) {
-      final text = span.text;
-      if (text == null || text.isEmpty) {
-        out.add(span);
-        continue;
+    /// Стилът на парчето, в което попада позицията.
+    TextStyle? styleAt(int pos) {
+      var start = 0;
+      for (final s in spans) {
+        final end = start + (s.text ?? '').length;
+        if (pos < end) return s.style;
+        start = end;
       }
-      var from = 0;
-      for (final r in matchRanges(text, terms)) {
-        if (r.start > from) {
-          out.add(
-              TextSpan(text: text.substring(from, r.start), style: span.style));
-        }
+      return spans.isEmpty ? null : spans.last.style;
+    }
+
+    /// Кое поред е съвпадението, покриващо позицията — или null.
+    ///
+    /// ⚠ Номерът е ГЛОБАЛЕН за стиха и брои същото, което брои [_runSearch] —
+    /// затова „текущото" (оранжевото) винаги съвпада с брояча „3/20".
+    int? hitAt(int pos) {
+      for (var i = 0; i < ranges.length; i++) {
+        if (pos >= ranges[i].start && pos < ranges[i].end) return i;
+      }
+      return null;
+    }
+
+    final out = <InlineSpan>[];
+    for (var i = 0; i + 1 < points.length; i++) {
+      final a = points[i], b = points[i + 1];
+      if (a >= b) continue;
+      final style = styleAt(a);
+      final hit = hitAt(a);
+      if (hit == null) {
+        out.add(TextSpan(text: full.substring(a, b), style: style));
+      } else {
         final isCurrent =
-            current != null && current.$1 == verse && current.$2 == indexInVerse;
+            current != null && current.$1 == verse && current.$2 == hit;
         out.add(TextSpan(
-          text: text.substring(r.start, r.end),
-          style: (span.style ?? const TextStyle())
+          text: full.substring(a, b),
+          style: (style ?? const TextStyle())
               .copyWith(backgroundColor: isCurrent ? currentColor : hitColor),
         ));
-        indexInVerse++;
-        from = r.end;
-      }
-      if (from < text.length) {
-        out.add(TextSpan(text: text.substring(from), style: span.style));
       }
     }
     return out;
