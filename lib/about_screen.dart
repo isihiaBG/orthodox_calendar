@@ -106,7 +106,7 @@ class _AboutScreenState extends State<AboutScreen> {
     super.initState();
     _emailTap = TapGestureRecognizer()..onTap = _openEmail;
     _githubTap = TapGestureRecognizer()..onTap = _openGithub;
-    pravoslavietoTap = TapGestureRecognizer()..onTap = () => _openUrl(_pravoslavietoUrl);
+    _pravoslavietoTap = TapGestureRecognizer()..onTap = () => _openUrl(_pravoslavietoUrl);
     _azbykaTap = TapGestureRecognizer()..onTap = () => _openUrl(_azbykaUrl);
     _kotyukTap = TapGestureRecognizer()..onTap = () => _openUrl(_kotyukUrl);
   }
