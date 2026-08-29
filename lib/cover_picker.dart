@@ -119,13 +119,40 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
   /// екрана, смяната на режима пада точно по средата на прехода между
   /// тях: полето отгоре изчезва, целият изглед се пренарежда и страницата
   /// подскача нагоре, докато се проявява.
+  /// ⚠ БРОЯЧ, а не флаг за екран. Режимът важи за ЦЯЛОТО приложение, тъй че
+  /// решението „лентата да се върне ли" НЕ може да се взима от един екран
+  /// поотделно.
+  ///
+  /// Причината е състезание в реда на разрушаване. При преход между два таквиз
+  /// екрана (през менюто: корици → „Месецослов") Flutter строи новия, преди да
+  /// разруши стария. Тогава редът е:
+  ///
+  ///     нов.didChangeDependencies  → скрива лентата
+  ///     стар.dispose               → ПАЛИ я обратно
+  ///
+  /// и тя остава пусната върху екран, който я иска скрита — с онова неприятно
+  /// потрепване на целия изглед. При изход НАВЪН (избор на календар) двата не
+  /// се застъпват и всичко изглежда наред; оттам и „понякога".
+  ///
+  /// С брояч последният, който си отива, пали лентата — а не първият, който
+  /// случайно се е разрушил.
+  static int _immersiveUsers = 0;
+
   void _setImmersive(bool on) {
     if (_immersive == on) return;
     _immersive = on;
-    SystemChrome.setEnabledSystemUIMode(
-      on ? SystemUiMode.immersiveSticky : SystemUiMode.manual,
-      overlays: on ? const [] : SystemUiOverlay.values,
-    );
+    _immersiveUsers += on ? 1 : -1;
+    if (on) {
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky,
+          overlays: const []);
+      return;
+    }
+    // Пали се само когато НИКОЙ вече не я иска скрита.
+    if (_immersiveUsers <= 0) {
+      _immersiveUsers = 0;
+      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
+          overlays: SystemUiOverlay.values);
+    }
   }
 
   @override
@@ -133,13 +160,23 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
     // ЗАДЪЛЖИТЕЛНО: режимът важи за ЦЯЛОТО приложение, не за екрана. Без
     // това календарът остава без системна лента, ако човек излезе оттук.
     //
+    // ⚠ Минава през [_setImmersive], а НЕ пали лентата направо — виж брояча
+    // там. Пряко палене тук връщаше лентата дори когато вече е отворен друг
+    // такъв екран, който я иска скрита.
+    //
     // ⚠ Изключение: [CoverPickerScaffold.keepImmersiveOnExit] — когато
-    // това, към което се отива, само стои без лента. Тогава паленето тук
-    // би било само едно премигване, защото следващият екран я гаси
-    // веднага.
-    if (!widget.keepImmersiveOnExit) {
-      SystemChrome.setEnabledSystemUIMode(SystemUiMode.manual,
-          overlays: SystemUiOverlay.values);
+    // това, към което се отива, само стои без лента (четецът на книги).
+    // Тогава броячът пак се намалява — този екран наистина си отива, — но
+    // палене не се прави: следващият я гаси веднага и би се видяло
+    // премигване.
+    if (widget.keepImmersiveOnExit) {
+      if (_immersive) {
+        _immersive = false;
+        _immersiveUsers -= 1;
+        if (_immersiveUsers < 0) _immersiveUsers = 0;
+      }
+    } else {
+      _setImmersive(false);
     }
     super.dispose();
   }

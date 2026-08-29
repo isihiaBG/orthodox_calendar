@@ -1,0 +1,78 @@
+code,path,chapters,kind,bg_short
+Mt,nz/mat,28,book,От Матея
+Mk,nz/mark,16,book,От Марка
+Lk,nz/luk,24,book,От Лука
+Jn,nz/ioan,21,book,От Иоана
+Act,nz/deyan,28,book,Деяния на светите Апостоли
+Jac,nz/iak,5,book,Иакова
+1Pet,nz/1petr,5,book,Петра 1
+2Pet,nz/2petr,3,book,Петра 2
+1Jn,nz/1ioan,5,book,Иоана Богослова 1
+2Jn,nz/2ioan,1,book,Иоана Богослова 2
+3Jn,nz/3ioan,1,book,Иоана Богослова 3
+Juda,nz/iud,1,book,Иуда
+Rom,nz/rim,16,book,До римляни
+1Cor,nz/1kor,16,book,До коринтяни 1
+2Cor,nz/2kor,13,book,До коринтяни 2
+Gal,nz/gal,6,book,До галатяни
+Eph,nz/efes,6,book,До ефесяни
+Phil,nz/filip,4,book,До филипяни
+Col,nz/kol,4,book,До колосяни
+1Thes,nz/1sol,5,book,До солуняни 1
+2Thes,nz/2sol,3,book,До солуняни 2
+1Tim,nz/1tim,6,book,До Тимотея 1
+2Tim,nz/2tim,4,book,До Тимотея 2
+Tit,nz/tit,3,book,До Тита
+Phlm,nz/filim,1,book,До Филимона
+Hebr,nz/evr,13,book,До евреите
+Apok,nz/otkr,22,book,Откровение на св. Иоана Богослова
+Gen,sz/gen,50,book,Битие
+Ex,sz/ex,40,book,Изход
+Lev,sz/lev,27,book,Левит
+Num,sz/num,36,book,Числа
+Deut,sz/deut,34,book,Второзаконие
+Nav,sz/nav,24,book,Иисус Навин
+Judg,sz/judg,21,book,Съдии
+Rth,sz/ruth,4,book,Рут
+1Sam,sz/1car,31,book,1 Царства
+2Sam,sz/2Car,24,book,2 Царства
+1King,sz/3car,22,book,3 Царства
+2King,sz/4car,25,book,4 Царства
+1Chron,sz/1par,29,book,1 Паралипоменон
+2Chron,sz/2par,36,book,2 Паралипоменон
+Ezr,sz/ezd,10,book,1 Ездра
+2Ezr,sz/2ezd,9,book,2 Ездра
+Nehem,sz/neh,13,book,Неемия
+Tov,sz/tov,14,book,Товит
+Judf,sz/judith,16,book,Иудит
+Est,sz/est,10,book,Естир
+1Mac,sz/1mak,16,book,1 Макавейска
+2Mac,sz/2mak,15,book,2 Макавейска
+3Mac,sz/3mak,7,book,3 Макавейска
+Job,sz/job,42,book,Иов
+Ps,sz/ps,151,psalter,Псалтир
+Prov,sz/prov,31,book,Притчи
+Eccl,sz/eccles,12,book,Еклисиаст
+Song,sz/song,8,book,Песен на песните
+Solom,sz/wis,19,book,Премъдрост Соломонова
+Sir,sz/sir,51,book,Иисус Сирахов
+Is,sz/isaiah,66,book,Исаия
+Jer,sz/ier,52,book,Иеремия
+Lam,sz/lam,5,book,Плач Иеремиев
+pJer,sz/epJer,1,book,Послание на Иеремия
+Bar,sz/bar,5,book,Варух
+Ezek,sz/ezek,48,book,Иезекиил
+Dan,sz/dan,14,book,Даниил
+Hos,sz/hos,14,book,Осия
+Joel,sz/joel,3,book,Иоил
+Am,sz/amos,9,book,Амос
+Avd,sz/obad,1,book,Авдий
+Jona,sz/jon,4,book,Иона
+Mic,sz/mic,7,book,Михей
+Naum,sz/nahum,3,book,Наум
+Habak,sz/hab,3,book,Авакум
+Sofon,sz/zeph,3,book,Софония
+Hag,sz/hag,2,book,Агей
+Zah,sz/zech,14,book,Захария
+Mal,sz/mal,4,book,Малахия
+3Ezr,sz/3ezd,16,book,3 Ездра
