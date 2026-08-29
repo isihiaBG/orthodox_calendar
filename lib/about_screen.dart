@@ -51,6 +51,7 @@ const String _githubUrl = 'https://github.com/isihiaBG/orthodox_calendar';
 // (`AlexandrKozlovskiy/OrthodoxCalendar`, пакетът е
 // `oleksandr.kotyuk.orthodoxcalendarfree`) — същият проект е. Не го
 // „поправяй" на нещо, което изглежда по-логично: адресът е верен така.
+const String _pravoslavietoUrl = 'https://www.pravoslavieto.com/bible/';
 const String _azbykaUrl = 'https://azbyka.ru';
 const String _kotyukUrl =
     'https://github.com/AlexandrKozlovskiy/OrthodoxCalendar';
@@ -61,9 +62,13 @@ const String _sourcesIntro =
     'Съдържанието на приложението е плод преди всичко на чужд труд, за '
     'който дължим и признание, и благодарност.';
 
+const String _sourcesPravoslavieto =
+    ' — оттам e взето Свещеното Писание на български език';
+
 const String _sourcesAzbyka =
-    ' — оттам са Свещеното Писание, житията на светиите по свт. Димитрий '
-    'Ростовски, тропарите, кондаците, молитвите и величанията, мислите на '
+    ' — оттам са Свещеното Писание на църковнославянски и чужди езици, '
+    'житията на светиите по свт. Димитрий Ростовски, '
+    'тропарите, кондаците, молитвите и величанията, мислите на '
     'свт. Теофан Затворник и сентенциите на Оптинските старци. Под всяко '
     'библейско четиво стои и пряка връзка към същата глава в сайта.';
 
@@ -92,6 +97,7 @@ class AboutScreen extends StatefulWidget {
 class _AboutScreenState extends State<AboutScreen> {
   late final TapGestureRecognizer _emailTap;
   late final TapGestureRecognizer _githubTap;
+  late final TapGestureRecognizer _pravoslavietoTap;
   late final TapGestureRecognizer _azbykaTap;
   late final TapGestureRecognizer _kotyukTap;
 
@@ -100,6 +106,7 @@ class _AboutScreenState extends State<AboutScreen> {
     super.initState();
     _emailTap = TapGestureRecognizer()..onTap = _openEmail;
     _githubTap = TapGestureRecognizer()..onTap = _openGithub;
+    pravoslavietoTap = TapGestureRecognizer()..onTap = () => _openUrl(_pravoslavietoUrl);
     _azbykaTap = TapGestureRecognizer()..onTap = () => _openUrl(_azbykaUrl);
     _kotyukTap = TapGestureRecognizer()..onTap = () => _openUrl(_kotyukUrl);
   }
@@ -108,6 +115,7 @@ class _AboutScreenState extends State<AboutScreen> {
   void dispose() {
     _emailTap.dispose();
     _githubTap.dispose();
+    _pravoslavietoTap.dispose();
     _azbykaTap.dispose();
     _kotyukTap.dispose();
     super.dispose();
@@ -181,6 +189,18 @@ class _AboutScreenState extends State<AboutScreen> {
           ],
         ),
         textAlign: TextAlign.justify,
+      ),
+      const SizedBox(height: 20),
+      RichText(
+        textAlign: TextAlign.justify,
+        text: TextSpan(
+          style: style,
+          children: [
+            _firstLineIndent,
+            _linkSpan('pravoslavieto.com/bible', _pravoslavietoTap),
+            const TextSpan(text: _sourcesPravoslavieto),
+          ],
+        ),
       ),
       const SizedBox(height: 20),
       RichText(
