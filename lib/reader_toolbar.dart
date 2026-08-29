@@ -161,6 +161,11 @@ List<Widget> readerToolbarActions({
   required VoidCallback onFontBigger,
   VoidCallback? onSearch,
   bool searchOpen = false,
+
+  /// Живо ли е копчето за търсене. `false` го ПОСИВЯВА, вместо да го маха —
+  /// за екрани, където търсенето има смисъл, но точно сега не работи (виж
+  /// „Чети в контекст" в bible_reader).
+  bool searchEnabled = true,
   VoidCallback? onBookmark,
   bool bookmarked = false,
 
@@ -191,9 +196,12 @@ List<Widget> readerToolbarActions({
       ..add(_flatCircle(
         context: context,
         icon: Icons.search,
-        tooltip: 'Търсене в текста',
+        tooltip: searchEnabled
+            ? 'Търсене в текста'
+            : 'Тук се чете намереното от друго търсене',
         onTap: onSearch,
         active: searchOpen,
+        enabled: searchEnabled,
       ))
       ..add(const SizedBox(width: 16));
   }

@@ -23,6 +23,8 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' show join;
+
+import 'search_match.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'bible_packs.dart';
@@ -360,6 +362,14 @@ class BibleDb {
   /// БЕЗ `LIMIT` и редовете се режат чак тук, след преброяването. Цената е
   /// един пълен обход, който и без това се прави — `LIKE` по цял текст няма
   /// как да спре по-рано, освен ако не срещне тавана, а точно това не искаме.
+  /// Екранира шаблонните знаци на `LIKE`.
+  ///
+  /// ⚠ Без това търсене на „100%" връща всичко: `%` и `_` са шаблон, не букви.
+  static String _escapeLike(String w) => w
+      .replaceAll(r'\', r'\\')
+      .replaceAll('%', r'\%')
+      .replaceAll('_', r'\_');
+
   static const int searchLimit = 5000;
 
   static Future<({List<({String book, int chapter, String verse})> verses, int total})>
@@ -382,10 +392,20 @@ class BibleDb {
     }
     final db = await _dbFor(lang);
 
-    final escaped =
-        q.replaceAll(r'\', r'\\').replaceAll('%', r'\%').replaceAll('_', r'\_');
-    final where = StringBuffer("v.lang = ? AND v.text LIKE ? ESCAPE '\\'");
-    final args = <Object>[lang, '%$escaped%'];
+    // ⚠ ПО КЛЮЧОВИ ДУМИ, НЕ ПО ФРАЗА: написаното се дели по интервали и всяка
+    // дума става свое условие, свързано с И. „содом гомор" така намира
+    // „…Содомски и Гоморски…", което като фраза не се среща никъде — между
+    // двете стои „и", а и двете са в друга форма. Виж [searchTerms].
+    final terms = searchTerms(q);
+    if (terms.isEmpty) {
+      return (verses: <({String book, int chapter, String verse})>[], total: 0);
+    }
+    final where = StringBuffer('v.lang = ?');
+    final args = <Object>[lang];
+    for (final t in terms) {
+      where.write(" AND v.text LIKE ? ESCAPE '\\'");
+      args.add('%${_escapeLike(t)}%');
+    }
     // Обхватът: цели книги ИЛИ отделни глави от книга.
     final scope = <String>[];
     if (books.isNotEmpty) {

@@ -40,6 +40,7 @@ import 'reader_more_menu.dart';
 import 'reader_toolbar.dart';
 import 'settings_screen.dart';
 import 'round_icon_button.dart';
+import 'search_match.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Едно съвпадение в указателя.
@@ -636,23 +637,22 @@ class _BibleContentsState extends State<BibleContents>
 
     final current = _currentHitKey == rowKey;
     final text = hit.text;
-    final lower = text.toLowerCase();
-    final q = _query.toLowerCase();
+    final terms = searchTerms(_query);
 
     final spans = <InlineSpan>[];
     var from = 0;
-    while (true) {
-      final at = lower.indexOf(q, from);
-      if (at < 0 || q.isEmpty) break;
-      if (at > from) spans.add(TextSpan(text: text.substring(from, at)));
+    for (final r in matchRanges(text, terms)) {
+      if (r.start > from) {
+        spans.add(TextSpan(text: text.substring(from, r.start)));
+      }
       spans.add(TextSpan(
-        text: text.substring(at, at + q.length),
+        text: text.substring(r.start, r.end),
         style: TextStyle(
           backgroundColor:
               current ? AppColors.hitCurrentDark : AppColors.hitDark,
         ),
       ));
-      from = at + q.length;
+      from = r.end;
     }
     if (from < text.length) spans.add(TextSpan(text: text.substring(from)));
 
@@ -693,21 +693,24 @@ class _BibleContentsState extends State<BibleContents>
     // ⚠ В режим „в текста" списъкът НЕ се пресява. Намереното там не живее
     // в този екран — то отваря свой — тъй че маркиране по имената на
     // книгите би било трети, несвързан отговор на същата заявка.
-    if (q.isNotEmpty && !_inText) {
+    // ⚠ ПО КЛЮЧОВИ ДУМИ, както и в текста на Писанието (виж [searchTerms]):
+    // „ев матей" намира „Евангелие от Матей", без да се пише точната фраза.
+    final terms = searchTerms(q);
+    if (terms.isNotEmpty && !_inText) {
       if (tab == 2) {
         // Псалтирът е списък от катизми — съвпадението е в заглавието им.
         for (final k in kKathismata) {
           final title = 'Катизма ${k.number}';
-          if (title.toLowerCase().contains(q)) {
+          if (containsAllTerms(title, terms)) {
             hits.add(_TocHit(key: 'k${k.number}', text: title));
           }
         }
       } else {
         for (final row in _rowsForTab[tab] ?? const <Object>[]) {
           if (row is! BibleBook) continue;
-          if (row.short.toLowerCase().contains(q)) {
+          if (containsAllTerms(row.short, terms)) {
             hits.add(_TocHit(key: row.code, text: row.short));
-          } else if (row.title.toLowerCase().contains(q)) {
+          } else if (containsAllTerms(row.title, terms)) {
             hits.add(_TocHit(key: row.code, text: row.title));
           }
         }

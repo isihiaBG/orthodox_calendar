@@ -47,6 +47,7 @@ import 'reader_more_menu.dart';
 import 'reader_font_size.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
+import 'search_match.dart';
 import 'round_icon_button.dart';
 import 'settings_screen.dart';
 
@@ -263,8 +264,20 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Подаденото отвън ИЗПРЕВАРВА полето за търсене: на екрана с намереното
   /// (и в главата, отворена от него) свети думата, с която е търсено, а не
   /// каквото човек евентуално пише в лентата в момента.
-  String get _markQuery =>
-      widget.searchQuery?.trim() ?? _query;
+  String get _markQuery {
+    final outer = widget.searchQuery?.trim();
+    if (outer != null) return outer;
+    // ⚠ ПРИ РЕЖИМ „В ЦЕЛИЯ ТЕКСТ" В ГЛАВАТА НЕ СЕ МАРКИРА. Заявката се помни
+    // и тогава (за да е готова, ако човек превключи режима), но съвпаденията
+    // НЕ се броят — тъй че маркирането без това условие рисуваше осветени
+    // думи до мъртви стрелки и празен брояч. Отвън изглеждаше като счупено
+    // обхождане; всъщност нямаше какво да се обхожда.
+    //
+    // Правилото е общо: КАКВОТО СВЕТИ, ТОВА СЕ И ОБХОЖДА. Двете следват едно
+    // условие, за да не могат да се разминат.
+    if (BibleSearchSettings.where == BibleSearchWhere.text) return '';
+    return _query;
+  }
 
   /// Върви ли заявка към базата (пълнотекстовото търсене).
   bool _searching = false;
@@ -1069,11 +1082,53 @@ class _BibleReaderState extends State<BibleReader>
 
     final pair = _pair;
     final content = Theme(
-      data: Theme.of(
-        context,
-      ).copyWith(scrollbarTheme: readerScrollbarTheme(palette)),
-      child: Scrollbar(
+      data: Theme.of(context).copyWith(
+        scrollbarTheme: readerScrollbarTheme(palette),
+        // Маркиране/копиране на текст — ОБЩО с другите два четеца (виж
+        // `book_reader` и `reader_screen.buildScrollableBody`). Цветовете са
+        // същите, за да е един и същ жестът в цялото приложение.
+        textSelectionTheme: TextSelectionThemeData(
+          selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
+          selectionHandleColor: AppColors.sectionTitle,
+          cursorColor: AppColors.sectionTitle,
+        ),
+        // ⚠ ФОНЪТ НА КОНТЕКСТНОТО МЕНЮ („Копиране / Споделяне") идва оттук.
+        // Material го взима от `colorScheme.surface`, но САМО ако тя е
+        // подменена: при подразбиращата се пада на свой закован цвят, който
+        // върху почти черната страница на четеца се слива с нея и менюто
+        // изглежда като надписи, увиснали във въздуха.
+        //
+        // ⚠ И ДВЕТЕ СЕ ЗАДАВАТ ЗАЕДНО. Смяна само на фона е документираният
+        // капан „закован цвят + цвят от палитрата в едно и също нещо":
+        // надписите идват от `onSurface` и в СВЕТЛА тема биха останали светли
+        // върху светъл фон.
+        //
+        // `palette.sheet` е установеният цвят за изскачащо НАД четиво — сив в
+        // двете теми, по-светъл от тъмната страница и по-тъмен от кремавата,
+        // тъй че прозорчето се чете по разликата, не по конкретния цвят.
+        colorScheme: Theme.of(context).colorScheme.copyWith(
+              surface: palette.sheet,
+              onSurface: palette.ink,
+            ),
+      ),
+      // ⚠ SelectionArea обгръща СКРОЛА, не всеки стих: така маркирането
+      // минава през няколко стиха наведнъж, а не спира на границата им.
+      // Липсваше тук, макар стиховете да са обикновени `Text`/`Text.rich`,
+      // тоест готови за селекция — както беше пропуснато и в четеца на книги
+      // (докладвано 21.08.2026).
+      child: SelectionArea(
+        child: Scrollbar(
         controller: _scroll,
+        // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
+        // показалец. Флагът разширява и зоната за докосване около него.
+        // Същото е и в четеца на книги.
+        interactive: true,
+        // ⚠ Постоянно видим ДОКАТО СЕ ТЪРСИ: тогава човек скача между
+        // намереното и дългата глава се обхожда напред-назад, тъй че палецът
+        // трябва да е под пръста, а не да се появява чак след като скролът
+        // вече е тръгнал. Извън търсенето се държи както навсякъде другаде —
+        // явява се при движение и избледнява, за да не стои ивица до текста.
+        thumbVisibility: _searchOpen,
         child: CustomScrollView(
           controller: _scroll,
           slivers: [
@@ -1154,6 +1209,7 @@ class _BibleReaderState extends State<BibleReader>
             ),
           ],
         ),
+        ),
       ),
     );
 
@@ -1209,17 +1265,26 @@ class _BibleReaderState extends State<BibleReader>
           // като „менюто не сработи". Тук ни трябва само `active`; кои са двата
           // превода в този миг решава единствено текущото състояние.
           final now = BibleLanguages.value;
-          if (now.active != wanted) {
-            BibleLanguages.set(now.copyWith(active: wanted));
-          }
-          // ⚠ Намереното се преброява НАНОВО след плъзгането: то се търси в
-          // активния превод, а плъзгането сменя точно него. Инак броячът
-          // („3/8") остава от езика, който вече не е пред очите.
+          if (now.active == wanted) return;
+          BibleLanguages.set(now.copyWith(active: wanted));
+
+          // ⚠ Намереното се преброява НАНОВО САМО КОГАТО КОЛОНАТА НАИСТИНА СЕ
+          // Е СМЕНИЛА — затова е след проверката, а не преди нея.
+          //
+          // Тук беше бъгът „обхождането не работи и скролът е закован":
+          // лентата е ВЪТРЕ в скрола, тъй че всеки тап по нея и всяко
+          // вертикално влачене минава през обгръщащия `GestureDetector`.
+          // Той губи състезанието за жеста и получава
+          // `onHorizontalDragCancel`, който вика тъкмо този метод. Викано
+          // безусловно, преброяването нулираше `_currentHit` веднага след
+          // всяко натискане на „‹ ›" (проверено в лог: `_stepHit` вдига
+          // брояча на 1, а `_runSearch` го връща на 0 в същия кадър), а при
+          // опит за скрол връщаше позицията на първото съвпадение — оттам
+          // „не дава да мръднеш".
           //
           // ⚠ Тук, а не на всеки кадър от `_slide`: между двете крайни
           // положения няма „активен превод", а стойността се мени 60 пъти в
-          // секунда — преброяване на всеки кадър би сканирало главата
-          // напразно.
+          // секунда.
           if (_searchOpen && _query.isNotEmpty) {
             _runSearch(_searchCtrl.text);
           }
@@ -1830,8 +1895,8 @@ class _BibleReaderState extends State<BibleReader>
     List<TextSpan> spans,
     String verse,
   ) {
-    final q = _markQuery.toLowerCase();
-    if (q.isEmpty) return spans;
+    final terms = searchTerms(_markQuery);
+    if (terms.isEmpty) return spans;
 
     final hitColor = ReaderTheme.dark ? AppColors.hitDark : AppColors.hitLight;
     final currentColor =
@@ -1848,23 +1913,21 @@ class _BibleReaderState extends State<BibleReader>
         out.add(span);
         continue;
       }
-      final lower = text.toLowerCase();
       var from = 0;
-      while (true) {
-        final at = lower.indexOf(q, from);
-        if (at < 0) break;
-        if (at > from) {
-          out.add(TextSpan(text: text.substring(from, at), style: span.style));
+      for (final r in matchRanges(text, terms)) {
+        if (r.start > from) {
+          out.add(
+              TextSpan(text: text.substring(from, r.start), style: span.style));
         }
         final isCurrent =
             current != null && current.$1 == verse && current.$2 == indexInVerse;
         out.add(TextSpan(
-          text: text.substring(at, at + q.length),
+          text: text.substring(r.start, r.end),
           style: (span.style ?? const TextStyle())
               .copyWith(backgroundColor: isCurrent ? currentColor : hitColor),
         ));
         indexInVerse++;
-        from = at + q.length;
+        from = r.end;
       }
       if (from < text.length) {
         out.add(TextSpan(text: text.substring(from), style: span.style));
@@ -1967,6 +2030,16 @@ class _BibleReaderState extends State<BibleReader>
     );
   }
 
+  /// ⚠ В КОЙ ПРЕВОД СЕ МАРКИРА. Търси се в АКТИВНИЯ (виж [_runSearch]) и
+  /// броячът е негов, тъй че светенето трябва да е само там. Дотук светеха и
+  /// двете колони, а числото беше на едната: на цс „са" дава 1065 съвпадения,
+  /// на бг — 1775, и човек вижда осветени думи, които не са в сметката.
+  ///
+  /// ⚠ Изразът е СЪЩИЯТ като в [_runSearch] — нарочно, за да не могат
+  /// броенето и маркирането да се разминат. Две различни сметки за „кой е
+  /// активният" се разсинхронизират при първата промяна в едната.
+  bool _marksLang(String lang) => lang == _shownCode(_pair, null);
+
   Widget _verseText(ReaderPalette palette, BibleRow row, String lang) {
     final verse = row[lang];
     final language = _languageOf(lang);
@@ -2002,7 +2075,7 @@ class _BibleReaderState extends State<BibleReader>
       );
     } else if ((language?.rubricate ?? false) ||
         _zachaloLabel(lang, row) != null ||
-        _markQuery.isNotEmpty) {
+        (_markQuery.isNotEmpty && _marksLang(lang))) {
       // ⚠ Рубрикацията на ВСЕКИ стих (червена главна буква) си остава само
       // за църковнославянския — това е негова книжна конвенция, не украса.
       // Зачалото обаче се показва във всеки превод, тъй че стих СЪС зачало
@@ -2016,7 +2089,11 @@ class _BibleReaderState extends State<BibleReader>
           ? _rubricatedSpans(verse.text, palette, _zachaloLabel(lang, row))
           : <TextSpan>[TextSpan(text: verse.text)];
       body = Text.rich(
-        TextSpan(style: style, children: _highlightSpans(rub, row.verse)),
+        TextSpan(
+            style: style,
+            children: _marksLang(lang)
+                ? _highlightSpans(rub, row.verse)
+                : rub),
         textAlign: TextAlign.start,
       );
     } else {
@@ -2121,20 +2198,19 @@ class _BibleReaderState extends State<BibleReader>
     // екран. Заявката все пак се помни, за да е готова, ако човек превключи
     // режима от панела: инак полето стои пълно, а нищо не свети.
     // Едно към едно с указателя ([BibleContents._runSearch]).
-    if (q.isNotEmpty && BibleSearchSettings.where != BibleSearchWhere.text) {
+    final terms = searchTerms(q);
+    if (terms.isNotEmpty &&
+        BibleSearchSettings.where != BibleSearchWhere.text) {
       final lang = _shownCode(_pair, null);
-      final lower = q.toLowerCase();
       for (final row in _visibleRows) {
         final text = row[lang]?.text;
         if (text == null) continue;
-        final hay = text.toLowerCase();
-        var from = 0, i = 0;
-        while (true) {
-          final at = hay.indexOf(lower, from);
-          if (at < 0) break;
+        // ⚠ Броят СЪВПАДЕНИЯ, не стихове: обхождането води окото до всяко
+        // място, а не само до всеки стих. Редът им е по позиция в текста —
+        // [matchRanges] връща слятото и подредено, тъй че „‹ ›" вървят
+        // отляво надясно, както се чете.
+        for (var i = 0; i < matchRanges(text, terms).length; i++) {
           hits.add((row.verse, i));
-          i++;
-          from = at + lower.length;
         }
       }
     }
@@ -2327,7 +2403,17 @@ class _BibleReaderState extends State<BibleReader>
 
     final actions = readerToolbarActions(
       context: context,
-      onThemeToggle: () => setState(() => ReaderTheme.dark = !ReaderTheme.dark),
+      onThemeToggle: () {
+        // ⚠ Показаното контекстно меню („Копиране / Споделяне") се ПРИБИРА
+        // при смяна на темата. То живее в Overlay и се строи ВЕДНЪЖ, при
+        // показването си — тъй че `setState` тук не го докосва и то остава с
+        // цветовете на старата тема, докато човек не маркира наново.
+        //
+        // По-честно е да си отиде: селекцията остава, менюто се вика пак с
+        // един тап, а грешните цветове не се задържат на екрана.
+        ContextMenuController.removeAny();
+        setState(() => ReaderTheme.dark = !ReaderTheme.dark);
+      },
       onFontSmaller: () => _bumpFont(-BibleFontSize.step),
       onFontBigger: () => _bumpFont(BibleFontSize.step),
       fontValue: BibleFontSize.value,
@@ -2339,6 +2425,15 @@ class _BibleReaderState extends State<BibleReader>
       // на заглавието: „Резултати от търсенето" не се побира между шест
       // копчета и се реже до „Резулт…".
       onSearch: widget.resultsTitle != null ? null : _toggleSearch,
+      // ⚠ ПОСИВЕНА, а не махната, когато главата е отворена от намереното
+      // („Чети в контекст"). Тук маркирането идва ОТВЪН и изпреварва полето
+      // (виж [_markQuery]), тъй че ново търсене в същата глава просто не би
+      // проработило. А и човек още не е излязъл от предишното търсене —
+      // по-добре да не започва второ върху него.
+      //
+      // Посивена казва „има такова нещо, но не сега"; липсваща би оставила
+      // лентата да изглежда различно на два съседни екрана.
+      searchEnabled: widget.searchQuery == null,
     );
 
     // ⚠ ЗАГЛАВИЕТО ОБИКНОВЕНО НЕ Е ТУК. Мястото му е етикетът в изреза
