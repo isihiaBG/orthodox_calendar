@@ -27,6 +27,8 @@
 // (най-дългата е Пс. 118 със 176 стиха) — виртуализация не е нужна, а без
 // нея позиционирането е точно, не приблизително.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -34,6 +36,8 @@ import 'app_theme.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
 import 'bible_ref.dart';
+import 'bible_search_panel.dart';
+import 'bible_search_settings.dart';
 import 'bible_settings.dart';
 import 'package:flutter/services.dart';
 
@@ -43,6 +47,7 @@ import 'reader_more_menu.dart';
 import 'reader_font_size.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
+import 'round_icon_button.dart';
 import 'settings_screen.dart';
 
 /// Разстоянието между номера на стиха и текста му.
@@ -161,6 +166,30 @@ class BibleReader extends StatefulWidget {
   /// от текст, който човек чете другаде.
   final BibleRef? quotes;
 
+  /// Заглавие, което ЗАМЕСТВА името на главата в лентата.
+  ///
+  /// ⚠ Има го само заради търсенето. В режим „цитати" лентата обикновено
+  /// изписва къде сочи препратката („Мат. 5:3-12") и това е вярно, докато
+  /// пасажите идват от ЕДНО четиво. Резултатите от търсене обаче са от цяло
+  /// Писание: първата книга в списъка не значи нищо и надписът по нея би
+  /// лъгал, че гледаш нея. Затова тук стои какво Е това — „Резултати от
+  /// търсенето".
+  final String? resultsTitle;
+
+  /// Един ред обяснение над резултатите — засега само че списъкът е отрязан.
+  final String? resultsNote;
+
+  /// Търсеното, за да СВЕТНЕ в показаните стихове.
+  ///
+  /// ⚠ Пътува през целия път на търсенето: списъкът с извадки го маркира, а
+  /// „Чети в контекст" го подава нататък към главата — там стиховете и без
+  /// това имат цветен фон, но фонът казва „това поиска", а не „ето заради
+  /// коя дума". В глава от четиресет стиха второто е по-нужното.
+  final String? searchQuery;
+
+  /// Колко стиха са намерени ОБЩО — не колко се показват.
+  final int? totalFound;
+
   const BibleReader({
     super.key,
     required this.bookCode,
@@ -168,6 +197,10 @@ class BibleReader extends StatefulWidget {
     this.initialVerse,
     this.highlight,
     this.quotes,
+    this.resultsTitle,
+    this.resultsNote,
+    this.searchQuery,
+    this.totalFound,
   });
 
   /// Отваря препратка от житие: списък с цитати, ако местата са няколко или
@@ -196,6 +229,45 @@ class _BibleReaderState extends State<BibleReader>
     with WidgetsBindingObserver, SingleTickerProviderStateMixin {
   final ScrollController _scroll = ScrollController();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+
+  // ── Търсене в четивото ─────────────────────────────────────────────────
+  //
+  // ⚠ ЛЕНТАТА СЕ ТРАНСФОРМИРА, а НЕ излиза втора под нея. Другите два четеца
+  // (жития, книги) слагат отделна лента за търсене и това струва скъпо: две
+  // подредби карат Flutter да построи НОВ `Scrollable`, тъй че скролът трябва
+  // да се пресъздава и позицията да се компенсира с височината на лентите
+  // (`kSearchBarHeight` — виж CLAUDE.md, „Затварянето на търсенето скачаше").
+  // Тук лентата остава ЕДНА и същата височина, тъй че нищо от това не се
+  // налага: подредбата не се мени, само какво стои в лентата.
+
+  /// Кой панел стои в `endDrawer`-а — общите настройки или тези на
+  /// търсенето. `Scaffold` има един слот, тъй че се сменя съдържанието му
+  /// (същото решение като в указателя).
+  bool _searchSettingsInDrawer = false;
+
+  bool _searchOpen = false;
+  final TextEditingController _searchCtrl = TextEditingController();
+  String _query = '';
+
+  /// Намереното в показаното: (стих, кое поред е съвпадението в него).
+  List<(String, int)> _hits = const [];
+  int _currentHit = 0;
+
+  (String, int)? get _currentHitVerse =>
+      _hits.isEmpty ? null : _hits[_currentHit.clamp(0, _hits.length - 1)];
+
+  bool get _stepping => _searchOpen && _hits.isNotEmpty;
+
+  /// Какво да свети в стиховете.
+  ///
+  /// ⚠ Подаденото отвън ИЗПРЕВАРВА полето за търсене: на екрана с намереното
+  /// (и в главата, отворена от него) свети думата, с която е търсено, а не
+  /// каквото човек евентуално пише в лентата в момента.
+  String get _markQuery =>
+      widget.searchQuery?.trim() ?? _query;
+
+  /// Върви ли заявка към базата (пълнотекстовото търсене).
+  bool _searching = false;
 
   /// Преводите от показваната двойка, които нямат НИТО ЕДИН стих тук.
   ///
@@ -312,6 +384,7 @@ class _BibleReaderState extends State<BibleReader>
     _slide.dispose();
     _scroll.removeListener(_releaseToolbarOnDrag);
     _scroll.dispose();
+    _searchCtrl.dispose();
     super.dispose();
   }
 
@@ -371,14 +444,53 @@ class _BibleReaderState extends State<BibleReader>
   /// Дошли ли сме тук по препратка от четиво, а не от съдържанието.
   bool get _fromLink => widget.quotes != null || widget.highlight != null;
 
-  /// Чете стиховете на всеки пасаж от препратката.
+  /// По колко СТИХА се отварят наведнъж в списъка с намереното.
+  ///
+  /// ⚠ Не е само за окото, а и за скоростта: всяка глава се чете с ОТДЕЛНА
+  /// заявка, тъй че сто намерени стиха от сто различни глави биха значели сто
+  /// заявки още при отваряне на екрана. С порции се плаща само за видяното.
+  static const int _kQuotePage = 20;
+
+  /// Докъде сме стигнали в `widget.quotes.passages` — оттам продължава
+  /// следващата порция.
+  int _quoteCursor = 0;
+
+  /// Тече ли зареждане на следваща порция (за да не се пусне два пъти).
+  bool _loadingMore = false;
+
+  /// Има ли още непоказани пасажи.
+  bool get _hasMoreQuotes =>
+      widget.quotes != null && _quoteCursor < widget.quotes!.passages.length;
+
+  /// Колко стиха остават непоказани — за надписа на копчето.
+  int get _remainingQuoteVerses {
+    final all = widget.quotes?.passages;
+    if (all == null) return 0;
+    var n = 0;
+    for (var i = _quoteCursor; i < all.length; i++) {
+      for (final r in all[i].ranges) {
+        n += r.to - r.from + 1;
+      }
+    }
+    return n;
+  }
+
+  /// Чете стиховете на следващата порция пасажи.
   ///
   /// ⚠ Всяка глава се чете ОТДЕЛНО и се пресява — няма как да се вземат
   /// „стиховете" накуп, защото пасажите може да са в различни глави и дори в
   /// различни книги.
+  ///
+  /// ⚠ Спира по БРОЙ СТИХОВЕ, не по брой групи. Групите са неравни: една
+  /// глава може да даде един стих, друга — двайсет, тъй че „пет групи" е ту
+  /// шепа редове, ту цял екран. Броят стихове е това, което човек вижда.
   Future<List<_QuoteGroup>> _loadQuoteGroups(BibleLanguagePair pair) async {
+    final all = widget.quotes!.passages;
     final out = <_QuoteGroup>[];
-    for (final p in widget.quotes!.passages) {
+    var added = 0;
+    while (_quoteCursor < all.length && added < _kQuotePage) {
+      final p = all[_quoteCursor];
+      _quoteCursor++;
       final rows = await BibleDb.alignChapter(p.book, p.chapter, pair.both);
       final picked = p.isWholeChapter
           ? rows
@@ -391,8 +503,22 @@ class _BibleReaderState extends State<BibleReader>
         book: await BibleDb.book(p.book),
         rows: picked,
       ));
+      added += picked.length;
     }
     return out;
+  }
+
+  /// „Покажи още" — дочита следващата порция и я долепя към показаното.
+  Future<void> _loadMoreQuotes() async {
+    if (_loadingMore || !_hasMoreQuotes) return;
+    setState(() => _loadingMore = true);
+    try {
+      final more = await _loadQuoteGroups(_pair);
+      if (!mounted) return;
+      setState(() => _groups = [..._groups, ...more]);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
+    }
   }
 
   Future<void> _load() async {
@@ -400,6 +526,7 @@ class _BibleReaderState extends State<BibleReader>
       await ReaderTheme.loadOnce();
       await ReaderFontSize.loadOnce();
       await BibleFontSize.loadOnce();
+      await BibleSearchSettings.loadOnce();
 
       final langs = await BibleDb.languages();
       await BibleLanguages.loadOnce([for (final l in langs) l.code]);
@@ -632,10 +759,17 @@ class _BibleReaderState extends State<BibleReader>
     final box = ctx.findRenderObject() as RenderBox?;
     if (box == null) return;
 
+    // ⚠ ПРИ ТЪРСЕНЕ СЕ СПИРА ПО-РАНО. Лентата е ВЪТРЕ в скрола и при
+    // търсене стои закована (`pinned`), тъй че „на върха на изгледа" значи
+    // „точно под нея" — тоест намереното застава ЗАД лентата и се вижда
+    // празно място вместо съвпадение. Изваждат се височината ѝ и още малко
+    // въздух, за да се чете и редът преди намереното: стих без съседа си
+    // отгоре не казва къде е.
+    const air = 56.0;
+    final lift = _searchOpen ? kReaderToolbarHeight + air : 0.0;
+
     final viewport = RenderAbstractViewport.of(box);
-    final target = viewport
-        .getOffsetToReveal(box, 0.0)
-        .offset
+    final target = (viewport.getOffsetToReveal(box, 0.0).offset - lift)
         .clamp(
           _scroll.position.minScrollExtent,
           _scroll.position.maxScrollExtent,
@@ -712,7 +846,10 @@ class _BibleReaderState extends State<BibleReader>
       // буквицата — нещо, което в Писанието изобщо не се среща. Всеки екран
       // подава СВОЯТА категория; общото „всичко" се вижда само от пълния
       // екран с настройки в главното меню.
-      endDrawer: const SettingsDrawer(sections: {SettingsSection.bible}),
+      endDrawer: _searchSettingsInDrawer
+          ? BibleSearchSettingsPanel(
+              onChanged: () => _runSearch(_searchCtrl.text))
+          : const SettingsDrawer(sections: {SettingsSection.bible}),
       // ⚠ `Stack`, за да може етикетът с главата да се рисува ВЪТРЕ в изреза
       // — тоест ИЗВЪН `SafeArea`, върху ивицата, която тя иначе просто
       // оставя черна. Виж [_chapterSpine].
@@ -769,6 +906,12 @@ class _BibleReaderState extends State<BibleReader>
   Widget _chapterSpine() {
     final book = _book;
     if (book == null) return const SizedBox.shrink();
+    // ⚠ Етикетът в изреза служи на ГЛАВАТА: той пази „къде съм", докато
+    // лентата се крие при скрол. На екрана с резултати няма такова „къде" —
+    // стиховете са от цяло Писание, — а дългият надпис се и отрязва в тясната
+    // ивица. Отпадне ли тук, заглавието остава едно, и то в лентата
+    // (виж [_hasSpine], който сам връща false в този случай).
+    if (widget.resultsTitle != null) return const SizedBox.shrink();
     final label = _headerLabel(book);
 
     final mq = MediaQuery.of(context);
@@ -898,6 +1041,11 @@ class _BibleReaderState extends State<BibleReader>
   /// Има ли изрез, в който да застане етикетът с главата. Няма ли — името
   /// остава в лентата с инструменти, за да не изчезне съвсем.
   bool get _hasSpine {
+    // ⚠ Резултатите от търсене НЕ отиват в изреза. Той побира къс надпис
+    // („Мат. 5") — дълъг като „Резултати от търсенето" се отрязва точно
+    // толкова, че да не значи нищо. Лентата е по-широка и на този екран е
+    // свободна, защото там няма глава, чието име да пази.
+    if (widget.resultsTitle != null) return false;
     final p = MediaQuery.of(context).padding;
     return p.top >= 20 || p.left >= 20 || p.right >= 20;
   }
@@ -939,10 +1087,15 @@ class _BibleReaderState extends State<BibleReader>
             // като „скрол надолу" и се скрива точно докато пръстът е върху
             // +/-. Записано е в CLAUDE.md за другите четци — тук важи
             // дословно.
+            // ⚠ И ПРИ ТЪРСЕНЕ лентата се заковава. Тя носи полето, брояча и
+            // стрелките за обхождане — скрие ли се при скрол, човек остава
+            // без нито едно от тях точно докато обхожда намереното. А самото
+            // обхождане мести скрола програмно, тоест лентата би се крила от
+            // собствените ни скокове (същата причина като при +/-).
             SliverAppBar(
               floating: true,
-              snap: !_toolbarPinned,
-              pinned: _toolbarPinned,
+              snap: !_toolbarPinned && !_searchOpen,
+              pinned: _toolbarPinned || _searchOpen,
               automaticallyImplyLeading: false,
               backgroundColor: AppColors.toolbar,
               elevation: 0,
@@ -1059,6 +1212,17 @@ class _BibleReaderState extends State<BibleReader>
           if (now.active != wanted) {
             BibleLanguages.set(now.copyWith(active: wanted));
           }
+          // ⚠ Намереното се преброява НАНОВО след плъзгането: то се търси в
+          // активния превод, а плъзгането сменя точно него. Инак броячът
+          // („3/8") остава от езика, който вече не е пред очите.
+          //
+          // ⚠ Тук, а не на всеки кадър от `_slide`: между двете крайни
+          // положения няма „активен превод", а стойността се мени 60 пъти в
+          // секунда — преброяване на всеки кадър би сканирало главата
+          // напразно.
+          if (_searchOpen && _query.isNotEmpty) {
+            _runSearch(_searchCtrl.text);
+          }
         });
   }
 
@@ -1072,6 +1236,20 @@ class _BibleReaderState extends State<BibleReader>
       ReaderPalette palette, BibleLanguagePair pair, bool landscape) {
     final many = _groups.length > 1;
     final out = <Widget>[];
+
+    // ⚠ Бележката стои НАД първия резултат, не под последния: тя казва, че
+    // списъкът е отрязан, а това трябва да се знае, преди човек да е решил,
+    // че намереното е всичко. Под списък от триста извадки никой не стига.
+    final note = widget.resultsNote;
+    if (note != null) {
+      out.add(Padding(
+        padding: const EdgeInsets.only(bottom: 14),
+        child: Text(note,
+            style: TextStyle(
+                color: palette.dim, fontSize: 13, height: 1.35)),
+      ));
+    }
+
     for (var gi = 0; gi < _groups.length; gi++) {
       final g = _groups[gi];
       if (many) out.add(_quoteHeading(palette, g));
@@ -1084,13 +1262,58 @@ class _BibleReaderState extends State<BibleReader>
       } else {
         out.add(landscape
             ? _parallelColumns(palette, pair,
-                rows: g.rows, chapter: g.passage.chapter)
+                rows: g.rows,
+                chapter: g.passage.chapter,
+                book: g.passage.book)
             : _slidingColumn(palette, pair, _textWidth,
-                rows: g.rows, chapter: g.passage.chapter));
+                rows: g.rows,
+                chapter: g.passage.chapter,
+                book: g.passage.book));
       }
       out.add(_contextButton(palette, g, last: gi == _groups.length - 1));
     }
+
+    // ⚠ Копчето стои НАЙ-ОТДОЛУ, не като безкраен скрол. Списъкът с
+    // намереното не се „разглежда", а се преглежда: човек стига до дъното,
+    // вижда колко още има и решава. Автоматичното дозареждане би му отнело
+    // точно това решение и би заличило усета докъде е стигнал.
+    if (_hasMoreQuotes) out.add(_moreQuotesButton(palette));
     return out;
+  }
+
+  /// „Покажи още N" под списъка с намереното.
+  ///
+  /// ⚠ Числото е ИСТИНСКОТО останало, не кръгло „още 20": при седем останали
+  /// копче с надпис „още 20" обещава повече, отколкото има, а следващият
+  /// натиск свършва списъка и обещанието остава неудържано.
+  Widget _moreQuotesButton(ReaderPalette palette) {
+    final left = _remainingQuoteVerses;
+    final next = left < _kQuotePage ? left : _kQuotePage;
+    return Padding(
+      padding: const EdgeInsets.only(top: 6, bottom: 28),
+      child: Center(
+        child: TextButton(
+          onPressed: _loadingMore ? null : () => unawaited(_loadMoreQuotes()),
+          style: TextButton.styleFrom(
+            foregroundColor: palette.dim,
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: BorderSide(color: palette.dim.withValues(alpha: 0.35)),
+            ),
+          ),
+          child: _loadingMore
+              ? SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(
+                      strokeWidth: 2, color: palette.dim),
+                )
+              : Text('Покажи още $next',
+                  style: const TextStyle(fontSize: 15)),
+        ),
+      ),
+    );
   }
 
   /// Каквото да пише горе — в лентата и в ивицата до камерата.
@@ -1100,6 +1323,20 @@ class _BibleReaderState extends State<BibleReader>
   /// няколко пасажа се изброяват, докато се съберат, а останалите се сбиват
   /// в „+2" — заглавието е за ориентир, не за препис на препратката.
   String _headerLabel(BibleBook book) {
+    // ⚠ Заглавието от търсенето изпреварва всичко: там пасажите са от цяло
+    // Писание и изброяването им („Бит. 1:3, Мат. 5:9 +118") не ориентира, а
+    // обърква.
+    final override = widget.resultsTitle;
+    if (override != null) {
+      // ⚠ БРОЯТ Е НА НАМЕРЕНОТО, не на показаното. Списъкът се отваря на
+      // части, но „Намерени: 37" трябва да казва колко има — инак числото
+      // расте при всяко „Покажи още" и престава да значи каквото и да е.
+      //
+      // ⚠ Брои СТИХОВЕ, не съвпадения: в един стих думата може да стои и по
+      // два пъти, а човек мери намереното с места в Писанието.
+      final n = widget.totalFound;
+      return n == null ? override : 'Намерени: $n';
+    }
     if (_groups.isEmpty) return '${book.abbr} ${widget.chapter}';
     if (_groups.length == 1) {
       return '${book.abbr} ${_groups.first.passage.whereLabel}';
@@ -1237,6 +1474,12 @@ class _BibleReaderState extends State<BibleReader>
                   bookCode: g.passage.book,
                   chapter: g.passage.chapter,
                   highlight: g.passage,
+                  // ⚠ Търсеното пътува НАТАТЪК. Фонът под стиховете казва
+                  // „това поиска", но не и защо: в глава от четиресет стиха
+                  // окото пак трябва да търси думата на ръка. Подадена, тя
+                  // свети и там — и трите нива на търсенето (списъкът с
+                  // намереното, контекстът, четенето) маркират едно и също.
+                  searchQuery: widget.searchQuery,
                   initialVerse: g.rows.isEmpty ? null : g.rows.first.verse,
                 ),
               ),
@@ -1259,6 +1502,7 @@ class _BibleReaderState extends State<BibleReader>
     double textWidth, {
     List<BibleRow>? rows,
     int? chapter,
+    String? book,
   }) {
     final list = rows ?? _rows;
     return Column(
@@ -1270,6 +1514,7 @@ class _BibleReaderState extends State<BibleReader>
             i,
             list,
             chapter: chapter,
+            book: book,
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -1353,6 +1598,7 @@ class _BibleReaderState extends State<BibleReader>
     BibleLanguagePair pair, {
     List<BibleRow>? rows,
     int? chapter,
+    String? book,
   }) {
     final list = rows ?? _rows;
     return Column(
@@ -1364,6 +1610,7 @@ class _BibleReaderState extends State<BibleReader>
             i,
             list,
             chapter: chapter,
+            book: book,
             IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1414,9 +1661,10 @@ class _BibleReaderState extends State<BibleReader>
     List<BibleRow> rows,
     Widget child, {
     int? chapter,
+    String? book,
   }) {
     final row = rows[i];
-    final key = _keyFor(row.verse, chapter);
+    final key = _keyFor(row.verse, chapter, book);
     if (!_isQuoted(row)) {
       return Container(
         key: key,
@@ -1527,9 +1775,15 @@ class _BibleReaderState extends State<BibleReader>
   /// [BibleDb.chapter]. Дотук тази функция разпознаваше „[За…]" в самия низ
   /// и това ѝ беше най-заплетената част; сега зачалото има един-единствен
   /// път до екрана и правилото остава само едно.
-  Widget _rubricated(
+  /// Парчетата на един рубрикиран стих.
+  ///
+  /// ⚠ Връща SPANS, а не готов `Text`, за да може маркирането на търсенето
+  /// да мине ВЪРХУ тях ([_highlightSpans]). Инак двете рисуват едно и също
+  /// място по два начина и второто трябва да преповтори първото — а
+  /// рубрикацията е книжна конвенция с достатъчно правила, за да не се
+  /// преписва.
+  List<TextSpan> _rubricatedSpans(
     String text,
-    TextStyle style,
     ReaderPalette palette,
     String? zachalo,
   ) {
@@ -1540,9 +1794,7 @@ class _BibleReaderState extends State<BibleReader>
       spans.add(TextSpan(text: '[$zachalo] ', style: red));
     }
 
-    if (text.isEmpty) {
-      return Text.rich(TextSpan(style: style, children: spans));
-    }
+    if (text.isEmpty) return spans;
 
     final first = text.characters.first;
     final rest = text.characters.skip(1).toString();
@@ -1560,10 +1812,65 @@ class _BibleReaderState extends State<BibleReader>
       spans.add(TextSpan(text: text));
     }
 
-    return Text.rich(
-      TextSpan(style: style, children: spans),
-      textAlign: TextAlign.start,
-    );
+    return spans;
+  }
+
+  /// Разбива готови парчета по съвпаденията с търсеното.
+  ///
+  /// ⚠ Прилага се ВЪРХУ вече построените spans, а не вместо тях — тъй че
+  /// червената главна буква и зачалото си остават червени, а намереното
+  /// свети и в тях. Цената е, че съвпадение, ПРЕСИЧАЩО границата между две
+  /// парчета (например първата буква и остатъка), не се улавя; в замяна
+  /// нищо от книжния вид не се губи при търсене.
+  ///
+  /// ⚠ Цветовете са ОБЩИ с четците и с календара (`AppColors.hit*`) — виж
+  /// бележката при [ReaderPalette]. Тук се избира по темата, защото
+  /// Писанието се чете и в светла.
+  List<InlineSpan> _highlightSpans(
+    List<TextSpan> spans,
+    String verse,
+  ) {
+    final q = _markQuery.toLowerCase();
+    if (q.isEmpty) return spans;
+
+    final hitColor = ReaderTheme.dark ? AppColors.hitDark : AppColors.hitLight;
+    final currentColor =
+        ReaderTheme.dark ? AppColors.hitCurrentDark : AppColors.hitCurrentLight;
+    final current = _currentHitVerse;
+
+    final out = <InlineSpan>[];
+    // Кое поред е съвпадението В ТОЗИ СТИХ — по него се решава кое е
+    // „текущото", когато в един стих думата стои няколко пъти.
+    var indexInVerse = 0;
+    for (final span in spans) {
+      final text = span.text;
+      if (text == null || text.isEmpty) {
+        out.add(span);
+        continue;
+      }
+      final lower = text.toLowerCase();
+      var from = 0;
+      while (true) {
+        final at = lower.indexOf(q, from);
+        if (at < 0) break;
+        if (at > from) {
+          out.add(TextSpan(text: text.substring(from, at), style: span.style));
+        }
+        final isCurrent =
+            current != null && current.$1 == verse && current.$2 == indexInVerse;
+        out.add(TextSpan(
+          text: text.substring(at, at + q.length),
+          style: (span.style ?? const TextStyle())
+              .copyWith(backgroundColor: isCurrent ? currentColor : hitColor),
+        ));
+        indexInVerse++;
+        from = at + q.length;
+      }
+      if (from < text.length) {
+        out.add(TextSpan(text: text.substring(from), style: span.style));
+      }
+    }
+    return out;
   }
 
   /// Ширината на колонката с номерата при текущия размер на шрифта.
@@ -1694,13 +2001,24 @@ class _BibleReaderState extends State<BibleReader>
         style: style.copyWith(color: palette.dim.withValues(alpha: .5)),
       );
     } else if ((language?.rubricate ?? false) ||
-        _zachaloLabel(lang, row) != null) {
+        _zachaloLabel(lang, row) != null ||
+        _markQuery.isNotEmpty) {
       // ⚠ Рубрикацията на ВСЕКИ стих (червена главна буква) си остава само
       // за църковнославянския — това е негова книжна конвенция, не украса.
       // Зачалото обаче се показва във всеки превод, тъй че стих СЪС зачало
       // минава оттук и на български: там червеното бележи не „начало на
       // стих", а „начало на богослужебно четиво", което важи еднакво.
-      body = _rubricated(verse.text, style, palette, _zachaloLabel(lang, row));
+      // ⚠ И БЕЗ рубрикация се минава оттук, щом се търси: пътят е един и
+      // същ, само че при обикновен превод списъкът с парчета е едно-
+      // единствено парче, върху което ляга маркирането.
+      final rub = (language?.rubricate ?? false) ||
+              _zachaloLabel(lang, row) != null
+          ? _rubricatedSpans(verse.text, palette, _zachaloLabel(lang, row))
+          : <TextSpan>[TextSpan(text: verse.text)];
+      body = Text.rich(
+        TextSpan(style: style, children: _highlightSpans(rub, row.verse)),
+        textAlign: TextAlign.start,
+      );
     } else {
       body = Text(verse.text, style: style, textAlign: TextAlign.start);
     }
@@ -1748,12 +2066,22 @@ class _BibleReaderState extends State<BibleReader>
     return (chain.first, chain.length > 1 ? chain.sublist(1) : null);
   }
 
-  /// ⚠ Ключът носи и ГЛАВАТА. В режим „цитати" на екрана стоят стихове от
-  /// няколко глави и номерата им се повтарят (гл. 12 стих 3 и гл. 20 стих 3);
-  /// само по номер два widget-а биха получили един и същ `GlobalKey`, а това
-  /// е изключение по време на рисуване, не тиха грешка.
-  GlobalKey _keyFor(String verse, [int? chapter]) => _rowKeys.putIfAbsent(
-      '${chapter ?? widget.chapter}:$verse', () => GlobalKey());
+  /// ⚠ Ключът носи и КНИГАТА, и главата. В режим „цитати" на екрана стоят
+  /// стихове от няколко места и номерата им се повтарят; само по номер два
+  /// widget-а биха получили един и същ `GlobalKey`, а това е изключение по
+  /// време на рисуване, не тиха грешка.
+  ///
+  /// ⚠ КНИГАТА беше добавена, когато режимът „цитати" пое и резултатите от
+  /// търсене. Дотогава пасажите идваха от една препратка и почти винаги от
+  /// една книга, тъй че „глава:стих" стигаше. Търсенето обаче връща „Мат.
+  /// 5:9" и „Марк. 5:9" в един списък — и двата даваха ключ „5:9".
+  /// Симптомът беше „Multiple widgets used the same GlobalKey" и отрязано
+  /// дърво, тоест изчезнали резултати.
+  GlobalKey _keyFor(String verse, [int? chapter, String? book]) =>
+      _rowKeys.putIfAbsent(
+          '${book ?? widget.bookCode}'
+          ':${chapter ?? widget.chapter}:$verse',
+          () => GlobalKey());
 
   BibleLanguage? _languageOf(String code) {
     for (final l in _langs) {
@@ -1761,6 +2089,221 @@ class _BibleReaderState extends State<BibleReader>
     }
     return null;
   }
+
+  // ── Търсене: логика ────────────────────────────────────────────────────
+
+  void _toggleSearch() {
+    setState(() {
+      _searchOpen = !_searchOpen;
+      if (!_searchOpen) {
+        _searchCtrl.clear();
+        _query = '';
+        _hits = const [];
+        _currentHit = 0;
+      }
+    });
+  }
+
+  /// Всички редове на екрана — в обикновено четене това е главата, в режим
+  /// „цитати" са извадките, слети в един списък.
+  List<BibleRow> get _visibleRows =>
+      _groups.isNotEmpty ? [for (final g in _groups) ...g.rows] : _rows;
+
+  /// Преброява намереното в показания текст.
+  ///
+  /// ⚠ Търси се в АКТИВНИЯ превод, не в двата — същото правило като при
+  /// пълнотекстовото (виж `BibleSearchSettingsPanel`). В изправено положение
+  /// на екрана и без това стои една колона.
+  void _runSearch(String raw) {
+    final q = raw.trim();
+    final hits = <(String, int)>[];
+    // ⚠ В режим „в текста" главата НЕ се пресява — намереното живее на друг
+    // екран. Заявката все пак се помни, за да е готова, ако човек превключи
+    // режима от панела: инак полето стои пълно, а нищо не свети.
+    // Едно към едно с указателя ([BibleContents._runSearch]).
+    if (q.isNotEmpty && BibleSearchSettings.where != BibleSearchWhere.text) {
+      final lang = _shownCode(_pair, null);
+      final lower = q.toLowerCase();
+      for (final row in _visibleRows) {
+        final text = row[lang]?.text;
+        if (text == null) continue;
+        final hay = text.toLowerCase();
+        var from = 0, i = 0;
+        while (true) {
+          final at = hay.indexOf(lower, from);
+          if (at < 0) break;
+          hits.add((row.verse, i));
+          i++;
+          from = at + lower.length;
+        }
+      }
+    }
+    setState(() {
+      _query = q;
+      _hits = hits;
+      _currentHit = 0;
+    });
+    if (hits.isNotEmpty) _revealHit();
+  }
+
+  void _stepHit(int delta) {
+    if (_hits.isEmpty) return;
+    setState(() {
+      _currentHit = (_currentHit + delta) % _hits.length;
+      if (_currentHit < 0) _currentHit += _hits.length;
+    });
+    _revealHit();
+  }
+
+  /// Плъзга до текущото съвпадение.
+  ///
+  /// ⚠ Изчаква КАДЪР: маркирането се мести със `setState`, а скокът търси
+  /// построения ред. Без изчакването се плъзга до предишното съвпадение —
+  /// същият капан като в указателя ([BibleContents]).
+  ///
+  /// ⚠ И ПОВТАРЯ, вместо да се откаже. Проверено на устройството: първото
+  /// намиране (докато клавиатурата още се вдига и лентата тъкмо е минала на
+  /// `pinned`) не стигаше доникъде, а обхождането със стрелките после
+  /// работеше безотказно — тоест редът е на мястото си, но точно в онзи миг
+  /// геометрията още не е установена. Голо `return` тук е ТИХИЯТ ОТКАЗ,
+  /// платен вече три пъти в този проект (виж CLAUDE.md).
+  ///
+  /// Спира при първото стигане: сравнява се позицията преди и след скока.
+  Future<void> _revealHit([int attempt = 0]) async {
+    final hit = _currentHitVerse;
+    if (hit == null) return;
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_searchOpen) return;
+    // Целта може да се е сменила, докато сме чакали (бързо натискане на ›).
+    if (_currentHitVerse != hit) return;
+
+    final before = _scroll.hasClients ? _scroll.offset : null;
+    _jumpToVerse(hit.$1);
+
+    if (attempt >= 5) return;
+    // Стигнало ли е? `_jumpToVerse` мълчи, когато редът още го няма или
+    // скролът няма позиция — затова се съди по резултата, не по връщането.
+    await Future<void>.delayed(const Duration(milliseconds: 90));
+    if (!mounted || !_searchOpen || _currentHitVerse != hit) return;
+    final after = _scroll.hasClients ? _scroll.offset : null;
+    if (before == null || after == null || before == after) {
+      // ⚠ Равни позиции НЕ значат непременно провал — може вече да сме там.
+      // Затова се пита геометрията: вижда ли се редът изобщо.
+      final ctx = _keyFor(hit.$1).currentContext;
+      final box = ctx?.findRenderObject() as RenderBox?;
+      if (box != null && ctx!.mounted) {
+        final dy = box.localToGlobal(Offset.zero).dy;
+        final h = MediaQuery.of(context).size.height;
+        if (dy >= 0 && dy < h) return; // вижда се — готово
+      }
+      unawaited(_revealHit(attempt + 1));
+    }
+  }
+
+  void _clearSearch() {
+    _searchCtrl.clear();
+    setState(() {
+      _query = '';
+      _hits = const [];
+      _currentHit = 0;
+    });
+  }
+
+  void _openSearchSettings() {
+    setState(() => _searchSettingsInDrawer = true);
+    _scaffoldKey.currentState?.openEndDrawer();
+  }
+
+  /// Пълнотекстовото търсене — СЪЩОТО като в указателя, за да не се учи два
+  /// пъти: настройката е обща, Enter го пуска, резултатите идват на свой
+  /// екран.
+  Future<void> _runTextSearch() async {
+    final q = _searchCtrl.text.trim();
+    if (q.isEmpty) return;
+    final lang = _shownCode(_pair, null);
+
+    // ⚠ ПРАЗЕН ПОИМЕНЕН ИЗБОР НЕ ЗНАЧИ „НАВСЯКЪДЕ". Празен списък книги е
+    // уговорката за „цялото Писание" в [BibleDb.searchText] — тъй че при
+    // обхват „в избрани книги" без нито една отметната търсенето би минало
+    // през всичко, тоест точно обратното на поисканото. Спира се тук, с
+    // обяснение накъде да се погледне.
+    if (BibleSearchSettings.range == BibleSearchRange.picked &&
+        BibleSearchSettings.pick.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Не са избрани книги за търсене.'),
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    setState(() => _searching = true);
+    ({List<({String book, int chapter, String verse})> verses, int total}) found;
+    try {
+      found = await BibleDb.searchText(lang, q,
+          books: _scopeBooks(), chapters: _scopeChapters());
+    } finally {
+      if (mounted) setState(() => _searching = false);
+    }
+    if (!mounted) return;
+
+    if (found.verses.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Нищо не е намерено за „$q".'),
+          duration: const Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final passages = groupFoundVerses(found.verses);
+    final trimmed = found.total > found.verses.length;
+    if (!mounted) return;
+    await Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => BibleReader(
+        bookCode: passages.first.book,
+        chapter: passages.first.chapter,
+        quotes: BibleRef(passages),
+        // ⚠ „Намерени стихове", а не „Резултати от търсенето". Второто е
+        // по-точно като смисъл, но при 21 знака се реже до „Резултати от
+        // търсе…" между стрелката и трите копчета — мерено на устройството,
+        // не на око. Тук пък застава броят, тъй че името и без това отстъпва
+        // мястото си на него.
+        resultsTitle: 'Намерени стихове',
+        searchQuery: q,
+        totalFound: found.total,
+        resultsNote: trimmed
+            ? 'От намерените ${found.total} стиха тук се отварят първите '
+                '${found.verses.length}.'
+            : null,
+      ),
+    ));
+  }
+
+  /// Обхватът по настройка. ⚠ В ЧЕТЕЦА „отвореният дял" се смята от КНИГАТА,
+  /// която се чете, а не от таб — тук табове няма. Псалтирът е свой дял,
+  /// защото и в указателя е свой.
+  List<String> _scopeBooks() {
+    switch (BibleSearchSettings.range) {
+      case BibleSearchRange.all:
+        return const [];
+      case BibleSearchRange.picked:
+        return BibleSearchSettings.pick.books.toList();
+      case BibleSearchRange.tab:
+        final book = _book;
+        if (book == null) return const [];
+        if (book.code == 'Ps') return const ['Ps'];
+        return [
+          for (final b in _allBooks)
+            if (b.isOldTestament == book.isOldTestament) b.code
+        ];
+    }
+  }
+
+  Map<String, Set<int>> _scopeChapters() => scopeChaptersFor(
+      BibleSearchSettings.range, BibleSearchSettings.pick);
 
   // ── Лентата ──────────────────────────────────────────────────────────
 
@@ -1791,16 +2334,11 @@ class _BibleReaderState extends State<BibleReader>
       fontMin: BibleFontSize.min,
       fontMax: BibleFontSize.max,
       onMore: _showMoreMenu,
-      // ⚠ Търсенето още го НЯМА — бутонът стои по изрична молба, за да е
-      // лентата на мястото си от самото начало и да не се пренарежда, когато
-      // функцията дойде. Дотогава показва къса бележка вместо да мълчи:
-      // бутон, който не прави нищо и не казва нищо, се приема за счупен.
-      onSearch: () => ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Търсенето в Писанието предстои.'),
-          duration: Duration(seconds: 2),
-        ),
-      ),
+      // ⚠ НА ЕКРАНА С РЕЗУЛТАТИ ЛУПАТА ОТПАДА. Там няма глава, в която да се
+      // търси — стиховете са извадка от цяло Писание, — а мястото ѝ трябва
+      // на заглавието: „Резултати от търсенето" не се побира между шест
+      // копчета и се реже до „Резулт…".
+      onSearch: widget.resultsTitle != null ? null : _toggleSearch,
     );
 
     // ⚠ ЗАГЛАВИЕТО ОБИКНОВЕНО НЕ Е ТУК. Мястото му е етикетът в изреза
@@ -1823,12 +2361,155 @@ class _BibleReaderState extends State<BibleReader>
     // ляво поле през `SafeArea`, а лентата и текстът отдолу са ВЪТРЕ в
     // една и съща SafeArea, тъй че двете тръгват от една и съща нула.
     // Точно затова сметката по-долу може да сочи ръбовете на колоните.
+    // ⚠ РЕЖИМЪТ НА ТЪРСЕНЕ ЗАМЕСТВА ЦЯЛАТА ЛЕНТА, в двете положения наведнъж.
+    // Височината остава `kReaderToolbarHeight`, тъй че подредбата на екрана
+    // не се мени — а точно от смяната на подредбата идваха компенсациите с
+    // пиксели в другите два четеца.
     return SizedBox(
       height: kReaderToolbarHeight,
-      child: LayoutBuilder(
-        builder: (context, c) => landscape
-            ? _landscapeBar(title, pair, actions, c.maxWidth)
-            : _portraitBar(title, pair, actions),
+      child: _searchOpen
+          ? _searchBar()
+          : LayoutBuilder(
+              builder: (context, c) => landscape
+                  ? _landscapeBar(title, pair, actions, c.maxWidth)
+                  : _portraitBar(title, pair, actions),
+            ),
+    );
+  }
+
+  /// Лентата в режим ТЪРСЕНЕ — на мястото на обикновената.
+  ///
+  /// ⚠ Всяко копче служи на режима, който е в сила: стрелката „назад" става
+  /// ✕ (изход от търсенето, не от главата), „−/+" стават „‹/›", а трите
+  /// точки — зъбно колело към настройките на търсенето. Изборът на превод и
+  /// тогълът на темата отпадат: мястото им трябва на полето, а никой не
+  /// сменя тема, докато търси дума.
+  ///
+  /// ⚠ Едно към едно с указателя ([BibleContents]). За човека това е ЕДНА
+  /// търсачка, срещната на две места.
+  Widget _searchBar() {
+    const fg = Colors.white;
+    final stepping = _stepping;
+    final inText = BibleSearchSettings.where == BibleSearchWhere.text;
+
+    return Row(
+      children: [
+        IconButton(
+          icon: const Icon(Icons.close, color: fg),
+          tooltip: 'Затвори търсенето',
+          onPressed: _toggleSearch,
+        ),
+        Expanded(
+          child: SizedBox(
+            height: 38,
+            child: TextField(
+              controller: _searchCtrl,
+              autofocus: true,
+              style: const TextStyle(color: fg, fontSize: 15),
+              textInputAction: TextInputAction.search,
+              // ⚠ Търсенето В ГЛАВАТА върви с писането (то пресява шепа
+              // стихове в паметта), а пълнотекстовото чака Enter — то чете
+              // осем мегабайта и на всяка буква би заковало полето. Пътят е
+              // един: [_runSearch] сам знае, че при „в текста" няма какво да
+              // пресява, и само помни заявката.
+              onChanged: _runSearch,
+              onSubmitted: (_) {
+                if (inText) unawaited(_runTextSearch());
+              },
+              decoration: InputDecoration(
+                isDense: true,
+                hintText:
+                    inText ? 'в цялото Писание — Enter' : 'търси в главата',
+                hintStyle: TextStyle(
+                    color: fg.withValues(alpha: 0.45), fontSize: 13),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
+                filled: true,
+                fillColor: Colors.black.withValues(alpha: 0.15),
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(8),
+                  borderSide: BorderSide.none,
+                ),
+                suffixIcon: _searchFieldSuffix(fg, inText),
+                suffixIconConstraints:
+                    const BoxConstraints(minWidth: 0, minHeight: 0),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        RoundIconButton(
+          icon: Icons.chevron_left,
+          tooltip: 'Предишно съвпадение',
+          enabled: stepping,
+          size: kReaderBtnSize,
+          onTap: () => _stepHit(-1),
+        ),
+        const SizedBox(width: 14),
+        RoundIconButton(
+          icon: Icons.chevron_right,
+          tooltip: 'Следващо съвпадение',
+          enabled: stepping,
+          size: kReaderBtnSize,
+          onTap: () => _stepHit(1),
+        ),
+        const SizedBox(width: 8),
+        Tooltip(
+          message: 'Настройки на търсенето',
+          child: InkWell(
+            onTap: _openSearchSettings,
+            customBorder: const CircleBorder(),
+            child: const Padding(
+              padding: EdgeInsets.all(6),
+              child: Icon(Icons.tune, size: 24, color: fg),
+            ),
+          ),
+        ),
+        const SizedBox(width: 2),
+      ],
+    );
+  }
+
+  /// Десният край на полето: кръгче при чакане, лупа при празно, брояч с ✕
+  /// при писане.
+  Widget _searchFieldSuffix(Color fg, bool inText) {
+    if (_searching) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 12, left: 8),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: fg.withValues(alpha: 0.6)),
+        ),
+      );
+    }
+    // ⚠ В режим „в текста" брояч няма какво да брои — намереното живее на
+    // друг екран. Тогава остава лупата, а не „0/0", което би значело
+    // „търсих и не намерих".
+    if (_query.isEmpty || inText) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 10, left: 6),
+        child: Icon(Icons.search, size: 18, color: fg.withValues(alpha: 0.45)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, left: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _hits.isEmpty ? '0/0' : '${_currentHit + 1}/${_hits.length}',
+            style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _clearSearch,
+            customBorder: const CircleBorder(),
+            child: Icon(Icons.close,
+                size: 18, color: fg.withValues(alpha: 0.75)),
+          ),
+        ],
       ),
     );
   }
@@ -1872,7 +2553,14 @@ class _BibleReaderState extends State<BibleReader>
         // легнало изобщо няма.
         AnimatedBuilder(
           animation: _slide,
-          builder: (context, _) => _languageButton(pair, null),
+          // ⚠ НА ЕКРАНА С РЕЗУЛТАТИ изборът на превод отпада. Намереното е
+          // намерено в ЕДИН превод — онзи, който човек е чел, — тъй че
+          // смяната му тук би показала стихове на език, на който никой не е
+          // търсил. А мястото трябва на заглавието: с бутона до себе си
+          // „Резултати от търсенето" се режеше до „Резултати от…".
+          builder: (context, _) => widget.resultsTitle != null
+              ? const SizedBox.shrink()
+              : _languageButton(pair, null),
         ),
         // ⚠ 4, а не 8 или 16 — и сметката НЕ е „колкото между бутоните".
         //
@@ -2028,6 +2716,7 @@ class _BibleReaderState extends State<BibleReader>
     final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
     if (!mounted || choice == null) return;
     if (choice == kReaderSettingsMenuItem.value) {
+      setState(() => _searchSettingsInDrawer = false);
       _scaffoldKey.currentState?.openEndDrawer();
     }
   }

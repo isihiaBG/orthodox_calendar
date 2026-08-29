@@ -49,6 +49,11 @@ class OrthodoxCalendarApp extends StatelessWidget {
           color:   AppColors.sectionTitle,
         ),
         visualDensity: VisualDensity.compact ,
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            textStyle: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+          ),
+        ),
 			  iconButtonTheme: IconButtonThemeData(
 				style: ButtonStyle(
 				  padding: WidgetStateProperty.all(

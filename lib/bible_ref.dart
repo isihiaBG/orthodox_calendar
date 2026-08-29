@@ -320,3 +320,43 @@ void _add(List<BiblePassage> out, String book, int chapter, VerseRange range) {
   }
   out.add(BiblePassage(book: book, chapter: chapter, ranges: [range]));
 }
+
+/// Сглобява резултат от търсене в пасажи, ГРУПИРАНИ ПО ГЛАВА.
+///
+/// ⚠ Групирането не е разкрасяване, а условие за скоростта: четецът чете
+/// всяка група с отделна заявка, тъй че 300 отделни стиха биха значели 300
+/// заявки към базата. Групирани, те падат до толкова, колкото са засегнатите
+/// глави. Пътьом излиза и по-добрият надпис — „Мат. 5:3,7,9" вместо три пъти
+/// „Мат. 5".
+///
+/// Редът на първо срещане се пази — той идва подреден от [BibleDb.searchText]
+/// (по каноничния ред на книгите, после по глава и стих).
+List<BiblePassage> groupFoundVerses(
+    List<({String book, int chapter, String verse})> found) {
+  final byChapter = <String, List<int>>{};
+  final order = <String>[];
+  for (final r in found) {
+    final n = int.tryParse(r.verse);
+    if (n == null) continue;
+    final key = '${r.book}|${r.chapter}';
+    final list = byChapter[key];
+    if (list == null) {
+      order.add(key);
+      byChapter[key] = [n];
+    } else {
+      list.add(n);
+    }
+  }
+
+  final out = <BiblePassage>[];
+  for (final key in order) {
+    final parts = key.split('|');
+    final verses = byChapter[key]!..sort();
+    out.add(BiblePassage(
+      book: parts[0],
+      chapter: int.parse(parts[1]),
+      ranges: [for (final v in verses) VerseRange.single(v)],
+    ));
+  }
+  return out;
+}
