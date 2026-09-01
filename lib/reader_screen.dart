@@ -50,6 +50,8 @@ import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
+import 'quote_menu.dart';
+import 'quotes.dart';
 import 'reader_regions.dart';
 import 'reader_search.dart';
 import 'reader_styles.dart';
@@ -2944,7 +2946,17 @@ class _ReaderScreenState extends State<ReaderScreen>
                 cursorColor: AppColors.sectionTitle,
               ),
             ),
-            child: SelectionArea(
+            // ⚠ Не гола `SelectionArea`, а [QuotableSelectionArea] — тя прави
+            // същото плюс „Запази цитат" в изскачащото меню. Данните се
+            // подават като ФУНКЦИИ: четивото се сменя (кръстосан линк, друго
+            // житие), без widget-ът да се пресъздава.
+            child: QuotableSelectionArea(
+              source: QuoteSource.life,
+              locator: () => widget.texts.slug,
+              title: () => widget.lifeTitle ?? widget.texts.name,
+              // Плоският текст на регионите вече е сметнат и кеширан в
+              // `_prepared` — оттам, а не наново.
+              blocks: () => _prepared?.regionPlainTexts ?? const [],
               child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [
