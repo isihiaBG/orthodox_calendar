@@ -53,6 +53,8 @@ import 'reader_resume_prompt.dart';
 import 'reader_regions.dart';
 import 'reader_search.dart';
 import 'reader_styles.dart';
+import 'floating_illustration.dart';
+import 'lives_image.dart';
 import 'reader_sup_extension.dart';
 import 'reader_text_utils.dart';
 import 'reader_theme.dart';
@@ -201,11 +203,120 @@ class _ExactListDelegate extends SliverChildListDelegate {
 
 int _countInRegion(ReaderRegion r, String foldedQuery) {
   if (r.isHtml) return _countMatchesHtml(r.content, foldedQuery);
+
+  // ⚠ Илюстрацията се брои по СГЛОБЕНИЯ си HTML, а не по частите поотделно.
+  // Причината е, че точно този низ се подава на `highlightHtml` при
+  // рисуването — броенето и маркирането ТРЯБВА да виждат един и същ текст,
+  // инак броячът показва съвпадения, които никъде не светят, и обхождането
+  // спира на празно място. Същият урок като при Библията (виж CLAUDE.md,
+  // „КАКВОТО СВЕТИ, ТОВА СЕ И ОБХОЖДА").
+  if (r.kind == RegionKind.illustration) {
+    return _countMatchesHtml(r.illustrationHtml, foldedQuery);
+  }
+
   var total = _countMatchesPlain(_plainTextOf(r.content), foldedQuery);
   for (final p in r.rest) {
     total += _countMatchesPlain(_plainTextOf(p), foldedQuery);
   }
   return total;
+}
+
+/// Горното поле на обикновен абзац — Margins.only(top: 8) в reader_styles.dart.
+const double kPTopMargin = 8.0;
+
+/// Тагът на илюстрацията, сглобен от пътя и съотношението ѝ.
+///
+/// ⚠ Съотношението се дава като ДВОЙКА ЧИСЛА, не като едно: [LivesImageExtension]
+/// чете `width`/`height` от атрибутите (файлът не знае размера си, преди да се
+/// зареди — виж бележката там). Същият похват като в [ReaderRegion.illustrationHtml].
+String _imgTag(String asset, double aspect) {
+  final b = StringBuffer('<img src="$asset"');
+  if (aspect > 0) {
+    b.write(' width="1000" height="${(1000 / aspect).round()}"');
+  }
+  b.write('>');
+  return b.toString();
+}
+
+/// Долното поле на блок — огледално на [measureStyleFor].
+///
+/// ⚠ Нужно е САМО за трупането на височини вътре в илюстрационен регион, тъй
+/// че стои отделно: другаде регионът е един блок и краят му се знае от самия
+/// layout. Стойностите са същите като в reader_styles.dart.
+double measureBottomMarginFor(String html) {
+  final head = html.trimLeft();
+  if (head.startsWith('<h3')) return 0.0;      // bottom се дава от четеца
+  if (head.contains('class="memorydate"')) return 26.0;
+  if (head.contains('class="caption"')) return 16.0;
+  if (head.contains('class="centernote"')) return 14.0;
+  if (head.contains('class="trans"')) return 16.0;
+  if (head.contains('class="prayerhead"')) return 4.0;
+  return 8.0;                                   // обикновен абзац
+}
+
+/// Стилът и горното поле, с които се РИСУВА даден блок.
+///
+/// Мерещият трябва да е огледален на рисуващия, инак редовете се чупят на
+/// друго място и отместването излиза грешно. Стойностите тук са същите като
+/// правилата в reader_styles.dart — сменят ли се там, сменят се и тук.
+/// (Заглавието е с друг шрифт и с 12 пункта по-едро; църковнославянският
+/// откъс е малко по-едър и по-нагъсто; преводът, редът с паметта, надписът
+/// под илюстрация и източникът са по-дребни и в курсив.)
+///
+/// ⚠ ТОП-НИВО, а не метод: ползва се и от [_IllustrationRegionState], който
+/// мери собствените си блокове. Два екземпляра на тази таблица неминуемо се
+/// разминават при първата промяна в стиловете.
+(TextStyle, double) measureStyleFor(String html) {
+  final size = ReaderFontSize.value;
+  TextStyle body(double s, {FontStyle? italic, double? height}) => TextStyle(
+        fontFamily: kBodyFamily,
+        fontSize: s,
+        height: height ?? kReaderLineHeight,
+        fontStyle: italic,
+      );
+  final head = html.trimLeft();
+  if (head.startsWith('<h3')) {
+    return (
+      TextStyle(
+        fontFamily: kTitleFamily,
+        fontFamilyFallback: kTitleFallback,
+        fontSize: size + 12,
+        height: 1.05,
+      ),
+      18.0,
+    );
+  }
+  if (head.contains('class="csl"')) return (body(size + 0.5, height: 1.3), 8.0);
+  if (head.contains('class="trans"')) {
+    return (body(size - 1, italic: FontStyle.italic), 8.0);
+  }
+  if (head.contains('class="memorydate"')) {
+    return (body(size - 1, italic: FontStyle.italic), 2.0);
+  }
+  // ⚠ Двата класа около илюстрациите. Без тях надписът се мереше като
+  // обикновен абзац — с цял пункт по-едро и изправен, тъй че редовете му се
+  // чупеха другаде и отместването под него излизаше грешно.
+  if (head.contains('class="caption"')) {
+    return (body(size - 1, italic: FontStyle.italic), 2.0);
+  }
+  if (head.contains('class="centernote"')) {
+    return (body(size - 1, italic: FontStyle.italic), 6.0);
+  }
+  if (head.contains('class="source"')) {
+    return (body(size - 2, italic: FontStyle.italic), 24.0);
+  }
+  if (head.contains('class="prayerhead"')) {
+    return (
+      TextStyle(
+        fontFamily: kBodyFamily,
+        fontSize: size + 1,
+        height: kReaderLineHeight,
+        fontWeight: FontWeight.w600,
+      ),
+      18.0,
+    );
+  }
+  return (body(size), kPTopMargin);
 }
 
 enum _ReaderMode { life, prayers, sluzhba }
@@ -222,29 +333,47 @@ enum _ReaderMode { life, prayers, sluzhba }
 // докато чака и после ползва кешираните резултати (_prepared).
 // ---------------------------------------------------------------
 
+/// Редът с източника накрая на четивото.
+///
+/// ⚠ Поддържа НЯКОЛКО източника, разделени с нов ред в полето `source`.
+/// Поводът: житие, чийто текст е сглобен от два извора (напр. кратката
+/// статия от azbyka.ru плюс подробното житие от pravoslavieto.com). И двата
+/// трябва да се посочат, и то с връзка към КОНКРЕТНОТО четиво, а не общо към
+/// сайта — читателят трябва да може да отвори точно това, което чете.
+///
+/// ⚠ Един ред = един източник, тъй че старите записи (а те са всичките 1033
+/// досега) минават оттук непроменени. Затова разделителят е нов ред, а не
+/// нова колона: обратната съвместимост излиза даром.
+///
+/// Изнесено в обща функция, защото се ползваше дословно на четири места и
+/// първата разлика между тях щеше да е тиха.
+String _sourceHtml(String source) {
+  final urls = source
+      .split('\n')
+      .map((s) => s.trim())
+      .where((s) => s.isNotEmpty)
+      .toList();
+  if (urls.isEmpty) return '';
+
+  final label = urls.length == 1 ? 'Източник' : 'Източници';
+  final links = urls
+      .map((u) => '<a href="$u">$u</a>')
+      .join('<br>');
+  return '<p class="source">$label: $links</p>';
+}
+
 String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
+  final src = _sourceHtml(texts.source);
+
   if (mode == _ReaderMode.sluzhba) {
-    final src = texts.source.isEmpty
-        ? ''
-        : '<p class="source">Източник: <a href="${texts.source}">'
-            '${texts.source}</a></p>';
     return '${texts.sluzhba}$src';
   }
 
   if (mode == _ReaderMode.life) {
-    final src = texts.source.isEmpty
-        ? ''
-        : '<p class="source">Източник: <a href="${texts.source}">'
-            '${texts.source}</a></p>';
     return '${texts.lifeHtml}$src';
   }
 
-  final prayers = _prayersBlocksHtml(texts);
-  final src = texts.source.isEmpty
-      ? ''
-      : '<p class="source">Източник: '
-          '<a href="${texts.source}">${texts.source}</a></p>';
-  return '$prayers$src';
+  return '${_prayersBlocksHtml(texts)}$src';
 }
 
 /// Тропарите и кондаците като HTML — БЕЗ източника отдолу.
@@ -292,11 +421,7 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
   if (mode != _ReaderMode.life) return _buildHtmlFor(mode, texts);
 
   final prayers = _prayersBlocksHtml(texts, firstClassExtra: 'pdfgap');
-  final src = texts.source.isEmpty
-      ? ''
-      : '<p class="source">Източник: <a href="${texts.source}">'
-          '${texts.source}</a></p>';
-  return '${texts.lifeHtml}$prayers$src';
+  return '${texts.lifeHtml}$prayers${_sourceHtml(texts.source)}';
 }
 
 
@@ -871,6 +996,22 @@ class _ReaderScreenState extends State<ReaderScreen>
   int _currentMatch = -1; // 0-based; -1 = няма
   List<int> _regionMatchCounts = [];
   List<GlobalKey> _regionKeys = [];
+
+  /// Ключовете на илюстрационните региони — по индекс на регион.
+  ///
+  /// ⚠ Всеки илюстрационен регион отговаря САМ за геометрията си (виж
+  /// [_IllustrationRegionState]). Дотук четецът питаше `_dropCapKey` за всеки
+  /// регион, който „не е html", тоест и за илюстрациите — а това е ключът на
+  /// БУКВИЦАТА, съвсем друг текст. Оттам идваше разминаването при обхождане
+  /// на намереното след картинка (докладвано 31.08.2026).
+  final Map<int, GlobalKey<_IllustrationRegionState>> _illKeys = {};
+
+  GlobalKey<_IllustrationRegionState> _illKeyFor(int i) =>
+      _illKeys.putIfAbsent(i, () => GlobalKey<_IllustrationRegionState>());
+
+  /// Състоянието на илюстрационния регион [i], ако е ПОСТРОЕН.
+  _IllustrationRegionState? _illStateAt(int i) =>
+      _illKeys[i]?.currentState;
   // Кумулативни (нарастващи) оценени височини по региони — region i започва
   // приблизително на _cumulativeHeights[i-1] пиксела (0 за i=0). Ползва се
   // и от _EstimatingListDelegate (обща дължина), и от _scrollToCurrent
@@ -1388,6 +1529,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       _currentMatch = total > 0 ? 0 : -1;
       if (_regionKeys.length != regions.length) {
         _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+        // ⚠ Заедно с тях — инак ключ от предишното четиво сочи регион с друг
+        // номер и геометрията идва от чужд текст.
+        _illKeys.clear();
       }
     });
     if (total > 0) _scrollToCurrent();
@@ -1438,6 +1582,14 @@ class _ReaderScreenState extends State<ReaderScreen>
       ordinal -= _regionMatchCounts[i];
     }
     if (ordinal < 0) return null;
+
+    // Илюстрацията отговаря САМА за геометрията си — над текста ѝ стои
+    // картинка, а част от него е в тясна колона. Прав TextPainter не знае за
+    // нито едно от двете.
+    if (region.kind == RegionKind.illustration) {
+      return _illStateAt(regionIdx)
+          ?.dyOfMatch(fold(_committedQuery).text, ordinal);
+    }
 
     // Абзацът с буквицата. Текстът обтича инициала, тъй че прав TextPainter
     // не го мери вярно — питаме самата кутия (виж DropCapParagraphState).
@@ -1505,6 +1657,10 @@ class _ReaderScreenState extends State<ReaderScreen>
     final region = prepared.regions[regionIdx];
     final lineH = ReaderFontSize.value * kReaderLineHeight;
 
+    if (region.kind == RegionKind.illustration) {
+      final dy = _illStateAt(regionIdx)?.dyForChar(charInRegion);
+      return dy == null ? null : (dy, lineH);
+    }
     if (!region.isHtml) {
       final dy = _dropCapKey.currentState?.dyForChar(charInRegion);
       return dy == null ? null : (dy, lineH);
@@ -1561,6 +1717,9 @@ class _ReaderScreenState extends State<ReaderScreen>
     if (prepared == null || width <= 0) return null;
     if (regionIdx < 0 || regionIdx >= prepared.regions.length) return null;
     final region = prepared.regions[regionIdx];
+    if (region.kind == RegionKind.illustration) {
+      return _illStateAt(regionIdx)?.charAtDy(dy);
+    }
     if (!region.isHtml) return _dropCapKey.currentState?.charAtDy(dy);
     final (base, topMargin) = _measureStyleFor(region.content);
     final locator =
@@ -1573,60 +1732,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   }
 
   /// Стилът и горното поле, с които се РИСУВА даден регион.
-  ///
-  /// Мерещият трябва да е огледален на рисуващия, инак редовете се чупят на
-  /// друго място и отместването излиза грешно. Стойностите тук са същите
-  /// като правилата в reader_styles.dart — сменят ли се там, сменят се и
-  /// тук. (Заглавието е с друг шрифт и с 12 пункта по-едро; църковнославян-
-  /// ският откъс е малко по-едър и по-нагъсто; преводът, редът с паметта и
-  /// източникът са по-дребни и в курсив.)
-  (TextStyle, double) _measureStyleFor(String html) {
-    final size = ReaderFontSize.value;
-    TextStyle body(double s, {FontStyle? italic, double? height}) => TextStyle(
-          fontFamily: kBodyFamily,
-          fontSize: s,
-          height: height ?? kReaderLineHeight,
-          fontStyle: italic,
-        );
-    final head = html.trimLeft();
-    if (head.startsWith('<h3')) {
-      return (
-        TextStyle(
-          fontFamily: kTitleFamily,
-      fontFamilyFallback: kTitleFallback,
-          fontSize: size + 12,
-          height: 1.05,
-        ),
-        18.0,
-      );
-    }
-    if (head.contains('class="csl"')) return (body(size + 0.5, height: 1.3), 8.0);
-    if (head.contains('class="trans"')) {
-      return (body(size - 1, italic: FontStyle.italic), 8.0);
-    }
-    if (head.contains('class="memorydate"')) {
-      return (body(size - 1, italic: FontStyle.italic), 2.0);
-    }
-    if (head.contains('class="source"')) {
-      return (body(size - 2, italic: FontStyle.italic), 24.0);
-    }
-    if (head.contains('class="prayerhead"')) {
-      return (
-        TextStyle(
-          fontFamily: kBodyFamily,
-          fontSize: size + 1,
-          height: kReaderLineHeight,
-          fontWeight: FontWeight.w600,
-        ),
-        18.0,
-      );
-    }
-    return (body(size), _pTopMargin);
-  }
+  (TextStyle, double) _measureStyleFor(String html) => measureStyleFor(html);
 
   /// Горното поле на обикновен абзац — Margins.only(top: 8) в
   /// reader_styles.dart.
-  static const double _pTopMargin = 8.0;
+  static const double _pTopMargin = kPTopMargin;
 
   /// Скролва до текущото съвпадение. SliverList строи децата си мързеливо
   /// (само близо до видимата зона) — ако регионът вече е построен, целим
@@ -1852,6 +1962,16 @@ class _ReaderScreenState extends State<ReaderScreen>
           (i >= 1 ? _gapBeforeRegions : 0.0) +
           (i > 0 && i - 1 < cumulative.length ? cumulative[i - 1] : 0.0);
       final region = prepared.regions[i];
+      // Илюстрацията знае сама къде са редовете ѝ; непостроена — чертичката
+      // застава в началото на региона, както при всяко друго неизвестно.
+      if (region.kind == RegionKind.illustration) {
+        final state = _illStateAt(i);
+        for (int k = 0; k < count; k++) {
+          final at = state?.dyOfMatch(folded, k);
+          ys.add(at == null ? top : top + at.$1);
+        }
+        continue;
+      }
       if (!region.isHtml) {
         final state = _dropCapKey.currentState;
         final starts = matchStartsOf(_plainTextOf(region.content), folded);
@@ -2175,6 +2295,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       title: widget.texts.name,
       bodyHtml: _buildPdfHtmlFor(widget._mode, widget.texts),
       fileName: '${_typeLabel.toLowerCase()} - ${widget.texts.name}.pdf',
+      // ⚠ САМО за неподвижните памети — при подвижните полето е null и
+      // името тръгва направо със заглавието (виж SaintTexts.memoryDate).
+      churchDate: widget.texts.memoryDate,
       // Буквица САМО за житието — точно както в четеца. Тропарите,
       // кондаците и службата започват без водеща заглавна буква.
       withDropCap: widget._mode == _ReaderMode.life,
@@ -2253,6 +2376,7 @@ class _ReaderScreenState extends State<ReaderScreen>
 
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+      _illKeys.clear();
     }
     // Ширината на СЪДЪРЖАНИЕТО, а не на екрана: текстът стои в SafeArea и
     // в хоризонтално положение изрезът на камерата отнема лента отстрани.
@@ -2289,6 +2413,93 @@ class _ReaderScreenState extends State<ReaderScreen>
         _viewportWidth,
         linkCount: prepared.regionLinkCounts[i],
       );
+      // ⚠ ВИСОЧИНАТА НА КАРТИНКАТА СЕ ДОБАВЯ ОТДЕЛНО. `_estimateRegionHeight`
+      // мери само текст и не подозира за изображения — а те са 300–500 px.
+      // Подценена, кутията се заковава малка от `SliverVariedExtentList` и
+      // картинката ИЗТИЧА върху следващия регион: на екрана текстът и
+      // заглавията минават върху нея. Точно това беше „катастрофата",
+      // докладвана на 31.08.2026.
+      final r = regions[i];
+      if (r.kind == RegionKind.illustration && r.imageAsset != null) {
+        final avail = (_viewportWidth - 32).clamp(100.0, 2000.0);
+        // ⚠ СЪЩИТЕ условия като в `_IllustrationRegion`, включително онова
+        // за ДОСТАТЪЧНО дълъг текст. Разминат ли се, оценката смята обтичане
+        // там, където няма да има (или обратното) — а от такова разминаване
+        // идваха преливането и празните полета.
+        final imgWProbe = illustrationFlowWidth(
+          availableWidth: avail,
+          shortestSide: MediaQuery.of(context).size.shortestSide,
+          pageInset: kLivesImagePageInset,
+        );
+        final colW = avail - imgWProbe - kIllustrationGap;
+        final imgHProbe =
+            r.imageAspect > 0 ? imgWProbe / r.imageAspect : imgWProbe;
+        final perLine =
+            (colW / (ReaderFontSize.value * 0.52)).clamp(10.0, 300.0);
+        final needed = perLine *
+            (imgHProbe / (ReaderFontSize.value * kReaderLineHeight));
+        // ⚠ СЪЩОТО делене, което прави и рисуването (`_splitFlow`). Тук се
+        // повтаря, защото оценката трябва да предскаже ТОЧНО каквото ще се
+        // нарисува: колко текст застава до картинката и колко продължава под
+        // нея. Разминат ли се двете, кутията се заковава по едната сметка, а
+        // Flutter рисува по другата.
+        final (besideProbe, belowProbe) = _splitFlow(r.flowHtml, needed);
+        // ⚠ СЪЩИТЕ условия, които ползва и `_IllustrationRegion` — включително
+        // това, че вече НЯМА условие за запълненост на зоната (виж бележката
+        // там). Разминат ли се двете, кутията на региона се заковава по
+        // едната сметка, а Flutter рисува по другата.
+        final floats = _viewportWidth >= kIllustrationFloatMinWidth &&
+            r.imageAspect > 0 &&
+            r.imageAspect < kIllustrationFullWidthAspect;
+        // ⚠ СЪЩАТА функция, с която рисува `_IllustrationRegion`. Две
+        // отделни сметки за една и съща ширина се разминават при първата
+        // промяна — а от разминаването идва преливането.
+        final imgW = floats
+            ? illustrationFlowWidth(
+                availableWidth: avail,
+                shortestSide: MediaQuery.of(context).size.shortestSide,
+                pageInset: kLivesImagePageInset,
+              )
+            : avail;
+        final imgH = r.imageAspect > 0 ? imgW / r.imageAspect : imgW * 0.75;
+        // Таванът е същият, който `LivesImageExtension` налага при рисуване —
+        // инак високите пана се надценяват.
+        final capped = imgH.clamp(
+            0.0, MediaQuery.of(context).size.height *
+                kLivesImageMaxHeightFactor);
+        if (floats) {
+          // ⚠ ДВЕ части, точно както рисува `_IllustrationRegion`:
+          //   • горе — картинка и текст ЕДИН ДО ДРУГ, тъй че се брои
+          //     по-високото от двете, а не сборът им;
+          //   • долу — остатъкът, който продължава на пълен ред.
+          final tagRe = RegExp(r'<[^>]+>');
+          final besideH = _estimateRegionHeight(
+            besideProbe.replaceAll(tagRe, ' '),
+            ReaderFontSize.value,
+            kReaderLineHeight,
+            colW,
+          );
+          running += (capped > besideH ? capped : besideH);
+          if (belowProbe.trim().isNotEmpty) {
+            running += _estimateRegionHeight(
+              belowProbe.replaceAll(tagRe, ' '),
+              ReaderFontSize.value,
+              kReaderLineHeight,
+              avail,
+            );
+          }
+          // Текстът на региона вече е добавен веднъж по-горе от общата
+          // оценка — тя не знае за деленето и го е сметнала на пълна ширина.
+          running -= _estimateRegionHeight(
+            prepared.regionPlainTexts[i],
+            ReaderFontSize.value,
+            kReaderLineHeight,
+            avail,
+          );
+        } else {
+          running += capped + 20;
+        }
+      }
       _cumulativeHeights[i] = running;
     }
     final foldedQuery = _committedQuery.isEmpty
@@ -2296,6 +2507,9 @@ class _ReaderScreenState extends State<ReaderScreen>
         : fold(_committedQuery).text;
 
     int matchOffset = 0;
+    // Коя по ред е илюстрацията в четивото — от нея се редува страната:
+    // първата вляво, втората вдясно, третата пак вляво.
+    int illustrationIndex = 0;
     final regionWidgets = <Widget>[];
     for (int i = 0; i < regions.length; i++) {
       final r = regions[i];
@@ -2319,6 +2533,38 @@ class _ReaderScreenState extends State<ReaderScreen>
             style: _htmlStyles(context),
             extensions: _tipikonExtensions,
           ),
+          ),
+        );
+      } else if (r.kind == RegionKind.illustration) {
+        // ⚠ Броят на съвпаденията ПРЕДИ картинката (в надписа) — нужен, за
+        // да продължат глобалните индекси вярно в текста отстрани.
+        final headHtml = (r.captionHtml ?? '');
+        final headCount = foldedQuery.isEmpty
+            ? 0
+            : _countMatchesHtml(headHtml, foldedQuery);
+
+        String mark(String html, int base) => foldedQuery.isEmpty
+            ? html
+            : highlightHtml(html, foldedQuery, base, _currentMatch);
+
+        regionWidgets.add(
+          KeyedSubtree(
+            key: key,
+            child: _IllustrationRegion(
+              // ⚠ Ключът е ПО ИНДЕКС НА РЕГИОН, не по ред на илюстрацията:
+              // през него четецът пита този регион за геометрията му, а
+              // навсякъде другаде регионите се адресират именно по индекс.
+              key: _illKeyFor(i),
+              imageAsset: r.imageAsset ?? '',
+              aspect: r.imageAspect,
+              // Шахматната подредба: коя по ред е картинката в четивото.
+              index: illustrationIndex++,
+              captionHtml: mark(headHtml, matchOffset),
+              flowHtml: mark(r.flowHtml, matchOffset + headCount),
+              blockHtml: mark(r.illustrationHtml, matchOffset),
+              styles: _htmlStyles(context),
+              onLinkTap: _onLinkTap,
+            ),
           ),
         );
       } else {
@@ -2399,24 +2645,40 @@ class _ReaderScreenState extends State<ReaderScreen>
         if (titleWidget != null)
           KeyedSubtree(key: _titleMeasureKey, child: titleWidget),
       ];
+      // ⚠ ИЗМЕРВА СЕ ТОЧНО ОНОВА, КОЕТО ЩЕ СЕ РИСУВА. Дотук клоновете бяха
+      // само два — html и „всичко останало" → буквицата. Илюстрационният
+      // регион не е html, тъй че попадаше във втория и се МЕРЕШЕ КАТО
+      // БУКВИЦА: премерваше се съвсем друг widget от нарисувания, и
+      // разминаването беше гарантирано по устройство.
+      //
+      // Оттам идваха НАВЕДНЪЖ и трите: текст върху картинката (премерено
+      // по-ниско от истинското), изрязване (кутията по-малка от детето) и
+      // празни полета (премерено по-високо). Търсени бяха като три бъга;
+      // причината е една (31.08.2026).
+      int illustrationCounter = 0;
       for (int i = 0; i < regions.length; i++) {
         final r = regions[i];
-        if (r.isHtml) {
-          measureChildren.add(
-            KeyedSubtree(
-            key: _measureKeys[i],
-            child: Html(
+        final Widget child;
+        switch (r.kind) {
+          case RegionKind.html:
+            child = Html(
               data: r.content,
               style: _htmlStyles(context),
               extensions: _tipikonExtensions,
-            ),
-            ),
-          );
-        } else {
-          measureChildren.add(
-            KeyedSubtree(
-            key: _measureKeys[i],
-            child: DropCapParagraph(
+            );
+          case RegionKind.illustration:
+            child = _IllustrationRegion(
+              imageAsset: r.imageAsset ?? '',
+              aspect: r.imageAspect,
+              index: illustrationCounter++,
+              captionHtml: r.captionHtml ?? '',
+              flowHtml: r.flowHtml,
+              blockHtml: r.illustrationHtml,
+              styles: _htmlStyles(context),
+              onLinkTap: _onLinkTap,
+            );
+          case RegionKind.dropCap:
+            child = DropCapParagraph(
               dropCap: dropCap,
               dropCapSize: dropCapSize,
               offsetScale: ReaderDropCapScale.value.offsetMultiplier,
@@ -2429,10 +2691,9 @@ class _ReaderScreenState extends State<ReaderScreen>
               inkColor: _ink,
               linkColor: _p.link,
               onLinkTap: _onLinkTap,
-            ),
-            ),
-          );
+            );
         }
+        measureChildren.add(KeyedSubtree(key: _measureKeys[i], child: child));
       }
       if (hasGap) {
         measureChildren.insert(
@@ -2798,6 +3059,10 @@ class _ReaderScreenState extends State<ReaderScreen>
         // Горният индекс — общ с четеца на книги, за да не подскача
         // номерът на бележка между двата начина на рисуване.
         const ReaderSupExtension(),
+        // Илюстрациите към житията на българските светии. ⚠ Без него
+        // flutter_html подкарва `<img src="assets/…">` като МРЕЖОВ адрес и
+        // рисува счупена иконка — а приложението чете офлайн.
+        const LivesImageExtension(),
         TagExtension(
           tagsToExtend: {'znak'},
           builder: (ctx) {
@@ -2897,4 +3162,465 @@ Future<List<BookmarkEntry>> livesBookmarkEntries(SaintLookup lookup) async {
         },
       ),
   ];
+}
+
+/// Регион с илюстрация — блоково на тесен екран, с обтичащ текст на широк.
+///
+/// ⚠ Решението се взима по НАЛИЧНАТА ШИРИНА, не по ориентацията. Таблет в
+/// изправено положение често има повече място от телефон в легнало, а
+/// решаващото е колко остава за текстовата колона (виж
+/// [kIllustrationFloatMinWidth]).
+///
+/// ⚠ И в двата случая текстът минава през ЕДИН И СЪЩ `Html` widget с вече
+/// маркирано търсене. Затова обхождането, отметките и позиционирането
+/// работят без нито ред нов код — те стъпват на регионите, а регионът е
+/// същият. Точно това беше причината да се избере този път пред пълното
+/// „истинско" обтичане с ръчно мерене.
+/// Една част от илюстрационен регион — надписът, текстът отстрани, текстът
+/// отдолу. Всяка е отделен `Html` widget със свой ключ, тъй че реалната ѝ
+/// позиция се ПИТА от Flutter, вместо да се пресмята.
+/// Един БЛОК от илюстрационен регион — надписът, отделен абзац, заглавие.
+///
+/// ⚠ Всеки блок е свой `Html` widget със свой ключ, тъй че позицията му се
+/// ПИТА от Flutter. Първата版 версия рисуваше цели групи в един `Html` и
+/// трупаше височините вътре с `LineLocator` — измерено на живо (31.08.2026),
+/// това надценяваше групата с една трета (1262 вместо 919 dp) и обхождането
+/// спираше половин екран под целта. Числата на мерещия и на flutter_html
+/// просто не съвпадат достатъчно, за да се трупат през шест блока.
+class _IllPart {
+  final String html;
+  final GlobalKey key;
+  final double width;
+
+  /// Коя група рисува блока: 0 — надписът, 1 — текстът до картинката (или
+  /// целият, при подредба отгоре надолу), 2 — остатъкът под нея.
+  final int group;
+  const _IllPart(this.html, this.key, this.width, this.group);
+}
+
+/// Къде е стигнало обхождането на блоковете в един илюстрационен регион.
+class _WalkAt {
+  /// Пикселът, на който започва ТЕКСТЪТ на блока (след горното му поле).
+  final double top;
+  final int matchesBefore;
+  final int charsBefore;
+
+  /// Колко знака има в самия блок.
+  final int length;
+
+  const _WalkAt(this.top, this.matchesBefore, this.charsBefore, this.length);
+}
+
+class _IllustrationRegion extends StatefulWidget {
+  final String imageAsset;
+  final double aspect;
+  final int index;
+  final String captionHtml;
+  final String flowHtml;
+  final String blockHtml;
+  final Map<String, Style> styles;
+  final void Function(String?) onLinkTap;
+
+  const _IllustrationRegion({
+    super.key,
+    required this.imageAsset,
+    required this.aspect,
+    required this.index,
+    required this.captionHtml,
+    required this.flowHtml,
+    required this.blockHtml,
+    required this.styles,
+    required this.onLinkTap,
+  });
+
+  @override
+  State<_IllustrationRegion> createState() => _IllustrationRegionState();
+}
+
+/// ⚠ ДЪРЖИ ГЕОМЕТРИЯТА СИ САМ — по образеца на [DropCapParagraphState].
+///
+/// Дотук четецът смяташе, че „регион, който не е html" значи буквица, и
+/// питаше `_dropCapKey` за всяко отместване. Илюстрационният регион също не е
+/// html, тъй че при обхождане на намереното се питаше геометрията на СЪВСЕМ
+/// ДРУГ текст — първия абзац на четивото. Оттам и докладваното: преди
+/// картинките търсенето уцелва, при тях се разминава силно (31.08.2026).
+///
+/// Отвън се пита в знаци и съвпадения; вътре отговорът се сглобява от ДВЕ
+/// величини:
+///   • реалният връх на частта — от нейния `GlobalKey`, тоест от самия layout;
+///   • редът вътре в блока — с `LineLocator`, при СЪЩАТА ширина и стил, с
+///     които блокът е нарисуван.
+///
+/// ⚠ Затова частите се пазят с ширината си: текстът отстрани е в тясна
+/// колона, надписът е точно колкото картинката, а долният е на пълен ред.
+/// Мерен на грешната ширина, същият абзац се пренася другаде и всяко
+/// отместване след първия ред излиза сбъркано.
+class _IllustrationRegionState extends State<_IllustrationRegion> {
+  /// Частите от ПОСЛЕДНОТО рисуване, по реда, по който текстът им се брои при
+  /// търсене (надпис, после обтичащият текст, после остатъкът отдолу) — точно
+  /// редът, по който `highlightHtml` номерира съвпаденията в build().
+  List<_IllPart> _parts = const [];
+
+  // ⚠ ПОЛЕТА, не създавани в build(). Нов `GlobalKey` на всяко рисуване значи
+  // друг widget за Flutter (`Widget.canUpdate` сравнява тип И ключ): старият
+  // Element се изхвърля и се строи нов при всеки кадър. Същият капан като при
+  // катизмите в „Библия" (виж CLAUDE.md).
+  final List<GlobalKey> _blockKeys = [];
+
+  GlobalKey _blockKey(int i) {
+    while (_blockKeys.length <= i) {
+      _blockKeys.add(GlobalKey());
+    }
+    return _blockKeys[i];
+  }
+
+  /// Разбива групите на отделни блокове, всеки със свой ключ и ширината, на
+  /// която РЕАЛНО ще се нарисува.
+  ///
+  /// ⚠ Ключът е по пореден номер на БЛОК, не по група: при завъртане текстът
+  /// се преразпределя между групите (същите блокове, друго групиране), тъй че
+  /// ключ по група би сменил widget-а на всеки блок и би изхвърлил Element-а.
+  List<_IllPart> _partsOf(List<(String, double, int)> groups) {
+    final out = <_IllPart>[];
+    for (final (html, width, group) in groups) {
+      if (html.trim().isEmpty) continue;
+      for (final block in splitBlocks(html)) {
+        if (block.trim().isEmpty) continue;
+        out.add(_IllPart(block, _blockKey(out.length), width, group));
+      }
+    }
+    return out;
+  }
+
+  List<Widget> _partWidgets(int group) => [
+        for (final p in _parts.where((p) => p.group == group))
+          KeyedSubtree(
+            key: p.key,
+            child: Html(
+              data: p.html,
+              onLinkTap: (url, _, __) => widget.onLinkTap(url),
+              style: widget.styles,
+            ),
+          ),
+      ];
+
+  /// Реалният връх на частта спрямо върха на целия регион.
+  double? _partTop(GlobalKey key) {
+    final self = context.findRenderObject() as RenderBox?;
+    final box = key.currentContext?.findRenderObject() as RenderBox?;
+    if (self == null || box == null || !self.hasSize || !box.hasSize) {
+      return null;
+    }
+    return box.localToGlobal(Offset.zero, ancestor: self).dy;
+  }
+
+  /// Обхожда блоковете на региона по ред и вика [visit] за всеки.
+  ///
+  /// Води три величини: на какъв пиксел започва ТЕКСТЪТ на блока (реалният
+  /// връх на частта плюс натрупаното в нея), колко съвпадения и колко знака
+  /// стоят зад гърба му. [visit] връща не-null, за да спре обхождането.
+  ///
+  /// ⚠ НИЩО НЕ СЕ ТРУПА: всеки блок има свой ключ, тъй че върхът му идва от
+  /// самия layout. Единственото пресметнато е горното поле на блока — а то е
+  /// едно число, не сбор през шест абзаца.
+  T? _walk<T>(
+    String folded,
+    T? Function(_WalkAt at, LineLocator loc) visit,
+  ) {
+    var matches = 0;
+    var chars = 0;
+    for (final part in _parts) {
+      final top = _partTop(part.key);
+      final (base, topMargin) = measureStyleFor(part.html);
+      final loc = LineLocator.forHtml(
+        html: part.html,
+        base: base,
+        maxWidth: part.width,
+      );
+      try {
+        if (top != null) {
+          final r = visit(
+            _WalkAt(top + topMargin, matches, chars, loc.text.length),
+            loc,
+          );
+          if (r != null) return r;
+        }
+        if (folded.isNotEmpty) matches += loc.countMatches(folded);
+        chars += loc.text.length;
+      } finally {
+        loc.dispose();
+      }
+    }
+    return null;
+  }
+
+  /// Отместването и височината на реда за [ordinal]-тото съвпадение на
+  /// [folded] в този регион. null, ако регионът още не е построен.
+  ///
+  /// ⚠ Броенето е със СЪЩАТА функция, с която четецът е номерирал
+  /// съвпаденията ([LineLocator.countMatches] върху парчетата между
+  /// таговете). Друго броене тук значи, че стрелките сочат едно, а
+  /// оранжевото свети на друго.
+  (double, double)? dyOfMatch(String folded, int ordinal) {
+    if (folded.isEmpty || ordinal < 0) return null;
+    return _walk<(double, double)>(folded, (at, loc) {
+      if (at.matchesBefore + loc.countMatches(folded) <= ordinal) return null;
+      final char = loc.charOfMatch(folded, ordinal - at.matchesBefore);
+      if (char == null) return null;
+      return (at.top + loc.dyForChar(char), loc.lineHeightForChar(char));
+    });
+  }
+
+  /// Отместването на реда, в който стои знак [char] от плоския текст на целия
+  /// регион — за отметките и за улавянето на позицията при завъртане и +/−.
+  double? dyForChar(int char) {
+    double? last;
+    final hit = _walk<double>('', (at, loc) {
+      if (at.length == 0) return null;
+      last = at.top + loc.dyForChar(char - at.charsBefore);
+      // Знакът е В ТОЗИ блок — готово. Иначе продължаваме напред, а `last`
+      // пази последното видяно: знак отвъд края на текста (закръгляне при
+      // смяна на шрифта) така пада на последния ред, а не на началото.
+      return char < at.charsBefore + at.length ? last : null;
+    });
+    return hit ?? last;
+  }
+
+  /// Обратното: кой знак стои на пиксел [dy].
+  int? charAtDy(double dy) {
+    int? last;
+    _walk<bool>('', (at, loc) {
+      if (at.top > dy) return true; // стигнахме отвъд търсения пиксел — спри
+      last = at.charsBefore + loc.charAtDy(dy - at.top);
+      return null;
+    });
+    return last;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final imageAsset = widget.imageAsset;
+    final aspect = widget.aspect;
+    final index = widget.index;
+    final captionHtml = widget.captionHtml;
+    final flowHtml = widget.flowHtml;
+    final blockHtml = widget.blockHtml;
+    final styles = widget.styles;
+    final onLinkTap = widget.onLinkTap;
+
+    return LayoutBuilder(
+      builder: (context, c) {
+        // ⚠ ДВЕ условия, не едно. Освен мястото, значение има и ФОРМАТЪТ на
+        // картинката: панорамна сцена, набутана в 38% от реда, губи всичко,
+        // заради което е сложена. Затова широките заемат целия ред и текстът
+        // минава над и под тях — както в изправено положение.
+        // (Бележка на потребителя, 31.08.2026.)
+        // ⚠ ТЕКСТЪТ СЕ ДЕЛИ: колкото се събира до картинката остава в
+        // зоната, останалото ПРОДЪЛЖАВА под нея на пълен ред.
+        //
+        // Идея на потребителя (31.08.2026), и тя решава наведнъж двата
+        // проблема, за които първо бях направил отделни (по-лоши) лекове:
+        //   • празните полета — зоната се дозапълва със следващия абзац,
+        //     вместо да зее до края на картинката;
+        //   • заглавието веднага след картинка — вече не оставя дупка.
+        //
+        // ⚠ Отстоянието между абзаците се пази от само себе си: двете части
+        // минават през ОТДЕЛНИ `Html` widget-а, а `<p>` носи своя margin от
+        // стиловете. Слепени в един низ, те биха загубили границата.
+        final imgWProbe = illustrationFlowWidth(
+          availableWidth: c.maxWidth,
+          shortestSide: MediaQuery.of(context).size.shortestSide,
+          pageInset: kLivesImagePageInset,
+        );
+        final colWidth = c.maxWidth - imgWProbe - kIllustrationGap;
+        final imgHProbe = aspect > 0 ? imgWProbe / aspect : imgWProbe;
+        // Груба, но достатъчна сметка колко ЗНАКА се събират в зоната.
+        // Средната ширина на знак е същата константа, с която мери и
+        // `_estimateRegionHeight` (0.52 от размера на шрифта).
+        final charsPerLine =
+            (colWidth / (ReaderFontSize.value * 0.52)).clamp(10.0, 300.0);
+        final linesFit =
+            imgHProbe / (ReaderFontSize.value * kReaderLineHeight);
+        final charsFit = charsPerLine * linesFit;
+
+        final (besideHtml, belowHtml) = _splitFlow(flowHtml, charsFit);
+
+        // ⚠ ЧАСТИЧНОТО ОБТИЧАНЕ Е ПО-ДОБРО ОТ НИКАКВОТО — решено от
+        // потребителя (31.08.2026), след като обратното беше пробвано.
+        //
+        // Тук за кратко стоеше условие „текстът да пълни поне 60% от
+        // зоната", за да няма празнина под него при две картинки една до
+        // друга. То наистина махаше празнината, но с цената да отменя
+        // обтичането изцяло — а страницата с картинка на цял ред и текст
+        // над и под нея хаби повече място, отколкото зона, чието дъно зее.
+        // Не го връщай без изрична молба.
+        final wide = c.maxWidth >= kIllustrationFloatMinWidth &&
+            (aspect <= 0 || aspect < kIllustrationFullWidthAspect);
+
+        // ТЕСЕН екран, ШИРОКА картинка или БЕЗ текст за обтичане — всичко в
+        // един поток, отгоре надолу.
+        if (!wide || imageAsset.isEmpty) {
+          // ⚠ ТРИ ОТДЕЛНИ widget-а, а не един `Html(blockHtml)`.
+          //
+          // Видът е същият — картинката минава пак през [LivesImageExtension],
+          // тъй че отстоянията ѝ идват от същия код, а надписът и текстът
+          // носят своите полета от стиловете. Разделени обаче, всеки има свой
+          // ключ и РЕАЛНА позиция: инак височината на картинката трябваше да
+          // се пресмята наизуст (плюс неизвестното поле, което flutter_html
+          // слага около `WidgetSpan` в анонимен блок) и всяко отместване под
+          // нея излизаше сбъркано.
+          _parts = _partsOf([
+            (captionHtml, c.maxWidth, 0),
+            (flowHtml, c.maxWidth, 1),
+          ]);
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (imageAsset.isNotEmpty)
+                Html(
+                  data: _imgTag(imageAsset, aspect),
+                  style: styles,
+                  extensions: const [LivesImageExtension()],
+                ),
+              ..._partWidgets(0),
+              ..._partWidgets(1),
+              if (imageAsset.isEmpty && _parts.isEmpty)
+                Html(
+                  data: blockHtml,
+                  onLinkTap: (url, _, __) => onLinkTap(url),
+                  style: styles,
+                  extensions: const [LivesImageExtension()],
+                ),
+            ],
+          );
+        }
+
+        // ШИРОК екран — картинката отстрани, текстът до нея.
+        final left = index.isEven;
+        // ⚠ ЕДНА функция за ширината, обща с оценката на височината по-горе.
+        // Разминат ли се двете сметки, кутията на региона се заковава по
+        // едната, а Flutter рисува по другата — и текстът прелива върху
+        // картинката. Точно това беше „катастрофата" от 31.08.2026.
+        final imgW = illustrationFlowWidth(
+          availableWidth: c.maxWidth,
+          shortestSide: MediaQuery.of(context).size.shortestSide,
+          pageInset: kLivesImagePageInset,
+        );
+
+        // ⚠ Ширините се запомнят такива, каквито РЕАЛНО са при рисуването:
+        // надписът е колкото картинката, обтичащият текст — колкото тясната
+        // колона, остатъкът — на пълен ред.
+        _parts = _partsOf([
+          (captionHtml, imgW, 0),
+          (besideHtml, colWidth, 1),
+          (belowHtml, c.maxWidth, 2),
+        ]);
+
+        final block = SizedBox(
+          width: imgW,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset(
+                imageAsset,
+                width: imgW,
+                height: aspect > 0 ? imgW / aspect : null,
+                fit: BoxFit.contain,
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+              // ⚠ Надписът е ТОЧНО колкото картинката, не колкото колоната:
+              // той принадлежи на нея. Затова и в [_parts] влиза с ширина
+              // `imgW` — мерен на ширината на колоната, той се пренася
+              // другаде и отместването под него излиза грешно.
+              ..._partWidgets(0),
+            ],
+          ),
+        );
+
+        // ⚠ ВЪНШНИЯТ отстъп е НУЛА — картинка вляво ляга на лявото поле на
+        // текста, вдясно на дясното. Еднакъв отстъп от всички страни
+        // измества изображението спрямо текстовата колона и окото веднага
+        // усеща разминаването.
+        final padded = Padding(
+          padding: EdgeInsets.only(
+            left: left ? 0 : kIllustrationGap,
+            right: left ? kIllustrationGap : 0,
+          ),
+          child: block,
+        );
+
+        final text = Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            mainAxisSize: MainAxisSize.min,
+            children: _partWidgets(1),
+          ),
+        );
+
+        final row = Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: left ? [padded, text] : [text, padded],
+        );
+
+        // ⚠ Няма ли остатък, връща се самият Row — без излишна обвивка.
+        if (belowHtml.trim().isEmpty) return row;
+
+        // Продължението ПОД картинката, на пълен ред. Отделен `Html` widget,
+        // за да си запази `<p>` отстоянието между абзаците — слепен с
+        // горната част в един низ, преходът би се загубил.
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            row,
+            ..._partWidgets(2),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Дели текста, който върви до илюстрация, на две части: колкото се събира в
+/// зоната отстрани и остатъка, който продължава ПОД картинката.
+///
+/// ⚠ Дели се по ЦЕЛИ АБЗАЦИ, не по знаци. Разрязан по средата, абзацът би
+/// започвал под картинката с малка буква и без отстъп — чете се като счупен
+/// текст. Затова в зоната влиза всеки абзац, който още се побира, а първият
+/// непобрал се цял отива долу заедно със следващите.
+///
+/// ⚠ ПОНЕ ЕДИН абзац остава горе, дори да е по-дълъг от зоната: инак при
+/// дълъг първи абзац зоната остава празна, а картинката — сама.
+///
+/// [charsFit] е груба преценка колко знака се събират отстрани — виж
+/// повикващия.
+(String, String) _splitFlow(String flowHtml, double charsFit) {
+  // ⚠ И ЗАГЛАВИЯТА влизат, не само абзаците — зоната се дозапълва с
+  // каквото следва (31.08.2026). Дотук изразът търсеше само `<p>` и
+  // заглавието изпадаше от деленето.
+  final blocks = RegExp(r'<(p|h[1-6])[^>]*>.*?</\1>', dotAll: true)
+      .allMatches(flowHtml)
+      .map((m) => m.group(0)!)
+      .toList();
+  if (blocks.isEmpty) return (flowHtml, '');
+
+  final tagRe = RegExp(r'<[^>]+>');
+  final beside = <String>[];
+  final below = <String>[];
+  var used = 0.0;
+
+  for (final b in blocks) {
+    final len = b.replaceAll(tagRe, '').trim().length.toDouble();
+    // ⚠ Приема се, ДОКАТО зоната не е запълнена — гледа се дали ЗАПОЧНАТОТО
+    // още се събира, не дали целият блок ще се побере. Иначе дълъг абзац
+    // отпада цял и зоната остава полупразна: точно това беше „кутията не се
+    // дозапълва".
+    if (below.isEmpty && (beside.isEmpty || used < charsFit)) {
+      beside.add(b);
+      used += len;
+    } else {
+      below.add(b);
+    }
+  }
+  return (beside.join('\n'), below.join('\n'));
 }

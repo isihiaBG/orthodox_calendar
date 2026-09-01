@@ -5,6 +5,16 @@
   fixed   — църковен (месец, ден). civil_date - 13 = църковна дата (проверено
             по-долу: целият източник обхваща точно църковната 2026 година,
             civil 2026-01-14 = църковен 1 януари).
+  civil   — ГРАЖДАНСКИ (месец, ден), еднакъв и в двата стила. Вписва се на
+            ръка в overrides.csv; classify() не го връща никога.
+            ⚠ Такива дни има малко и всеки е изключение по СЪЩЕСТВО, а не
+            по сметка: Съединението и Денят на будителите изобщо не са
+            църковни празници (стоят в календара за сведение), а Гергьовден
+            БПЦ държи на 6 май и след приемането на новия стил — макар
+            църковната му дата да е 23 април. Сверено с календара на
+            Патриаршията (bg-patriarshia.bg/calendar/2026-5, 01.09.2026).
+            Без този пласт трите излизаха верни по стар стил и с 13 дни
+            по-рано по нов — 23.IV, 24.VIII и 19.X.
   pascha  — офсет в дни спрямо гражданската дата на Пасха (тя е една и съща
             и при двата стила).
   anchor  — (коя котва, посока преди/след, кой ден от седмицата). Котвата
@@ -23,7 +33,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from paschalion import civil_from_church, julian_gregorian_offset, pascha_civil
-from classify import classify, load_overrides, load_known_movable
+from classify import classify, key_name, load_overrides, load_known_movable
 from rules import resolve as resolve_rule
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -151,15 +161,19 @@ def extract(db) -> dict:
     anchor_church = find_anchor_church_dates(db)
 
     fixed_rules, pascha_rules, anchor_rules, manual_rules = [], [], [], []
+    civil_rules = []
     skipped = []
     mismatches = []
 
     for sid, date, name, rank, group_code, sign, slug in db.execute(
             'select id,date,name,rank,group_code,sign,slug from saints order by date'):
         civil = datetime.date.fromisoformat(date)
-        rule_text = known.get((date, name))
+        # ⚠ Ключът минава през classify.key_name — виж докстринга ѝ:
+        # почти половината имена носят неразбиваем интервал.
+        kname = key_name(name)
+        rule_text = known.get((date, kname))
         kind = 'manual' if rule_text is not None else (
-            over.get((date, name)) or classify(name))
+            over.get((date, kname)) or classify(name))
         rest = dict(rank=rank, group_code=group_code, sign=sign, slug=slug, name=name)
 
         if kind == 'skip':
@@ -171,6 +185,14 @@ def extract(db) -> dict:
             check = resolve_rule(rule_text, SOURCE_YEAR, True, anchor_church)
             if check != civil:
                 mismatches.append(('manual', date, name, check))
+            continue
+
+        if kind == 'civil':
+            # ⚠ Датата се взима КАКТО Е — тя вече е гражданската. Тук няма
+            # какво да се проверява с round-trip: правилото „същият ден по
+            # гражданския календар" възпроизвежда входа по определение.
+            civil_rules.append(
+                dict(civil_month=civil.month, civil_day=civil.day, **rest))
             continue
 
         if kind == 'fixed':
@@ -202,7 +224,8 @@ def extract(db) -> dict:
                 mismatches.append(('anchor', date, name, check))
 
     return dict(fixed=fixed_rules, pascha=pascha_rules, anchor=anchor_rules,
-                manual=manual_rules, leap_fixed=list(LEAP_FIXED), skipped=skipped,
+                manual=manual_rules, civil=civil_rules,
+                leap_fixed=list(LEAP_FIXED), skipped=skipped,
                 anchor_church=anchor_church, mismatches=mismatches)
 
 

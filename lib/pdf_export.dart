@@ -12,6 +12,10 @@
 // ползваните знаци (виж TtfWriter.withChars), затова Charis SIL не надува
 // файла и основният текст е със същия шрифт като в четеца.
 
+import 'dart:async';
+import 'dart:convert';
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
@@ -155,6 +159,18 @@ class _Block {
   final String text;
   final bool isHeading;
   final bool isItalic;
+
+  /// Пътят до илюстрацията — САМО когато блокът е `<img>`. За всички
+  /// останали е null и блокът е текстов.
+  final String? imageAsset;
+
+  /// Съотношението ширина/височина, взето от атрибутите на тага.
+  ///
+  /// ⚠ От АТРИБУТИТЕ, не от файла: мястото се смята преди изображението да
+  /// е декодирано — същата причина, както в [LivesImageExtension].
+  final double imageAspect;
+
+  bool get isImage => imageAsset != null;
   /// Абзацът започва с курсивен таг (<em>/<i>) — акцент/цитат, който не
   /// бива да носи буквица (същото правило като в четеца).
   final bool startsItalic;
@@ -169,7 +185,9 @@ class _Block {
       this.isItalic = false,
       this.startsItalic = false,
       this.cls = '',
-      this.inner = ''});
+      this.inner = '',
+      this.imageAsset,
+      this.imageAspect = 0});
 }
 
 /// Премахва интервалите около таговете за бележки (<a> и <sup>),
@@ -183,9 +201,24 @@ String _cleanNoteSpacing(String html) {
   var cleaned = html;
   cleaned = cleaned.replaceAll(RegExp(r'\s+<sup'), '<sup');
   cleaned = cleaned.replaceAll(RegExp(r'</sup>\s+'), '</sup>');
-  cleaned = cleaned.replaceAll(RegExp(r'</a>\s+'), '</a>');
-  cleaned = cleaned.replaceAll(RegExp(r'\s+<a\s'), ' <a ');
-  cleaned = cleaned.replaceAll(RegExp(r'\s+<a\b'), '<a');
+  // ⚠ САМО ОКОЛО БЕЛЕЖКИТЕ, а не около всяка връзка.
+  //
+  // Дотук тук стоеше `\s+<a\b` → `<a`, което махаше интервала пред ВСЯКА
+  // връзка. В житията те са 2773 и всяка слепваше предната дума за себе си:
+  // „Кирил и <a>Методий</a>" излизаше „Кирил иМетодий". Личеше и в името на
+  // файла, което се строи от същия текст (открито 31.08.2026).
+  //
+  // Бележката се разпознава по горния индекс вътре в самата връзка —
+  // `<a href="…noteN…"><sup>N</sup></a>`; само там номерът трябва да е
+  // долепен до думата, както в печатните книги.
+  cleaned = cleaned.replaceAllMapped(
+    RegExp(r'\s+(<a\b[^>]*>)(\s*<sup)', caseSensitive: false),
+    (m) => '${m[1]}${m[2]}',
+  );
+  cleaned = cleaned.replaceAllMapped(
+    RegExp(r'(</sup>\s*</a>)\s+', caseSensitive: false),
+    (m) => m[1]!,
+  );
   return cleaned;
 }
 
@@ -194,12 +227,32 @@ String _cleanNoteSpacing(String html) {
 /// всяка подробност от екрана.
 List<_Block> _parseBlocks(String html) {
   final blocks = <_Block>[];
-  final re = RegExp(r'<(p|h[1-6])\b([^>]*)>(.*?)</\1>',
-      dotAll: true, caseSensitive: false);
+  // ⚠ И `<img>` — самозатварящ се таг, тъй че влиза в СЪЩИЯ израз като
+  // отделно разклонение, а не като втори обход: редът на блоковете има
+  // значение (надписът трябва да остане веднага след картинката си).
+  final re = RegExp(
+      r'<img\b([^>]*)>|<(p|h[1-6])\b([^>]*)>(.*?)</\2>',
+      dotAll: true,
+      caseSensitive: false);
+  final srcRe = RegExp(r'src="([^"]+)"', caseSensitive: false);
+  final wRe = RegExp(r'width="(\d+)"', caseSensitive: false);
+  final hRe = RegExp(r'height="(\d+)"', caseSensitive: false);
   for (final m in re.allMatches(html)) {
-    final tag = m.group(1)!.toLowerCase();
-    final attrs = m.group(2) ?? '';
-    final inner = m.group(3)!;
+    if (m.group(1) != null) {
+      final tag = m.group(0)!;
+      final src = srcRe.firstMatch(tag)?.group(1);
+      // Чужд адрес (мрежов, остатък от източника) не се рисува — PDF-ът се
+      // прави офлайн, както и четецът.
+      if (src == null || !src.startsWith('assets/')) continue;
+      final w = double.tryParse(wRe.firstMatch(tag)?.group(1) ?? '') ?? 0;
+      final h = double.tryParse(hRe.firstMatch(tag)?.group(1) ?? '') ?? 0;
+      blocks.add(_Block('',
+          imageAsset: src, imageAspect: (w > 0 && h > 0) ? w / h : 0));
+      continue;
+    }
+    final tag = m.group(2)!.toLowerCase();
+    final attrs = m.group(3) ?? '';
+    final inner = m.group(4)!;
     // Почистваме интервалите около таговете за бележки още преди парсването
     final cleanedInner = _cleanNoteSpacing(inner);
     final text = _decodeEntities(cleanedInner.replaceAll(RegExp(r'<[^>]+>'), ''))
@@ -283,6 +336,451 @@ String _spanPlainText(pw.InlineSpan s) {
   final head = lines.take(maxLines).join(' ');
   final rest = text.length > head.length ? text.substring(head.length).trim() : '';
   return (head: head, rest: rest);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// МЕНИДЖЪР НА СТРАНИЦИТЕ — къде да падне всяка илюстрация
+// ═══════════════════════════════════════════════════════════════════
+//
+// Задачата е една: страниците да се запълват, без картинка да се реже и без
+// да се откъсва от надписа си.
+//
+// ⚠ КЛЮЧОВОТО НАБЛЮДЕНИЕ, от което следва целият алгоритъм: текстът се
+// РАЗЦЕПВА между страници (`pw.TextOverflow.span`), тъй че сам по себе си не
+// оставя празнина — той тече, докато свърши листът. Празнина се появява
+// САМО когато неразделим блок не се побере в остатъка, а такива са тъкмо
+// илюстрациите (картинка + надпис в един `Inseparable`).
+//
+// Затова не се налага да се пренарежда всичко — достатъчно е за всяка
+// картинка да се избере МЯСТОТО, на което тя пада най-добре. Илюстрацията се
+// мести с няколко абзаца напред или назад; редът на самия текст остава
+// непокътнат.
+//
+// ⚠ Че картинката ще застане малко по-рано или по-късно от мястото си в
+// източника, е приемливо — тя пътува заедно с надписа си и не се позовава на
+// съседния абзац. Решение на потребителя (31.08.2026), с довода, че печалбата
+// в оформлението е далеч по-голяма от загубата на точното място.
+
+/// Безопасно име на файл от заглавието на четивото.
+///
+/// ⚠ ЛИМИТЪТ Е В БАЙТОВЕ, НЕ В ЗНАЦИ — и точно това го пропусна досегашният
+/// код. Файловите системи на Android спират на 255 БАЙТА, а кирилицата е по
+/// два байта на знак: 174-знаково име излиза 306 байта. Тогава записът гърми
+/// с `ENAMETOOLONG`, споделянето се проваля и отвън изглежда, че копчето
+/// „Сподели като PDF" просто не прави нищо. Точно това се случваше на
+/// житието на св. Кирил Философ, чието заглавие и подзаглавие заедно са
+/// 174 знака (докладвано 31.08.2026).
+///
+/// Съкращава се стъпаловидно: първо отпада подзаглавието (то е по-малко
+/// важно от името), после самото заглавие се реже ПО ДУМА.
+String _safeFileName({
+  required String main,
+  required String sub,
+  required String fallback,
+  String prefix = '',
+}) {
+  // Знаци, забранени във файлови имена (Android/Windows/iOS).
+  String clean(String s) => s
+      .replaceAll(RegExp(r'[\\/:*?"<>|]'), '')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  int bytes(String s) => utf8.encode(s).length;
+
+  // ⚠ Запасът под 255 е нарочен: приложението за споделяне често добавя
+  // свой префикс или наставка към името, преди да го запише.
+  const maxBytes = 150;
+  var head = clean(main);
+  final tail = clean(sub);
+  if (head.isEmpty) head = clean(fallback);
+  if (head.isEmpty) head = 'Житие';
+
+  // ⚠ ДВЕТЕ ЧАСТИ СЕ ПАЗЯТ ПООТДЕЛНО, а не се търси разделителят в готовия
+  // низ. Самото подзаглавие може да съдържа тире („…и на 14 февруари -
+  // Успение на…") и рязането по първото срещнато оставяше половин
+  // подзаглавие пред цялото име.
+  // ⚠ Представката („Памет на 14.фев.") се смята за ЗАДЪЛЖИТЕЛНА: тя е
+  // указателят, по който човек подрежда свалените файлове, тъй че мястото ѝ
+  // се вади от бюджета, вместо да отпада при съкращаване.
+  final pre = prefix.isEmpty ? '' : '${clean(prefix)} ';
+  final budget = maxBytes - bytes(pre);
+  if (tail.isNotEmpty && bytes('$tail - $head') <= budget) {
+    return '$pre$tail - $head.pdf';
+  }
+  if (bytes(head) <= budget) return '$pre$head.pdf';
+
+  // Още е дълго — режем по дума, за да не свърши името насред сричка.
+  final out = StringBuffer();
+  for (final w in head.split(' ')) {
+    final candidate = out.isEmpty ? w : '$out $w';
+    if (bytes(candidate) > budget) break;
+    out
+      ..clear()
+      ..write(candidate);
+  }
+  var trimmed = out.toString().trim();
+  if (trimmed.isEmpty) {
+    // Една-единствена свръхдълга дума: режем по ЗНАЦИ, докато байтовете
+    // паднат — така никога не остава половин буква.
+    trimmed = head;
+    while (bytes(trimmed) > budget && trimmed.isNotEmpty) {
+      trimmed = trimmed.substring(0, trimmed.length - 1);
+    }
+    trimmed = trimmed.trim();
+  }
+  return '$pre$trimmed.pdf';
+}
+
+/// Докъде може да пътува илюстрация — в БЛОКОВЕ, не в пиксели.
+///
+/// ⚠ Има таван по две причини. Далеч преместена картинка се откъсва от
+/// онова, за което разказва текстът наоколо; а и всяко местене отвъд една
+/// страница само пренася празнината другаде, вместо да я премахне.
+const int _kImageShiftLimit = 5;
+
+/// Запас, с който картинката трябва да се побере, за да я сметнем за побрала
+/// се.
+///
+/// ⚠ Не е предпазливост „за всеки случай". Симулацията се разминава с
+/// `MultiPage` с няколко пункта на страница (отстъпи, които на границата не
+/// се пренасят, последен ред, който не влиза) и в граничен случай казва
+/// „побира се", а листът я отхвърля — при което зее цяла половин страница.
+/// Обратната грешка струва много по-малко: картинката минава по-нататък,
+/// където и без това щеше да иде.
+const double _kFitMargin = 28;
+
+/// Диагностика на разпределението — вдига се само при търсене на бъг.
+bool _pdfDebug = false;
+set pdfDebug(bool v) => _pdfDebug = v;
+
+/// Един елемент от документа заедно с онова, което мениджърът трябва да знае
+/// за него.
+class _Item {
+  final pw.Widget widget;
+  final bool isImage;
+  final bool isHeading;
+
+  /// Може ли `MultiPage` да го разреже между две страници.
+  ///
+  /// ⚠ РЕШАВАЩО за сметката. Разцепваем елемент не оставя празнина — той
+  /// тече, докато свърши листът. Всеки друг или се побира в остатъка, или
+  /// цял отива на новата страница и зад него зее празно. Ако тук всичко се
+  /// смята за течащо, симулацията излиза с една страница по-малко и
+  /// „колко е останало" става грешно още в началото.
+  ///
+  /// Разцепваеми са само абзаците, построени с `pw.TextOverflow.span`.
+  final bool splittable;
+
+  /// От кой БЛОК е дошъл — по него пренареждането връща реда на блоковете,
+  /// а не на готовите widget-и (вторият проход ги строи наново).
+  int blockIndex = -1;
+
+  /// Височината му в пунктове — ИЗМЕРЕНА, не оценена (виж [_reorderBlocks]).
+  double height = 0;
+
+  _Item(this.widget,
+      {this.isImage = false,
+      this.isHeading = false,
+      this.splittable = false});
+}
+
+/// Решава къде да падне всяка илюстрация и връща НОВ ред на БЛОКОВЕТЕ.
+///
+/// ⚠ ВИСОЧИНИТЕ СЕ МЕРЯТ, НЕ СЕ ОЦЕНЯВАТ. Първата версия ги смяташе по брой
+/// редове × междуредие и излизаше със 7% по-малко — при дълго житие това е
+/// седем страници разлика, тъй че „колко е останало на листа" ставаше
+/// произволно число още към десетата страница. Тук всеки елемент минава през
+/// `layout()` — същата примитива, с която мери и самият `MultiPage`.
+///
+/// ⚠ Текстът се РАЗЦЕПВА между страници (`pw.TextOverflow.span`) и затова сам
+/// не оставя празнина: тече, докато свърши листът. Празно остава само когато
+/// НЕРАЗДЕЛИМ елемент не се побере — а такива са илюстрациите (картинка +
+/// надпис в един `Inseparable`) и заглавията. Оттам цялата задача се свежда
+/// до едно: за всяка картинка да се избере мястото, на което пада най-добре.
+///
+/// Връща САМИЯ подаден списък, ако нищо не се е разместило — тогава вторият
+/// проход на строенето отпада.
+List<_Block> _reorderBlocks(
+  List<_Block> blocks,
+  List<_Item> items,
+  pw.Context context,
+  double contentWidth,
+  double pageHeight,
+) {
+  if (pageHeight <= 0 || !items.any((it) => it.isImage)) return blocks;
+
+  // ── 1. Измерване ──────────────────────────────────────────────────
+  final constraints = pw.BoxConstraints(maxWidth: contentWidth);
+  for (final it in items) {
+    try {
+      it.widget.layout(context, constraints);
+      it.height = it.widget.box?.height ?? 0;
+    } catch (_) {
+      it.height = 0; // не се е оформил — не участва в сметките
+    }
+  }
+
+  // ── 2. Свиване до ЕДИНИЦИ по блок ─────────────────────────────────
+  // Няколко widget-а могат да идват от един блок (текст + отстъп след него),
+  // а картинката носи надписа си със себе си.
+  final n = blocks.length;
+  final h = List<double>.filled(n, 0);
+  final splittable = List<bool>.filled(n, false);
+  final isImg = List<bool>.filled(n, false);
+  final isHead = List<bool>.filled(n, false);
+  for (final it in items) {
+    final b = it.blockIndex;
+    if (b < 0 || b >= n) continue;
+    h[b] += it.height;
+    if (it.splittable) splittable[b] = true;
+    if (it.isImage) isImg[b] = true;
+    if (it.isHeading) isHead[b] = true;
+  }
+
+  // Надписът пътува с картинката си — двата блока се сливат в един.
+  final unit = <List<int>>[];
+  for (var i = 0; i < n; i++) {
+    if (isImg[i] && i + 1 < n && blocks[i + 1].cls.contains('caption')) {
+      unit.add([i, i + 1]);
+      i++;
+    } else {
+      unit.add([i]);
+    }
+  }
+  final uh = [for (final u in unit) u.fold<double>(0, (a, i) => a + h[i])];
+  // Височината на един ред в единицата — по кегела на блока ѝ.
+  final uLine = [
+    for (final u in unit)
+      _blockFontSizeOf(blocks[u.first], _bodySize) * _targetLineEm
+  ];
+  final uImg = [for (final u in unit) isImg[u.first]];
+  final uHead = [for (final u in unit) isHead[u.first]];
+  final uSplit = [
+    for (final u in unit) u.every((i) => splittable[i] || h[i] == 0)
+  ];
+
+  // ── 3. Симулация + местене ────────────────────────────────────────
+  //
+  // За всяка илюстрация се оценяват три възможности:
+  //   остави я тук      новата страница започва с нея
+  //   отложи я с k      k единици минават пред нея и допълват листа
+  //   издърпай я с j    застава пред последните j и завършва листа
+  //
+  // ⚠ Двете посоки не са симетрични и двете трябват. Отлагането се проваля
+  // към КРАЯ на четивото (изтикана след последния абзац, картинката остава
+  // сама на последна страница); издърпването — в НАЧАЛОТО, където няма зад
+  // какво да се скрие.
+  final order = List<int>.generate(unit.length, (i) => i);
+  final yBefore = List<double>.filled(unit.length, 0);
+  // ⚠ Всяка илюстрация се мести НАЙ-МНОГО ВЕДНЪЖ: симулацията се пуска
+  // наново от новото ѝ място и без този пазач може да я върне обратно.
+  final moved = <int>{};
+  var y = 0.0;
+  var changed = false;
+
+  // ⚠ Текстът тече ПО ЦЕЛИ РЕДОВЕ, не като течност.
+  //
+  // Останат ли на листа 15 пункта, а редът е 19, редът не влиза — тези 15
+  // се губят. Първата версия ги смяташе за запълнени и излизаше с 8%
+  // по-малко страници (при дълго житие — шест). Тук се брои колко ЦЕЛИ реда
+  // се побират, и остатъкът отива на новия лист.
+  double advance(double from, double dh, double lineH) {
+    if (lineH <= 0) {
+      var t = from + dh;
+      while (t > pageHeight) {
+        t -= pageHeight;
+      }
+      return t;
+    }
+    var lines = (dh / lineH).round();
+    var y = from;
+    while (lines > 0) {
+      final fits = ((pageHeight - y) / lineH).floor();
+      if (fits >= lines) return y + lines * lineH;
+      lines -= fits > 0 ? fits : 0;
+      y = 0; // нов лист
+      if (fits <= 0 && y == 0) {
+        // редът не се побира дори на празен лист — предпазва от цикъл
+        if (lineH > pageHeight) return pageHeight;
+      }
+    }
+    return y;
+  }
+
+  for (var pos = 0; pos < order.length; pos++) {
+    yBefore[pos] = y;
+    final u = order[pos];
+    final uHeight = uh[u];
+
+    if (!uImg[u]) {
+      if (uSplit[u]) {
+        y = advance(y, uHeight, uLine[u]); // тече по цели редове
+      } else if (uHeight <= pageHeight - y) {
+        y += uHeight;
+      } else {
+        y = uHeight; // цял отива на нова страница
+      }
+      continue;
+    }
+    if (uHeight + _kFitMargin <= pageHeight - y) {
+      y += uHeight;
+      continue;
+    }
+    if (moved.contains(u)) {
+      y = uHeight;
+      continue;
+    }
+
+    var bestWaste = pageHeight - y;
+    var bestShift = 0;
+
+    var probe = y;
+    for (var k = 1; k <= _kImageShiftLimit && pos + k < order.length; k++) {
+      final nxt = order[pos + k];
+      // ⚠ Друга картинка не се прескача — двете биха разменили реда си
+      // спрямо разказа, а всяка носи свой надпис. Нито блокът с ИЗТОЧНИКА:
+      // след него строенето спира и картинката просто би изчезнала.
+      if (uImg[nxt] || blocks[unit[nxt].first].cls.contains('source')) break;
+      probe = uSplit[nxt]
+          ? advance(probe, uh[nxt], uLine[nxt])
+          : (uh[nxt] <= pageHeight - probe ? probe + uh[nxt] : uh[nxt]);
+      final waste = uHeight + _kFitMargin <= pageHeight - probe
+          ? 0.0
+          : pageHeight - probe;
+      // ⚠ Отлагане до самия край НЕ Е печалба: картинката остава сама на
+      // последна страница, каквото и да казва сметката.
+      if (waste < bestWaste - 0.5 && pos + k < order.length - 1) {
+        bestWaste = waste;
+        bestShift = k;
+      }
+      if (waste == 0 && pos + k < order.length - 1) break;
+    }
+
+    for (var j = 1; j <= _kImageShiftLimit && pos - j >= 0; j++) {
+      final prv = order[pos - j];
+      // ⚠ Не се минава пред ЗАГЛАВИЕ: картинката би застанала преди реда,
+      // който я въвежда.
+      if (uImg[prv] || uHead[prv]) break;
+      final yAt = yBefore[pos - j];
+      final waste =
+          uHeight + _kFitMargin <= pageHeight - yAt ? 0.0 : pageHeight - yAt;
+      if (waste < bestWaste - 0.5) {
+        bestWaste = waste;
+        bestShift = -j;
+      }
+      if (waste == 0) break;
+    }
+
+    if (bestShift != 0) {
+      moved.add(u);
+      changed = true;
+      order.removeAt(pos);
+      order.insert(pos + bestShift, u);
+      final restart = bestShift < 0 ? pos + bestShift : pos;
+      y = yBefore[restart];
+      pos = restart - 1;
+      continue;
+    }
+    y = uHeight;
+  }
+
+  if (_pdfDebug) {
+    var yy = 0.0, page = 1, gaps = 0;
+    for (final i in order) {
+      if (uSplit[i]) {
+        final was = yy;
+        yy = advance(yy, uh[i], uLine[i]);
+        if (yy < was) page += 1 + ((was + uh[i] - yy) / pageHeight).floor();
+      } else if (uh[i] > pageHeight - yy) {
+        if (pageHeight - yy > 90) gaps++;
+        page++;
+        yy = uh[i];
+      } else {
+        yy += uh[i];
+      }
+    }
+    // ignore: avoid_print
+    print('  [сим] $page стр., празнини >90pt: $gaps, местени: ${moved.length}');
+  }
+
+  if (!changed) return blocks;
+  return [for (final i in order) ...unit[i].map((b) => blocks[b])];
+}
+
+/// Мястото на илюстрацията в PDF-а: (ширина, височина) в пунктове.
+///
+/// ⚠ Височината е ОГРАНИЧЕНА, и то по-строго, отколкото на екрана. Там
+/// таванът пази четенето от изображение, което заема целия екран; тук е и
+/// въпрос на страница: висока картинка, тръгнала от средата, изтласква
+/// целия текст под себе си и оставя половин лист празен.
+const double _kPdfImageMaxHeightFactor = 0.52;
+
+// ⚠ Таванът на разтягането е МАХНАТ и тук — по същото решение, с което
+// отпадна и в четеца (01.09.2026): илюстрацията заема цялата ширина на
+// колоната, каквато и да е тя в източника.
+
+(double, double) _imageBox(double aspect, pw.MemoryImage img, double maxWidth) {
+  final maxHeight =
+      (PdfPageFormat.a4.height - 80) * _kPdfImageMaxHeightFactor;
+  // ⚠ Съотношението от атрибутите е меродавно; към самото изображение се
+  // пада само ако тагът не го е дал (в базата това не се среща, но чужд
+  // текст утре може да го пропусне).
+  final iw = (img.width ?? 0).toDouble();
+  final ih = (img.height ?? 0).toDouble();
+  final ratio = aspect > 0 ? aspect : (ih == 0 ? 1.0 : iw / ih);
+  var w = maxWidth;
+  var h = w / ratio;
+  if (h > maxHeight) {
+    h = maxHeight;
+    w = h * ratio;
+  }
+  return (w, h);
+}
+
+/// Размерът на шрифта за един блок — ЕДНО място за таблицата.
+///
+/// ⚠ Изнесено, защото същите числа трябват и при ГРУПИРАНЕТО на абзац със
+/// заглавието над него. Написани втори път там, те се разминаваха при
+/// първата промяна — а разминаването се вижда като „остатъкът от абзаца
+/// започва не оттам, откъдето свърши началото му".
+double _blockFontSizeOf(_Block b, double bodySize) {
+  if (b.cls.contains('prayerhead')) return bodySize + 1;
+  if (b.cls.contains('csl')) return bodySize + 0.5;
+  if (b.cls.contains('trans') ||
+      b.cls.contains('memorydate') ||
+      b.cls.contains('caption') ||
+      b.cls.contains('centernote')) {
+    return bodySize - 1;
+  }
+  if (b.cls.contains('source')) return bodySize - 3;
+  return bodySize;
+}
+
+/// Стилът на един блок — огледален на четеца (виж readerStyles).
+pw.TextStyle _blockStyleOf(_Block b, PdfFont measureFont, double bodySize) {
+  final isPrayerHead = b.cls.contains('prayerhead');
+  final isSourceLine = b.cls.contains('source');
+  // ⚠ Курсивните по КЛАС: редът с паметта, надписът под илюстрация и
+  // сведението в скоби. В четеца и трите са курсив, приглушени и с една
+  // степен по-дребни (виж reader_styles.dart) — тук се повтаря същото.
+  final isDimItalic = b.cls.contains('memorydate') ||
+      b.cls.contains('caption') ||
+      b.cls.contains('centernote');
+  final size = _blockFontSizeOf(b, bodySize);
+  return pw.TextStyle(
+    font: isPrayerHead
+        ? _bodyBold
+        : ((b.isItalic || isDimItalic) ? _bodyItalic : _body),
+    fontNormal: isPrayerHead
+        ? _bodyBold
+        : ((b.isItalic || isDimItalic) ? _bodyItalic : _body),
+    fontBold: _bodyBold,
+    fontWeight: isPrayerHead ? pw.FontWeight.bold : pw.FontWeight.normal,
+    fontSize: size,
+    lineSpacing: _lineSpacing(measureFont, size),
+    color: isPrayerHead
+        ? _wine
+        : ((b.isItalic && !isSourceLine) || isDimItalic ? _dim : _ink),
+  );
 }
 
 /// Разбива вътрешността на абзац на парчета според вложените тагове.
@@ -998,22 +1496,60 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
 }
 
 /// Сглобява PDF-а и отваря стандартния диалог за споделяне.
-Future<void> sharePdf({
+/// Строи документа и връща байтовете му ЗАЕДНО с името на файла.
+///
+/// ⚠ Изнесено от [sharePdf] (31.08.2026), за да може оформлението да се
+/// проверява БЕЗ устройство: `flutter test` вика тази функция, записва
+/// изхода и той се преглежда веднага. Цикълът билд → пренос по мрежата →
+/// инсталация отнема минути и харчи потребителски лимит, а тук е секунди —
+/// същият довод, с който вертикалното подравняване на бележките беше
+/// намерено експериментално (виж CLAUDE.md, „ДВА КАПАНА В pdf ПАКЕТА").
+/// Църковната дата като „14.фев." — така, както застава в името на файла.
+///
+/// ⚠ Съкращенията са ТРИБУКВЕНИ и с точка, а месеците — в родителен вид,
+/// какъвто се чете в „Памет на 14 февруари". Списъкът е зашит, защото
+/// `intl` дава други форми („февр.", „фев") според локала, а името на файла
+/// трябва да изглежда еднакво на всяко устройство.
+const List<String> _monthShort = [
+  '', 'ян.', 'фев.', 'март', 'апр.', 'май', 'юни',
+  'юли', 'авг.', 'сеп.', 'окт.', 'ное.', 'дек.',
+];
+
+String memoryDatePrefix(DateTime churchDate) =>
+    'Памет на ${churchDate.day.toString().padLeft(2, '0')}.'
+    '${_monthShort[churchDate.month]}';
+
+Future<({Uint8List bytes, String fileName})> buildPdfBytes({
   required String title,
   required String bodyHtml,
   required String fileName,
   bool withDropCap = true,
-  /// В службата <strong> носи богослужебните указания и по традиция е в
-  /// червено; в житието същият таг е обикновено ударение (виж четеца).
   bool strongIsWine = false,
-  /// Тропари/кондаци/служба: там заглавието се отделя по-осезаемо от
-  /// текста. Житията и сказанията остават с досегашния отстъп.
   bool prayerLike = false,
+  /// Църковната дата на паметта — застава пред заглавието в името на файла.
+  DateTime? churchDate,
 }) async {
   await _ensureFonts();
   final blocks = _parseBlocks(bodyHtml);
   const margin = 40.0;
   final contentWidth = PdfPageFormat.a4.width - margin * 2;
+
+  // ⚠ Изображенията се зареждат ТУК, преди строенето: `MultiPage.build` е
+  // СИНХРОНЕН, а четенето от пакета не е. Пропуснатото (липсващ файл,
+  // повреден JPEG) просто не влиза в картата и блокът се подминава — една
+  // липсваща илюстрация не бива да отнася целия документ, точно както в
+  // четеца (виж LivesImageExtension).
+  final images = <String, pw.MemoryImage>{};
+  for (final b in blocks) {
+    final asset = b.imageAsset;
+    if (asset == null || images.containsKey(asset)) continue;
+    try {
+      final data = await rootBundle.load(asset);
+      images[asset] = pw.MemoryImage(data.buffer.asUint8List());
+    } catch (_) {
+      // без картинка — блокът се пропуска при строенето
+    }
+  }
 
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // БЪГФИКС #1: ИМЕ НА PDF ФАЙЛА
@@ -1023,29 +1559,33 @@ Future<void> sharePdf({
   // Предишният код разчиташе само на подадения параметър `fileName`,
   // който идваше отвън и съдържаше само подзаглавието.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  String mainTitle = '';
+  // ⚠ ЗАГЛАВИЕТО СЕ ВЗИМА САМО ОТ НАЧАЛОТО на четивото, а не първото
+  // срещнато. Дотук се търсеше „първият блок със заглавие, където и да е" —
+  // а житията на българските светии носят „Допълнение" по средата (виж
+  // 06_apply.py). Резултат: PDF-ът на Гавриил Лесновски се казваше
+  // „Допълнение.pdf". Има ли четивото собствено заглавие, то е ПЪРВИЯТ блок;
+  // няма ли — важи името, подадено отвън.
+  String mainTitle = blocks.isNotEmpty && blocks.first.isHeading
+      ? blocks.first.text
+      : title;
   String subTitle = '';
   for (final block in blocks) {
-    if (block.isHeading && mainTitle.isEmpty) {
-      mainTitle = block.text;
-    } else if (block.cls.contains('memorydate') && subTitle.isEmpty) {
+    if (block.cls.contains('memorydate')) {
       subTitle = block.text;
+      break;
     }
   }
-  // Ако няма заглавие, ползваме подаденото title
   if (mainTitle.isEmpty) mainTitle = title;
-  // Формираме името: "Подзаглавие - Заглавие.pdf"
-  // Ако няма подзаглавие или то е същото като заглавието, ползваме само заглавието
-  final pdfBaseName = subTitle.isNotEmpty && mainTitle != subTitle
-      ? '$subTitle - $mainTitle'
-      : mainTitle;
-  // Дребните жития обикновено имат прилични заглавия, но да не разчитаме
-  // на late late — знаци, забранени във файлови имена (Android/Windows/
-  // iOS: / \ : * ? " < > |), се махат, иначе записът на диска може да
-  // откаже точно заради тях.
-  final pdfFileName =
-      '${pdfBaseName.replaceAll(RegExp(r'[\\/:*?"<>|]'), '').trim()}.pdf';
+  final pdfFileName = _safeFileName(
+      main: mainTitle,
+      sub: mainTitle == subTitle ? '' : subTitle,
+      fallback: title,
+      prefix: churchDate == null ? '' : memoryDatePrefix(churchDate));
 
+  // Височината на листа, с която работи `MultiPage`: формат минус полетата
+  // и минус опашката с номера (12 отстъп + един ред).
+  final usableHeight =
+      PdfPageFormat.a4.height - margin * 2 - (12 + (_bodySize - 2) * 1.4);
   final doc = pw.Document();
   doc.addPage(
     pw.MultiPage(
@@ -1070,52 +1610,149 @@ Future<void> sharePdf({
                 color: _dim)),
       ),
       build: (context) {
+        // ⚠ ДВУПРОХОДНО СТРОЕНЕ (31.08.2026).
+        //
+        // Първият проход строи всичко и служи само за МЕРЕНЕ: оттам се
+        // взимат истинските височини и се решава къде да падне всяка
+        // илюстрация. Вторият строи наново, вече по пренаредените блокове.
+        //
+        // ⚠ Два прохода са НЕОБХОДИМИ, а не разточителство. Решението
+        // „заглавието да се групира с абзаца под себе си" се взима ПО ВРЕМЕ
+        // на строенето — а какво стои под заглавието зависи от
+        // пренареждането. При един проход заглавие, следвано от картинка,
+        // не намираше с какво да се групира и оставаше само в дъното на
+        // листа, макар точно това правило да го пази от такъв край.
+        List<_Item> buildItems(List<_Block> arranged) {
         // Ако самото четиво започва със заглавие (<h1>..<h6>), нашето име
         // отгоре е излишно — иначе излизат две заглавия едно под друго.
         // Същата проверка като hasOwnTitle в четеца.
-        final hasOwnTitle = blocks.isNotEmpty && blocks.first.isHeading;
-        final widgets = <pw.Widget>[
+        final hasOwnTitle = arranged.isNotEmpty && arranged.first.isHeading;
+        // ⚠ Събират се _Item-и, а не голи widget-и: мениджърът на страниците
+        // трябва да знае кои от тях са илюстрации и кои — заглавия.
+        final items = <_Item>[
           if (!hasOwnTitle) ...[
-            pw.Center(
-              child: pw.Text(title,
-                  textAlign: pw.TextAlign.center,
-                  style: pw.TextStyle(font: _title, fontSize: 34, color: _ink)),
+            _Item(
+              pw.Center(
+                child: pw.Text(title,
+                    textAlign: pw.TextAlign.center,
+                    style:
+                        pw.TextStyle(font: _title, fontSize: 34, color: _ink)),
+              ),
+              isHeading: true,
             ),
-            pw.SizedBox(height: prayerLike ? 56 : 22),
+            _Item(pw.SizedBox(height: prayerLike ? 56 : 22)),
           ],
         ];
+        // Кратка обвивка: досегашният код добавя widget-и на десетки места.
+        var curBlock = -1; // кой блок се изписва в момента
+        void add(pw.Widget w,
+            {bool isImage = false,
+            bool isHeading = false,
+            bool splittable = false}) {
+          items.add(_Item(w,
+              isImage: isImage,
+              isHeading: isHeading,
+              splittable: splittable)
+            ..blockIndex = curBlock);
+        }
         var dropCapUsed = false;
         var mainHeadingUsed = false;
         var scanned = 0;
-        String? pendingRest;
+        // ⚠ КОЛКО ЗНАКА от следващия абзац вече са изписани заедно със
+        // заглавието му, а НЕ самият остатък като текст.
+        //
+        // Дотук се пазеше готовият низ и се рендваше като гол текст — затова
+        // групирането важеше само за абзаци БЕЗ нито един вътрешен таг
+        // (`!next.inner.contains('<')`). А точно те са рядкост: курсив,
+        // връзка или номер на бележка има почти навсякъде, тъй че правилото
+        // мълчеше и заглавието оставаше само в дъното (докладвано с пример
+        // 31.08.2026). С брой знаци остатъкът се реже със `_spansAfter` —
+        // същата функция, с която работи и буквицата — и таговете оцеляват.
+        int? pendingSkip;
         double? mainHeadingGap;
-        for (var i = 0; i < blocks.length; i++) {
-          final b = blocks[i];
+        for (var i = 0; i < arranged.length; i++) {
+          final b = arranged[i];
+          curBlock = i;
           mainHeadingGap = null;
           // Разпознава се по КЛАСА, който слагаме ние, а не по думата
           // "Източник": 49 жития завършват със собствен ред за източник,
           // част от самия текст. По думата спирахме на него и оставяхме
           // навън и тропарите, и нашата атрибуция.
-          if (b.cls.contains('source') && widgets.isNotEmpty) {
-            widgets.add(pw.SizedBox(height: 18));
+          if (b.cls.contains('source') && items.isNotEmpty) {
+            add(pw.SizedBox(height: 18));
           }
           // Началото на тропарите под житието — иска въздух над себе си,
           // за да не изглежда като продължение на последния абзац.
           // Заглавие тук няма нарочно: разделя ги отстоянието.
-          if (b.cls.contains('pdfgap') && widgets.isNotEmpty) {
-            widgets.add(pw.SizedBox(height: 40));
+          if (b.cls.contains('pdfgap') && items.isNotEmpty) {
+            add(pw.SizedBox(height: 40));
           }
           // Този абзац вече е започнат заедно със заглавието си — тук
           // остава да се изпише само остатъкът му.
-          String blockText = b.text;
-          if (pendingRest != null && !b.isHeading) {
-            if (pendingRest!.isEmpty) {
-              pendingRest = null;
-              continue; // целият абзац се е побрал при заглавието
+          var skipInBlock = 0;
+          if (pendingSkip != null && !b.isHeading) {
+            final skip = pendingSkip;
+            pendingSkip = null;
+            if (skip < 0) {
+              // ⚠ Целият абзац се е побрал при заглавието — но отстъпът СЛЕД
+              // него още не е добавен, а `continue` прескача края на
+              // итерацията. Без този ред следващото заглавие се залепваше за
+              // текста отгоре.
+              add(pw.SizedBox(height: 20));
+              continue;
             }
-            blockText = pendingRest!;
-            pendingRest = null;
+            skipInBlock = skip;
           }
+          // ── ИЛЮСТРАЦИЯ ────────────────────────────────────────────────
+          if (b.isImage) {
+            final img = images[b.imageAsset];
+            if (img == null) continue; // липсващ файл — тихо, както в четеца
+            final next = i + 1 < arranged.length ? arranged[i + 1] : null;
+            final capBlock =
+                (next != null && next.cls.contains('caption')) ? next : null;
+            final size = _imageBox(b.imageAspect, img, contentWidth);
+            final capStyle = capBlock == null
+                ? null
+                : _blockStyleOf(capBlock, _body!.getFont(context), _bodySize);
+            // ⚠ КАРТИНКАТА И НАДПИСЪТ Ѝ СА ЕДНО ЦЯЛО (`Inseparable`): и
+            // защото изображение, разрязано между две страници, е дефект, и
+            // защото надпис, откъснат от своята картинка, спира да значи
+            // каквото и да е.
+            add(isImage: true, pw.Inseparable(
+              child: pw.Column(
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  pw.SizedBox(height: 8),
+                  pw.Image(img, width: size.$1, height: size.$2),
+                  if (capBlock != null && capStyle != null) ...[
+                    pw.SizedBox(height: 5),
+                    // Надписът е ТОЧНО колкото картинката, не колкото
+                    // колоната — той принадлежи на нея (както в четеца).
+                    pw.SizedBox(
+                      width: size.$1,
+                      child: pw.RichText(
+                        textAlign: pw.TextAlign.left,
+                        text: pw.TextSpan(
+                            style: capStyle,
+                            children: _inlineSpans(
+                                capBlock.inner.isEmpty
+                                    ? capBlock.text
+                                    : capBlock.inner,
+                                capStyle,
+                                strongColor: strongIsWine ? _wine : _ink,
+                                font: _body!.getFont(context),
+                                baseItalic: true)),
+                      ),
+                    ),
+                  ],
+                  pw.SizedBox(height: 14),
+                ],
+              ),
+            ));
+            if (capBlock != null) i++; // надписът е изписан заедно с нея
+            continue;
+          }
+
           // Буквица само в началото (първите три абзаца), както в четеца.
           if (!b.isHeading) scanned++;
           final useDropCap = withDropCap &&
@@ -1125,9 +1762,9 @@ Future<void> sharePdf({
           if (useDropCap) {
             dropCapUsed = true;
             final dc = _dropCapWidgets(
-                blocks, i, contentWidth, _body!.getFont(context),
+                arranged, i, contentWidth, _body!.getFont(context),
                 strongColor: strongIsWine ? _wine : _ink);
-            widgets.addAll(dc.widgets);
+            for (final w in dc.widgets) { add(w); }
             // Буквицата може да е погълнала няколко абзаца — цикълът
             // прескача точно тях.
             i += dc.consumed - 1;
@@ -1137,16 +1774,29 @@ Future<void> sharePdf({
             // Абзацът с буквицата се рендва ЦЯЛ от собствения си код и
             // затова НЕ бива да се групира (иначе първите му редове
             // излизаха два пъти).
-            final next = i + 1 < blocks.length ? blocks[i + 1] : null;
+            final next = i + 1 < arranged.length ? arranged[i + 1] : null;
             final nextTakesDropCap = withDropCap &&
                 !dropCapUsed &&
                 next != null &&
                 _eligibleForDropCap(next);
+            // ⚠ ДВЕ от досегашните условия отпаднаха (31.08.2026):
+            // `!next.isItalic` и `!next.inner.contains('<')`. И двете бяха
+            // там, защото групирането рендваше гол текст с прав шрифт; сега
+            // то минава през същите стил и спанове като самия абзац, тъй че
+            // курсив, връзка или номер на бележка не му пречат.
+            //
+            // ⚠ Остават две истински пречки: следващият да не е ЗАГЛАВИЕ
+            // (две заглавия едно под друго не се групират — второто пак ще
+            // остане само) и да не носи БУКВИЦА (тя се рендва от собствения
+            // си код и залепена, излизаше два пъти).
+            // ⚠ И не КАРТИНКА: групирането реже текст, а картинката няма
+            // такъв — тя минаваше за „абзац, побрал се цял", маркираше се
+            // като изписана и се пропускаше. Тоест заглавие, следвано от
+            // илюстрация, я изяждаше мълчаливо (31.08.2026).
             final canKeepWithNext = next != null &&
                 !next.isHeading &&
-                !next.isItalic &&
-                !nextTakesDropCap &&
-                !next.inner.contains('<');
+                !next.isImage &&
+                !nextTakesDropCap;
 
             if (b.isHeading) {
               // Заглавието на самото четиво (<h1> в HTML-а) трябва да
@@ -1171,10 +1821,31 @@ Future<void> sharePdf({
               // Заглавието не бива да остава само в дъното на страницата —
               // групира се (Inseparable) с първите два реда след себе си.
               if (canKeepWithNext) {
-                final split = _splitLines(next.text, contentWidth,
-                    _body!.getFont(context), _bodySize, 2);
-                pendingRest = split.rest;
-                widgets.add(pw.Inseparable(
+                // ⚠ СЪЩИЯТ стил и СЪЩИТЕ спанове, с които абзацът ще се
+                // изпише и сам. Дотук тук стоеше гол `next.text` с прав
+                // шрифт и основен размер — затова курсивните абзаци и тези
+                // с вътрешни тагове бяха изключени от правилото и
+                // заглавието оставаше само.
+                final nStyle =
+                    _blockStyleOf(next, _body!.getFont(context), _bodySize);
+                final nSize = _blockFontSizeOf(next, _bodySize);
+                final nSpans = _inlineSpans(
+                    next.inner.isEmpty ? next.text : next.inner, nStyle,
+                    strongColor: strongIsWine ? _wine : _ink,
+                    font: _body!.getFont(context),
+                    baseBold: next.cls.contains('prayerhead'),
+                    baseItalic: next.isItalic ||
+                        next.cls.contains('memorydate') ||
+                        next.cls.contains('caption') ||
+                        next.cls.contains('centernote'));
+                // Мери се СГЛОБЕНИЯТ от парчетата текст, не `next.text`:
+                // така отрязването и изписването броят едни и същи знаци.
+                final nPlain = nSpans.map(_spanPlainText).join();
+                final split = _splitLines(nPlain, contentWidth,
+                    _body!.getFont(context), nSize, 2);
+                pendingSkip = split.rest.isEmpty ? -1 : split.head.length;
+                final centered = next.cls.contains('memorydate');
+                add(isHeading: true, pw.Inseparable(
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                     children: [
@@ -1183,22 +1854,16 @@ Future<void> sharePdf({
                       // Целият абзац с maxLines: 2 — виж бележката при
                       // абзаците долу защо не подаваме само двата реда.
                       pw.RichText(
-                          textAlign: pw.TextAlign.justify,
+                          textAlign: centered
+                              ? pw.TextAlign.center
+                              : pw.TextAlign.justify,
                           maxLines: 2,
-                          text: pw.TextSpan(
-                              text: next.text,
-                              style: pw.TextStyle(
-                                font: _body,
-                                fontSize: _bodySize,
-                                lineSpacing: _lineSpacing(
-                                    _body!.getFont(context), _bodySize),
-                                color: _ink,
-                              ))),
+                          text: pw.TextSpan(style: nStyle, children: nSpans)),
                     ],
                   ),
                 ));
               } else {
-                widgets.add(headingWidget);
+                add(headingWidget, isHeading: true);
               }
             } else {
               // Стиловете следват четеца (виж _htmlStyles там):
@@ -1215,53 +1880,23 @@ Future<void> sharePdf({
               //     се чете житието, не част от разказа — виж стила му в
               //     reader_styles.dart, който тук се повтаря едно към едно.
               final isMemoryDate = b.cls.contains('memorydate');
-              // Изнесен в променлива, защото междуредието се смята СПРЯМО
-              // него — иначе преводът (с по-дребен шрифт) и славянският
-              // текст (с по-едър) щяха да получат реда на основния размер.
-              final blockFontSize = isPrayerHead
-                  ? _bodySize + 1
-                  : isCsl
-                      ? _bodySize + 0.5
-                      : (isTrans || isMemoryDate)
-                          ? _bodySize - 1
-                          : isSourceLine
-                              ? _bodySize - 3
-                              : _bodySize;
-              final style = pw.TextStyle(
-                font: isPrayerHead
-                    ? _bodyBold
-                    : ((b.isItalic || isMemoryDate) ? _bodyItalic : _body),
-                fontNormal: isPrayerHead
-                    ? _bodyBold
-                    : ((b.isItalic || isMemoryDate) ? _bodyItalic : _body),
-                fontBold: _bodyBold,
-                fontWeight:
-                    isPrayerHead ? pw.FontWeight.bold : pw.FontWeight.normal,
-                fontSize: blockFontSize,
-                lineSpacing:
-                    _lineSpacing(_body!.getFont(context), blockFontSize),
-                // Източникът остава курсивен, но в мастилено: сивото се
-                // губеше до синьото на самия адрес до него.
-                color: isPrayerHead
-                    ? _wine
-                    : ((b.isItalic && !isSourceLine) || isMemoryDate
-                        ? _dim
-                        : _ink),
-              );
+              // ⚠ Стилът и размерът идват от ОБЩИТЕ функции — същите, с
+              // които се строи и групирането на абзац със заглавието му.
+              final style = _blockStyleOf(b, _body!.getFont(context), _bodySize);
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               // 🔥 НОВ КОД ЗА MEMORYDATE: центриран с pw.Center + pw.Text
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               if (isMemoryDate) {
                 // Центриран текст - без RichText
-                widgets.add(pw.Center(
+                add(pw.Center(
                   child: pw.Text(
-                    blockText,
+                    skipInBlock > 0 ? b.text.substring(skipInBlock).trim() : b.text,
                     style: style,
                     textAlign: pw.TextAlign.center,
                   ),
                 ));
                 // След memorydate добавяме стандартно отстояние
-                widgets.add(pw.SizedBox(height: 20));
+                add(pw.SizedBox(height: 20));
                 continue;  // ← ПРОПУСКАМЕ ОСТАНАЛАТА ЛОГИКА за този блок
               }
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1273,7 +1908,7 @@ Future<void> sharePdf({
               // остатъкът от абзац, започнат при заглавието си отгоре —
               // той е продължение, а не ново начало.
               
-              final isContinuation = blockText != b.text;
+              final isContinuation = skipInBlock > 0;
               final indent = (!dropCapUsed ||
                       isContinuation ||
                       b.isItalic ||
@@ -1283,10 +1918,12 @@ Future<void> sharePdf({
                       isMemoryDate)
                   ? null
                   : pw.WidgetSpan(child: pw.SizedBox(width: _bodySize * 1.6));
-              final bodySpans = _inlineSpans(
-                  blockText != b.text
-                      ? blockText
-                      : (b.inner.isEmpty ? b.text : b.inner),
+              // ⚠ Спановете се строят ВИНАГИ от пълния блок, а остатъкът се
+              // получава с `_spansAfter`. Дотук продължението се подаваше като
+              // ГОЛ текст и всички тагове в него се губеха — оттам и тясното
+              // условие, при което групирането изобщо се допускаше.
+              final fullSpans = _inlineSpans(
+                  b.inner.isEmpty ? b.text : b.inner,
                   style,
                   strongColor: strongIsWine ? _wine : _ink,
                   font: _body!.getFont(context),
@@ -1295,6 +1932,8 @@ Future<void> sharePdf({
                   // с прав шрифт и презаписва курсива, зададен в `style`
                   // по-горе — стилът на блока се губи мълчаливо.
                   baseItalic: b.isItalic || isMemoryDate);
+              final bodySpans =
+                  skipInBlock > 0 ? _spansAfter(fullSpans, skipInBlock) : fullSpans;
               final paragraph = pw.RichText(
                 // Редът с паметта е ЦЕНТРИРАН, както в четеца; разлятото
                 // подравняване е за същинския текст.
@@ -1317,10 +1956,19 @@ Future<void> sharePdf({
               if (isPrayerHead && canKeepWithNext) {
                 // "Тропар"/"Кондак" не са <h1>, а абзаци с клас prayerhead —
                 // но също не бива да остават сами най-долу на страницата.
-                final split = _splitLines(next.text, contentWidth,
-                    _body!.getFont(context), _bodySize + 0.5, 2);
-                pendingRest = split.rest;
-                widgets.add(pw.Inseparable(
+                final nStyle =
+                    _blockStyleOf(next, _body!.getFont(context), _bodySize);
+                final nSize = _blockFontSizeOf(next, _bodySize);
+                final nSpans = _inlineSpans(
+                    next.inner.isEmpty ? next.text : next.inner, nStyle,
+                    strongColor: strongIsWine ? _wine : _ink,
+                    font: _body!.getFont(context),
+                    baseItalic: next.isItalic);
+                final nPlain = nSpans.map(_spanPlainText).join();
+                final split = _splitLines(
+                    nPlain, contentWidth, _body!.getFont(context), nSize, 2);
+                pendingSkip = split.rest.isEmpty ? -1 : split.head.length;
+                add(pw.Inseparable(
                   child: pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.stretch,
                     children: [
@@ -1329,21 +1977,13 @@ Future<void> sharePdf({
                       pw.RichText(
                           textAlign: pw.TextAlign.justify,
                           maxLines: 2,
-                          text: pw.TextSpan(
-                              text: next.text,
-                              style: pw.TextStyle(
-                                font: _body,
-                                fontSize: _bodySize + 0.5,
-                                lineSpacing: _lineSpacing(
-                                    _body!.getFont(context), _bodySize + 0.5),
-                                color: _ink,
-                              ))),
+                          text: pw.TextSpan(style: nStyle, children: nSpans)),
                     ],
                   ),
                 ));
               } else if (_onlyLinkTags(b.inner) &&
                   !isSourceLine &&
-                  blockText.isNotEmpty) {
+                  bodySpans.isNotEmpty) {
                 // Самотен пръв ред в дъното на страницата не е добър вид:
                 // първите ДВА реда на абзаца се държат заедно (Inseparable),
                 // а остатъкът тече свободно и може да се пренася.
@@ -1364,7 +2004,7 @@ Future<void> sharePdf({
                   // Абзац до два реда — няма какво да се дели, но пък може
                   // да се разполови на границата на страницата и пак да
                   // остави самотен ред. Затова цял отива на следващата.
-                  widgets.add(pw.Inseparable(child: paragraph));
+                  add(pw.Inseparable(child: paragraph));
                 } else {
                   // Подава се ЦЕЛИЯТ абзац с maxLines: 2, а не отрязаните
                   // два реда. Причината е в pdf пакета: последният ред на
@@ -1374,7 +2014,7 @@ Future<void> sharePdf({
                   // всеки абзац в документа. При maxLines изходът от
                   // подредбата става веднага след добавения ред, който вече
                   // е записан като разпънат.
-                  widgets.add(pw.Inseparable(
+                  add(pw.Inseparable(
                     child: pw.RichText(
                       textAlign: pw.TextAlign.justify,
                       maxLines: 2,
@@ -1384,8 +2024,8 @@ Future<void> sharePdf({
                       ]),
                     ),
                   ));
-                  widgets.add(pw.SizedBox(height: fontSize * 0.45));
-                  widgets.add(pw.RichText(
+                  add(pw.SizedBox(height: fontSize * 0.45));
+                  add(splittable: true, pw.RichText(
                       textAlign: pw.TextAlign.justify,
                       overflow: pw.TextOverflow.span,
                       text: pw.TextSpan(
@@ -1394,7 +2034,7 @@ Future<void> sharePdf({
                       )));
                 }
               } else {
-                widgets.add(paragraph);
+                add(paragraph, splittable: true);
               }
             }
           }
@@ -1405,12 +2045,19 @@ Future<void> sharePdf({
           // блокове. Празният отстъп накрая понякога не се побираше на
           // страницата и отваряше цял празен лист в края на документа.
           if (isSource) break;
-          widgets.add(pw.SizedBox(
-              height: b.isHeading
-                  ? (mainHeadingGap ?? (prayerLike ? 34 : 24))
-                  : b.cls.contains('prayerhead')
-                      ? 12 // заглавен ред → текста под него
-                      : 20));
+          // ⚠ ГРУПИРАНОТО заглавие НЕ получава отстъп след себе си: той вече
+          // стои ВЪТРЕ в кутията му, между надписа и първите два реда. Сложен
+          // и тук, той падаше между тези два реда и остатъка на абзаца — тоест
+          // насред изречение — и се четеше като нов абзац. (31.08.2026.)
+          final grouped = pendingSkip != null;
+          add(pw.SizedBox(
+              height: grouped
+                  ? 0
+                  : b.isHeading
+                      ? (mainHeadingGap ?? (prayerLike ? 34 : 24))
+                      : b.cls.contains('prayerhead')
+                          ? 12 // заглавен ред → текста под него
+                          : 20));
         }
         // Бележките — СЛЕД целия текст, като списък.
         //
@@ -1422,16 +2069,16 @@ Future<void> sharePdf({
         // обичайно за такива издания (медиана 4 бележки на житие).
         final notes = _collectNotes(bodyHtml);
         if (notes.isNotEmpty) {
-          widgets.add(pw.SizedBox(height: 26));
-          widgets.add(pw.Container(
+          add(pw.SizedBox(height: 26));
+          add(pw.Container(
             width: contentWidth * 0.34,
             height: 0.7,
             color: _dim,
           ));
-          widgets.add(pw.SizedBox(height: 14));
+          add(pw.SizedBox(height: 14));
           const noteSize = _bodySize - 5;
           for (final n in notes) {
-            widgets.add(pw.Anchor(
+            add(pw.Anchor(
               // Целта, към която сочи номерът горе в текста.
               name: _noteAnchor(n.number),
               child: pw.Padding(
@@ -1477,20 +2124,61 @@ Future<void> sharePdf({
         }
         // Източникът НЕ се добавя тук: _buildHtmlFor вече го е сложил в
         // самия HTML (иначе излизаше два пъти).
-        return widgets;
+          return items;
+        }
+
+        // ⚠ ТОЧНО ДВА ПРОХОДА — първият само мери, вторият строи наред.
+        //
+        // Изкушението е да се повтаря, докато редът престане да се мени:
+        // преместената картинка сменя онова, което стои под заглавието, а от
+        // него зависи дали заглавието ще се групира с абзаца под себе си.
+        // Мерено на живо обаче (31.08.2026), при най-дългото житие цената е
+        // непосилна: всяко строене на 1200 елемента отнема ~2,5 s на
+        // десктопа и към минута на телефона, а третата итерация вече само
+        // разменяше една картинка напред-назад, без да намалява празнините.
+        //
+        // Затова: строим веднъж за мярка, пренареждаме веднъж, строим
+        // наново. Остатъчната неточност е няколко пункта на страница —
+        // покрита е от [_kFitMargin].
+        final measured = buildItems(blocks);
+        final reordered = _reorderBlocks(
+            blocks, measured, context, contentWidth, usableHeight);
+        if (identical(reordered, blocks)) {
+          return [for (final it in measured) it.widget];
+        }
+        return [for (final it in buildItems(reordered)) it.widget];
       },
     ),
   );
 
-  final bytes = await doc.save();
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // БЪГФИКС #1: ИЗПОЛЗВАНЕ НА НОВОТО ИМЕ НА ФАЙЛА
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  // Вместо подадения `fileName` (който идва отвън и съдържа
-  // само подзаглавието), използваме `pdfFileName`, който
-  // включва и двете заглавия.
-  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  await Printing.sharePdf(bytes: bytes, filename: pdfFileName);
+  // ⚠ Името идва от САМИЯ текст (заглавие + ред с паметта), а не от
+  // подадения `fileName` — той носи само подзаглавието.
+  return (bytes: await doc.save(), fileName: pdfFileName);
+}
+
+Future<void> sharePdf({
+  required String title,
+  required String bodyHtml,
+  required String fileName,
+  bool withDropCap = true,
+  /// В службата <strong> носи богослужебните указания и по традиция е в
+  /// червено; в житието същият таг е обикновено ударение (виж четеца).
+  bool strongIsWine = false,
+  /// Тропари/кондаци/служба: там заглавието се отделя по-осезаемо от
+  /// текста. Житията и сказанията остават с досегашния отстъп.
+  bool prayerLike = false,
+  DateTime? churchDate,
+}) async {
+  final out = await buildPdfBytes(
+    title: title,
+    bodyHtml: bodyHtml,
+    fileName: fileName,
+    withDropCap: withDropCap,
+    strongIsWine: strongIsWine,
+    prayerLike: prayerLike,
+    churchDate: churchDate,
+  );
+  await Printing.sharePdf(bytes: out.bytes, filename: out.fileName);
 }
 
 /// Същото като [sharePdf], но с готова обработка на неуспеха.
@@ -1509,11 +2197,52 @@ Future<bool> shareReaderPdf(
   bool withDropCap = true,
   bool strongIsWine = false,
   bool prayerLike = false,
+  DateTime? churchDate,
 }) async {
   // Взима се ПРЕДИ await-а: след него екранът може вече да е напуснат и
   // `context` да не е годен за търсене на ScaffoldMessenger.
   final messenger = ScaffoldMessenger.of(context);
+  final navigator = Navigator.of(context, rootNavigator: true);
+
+  // ⚠ ПОКАЗАТЕЛ, ЧЕ СЕ РАБОТИ. Дълго житие с илюстрации се строи по няколко
+  // секунди на десктопа и осезаемо повече на телефон — а строенето държи
+  // нишката, тъй че екранът не отвръща на нищо. Без този прозорец човек
+  // натиска „Сподели като PDF" и не се случва НИЩО видимо; естественото
+  // заключение е, че копчето е счупено. (Докладвано 31.08.2026.)
+  var dialogOpen = true;
+  unawaited(showDialog<void>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => const PopScope(
+      canPop: false,
+      child: AlertDialog(
+        content: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            SizedBox(
+              width: 22,
+              height: 22,
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            ),
+            SizedBox(width: 18),
+            Flexible(child: Text('Създава се PDF…')),
+          ],
+        ),
+      ),
+    ),
+  ).then((_) => dialogOpen = false));
+
+  void closeDialog() {
+    if (!dialogOpen) return;
+    dialogOpen = false;
+    navigator.pop();
+  }
+
   try {
+    // ⚠ Един кадър, за да се появи прозорецът, ПРЕДИ да започне тежкото.
+    // Строенето е синхронно и не пуска нишката — покажем ли го след него,
+    // той ще мигне за миг и няма да свърши никаква работа.
+    await Future<void>.delayed(const Duration(milliseconds: 16));
     await sharePdf(
       title: title,
       bodyHtml: bodyHtml,
@@ -1521,9 +2250,12 @@ Future<bool> shareReaderPdf(
       withDropCap: withDropCap,
       strongIsWine: strongIsWine,
       prayerLike: prayerLike,
+      churchDate: churchDate,
     );
+    closeDialog();
     return true;
   } catch (e) {
+    closeDialog();
     messenger.showSnackBar(
       SnackBar(content: Text('Неуспешно създаване на PDF: $e')),
     );

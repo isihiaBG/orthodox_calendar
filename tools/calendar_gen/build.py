@@ -55,39 +55,59 @@ LEAP_FALLBACK_NOTE = ' (Паметта му се пренася от 29.II)'
 
 
 def build_saints(rules: dict, year: int, old_style: bool) -> list[tuple]:
-    """(date, name, rank, group_code, sign, slug) за всеки жив запис,
-    сортирано по дата. `rules` е резултатът от extract_rules.extract()."""
+    """(date, name, rank, group_code, sign, slug, movable) за всеки жив
+    запис, сортирано по дата. `rules` е резултатът от extract_rules.extract().
+
+    ⚠ `movable` е 1 за подвижните и 0 за неподвижните. Знае се ТУК и никъде
+    другаде: подвижността личи по СПИСЪКА, от който идва записът, а не по
+    самата дата. Опитът да се изведе отвън — „падал ли е на различни дни
+    през годините" — дава лъжливи положителни: „Касперовска икона" и
+    „прп. Акакий Синайски" имат по ДВЕ памети годишно и изглеждат подвижни,
+    без да са. (Добавено 01.09.2026 по искане на потребителя, за да може
+    PDF-ът да слага „Памет на 14.фев." само където датата има смисъл.)
+    """
     rows = []
 
     for r in rules['fixed']:
         d = civil_from_church(year, r['church_month'], r['church_day'], old_style)
-        rows.append((d, r))
+        rows.append((d, r, 0))
+
+    # ⚠ ГРАЖДАНСКИ фиксираните — единственият пласт, който НЕ минава през
+    # civil_from_church(): датата е една и съща в двата стила. Затова и
+    # `old_style` изобщо не участва тук.
+    for r in rules.get('civil', []):
+        d = datetime.date(year, r['civil_month'], r['civil_day'])
+        rows.append((d, r, 0))
 
     for r in rules.get('leap_fixed', []):
         leap = pycalendar.isleap(year)
         day = 29 if leap else 28
         d = civil_from_church(year, 2, day, old_style)
         name = r['name'] if leap else r['name'] + LEAP_FALLBACK_NOTE
-        rows.append((d, dict(r, name=name)))
+        rows.append((d, dict(r, name=name), 0))
 
     for r in rules['pascha']:
         d = pascha_civil(year) + datetime.timedelta(days=r['offset_days'])
-        rows.append((d, r))
+        rows.append((d, r, 1))
 
     for r in rules['anchor']:
         m, day = rules['anchor_church'][r['anchor_feast']]
         anchor_civil = civil_from_church(year, m, day, old_style)
         d = extract_rules.nearest_weekday(
             anchor_civil, extract_rules.WEEKDAY[r['weekday']], r['direction'])
-        rows.append((d, r))
+        rows.append((d, r, 1))
 
+    # ⚠ „Ръчните" са подвижни ПО ОПРЕДЕЛЕНИЕ: в known_movable.csv влиза само
+    # запис, чиято подвижност не е написана в текста му (виж докстринга на
+    # load_known_movable) — неподвижен ред няма какво да търси там.
     for r in rules['manual']:
         d = resolve_rule(r['rule'], year, old_style, rules['anchor_church'])
-        rows.append((d, r))
+        rows.append((d, r, 1))
 
     rows.sort(key=lambda x: x[0])
-    return [(d.isoformat(), r['name'], r['rank'], r['group_code'], r['sign'], r['slug'])
-            for d, r in rows]
+    return [(d.isoformat(), r['name'], r['rank'], r['group_code'], r['sign'],
+             r['slug'], mov)
+            for d, r, mov in rows]
 
 
 def build_calendar_days(saints: list[tuple], year: int, old_style: bool):
@@ -95,7 +115,7 @@ def build_calendar_days(saints: list[tuple], year: int, old_style: bool):
     calendar_days редовете. `saints` е ИЗХОДЪТ на build_saints() — оттам
     се строи справочника за деня, който fasts.fast_type() очаква."""
     saints_by_date: dict[str, list[tuple[int, str]]] = {}
-    for date_s, name, rank, group_code, sign, slug in saints:
+    for date_s, name, rank, group_code, sign, slug, _movable in saints:
         saints_by_date.setdefault(date_s, []).append((rank, group_code))
 
     cd_base, weeks_rows, sundays_rows = ws.generate_year(year, old_style)
@@ -121,11 +141,15 @@ def write_db(path: str, saints, cd_rows, weeks_rows, sundays_rows, src_db):
         CREATE TABLE saints (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT, name TEXT, rank INTEGER, group_code TEXT,
-            sign TEXT, slug TEXT
+            sign TEXT, slug TEXT,
+            -- 1 = подвижен (спрямо Пасха или котва), 0 = неподвижен.
+            -- Виж build_saints() защо не се извежда от самите дати.
+            movable INTEGER NOT NULL DEFAULT 0
         )
     ''')
     conn.executemany(
-        'INSERT INTO saints (date,name,rank,group_code,sign,slug) VALUES (?,?,?,?,?,?)',
+        'INSERT INTO saints (date,name,rank,group_code,sign,slug,movable)'
+        ' VALUES (?,?,?,?,?,?,?)',
         saints)
 
     conn.execute('''

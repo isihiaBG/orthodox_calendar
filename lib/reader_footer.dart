@@ -22,7 +22,27 @@
 // централният текст застава по средата на цялата ширина и се разминава с
 // подредбата на житията, където отляво има бутон.
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+/// Един източник в опашката: пояснение + име на сайта, което е връзката.
+///
+/// ⚠ Двете са разделени нарочно. Подчертава се САМО [name]; [prefix] е
+/// пояснение („за съвременния български:") и не води наникъде — подчертано,
+/// то би обещавало връзка, каквато няма.
+class FooterSource {
+  /// Пояснение пред името. Може да е празно.
+  final String prefix;
+
+  /// Името на източника — то е връзката.
+  final String name;
+
+  /// Отваря адреса. Обикновено през `openExternal`, тъй че човек вижда
+  /// къде отива, преди да излезе навън.
+  final VoidCallback? onTap;
+
+  const FooterSource({required this.name, this.prefix = '', this.onTap});
+}
 
 /// Размерът на бутоните в опашката.
 ///
@@ -99,6 +119,16 @@ class ReaderFooter extends StatelessWidget {
   /// през `openExternal`, тъй че човек вижда адреса, преди да излезе.
   final VoidCallback? onSourceTap;
 
+  /// НЯКОЛКО източника, всеки със свое пояснение и своя връзка.
+  ///
+  /// Поводът е Библията: съвременният български текст идва от едно място, а
+  /// всички останали преводи — от друго. Един ред не може да го каже честно,
+  /// а и двата адреса трябва да се отварят поотделно.
+  ///
+  /// ⚠ Има ли [sources], [sourceLabel] се пренебрегва. Двете не се смесват:
+  /// или един източник с един ред, или списък с пояснения.
+  final List<FooterSource>? sources;
+
   /// Цветът на бутоните и надписите.
   ///
   /// ⚠ Идва ОТВЪН, от палитрата на четеца (`palette.dim`), а не от
@@ -117,6 +147,7 @@ class ReaderFooter extends StatelessWidget {
     this.onCenterTap,
     this.sourceLabel,
     this.onSourceTap,
+    this.sources,
   });
 
   @override
@@ -164,22 +195,77 @@ class ReaderFooter extends StatelessWidget {
       // [kFooterSourceTopGap]. Без източник всичко е както преди.
       padding: EdgeInsets.fromLTRB(
         16,
-        sourceLabel == null ? kFooterTopGap : kFooterSourceTopGap,
+        hasSource ? kFooterSourceTopGap : kFooterTopGap,
         16,
         kFooterBottomGap,
       ),
-      child: sourceLabel == null
+      child: !hasSource
           ? row
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _source(sourceLabel!),
+                if (sources != null && sources!.isNotEmpty)
+                  _sourceList(sources!)
+                else
+                  _source(sourceLabel!),
                 const SizedBox(height: kFooterTopGap),
                 row,
               ],
             ),
     );
   }
+
+  /// Има ли изобщо ред с източник — по единия или по другия път.
+  bool get hasSource =>
+      (sources != null && sources!.isNotEmpty) || sourceLabel != null;
+
+  /// Блокът с няколко източника: заглавен ред и по един ред на всеки.
+  ///
+  /// ⚠ Подчертано е САМО името на сайта, не и поясненията пред него.
+  /// Пояснението („за съвременния български:") не води наникъде; подчертано,
+  /// то би обещавало връзка, каквато няма. Затова редът е `RichText` с два
+  /// спана, а не един `Text` с общ жест.
+  Widget _sourceList(List<FooterSource> items) => Column(
+    crossAxisAlignment: CrossAxisAlignment.center,
+    children: [
+      Text(
+        items.length == 1 ? 'Източник:' : 'Източници:',
+        textAlign: TextAlign.center,
+        style: TextStyle(
+          fontSize: kFooterLabelSize - 2,
+          color: color,
+          height: 1.5,
+        ),
+      ),
+      for (final item in items)
+        Padding(
+          padding: const EdgeInsets.only(top: 2),
+          child: RichText(
+            textAlign: TextAlign.center,
+            text: TextSpan(
+              style: TextStyle(
+                fontSize: kFooterLabelSize - 2,
+                color: color,
+                height: 1.35,
+              ),
+              children: [
+                if (item.prefix.isNotEmpty) TextSpan(text: '${item.prefix} '),
+                TextSpan(
+                  text: item.name,
+                  style: TextStyle(
+                    decoration: TextDecoration.underline,
+                    decorationColor: color,
+                  ),
+                  recognizer: item.onTap == null
+                      ? null
+                      : (TapGestureRecognizer()..onTap = item.onTap),
+                ),
+              ],
+            ),
+          ),
+        ),
+    ],
+  );
 
   /// Редът с източника: центриран, с една степен по-дребен от табелките и
   /// подчертан, за да се чете като връзка навън, а не като бутон.

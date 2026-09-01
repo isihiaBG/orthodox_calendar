@@ -98,8 +98,8 @@ def merge(years, style, out):
             "       CASE WHEN sunday_id IS NULL THEN NULL ELSE sunday_id + ? END, "
             "       note FROM src.calendar_days",
             (wk_off, sun_off))
-        db.execute("INSERT INTO saints (date, name, rank, group_code, sign, slug) "
-                   "SELECT date, name, rank, group_code, sign, slug FROM src.saints")
+        db.execute("INSERT INTO saints (date, name, rank, group_code, sign, slug, movable) "
+                   "SELECT date, name, rank, group_code, sign, slug, movable FROM src.saints")
 
         db.commit()
         db.execute("DETACH DATABASE src")

@@ -41,6 +41,23 @@ ANCHOR = re.compile(
     r'(Богоявление|Рождество|Въздвижение|Просвещение)', re.I)
 
 
+def key_name(name: str) -> str:
+    """Името във вид, годен за КЛЮЧ в overrides.csv / known_movable.csv.
+
+    ⚠ 736 от 1656-те имена в семето носят НЕРАЗБИВАЕМ интервал (U+00A0) —
+    остатък от източника, невидим при четене и невъзможен за напипване при
+    ръчно вписване в CSV. Дотук ключът се сравняваше буквално, тъй че ред,
+    написан с обикновен интервал, просто НЕ съвпадаше: правилото се
+    подминаваше МЪЛЧАЛИВО, без грешка и без следа в отчета. Загубено време,
+    01.09.2026, върху „Вмч. Георги Победоносец († 303) (Гергьовден)".
+
+    Затова и двете страни минават оттук. Замяната е безопасна за заварените
+    редове: обикновеният интервал остава какъвто е, а ключ, писан с U+00A0
+    от двете страни, продължава да съвпада — само вече след свеждане.
+    """
+    return (name or '').replace(' ', ' ')
+
+
 def classify(name: str) -> str:
     name = name or ''
     if ANCHOR.search(name):
@@ -65,7 +82,7 @@ def load_known_movable():
     out = {}
     with open(path, encoding='utf-8') as f:
         for row in csv.DictReader(f):
-            out[(row['date'], row['name'])] = row['rule']
+            out[(row['date'], key_name(row['name']))] = row['rule']
     return out
 
 
@@ -82,7 +99,7 @@ def load_overrides():
     with open(path, encoding='utf-8') as f:
         for row in csv.DictReader(f):
             if row.get('table') == 'saints':
-                out[(row['date'], row['name'])] = row['kind']
+                out[(row['date'], key_name(row['name']))] = row['kind']
     return out
 
 
@@ -97,8 +114,9 @@ def main():
     known = load_known_movable()
     buckets = {'fixed': [], 'pascha': [], 'anchor': [], 'manual': [], 'skip': []}
     for sid, date, name in db.execute('select id,date,name from saints order by date'):
-        kind = 'manual' if (date, name) in known else (
-            over.get((date, name)) or classify(name))
+        k = (date, key_name(name))
+        kind = 'manual' if k in known else (
+            over.get(k) or classify(name))
         buckets[kind].append((sid, date, name))
 
     total = sum(len(v) for v in buckets.values())

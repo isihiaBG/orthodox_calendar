@@ -43,14 +43,33 @@ const Map<String, String> _contentAliases = {
   // песнопение — всичко останало от тропарите (стихира и каквото дойде)
   'песн': 'other', 'песноп': 'other', 'песнопение': 'other',
   'pes': 'other', 'pesn': 'other', 'hymn': 'other',
-  // житие
+  // житие — ВСЯКО, независимо откъде идва
   'жит': 'life', 'жив': 'life', 'жиз': 'life',
   'житие': 'life', 'живот': 'life',
   'lif': 'life', 'life': 'life', 'liv': 'life', 'live': 'life',
+  // ⚠ ДВАТА ИЗВОРА ПООТДЕЛНО. Четивата са различни по вид: онова в базата
+  // е кратко (от azbyka.ru), а по св. Димитрий Ростовски е обширното от
+  // томовете на „Месецослов". Кой от двата иска човек, `#жит` не може да
+  // каже — затова има и по един хаштаг за всеки.
+  'жит1': 'life1', 'жит2': 'life2',
+  'life1': 'life1', 'life2': 'life2',
+  // подвижен празник — пада се според Пасхата, а не по число в месецослова
+  // ⚠ Отрицанието (#!подв) дава неподвижните; отделен хаштаг за тях няма,
+  // за да не се помни втора дума за същото разделение.
+  'под': 'movable', 'подв': 'movable', 'подвижен': 'movable',
+  'подвижни': 'movable', 'преходен': 'movable', 'преходни': 'movable',
+  'mov': 'movable', 'move': 'movable', 'movable': 'movable',
   // служба (по същата логика — махни реда, ако не я искаш)
   'сл': 'sluzhba', 'слу': 'sluzhba', 'служ': 'sluzhba', 'служба': 'sluzhba',
   'sl': 'sluzhba', 'slu': 'sluzhba', 'sluj': 'sluzhba', 'slujb': 'sluzhba', 'slujba': 'sluzhba', 'sluzhba': 'sluzhba',
 };
+
+/// Условие „светията има житие в томовете на св. Димитрий Ростовски".
+///
+/// ⚠ Тези четива НЕ са в `lives.texts` — те живеят в самите .epub томове, а
+/// в базата стои само връзката към тях (виж `saint_dmitry_refs` в CLAUDE.md).
+const String _dmitrySql =
+    "EXISTS (SELECT 1 FROM lives.saint_dmitry_refs d WHERE d.slug = s.slug)";
 
 /// Условие „светията има поне едно песнопение от този вид".
 ///
@@ -71,7 +90,19 @@ final Map<String, String> _contentSql = {
   'molitva': _hymnKindSql('molitva'),
   'velichanie': _hymnKindSql('velichanie'),
   'other': _hymnKindSql('other'),
-  'life': "(l.life    IS NOT NULL AND l.life    != '')",
+  // ⚠ „Има ли четиво" значи И ДВЕТЕ. Дотук `#жит` гледаше само колоната
+  // `life` и премълчаваше 541 светии, за които приложението показва житие
+  // по св. Димитрий Ростовски — човек виждаше празно и заключаваше, че
+  // четиво няма. (Забелязано от потребителя, 01.09.2026.)
+  'life': "((l.life IS NOT NULL AND l.life != '') OR $_dmitrySql)",
+  'life1': "(l.life    IS NOT NULL AND l.life    != '')",
+  'life2': _dmitrySql,
+  // ⚠ Признакът идва от колоната `saints.movable`, която ГЕНЕРАТОРЪТ пълни
+  // по списъка, от който е дошъл записът (виж build_saints в
+  // tools/calendar_gen/build.py). Не се извежда от датите: светия с ДВЕ
+  // памети годишно („Касперовска икона", прп. Акакий Синайски) пада на
+  // различни числа, без да е подвижен.
+  'movable': '(s.movable = 1)',
   'sluzhba': "(l.sluzhba IS NOT NULL AND l.sluzhba != '')",
 };
 
@@ -758,7 +789,10 @@ const Map<String, String> _contentTitles = {
   'molitva': 'молитва',
   'velichanie': 'величание',
   'other': 'друго песнопение',
-  'life': 'житие',
+  'life': 'житие (което и да е)',
+  'life1': 'кратко житие',
+  'life2': 'житие по св. Димитрий Ростовски',
+  'movable': 'подвижен празник',
   'sluzhba': 'служба',
 };
 

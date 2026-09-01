@@ -252,15 +252,22 @@ class _DayScreenState extends State<DayScreen>
     final db = await DatabaseHelper.database;
     final r = await db.rawQuery('''
       SELECT COALESCE(NULLIF(s.name, ''), l.name) AS name,
-             l.life, l.sluzhba, l.source, s.slug
+             l.life, l.sluzhba, l.source, s.slug,
+             -- За името на споделяния PDF: „Памет на 14.фев." пред
+             -- заглавието, но САМО при неподвижните (виж SaintTexts).
+             s.date AS civil_date, s.movable
       FROM saints s
       LEFT JOIN lives.texts l ON l.slug = s.slug
       WHERE s.id = ?
       LIMIT 1
     ''', [id]);
     if (r.isEmpty) return null;
-    return SaintTexts.fromMap(r.first,
-        hymns: await loadHymns((r.first['slug'] ?? '') as String));
+    return SaintTexts.fromMap(
+      r.first,
+      hymns: await loadHymns((r.first['slug'] ?? '') as String),
+      memoryDate: SaintTexts.churchDateOf(
+          r.first['civil_date'], r.first['movable']),
+    );
   }
 
   /// Търсене по слъг — за saint:// линковете в житията.

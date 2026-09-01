@@ -13,6 +13,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'dmitry_life.dart';
@@ -83,6 +84,19 @@ class SaintTexts {
   final String source; // URL за атрибуция под житието
   final String slug;
 
+  /// ЦЪРКОВНАТА дата на паметта — за името на споделяния PDF.
+  ///
+  /// ⚠ null при ПОДВИЖНИТЕ памети. Те нямат дата в месецослова: падат се
+  /// според Пасхата и се менят всяка година, тъй че „Памет на 14.фев."
+  /// пред тях би било невярно. Признакът идва от колоната `saints.movable`,
+  /// която генераторът пълни по СПИСЪКА, от който е дошъл записът — виж
+  /// `build_saints()` в tools/calendar_gen/build.py.
+  ///
+  /// ⚠ При НОВ СТИЛ това е самата гражданска дата; при СТАР — тя минус 13.
+  /// (Бележка на потребителя, 01.09.2026: новостилната дата СЪВПАДА с
+  /// църковната и не бива да се превръща втори път.)
+  final DateTime? memoryDate;
+
   const SaintTexts({
     required this.name,
     this.hymns = const [],
@@ -90,10 +104,11 @@ class SaintTexts {
     this.sluzhba = '',
     this.source = '',
     this.slug = '',
+    this.memoryDate,
   });
 
   factory SaintTexts.fromMap(Map<String, dynamic> m,
-          {List<Hymn> hymns = const []}) =>
+          {List<Hymn> hymns = const [], DateTime? memoryDate}) =>
       SaintTexts(
         name: (m['name'] ?? '') as String,
         hymns: hymns,
@@ -101,7 +116,23 @@ class SaintTexts {
         sluzhba: (m['sluzhba'] ?? '') as String,
         source: (m['source'] ?? '') as String,
         slug: (m['slug'] ?? '') as String,
+        memoryDate: memoryDate,
       );
+
+  /// Църковната дата на паметта от ред на `saints`, или null за подвижните.
+  ///
+  /// ⚠ ЕДНО МЯСТО за превръщането — инак всеки викащ пише „минус 13" по
+  /// своему и рано или късно го прилага и в новостилния календар, където
+  /// гражданската дата ВЕЧЕ Е църковната.
+  static DateTime? churchDateOf(Object? civilDate, Object? movable) {
+    if (civilDate == null) return null;
+    if (movable is int && movable != 0) return null;
+    final d = DateTime.tryParse(civilDate.toString());
+    if (d == null) return null;
+    return AppSettings.isOldStyle
+        ? d.subtract(const Duration(days: 13))
+        : d;
+  }
 
   bool hasKind(String kind) => hymns.any((h) => h.kind == kind);
 

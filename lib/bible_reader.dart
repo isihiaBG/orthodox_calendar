@@ -33,6 +33,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import 'app_theme.dart';
+import 'bible_bg_source.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
 import 'bible_ref.dart';
@@ -2664,7 +2665,17 @@ class _BibleReaderState extends State<BibleReader>
   ) {
     return Row(
       children: [
-        const BackButton(),
+        // ⚠ Цветът се взима ИЗРИЧНО от лентата, а НЕ от темата на четеца.
+        // Фонът тук е закован тъмен (`AppColors.toolbar`) и не се мени със
+        // светла/тъмна тема — а `BackButton` без цвят пита темата и в светла
+        // ставаше тъмен върху тъмно, тоест изглеждаше изгаснал.
+        //
+        // Същият израз, с който `reader_toolbar.dart` оцветява останалите
+        // иконки в лентата — така стрелката не може да се разсинхронизира с
+        // тях при бъдеща промяна.
+        BackButton(
+          color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
+        ),
         // ⚠ БЕЗ отстъп след стрелката. `BackButton` е 48 широк, а иконката в
         // него е 24 и стои центрирана — тоест вдясно от глифа вече има 12
         // празни. Добавени още 8 отгоре, заглавието тръгваше на 62 dp, при
@@ -2751,7 +2762,17 @@ class _BibleReaderState extends State<BibleReader>
 
     return Row(
       children: [
-        const BackButton(),
+        // ⚠ Цветът се взима ИЗРИЧНО от лентата, а НЕ от темата на четеца.
+        // Фонът тук е закован тъмен (`AppColors.toolbar`) и не се мени със
+        // светла/тъмна тема — а `BackButton` без цвят пита темата и в светла
+        // ставаше тъмен върху тъмно, тоест изглеждаше изгаснал.
+        //
+        // Същият израз, с който `reader_toolbar.dart` оцветява останалите
+        // иконки в лентата — така стрелката не може да се разсинхронизира с
+        // тях при бъдеща промяна.
+        BackButton(
+          color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
+        ),
         const SizedBox(width: 8),
         SizedBox(
           width: headWidth,
@@ -2819,16 +2840,58 @@ class _BibleReaderState extends State<BibleReader>
     return 'https://azbyka.ru/biblia/?${book.code}.${widget.chapter}&$langs';
   }
 
+  /// Адресът на ТАЗИ книга в pravoslavieto.com — откъдето е взет
+  /// СЪВРЕМЕННИЯТ БЪЛГАРСКИ текст (виж `tools/bible_bg/`).
+  ///
+  /// ⚠ Към КНИГАТА, не към главата: там една книга стои в един файл, с
+  /// всичките си глави наведнъж — обратно на azbyka.ru, където една
+  /// страница е една глава.
+  ///
+  /// ⚠ Пътят идва от изброена карта ([kPravoslavietoBookPaths]), а не се
+  /// сглобява по схема: имената на файловете там нямат закономерност
+  /// (`2Car` е с главна буква, другите Царства — с малка).
+  String? _pravoslavietoUrl() {
+    final book = _book;
+    if (book == null) return null;
+    final path = kPravoslavietoBookPaths[book.code];
+    if (path == null) return null;
+    return 'https://www.pravoslavieto.com/bible/$path.htm';
+  }
+
   /// Опашката под четивото — ОБЩИЯТ [ReaderFooter], същият като в четеца на
   /// книги: същите бутони, същите надписи, същите разстояния.
   Widget _footer(ReaderPalette palette) {
     final prev = _adjacentChapter(-1);
     final next = _adjacentChapter(1);
-    final source = _azbykaUrl();
+    final azbyka = _azbykaUrl();
+    final pravoslavieto = _pravoslavietoUrl();
+
+    // ⚠ ДВА ИЗТОЧНИКА, защото текстът наистина идва от две места:
+    // съвременният български е сверен по pravoslavieto.com (виж
+    // `tools/bible_bg/` — 5311 подменени стиха), а всички останали преводи
+    // са от azbyka.ru.
+    //
+    // ⚠ azbyka.ru ОСТАВА винаги, дори когато на екрана е само българският:
+    // той никога не стои сам — показват се по два превода наведнъж, а
+    // отсрещният е оттам.
+    final sources = <FooterSource>[
+      if (pravoslavieto != null)
+        FooterSource(
+          prefix: 'за съвременния български:',
+          name: 'pravoslavieto.com',
+          onTap: () => openExternal(context, pravoslavieto),
+        ),
+      if (azbyka != null)
+        FooterSource(
+          prefix: 'за останалите текстове:',
+          name: 'azbyka.ru',
+          onTap: () => openExternal(context, azbyka),
+        ),
+    ];
+
     return ReaderFooter(
       color: palette.dim,
-      sourceLabel: source == null ? null : 'Източник на текста: azbyka.ru',
-      onSourceTap: source == null ? null : () => openExternal(context, source),
+      sources: sources.isEmpty ? null : sources,
       left: prev == null
           ? null
           : FooterAction(
