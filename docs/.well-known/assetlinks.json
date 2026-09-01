@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "isihiabg.orthodox_calendar",
+    "sha256_cert_fingerprints": [
+      "FC:98:2F:25:44:72:48:3D:A3:EF:3A:22:F6:34:23:17:93:26:60:35:D3:CC:4C:9A:36:15:69:74:79:E3:54:C1"
+    ]
+  }
+}]
