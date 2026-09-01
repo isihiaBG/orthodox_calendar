@@ -5,7 +5,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.orthodox_calendar"
+    namespace = "isihiabg.orthodox_calendar"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +15,9 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.orthodox_calendar"
+        // ⚠ НЕ СЕ СМЕНЯ след първото качване в Play Store — Play го смята
+        // за ДРУГО приложение и старите потребители не получават ъпдейт.
+        applicationId = "isihiabg.orthodox_calendar"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
