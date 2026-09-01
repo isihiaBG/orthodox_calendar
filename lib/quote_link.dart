@@ -34,6 +34,21 @@ const String kQuotePath = '/q';
 /// разумната дължина на адрес след процентното кодиране на кирилицата.
 const int kFingerprintChars = 48;
 
+/// ⚠ ПОД ТОЛКОВА ЗНАКА ОТПЕЧАТЪКЪТ НЕ СЕ ПОЛЗВА ИЗОБЩО.
+///
+/// Доводът е на потребителя (02.09.2026) и е решаващ: сподели ли човек една
+/// буква „а", отпечатъкът „а" не различава нищо — в абзаца има стотици. Но
+/// по-лошото не е, че не помага, а че може да НАВРЕДИ: при редактиран текст
+/// търсенето ще предпочете най-близката „а" (примерно на 2 знака), докато
+/// истинската е на 26 — и ще отведе по-далеч от мястото, отколкото чистите
+/// координати.
+///
+/// Затова кратките цитати вървят САМО по координати. Границата е 12 сгънати
+/// знака — под нея съвпадението е практически безсмислено (две-три думи в
+/// българския текст дават 12+), над нея вероятността за случайно повторение
+/// в същия абзац пада рязко.
+const int kMinFingerprintChars = 12;
+
 /// Колко надалеч се търси текстът около посочения индекс.
 ///
 /// ⚠ 400 знака покриват с широк запас обичайното разместване от поправка в
@@ -126,15 +141,20 @@ class QuoteHit {
   const QuoteHit(this.start, this.length, this.kind);
 }
 
+/// ⚠ И ТРИТЕ СТОЙНОСТИ ОТВАРЯТ ЦИТАТА. Разликата е само доколко е потвърдено
+/// мястото — нито една не е грешка и НИТО ЕДНА не се показва на човека.
 enum QuoteHitKind {
   /// Текстът стои точно там, където сочат числата.
   exact,
 
-  /// Намерен е наблизо — текстът е бил разместен от редакция.
+  /// Намерен е наблизо — текстът е бил разместен от редакция след
+  /// споделянето, и координатите са коригирани по съдържание.
   shifted,
 
-  /// Не е намерен: отваря се посоченият блок, без осветяване.
-  notFound,
+  /// Ползвани са само координатите: цитатът е бил твърде къс за отпечатък,
+  /// или текстът е пренаписан до неузнаваемост. Поведението е същото, което
+  /// би имала система БЕЗ никакво търсене.
+  byCoordinates,
 }
 
 /// Намира цитата в суровия текст на блока.
@@ -145,8 +165,11 @@ enum QuoteHitKind {
 /// суровия текст, защото осветяването рисува върху него.
 QuoteHit locateQuote(String blockText, int hintStart, int hintLength,
     String wantFingerprint) {
-  if (wantFingerprint.isEmpty) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.notFound);
+  // ⚠ КООРДИНАТИТЕ СА ОСНОВАТА, отпечатъкът е само потвърждение върху тях.
+  // Няма ли отпечатък или е твърде къс, за да различава — връщаме точно
+  // каквото сочат числата, без да гадаем. Виж [kMinFingerprintChars].
+  if (wantFingerprint.length < kMinFingerprintChars) {
+    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
   }
 
   // Съответствие „позиция в сгънатото → позиция в суровото".
@@ -161,7 +184,7 @@ QuoteHit locateQuote(String blockText, int hintStart, int hintLength,
   }
   final hay = folded.toString();
   if (hay.isEmpty) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.notFound);
+    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
   }
 
   // Къде сочи подсказката в сгънатото пространство.
@@ -187,7 +210,9 @@ QuoteHit locateQuote(String blockText, int hintStart, int hintLength,
     from = at + 1;
   }
   if (best < 0) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.notFound);
+    // Текстът го няма — абзацът е пренаписан. Пак се отваря посоченото място:
+    // по-добре приблизително вярно, отколкото нищо.
+    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
   }
 
   final rawStart = map[best];
