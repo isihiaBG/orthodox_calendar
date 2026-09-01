@@ -36,6 +36,41 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+
+            <!-- ⚠ ANDROID APP LINKS — линкове към цитати, споделяни навън.
+                 Отварят се ПРАВО в приложението, без да питат.
+
+                 Работи само защото ДВЕТЕ страни се сочат взаимно:
+                 тук приложението заявява претенция за адресите, а домейнът
+                 я потвърждава в
+                 https://isihiabg.github.io/.well-known/assetlinks.json
+                 Без второто всяко приложение би могло да прихваща чужди
+                 линкове.
+
+                 ⚠⚠ ФАЙЛЪТ СТОИ В КОРЕНА НА ДОМЕЙНА, не в папката на проекта.
+                 Android го чете САМО от `https://<хост>/.well-known/`,
+                 независимо накъде сочи линкът. Затова той живее в ОТДЕЛНО
+                 хранилище — `isihiaBG/isihiaBG.github.io` — а не в
+                 `orthodox_calendar/docs/`. Първият опит беше в подпапка и
+                 валидаторът на Google отказа с ERROR_CODE_FETCH_ERROR.
+
+                 ⚠ `autoVerify="true"` е ключът: при инсталиране Android САМ
+                 отива на домейна и сравнява package name и SHA-256 на
+                 подписващия ключ. Не съвпаднат ли — линкът тихо се отваря в
+                 браузъра, без грешка. Затова и двете бяха закотвени преди
+                 тази стъпка: смяната им после чупи всеки вече споделен линк.
+
+                 ⚠ `pathPrefix` е стеснен до /q — НЕ целия домейн. Иначе
+                 приложението би прихващало и обикновените страници на сайта
+                 (напр. самото README), които трябва да се отварят в браузър. -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <category android:name="android.intent.category.BROWSABLE"/>
+                <data android:scheme="https"
+                      android:host="isihiabg.github.io"
+                      android:pathPrefix="/q"/>
+            </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
