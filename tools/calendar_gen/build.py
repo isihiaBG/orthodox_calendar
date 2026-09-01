@@ -79,6 +79,15 @@ def build_saints(rules: dict, year: int, old_style: bool) -> list[tuple]:
         d = datetime.date(year, r['civil_month'], r['civil_day'])
         rows.append((d, r, 0))
 
+    # ⚠ Разминаващите се между стиловете — по нов стил своя гражданска дата,
+    # по стар стил обичайното пресмятане от църковната.
+    for r in rules.get('civil_new', []):
+        if old_style:
+            d = civil_from_church(year, r['church_month'], r['church_day'], True)
+        else:
+            d = datetime.date(year, r['new_month'], r['new_day'])
+        rows.append((d, r, 0))
+
     for r in rules.get('leap_fixed', []):
         leap = pycalendar.isleap(year)
         day = 29 if leap else 28

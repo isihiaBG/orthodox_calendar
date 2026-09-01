@@ -15,6 +15,14 @@
             Патриаршията (bg-patriarshia.bg/calendar/2026-5, 01.09.2026).
             Без този пласт трите излизаха верни по стар стил и с 13 дни
             по-рано по нов — 23.IV, 24.VIII и 19.X.
+  civil_new — ГРАЖДАНСКИ (месец, ден) САМО за новия стил; при стария се
+            смята по църковната дата, както обикновено. Различава се от
+            `civil` по това, че двата стила НЕ съвпадат.
+            ⚠ Засега единствен случай: вмц. Злата Мъгленска. БПЦ я чества
+            на 18.X, а Вселенската, Руската и Българската старостилна — на
+            църковна 13.X (= гражданска 26.X по стар стил). Тоест не е
+            грешка у нас, а различно решение на поместните църкви, и всяка
+            от двете дати е вярна за своя календар.
   pascha  — офсет в дни спрямо гражданската дата на Пасха (тя е една и съща
             и при двата стила).
   anchor  — (коя котва, посока преди/след, кой ден от седмицата). Котвата
@@ -161,7 +169,7 @@ def extract(db) -> dict:
     anchor_church = find_anchor_church_dates(db)
 
     fixed_rules, pascha_rules, anchor_rules, manual_rules = [], [], [], []
-    civil_rules = []
+    civil_rules, civil_new_rules = [], []
     skipped = []
     mismatches = []
 
@@ -195,6 +203,16 @@ def extract(db) -> dict:
                 dict(civil_month=civil.month, civil_day=civil.day, **rest))
             continue
 
+        if kind.startswith('civil_new:'):
+            # ⚠ Носи И ДВЕТЕ дати: гражданската за новия стил идва от
+            # правилото (след двоеточието), а църковната — от семето, за
+            # стария. Оттам и форматът „civil_new:MM-DD" в overrides.csv.
+            nm, nd = (int(x) for x in kind.split(':', 1)[1].split('-'))
+            m, d = church_md(civil)
+            civil_new_rules.append(dict(
+                church_month=m, church_day=d, new_month=nm, new_day=nd, **rest))
+            continue
+
         if kind == 'fixed':
             m, d = church_md(civil)
             fixed_rules.append(dict(church_month=m, church_day=d, **rest))
@@ -225,6 +243,7 @@ def extract(db) -> dict:
 
     return dict(fixed=fixed_rules, pascha=pascha_rules, anchor=anchor_rules,
                 manual=manual_rules, civil=civil_rules,
+                civil_new=civil_new_rules,
                 leap_fixed=list(LEAP_FIXED), skipped=skipped,
                 anchor_church=anchor_church, mismatches=mismatches)
 
