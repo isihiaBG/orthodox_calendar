@@ -2664,34 +2664,6 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           ),
         );
-      } else if (foldedQuery.isNotEmpty && dropCap.isNotEmpty) {
-        // ⚠ ПРИ ТЪРСЕНЕ БУКВИЦАТА ОТСТЪПВА — абзацът се рисува като обикновен
-        // текст, с инициала върнат обратно в него.
-        //
-        // Причината е структурна: буквицата се рисува с отделен `Text` в
-        // `Stack` (drop_cap.dart), тоест е ИЗВЪН текстовия поток. Оттам
-        // намереното в първата буква нямаше как да светне — а с поправката в
-        // броенето по-горе съвпадението вече СЕ БРОИ, тъй че иначе броячът
-        // щеше да сочи място, което никъде не се вижда. Точно капанът
-        // „КАКВОТО СВЕТИ, ТОВА СЕ И ОБХОЖДА" от библейския четец.
-        //
-        // ⚠ Отстъпването е САМО докато трае търсенето; щом полето се изчисти,
-        // буквицата се връща. Идеята е на потребителя (02.09.2026) — по-добре
-        // от опит инициалът да участва в осветяването, който би искал
-        // отместване на всички позиции в най-крехкия код в проекта.
-        final full = '<p>$dropCap${r.content}</p>'
-            '${r.rest.map((x) => '<p>$x</p>').join()}';
-        regionWidgets.add(
-          KeyedSubtree(
-            key: key,
-            child: Html(
-              data: highlightHtml(
-                  full, foldedQuery, matchOffset, _currentMatch),
-              style: _htmlStyles(context),
-              onLinkTap: (url, attributes, element) => _onLinkTap(url),
-            ),
-          ),
-        );
       } else {
         regionWidgets.add(
           KeyedSubtree(

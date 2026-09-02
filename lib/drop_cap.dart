@@ -628,7 +628,43 @@ class DropCapParagraphState extends State<DropCapParagraph> {
 
         final runs = htmlRuns(widget.firstParagraph);
         final plain = runs.map((r) => r.text).join();
-        final matches = _matchRanges(plain, widget.searchQuery);
+
+        // ⚠ ТЪРСЕНЕТО БРОИ И БУКВИЦАТА, макар тя да се рисува отделно.
+        //
+        // Инициалът е отрязан от `firstParagraph` (виж splitDropCap) и се
+        // изписва с отделен `Text` в `Stack` по-долу. Без него търсене на
+        // дума, започваща с първата буква на четивото — „Свети Иоан" в
+        // житие, което започва точно така — намираше НУЛА съвпадения тук.
+        // (Докладвано от потребителя, 02.09.2026: „буквицата и в сърча не
+        // излиза".)
+        //
+        // ⚠ Затова съвпаденията се търсят в ПЪЛНИЯ текст, а после се местят
+        // назад за парчетата, които рисуват само остатъка. Диапазон, който
+        // започва в буквицата, се отрязва до 0 — там нейният дял вече е
+        // изписан от самия инициал.
+        final capLen = widget.dropCap.length;
+        final fullMatches =
+            _matchRanges(widget.dropCap + plain, widget.searchQuery);
+        final matches = <(int, int)>[
+          for (final m in fullMatches)
+            if (m.$2 > capLen) (m.$1 < capLen ? 0 : m.$1 - capLen, m.$2 - capLen),
+        ];
+
+        // Кое поред съвпадение (глобално) започва В БУКВИЦАТА — за да се
+        // оцвети тя, и то като ТЕКУЩО, ако обхождането е стигнало до него.
+        final capMatchLocal =
+            fullMatches.indexWhere((m) => m.$1 < capLen && m.$2 > 0);
+
+        // ⚠ Колко съвпадения са ИЗЦЯЛО в буквицата — те не влизат в `matches`
+        // (няма какво да се маркира в остатъка), но СЕ БРОЯТ от четеца, тъй
+        // че номерирането на следващите трябва да ги отчете. Без това
+        // обхождането се разминава с едно и „3/8" осветява осмото.
+        final capOnlyMatches =
+            fullMatches.where((m) => m.$2 <= capLen).length;
+        final capIsHit = capMatchLocal >= 0;
+        final capIsCurrent = capIsHit &&
+            widget.firstGlobalMatchIndex + capMatchLocal ==
+                widget.currentGlobalMatch;
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от
@@ -774,11 +810,15 @@ class DropCapParagraphState extends State<DropCapParagraph> {
           return out;
         }
 
-        final base2 = widget.firstGlobalMatchIndex + matches.length;
-        final measure1 = spansOf(runs, plain, matches,
-            widget.firstGlobalMatchIndex, 0, plain.length, forMeasure: true);
-        final spans1 = spansOf(runs, plain, matches,
-            widget.firstGlobalMatchIndex, 0, plain.length);
+        // Номерата на съвпаденията в ОСТАТЪКА започват след онези, които са
+        // изцяло в буквицата — виж [capOnlyMatches].
+        final firstInRest = widget.firstGlobalMatchIndex + capOnlyMatches;
+        final base2 = firstInRest + matches.length;
+        final measure1 = spansOf(
+            runs, plain, matches, firstInRest, 0, plain.length,
+            forMeasure: true);
+        final spans1 =
+            spansOf(runs, plain, matches, firstInRest, 0, plain.length);
 
         /// Докъде стига текстът, ако му дадем най-много [limit] реда, и
         /// колко реда всъщност заема. Мярката е със СЪЩИТЕ парчета, ширина
@@ -1006,6 +1046,21 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                             fontSize: widget.dropCapSize,
                             height: 1.0,
                             color: widget.capColor,
+                            // ⚠ Намереното свети И В БУКВИЦАТА — със същия
+                            // ФОН като останалия текст, а не с промяна на
+                            // цвета ѝ: `hitColor` е фоново жълто и сложено
+                            // като цвят на глифа би направило инициала
+                            // нечетим върху кремавата страница.
+                            //
+                            // ⚠ Фонът обхваща кутията на глифа, а тя е висока
+                            // няколко реда — петното е едро. Прието: то трае
+                            // само докато върви търсенето и казва
+                            // недвусмислено, че намереното е тук.
+                            backgroundColor: capIsHit
+                                ? (capIsCurrent
+                                    ? widget.hitCurrentColor
+                                    : widget.hitColor)
+                                : null,
                           ),
                         ),
                       ),

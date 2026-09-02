@@ -1613,24 +1613,6 @@ class _BookReaderState extends State<BookReader>
           ),
         ));
         matchOffset += _countHits(r.content);
-      } else if (_query.isNotEmpty && dropCap.isNotEmpty) {
-        // ⚠ ПРИ ТЪРСЕНЕ БУКВИЦАТА ОТСТЪПВА — виж същото място в
-        // reader_screen.dart за пълното обяснение. Накратко: инициалът се
-        // рисува с отделен `Text` в `Stack`, тоест е ИЗВЪН текстовия поток,
-        // и намереното в първата буква нямаше как да светне. Върнат в текста,
-        // абзацът се маркира като всеки друг.
-        final full = '<p>$dropCap${r.content}</p>'
-            '${r.rest.map((x) => '<p>$x</p>').join()}';
-        children.add(KeyedSubtree(
-          key: _regionKeys[i],
-          child: Html(
-            data: highlightHtml(full, _query, matchOffset, _currentHit),
-            style: styles,
-            extensions: _htmlExtensions,
-            onLinkTap: (u, _, __) => _onLinkTap(u),
-          ),
-        ));
-        matchOffset += _countHits(full);
       } else {
         children.add(KeyedSubtree(
           key: _regionKeys[i],
