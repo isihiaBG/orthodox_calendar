@@ -1312,7 +1312,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Скролира до региона на запазената отметка — първо пряко (ако вече е
   /// построен), иначе приблизителен скок по кумулативната оценка + прецизиране
   /// (същата двуфазна логика като _scrollToCurrent за търсенето).
-  void _jumpToBookmarkRegion(int regionIndex, [int charInRegion = 0]) {
+  /// [alignment] — къде на екрана да застане редът: 0.0 е най-горе (както
+  /// при връщане към отметка, за да изглежда екранът както е оставен), а
+  /// по-голяма стойност го сваля надолу (виж [_quoteAlignment]).
+  void _jumpToBookmarkRegion(int regionIndex,
+      [int charInRegion = 0, double alignment = 0.0]) {
     if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
     final key = _regionKeys[regionIndex];
 
@@ -1330,7 +1334,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         final target = RenderAbstractViewport.of(box)
             .getOffsetToReveal(
               box,
-              0.0,
+              alignment,
               rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
             )
             .offset;
@@ -1466,13 +1470,38 @@ class _ReaderScreenState extends State<ReaderScreen>
     final hit = locateQuote(
         blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
 
+    // ⚠ Отместването с буквицата: `_quoteBlocks` я включва, а рисуваният
+    // текст на региона я няма (изписва се от самия инициал). Диапазонът за
+    // фона трябва да е в координатите на РИСУВАНОТО.
+    final capLen = (b == _dropCapBlockIndex) ? (_prepared?.dropCap.length ?? 0) : 0;
+    setState(() {
+      _quoteRegion = b;
+      _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
+      _quoteLength = hit.length;
+    });
+
     // ⚠ Чака се кадър: регионите още не са построени в мига, в който
     // `_prepared` току-що е сложено — а `_jumpToBookmarkRegion` търси
     // `currentContext` на ключа им. Същият механизъм като при отметките.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _jumpToBookmarkRegion(b, hit.start);
+      if (mounted) _jumpToBookmarkRegion(b, hit.start, _quoteAlignment);
     });
   }
+
+  /// ⚠ Цитатът се цели в ГОРНАТА ЧАСТ на екрана, не най-отгоре.
+  ///
+  /// Залепен за горния ръб, той изглежда като начало на четивото и не се
+  /// вижда какво го предхожда — а човек, който отваря цитат, иска и малко
+  /// контекст. Същата стойност като при обхождането на търсенето
+  /// ([_matchAlignment]), за да е един и същ жестът. (Искане на
+  /// потребителя, 02.09.2026.)
+  static const double _quoteAlignment = 0.22;
+
+  /// Диапазонът, който да се покрие със СИН фон — цитатът, заради който
+  /// четивото е отворено. -1 = няма.
+  int _quoteRegion = -1;
+  int _quoteStart = 0;
+  int _quoteLength = 0;
 
   void _onResumePromptJump() {
     final idx = _bookmarkedRegionIndex;
@@ -2627,7 +2656,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       final count = i < _regionMatchCounts.length ? _regionMatchCounts[i] : 0;
       final key = _regionKeys[i];
       if (r.isHtml) {
-        final data = foldedQuery.isEmpty
+        var data = foldedQuery.isEmpty
             ? r.content
             : highlightHtml(
                 r.content,
@@ -2635,6 +2664,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                 matchOffset,
                 _currentMatch,
               );
+        // ⚠ Синият фон на ЦИТАТА се слага НАД маркирането от търсенето, а не
+        // вместо него: двете значат различни неща и могат да съжителстват —
+        // жълтото е „намерено сега", синьото е „това поиска да видиш".
+        // Същото разграничение като в библейския четец (виж CLAUDE.md,
+        // „Цветът на маркирането — palette.quote").
+        if (i == _quoteRegion && _quoteLength > 0) {
+          data = wrapRangeHtml(data, _quoteStart, _quoteLength, 'quotehit');
+        }
         regionWidgets.add(
           KeyedSubtree(
           key: key,

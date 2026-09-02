@@ -227,3 +227,48 @@ QuoteHit locateQuote(String blockText, int hintStart, int hintLength,
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
 }
+
+/// Обгражда [start]..[start]+[length] (в ПЛОСКИЯ текст) с `<span>` от класа
+/// [className], без да разваля HTML-а наоколо.
+///
+/// ⚠ Различава се от `highlightHtml` по входа: тя търси ЗАЯВКА и маркира
+/// всяко нейно срещане, а тук мястото е известно предварително — цитатът е
+/// вече намерен от [locateQuote]. Затова е отделна функция, а не параметър
+/// на онази: двете нямат общо освен това, че и двете пишат `<span>`.
+///
+/// ⚠ Диапазонът може да ПРЕСИЧА тагове („…и <em>рече</em> му…"), тъй че
+/// span-ът се отваря и затваря във ВСЯКО парче гол текст поотделно. Един
+/// span през целия диапазон би обхванал чужди затварящи тагове и flutter_html
+/// би оцветил остатъка от абзаца — същият капан като с увисналото `</a>` в
+/// конвейера за жития.
+String wrapRangeHtml(String html, int start, int length, String className) {
+  if (length <= 0 || start < 0) return html;
+  final end = start + length;
+  final buf = StringBuffer();
+  var plainPos = 0;
+
+  for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(html)) {
+    final piece = m.group(0)!;
+    if (piece.startsWith('<')) {
+      buf.write(piece);
+      continue;
+    }
+    final pieceStart = plainPos;
+    final pieceEnd = plainPos + piece.length;
+    plainPos = pieceEnd;
+
+    if (pieceEnd <= start || pieceStart >= end) {
+      buf.write(piece);
+      continue;
+    }
+    final from = start > pieceStart ? start - pieceStart : 0;
+    final to = end < pieceEnd ? end - pieceStart : piece.length;
+    buf
+      ..write(piece.substring(0, from))
+      ..write('<span class="$className">')
+      ..write(piece.substring(from, to))
+      ..write('</span>')
+      ..write(piece.substring(to));
+  }
+  return buf.toString();
+}
