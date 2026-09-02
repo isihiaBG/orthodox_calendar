@@ -204,7 +204,15 @@ class _ExactListDelegate extends SliverChildListDelegate {
   ) => totalExtent;
 }
 
-int _countInRegion(ReaderRegion r, String foldedQuery) {
+/// [dropCap] — буквицата на този регион, ако той е с буквица.
+///
+/// ⚠ БЕЗ НЕЯ ТЪРСЕНЕТО НЕ НАМИРА ДУМИ, ЗАПОЧВАЩИ С ПЪРВАТА БУКВА НА ЖИТИЕТО.
+/// Инициалът се отрязва от текста още в `_prepareReaderContent`
+/// (`computeRegions` го получава отделно) и се рисува с отделен `Text` в
+/// `Stack`. Тъй че търсене на „Свети Иоан" в житие, което започва точно
+/// така, връщаше НУЛА съвпадения в този абзац.
+/// (Докладвано от потребителя, 02.09.2026: „буквицата и в сърча не излиза".)
+int _countInRegion(ReaderRegion r, String foldedQuery, {String dropCap = ''}) {
   if (r.isHtml) return _countMatchesHtml(r.content, foldedQuery);
 
   // ⚠ Илюстрацията се брои по СГЛОБЕНИЯ си HTML, а не по частите поотделно.
@@ -217,7 +225,8 @@ int _countInRegion(ReaderRegion r, String foldedQuery) {
     return _countMatchesHtml(r.illustrationHtml, foldedQuery);
   }
 
-  var total = _countMatchesPlain(_plainTextOf(r.content), foldedQuery);
+  var total =
+      _countMatchesPlain(dropCap + _plainTextOf(r.content), foldedQuery);
   for (final p in r.rest) {
     total += _countMatchesPlain(_plainTextOf(p), foldedQuery);
   }
@@ -1523,7 +1532,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     }
 
     final foldedQuery = fold(query).text;
-    final counts = regions.map((r) => _countInRegion(r, foldedQuery)).toList();
+    // ⚠ Буквицата се подава САМО на своя регион — тя е негова, а не обща.
+    final cap = _prepared?.dropCap ?? '';
+    final counts = [
+      for (final r in regions)
+        _countInRegion(r, foldedQuery,
+            dropCap: r.kind == RegionKind.dropCap ? cap : ''),
+    ];
     final total = counts.fold<int>(0, (a, b) => a + b);
     setState(() {
       _committedQuery = query;
@@ -2601,6 +2616,34 @@ class _ReaderScreenState extends State<ReaderScreen>
               blockHtml: mark(r.illustrationHtml, matchOffset),
               styles: _htmlStyles(context),
               onLinkTap: _onLinkTap,
+            ),
+          ),
+        );
+      } else if (foldedQuery.isNotEmpty && dropCap.isNotEmpty) {
+        // ⚠ ПРИ ТЪРСЕНЕ БУКВИЦАТА ОТСТЪПВА — абзацът се рисува като обикновен
+        // текст, с инициала върнат обратно в него.
+        //
+        // Причината е структурна: буквицата се рисува с отделен `Text` в
+        // `Stack` (drop_cap.dart), тоест е ИЗВЪН текстовия поток. Оттам
+        // намереното в първата буква нямаше как да светне — а с поправката в
+        // броенето по-горе съвпадението вече СЕ БРОИ, тъй че иначе броячът
+        // щеше да сочи място, което никъде не се вижда. Точно капанът
+        // „КАКВОТО СВЕТИ, ТОВА СЕ И ОБХОЖДА" от библейския четец.
+        //
+        // ⚠ Отстъпването е САМО докато трае търсенето; щом полето се изчисти,
+        // буквицата се връща. Идеята е на потребителя (02.09.2026) — по-добре
+        // от опит инициалът да участва в осветяването, който би искал
+        // отместване на всички позиции в най-крехкия код в проекта.
+        final full = '<p>$dropCap${r.content}</p>'
+            '${r.rest.map((x) => '<p>$x</p>').join()}';
+        regionWidgets.add(
+          KeyedSubtree(
+            key: key,
+            child: Html(
+              data: highlightHtml(
+                  full, foldedQuery, matchOffset, _currentMatch),
+              style: _htmlStyles(context),
+              onLinkTap: (url, attributes, element) => _onLinkTap(url),
             ),
           ),
         );

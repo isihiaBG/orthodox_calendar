@@ -941,9 +941,15 @@ class _BookReaderState extends State<BookReader>
     // там съвпадение можеше да „прескочи" границата между два абзаца и да
     // се появи номер, който маркирането не рисува никъде.
     final regions = _currentRegions();
+    // ⚠ Буквицата влиза в броенето на СВОЯ регион. Без нея търсене на дума,
+    // започваща с първата буква на четивото, връщаше нула — инициалът се
+    // отрязва от текста при подготовката и се рисува отделно.
+    // (Докладвано от потребителя, 02.09.2026.)
+    final capForCount = _currentDropCap();
     var total = 0;
     for (final r in regions) {
-      total += _countIn(r.content, q) + _countInList(r.rest, q);
+      final cap = r.kind == RegionKind.dropCap ? capForCount : '';
+      total += _countIn(cap + r.content, q) + _countInList(r.rest, q);
     }
     setState(() {
       _query = q;
@@ -960,6 +966,17 @@ class _BookReaderState extends State<BookReader>
   }
 
   /// Регионите на текущата глава — същото деление, което рисува build().
+  /// Буквицата на текущото четиво, или празно.
+  ///
+  /// ⚠ Нужна е за БРОЕНЕТО при търсене: инициалът се отрязва от текста и се
+  /// рисува отделно, тъй че без него дума, започваща с първата буква на
+  /// четивото, не се намираше изобщо.
+  String _currentDropCap() {
+    final body = _normalize(widget.book.readFile(_current.href) ?? '');
+    final (_, _, cap, _, _) = splitDropCap(body);
+    return cap;
+  }
+
   List<ReaderRegion> _currentRegions() {
     final body = _normalize(widget.book.readFile(_current.href) ?? '');
     // ⚠ splitDropCap сега връща и евентуална отваряща кавичка пред
@@ -1596,6 +1613,24 @@ class _BookReaderState extends State<BookReader>
           ),
         ));
         matchOffset += _countHits(r.content);
+      } else if (_query.isNotEmpty && dropCap.isNotEmpty) {
+        // ⚠ ПРИ ТЪРСЕНЕ БУКВИЦАТА ОТСТЪПВА — виж същото място в
+        // reader_screen.dart за пълното обяснение. Накратко: инициалът се
+        // рисува с отделен `Text` в `Stack`, тоест е ИЗВЪН текстовия поток,
+        // и намереното в първата буква нямаше как да светне. Върнат в текста,
+        // абзацът се маркира като всеки друг.
+        final full = '<p>$dropCap${r.content}</p>'
+            '${r.rest.map((x) => '<p>$x</p>').join()}';
+        children.add(KeyedSubtree(
+          key: _regionKeys[i],
+          child: Html(
+            data: highlightHtml(full, _query, matchOffset, _currentHit),
+            style: styles,
+            extensions: _htmlExtensions,
+            onLinkTap: (u, _, __) => _onLinkTap(u),
+          ),
+        ));
+        matchOffset += _countHits(full);
       } else {
         children.add(KeyedSubtree(
           key: _regionKeys[i],
