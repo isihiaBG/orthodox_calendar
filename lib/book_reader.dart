@@ -1082,9 +1082,16 @@ class _BookReaderState extends State<BookReader>
     if (!r.isHtml) {
       final state = _dropCapKey.currentState;
       if (state == null) return null;
-      final starts = matchStartsOf(_plainOf(r.content), _query);
+      // ⚠ БУКВИЦАТА СЕ БРОИ И ТУК — виж същото място в reader_screen.dart.
+      // Броено само по остатъка, съвпадение в инициала отместваше всички
+      // следващи с едно и обхождането скролваше до СЛЕДВАЩОТО намерено.
+      final cap = _currentDropCap();
+      final starts = matchStartsOf(cap + _plainOf(r.content), _query);
       if (k < starts.length) {
-        final dy = state.dyForChar(starts[k]);
+        final at = starts[k];
+        // Съвпадение в буквицата се цели на върха на абзаца: инициалът се
+        // рисува отделно и няма своя позиция в текстовия поток.
+        final dy = at < cap.length ? 0.0 : state.dyForChar(at - cap.length);
         return dy == null ? null : (dy, lineH);
       }
       var remaining = k - starts.length;

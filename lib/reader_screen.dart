@@ -1664,13 +1664,27 @@ class _ReaderScreenState extends State<ReaderScreen>
       final state = _dropCapKey.currentState;
       if (state == null) return null;
       final folded = fold(_committedQuery).text;
-      final starts = matchStartsOf(_plainTextOf(region.content), folded);
+
+      // ⚠ БУКВИЦАТА СЕ БРОИ И ТУК. Съвпаденията се номерират по ПЪЛНИЯ текст
+      // (инициал + остатък) — точно както ги брои `_countInRegion` и както ги
+      // маркира drop_cap.dart. Броено само по остатъка, съвпадение в
+      // буквицата отместваше всички следващи с едно и обхождането скролваше
+      // до СЛЕДВАЩОТО намерено, макар оранжевото да стоеше на текущото.
+      // (Диагностицирано от потребителя, 02.09.2026 — „бърка с единица
+      // номера на намереното съвпадение"; проявяваше се само когато
+      // буквицата участва в резултатите.)
+      final cap = _prepared?.dropCap ?? '';
+      final starts = matchStartsOf(cap + _plainTextOf(region.content), folded);
       // Регионът на буквицата може да носи и следващите абзаци (изтеглят
       // се вдясно от инициала, докато остава място). Съвпаденията им
       // продължават номерацията на първия, по ред.
       double? dy;
       if (ordinal < starts.length) {
-        dy = state.dyForChar(starts[ordinal]);
+        final at = starts[ordinal];
+        // ⚠ Съвпадение, започващо В БУКВИЦАТА, се цели на върха на абзаца:
+        // инициалът се рисува отделно и няма своя позиция в текстовия поток,
+        // а той и без това стои на първия ред.
+        dy = at < cap.length ? 0.0 : state.dyForChar(at - cap.length);
       } else {
         var remaining = ordinal - starts.length;
         for (var i = 0; i < region.rest.length; i++) {
