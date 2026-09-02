@@ -58,6 +58,15 @@ const ReaderMenuItem kBookmarksMenuItem = ReaderMenuItem(
   value: 'bookmarks',
 );
 
+/// ⚠ Стои ДО отметките, не вместо тях. Двата списъка са различни по смисъл:
+/// отметката е „докъде съм стигнал" (една на четиво, мести се), цитатът е
+/// „това ми хареса" (много на четиво, стои завинаги).
+const ReaderMenuItem kQuotesMenuItem = ReaderMenuItem(
+  icon: Icons.format_quote_outlined,
+  label: 'Любими цитати',
+  value: 'quotes',
+);
+
 const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
   icon: Icons.picture_as_pdf_outlined,
   label: 'Сподели като PDF',
@@ -68,6 +77,7 @@ const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
 const List<ReaderMenuItem> kReaderMenuItems = [
   kReaderSettingsMenuItem,
   kBookmarksMenuItem,
+  kQuotesMenuItem,
   kSharePdfMenuItem,
 ];
 

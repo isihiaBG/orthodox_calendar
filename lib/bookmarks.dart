@@ -66,7 +66,24 @@ class BookmarksListScreen extends StatefulWidget {
   /// за четците (иначе се получава кръгов внос).
   final Future<List<BookmarkEntry>> Function() load;
 
-  const BookmarksListScreen({super.key, required this.load});
+  /// Заглавие на екрана.
+  ///
+  /// ⚠ Параметър, защото същият екран показва и ЛЮБИМИТЕ ЦИТАТИ. Двата
+  /// списъка са различни по смисъл — отметката е „докъде съм стигнал",
+  /// цитатът е „това ми хареса" — но се държат еднакво: подреждане по
+  /// време, задържане за избиране, изтриване на много наведнъж. Един екран,
+  /// две заглавия.
+  final String screenTitle;
+
+  /// Какво се пише, когато няма нищо.
+  final String emptyText;
+
+  const BookmarksListScreen({
+    super.key,
+    required this.load,
+    this.screenTitle = 'Списък с отметки',
+    this.emptyText = 'Няма запазени отметки',
+  });
 
   @override
   State<BookmarksListScreen> createState() => _BookmarksListScreenState();
@@ -267,7 +284,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
                   ),
                 ],
               )
-            : const Text('Списък с отметки'),
+            : Text(widget.screenTitle),
         // actionsPadding: нула, за да МАХНЕМ вградения отстъп на AppBar-а и
         // сами да контролираме десния отстъп (виж contentPadding на
         // ListTile-овете долу) — за да легнат кошчетата едно точно под
@@ -304,10 +321,10 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
           child: items == null
               ? const Center(child: CircularProgressIndicator())
               : items.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text(
-                        'Няма запазени отметки.',
-                        style: TextStyle(
+                        widget.emptyText,
+                        style: const TextStyle(
                           color: AppColors.textSecondary,
                           fontSize: 16,
                         ),
@@ -365,6 +382,13 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
             onTap: () => _selectionMode ? _toggle(e.id) : _open(e),
             title: Text(
               e.title,
+              // ⚠ Таван на редовете заради ЦИТАТИТЕ: заглавието на житие е
+              // къс ред, но маркиран откъс може да е цял абзац и без това
+              // един запис би изял целия екран. Списъкът е за ориентиране,
+              // не за четене — същото правило като при резултатите от
+              // търсенето (виж CLAUDE.md).
+              maxLines: 4,
+              overflow: TextOverflow.ellipsis,
               style: const TextStyle(
                 color: AppColors.textPrimary,
                 fontSize: 16,

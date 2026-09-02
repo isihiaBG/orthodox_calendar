@@ -49,6 +49,7 @@ import 'reader_font_size.dart';
 import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
 import 'pdf_export.dart';
+import 'quotes_list.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
 import 'reader_regions.dart';
@@ -1270,6 +1271,8 @@ class _BookReaderState extends State<BookReader>
           load: () => allBookmarkEntries(lookupBySlug),
         ),
       ));
+    } else if (choice == kQuotesMenuItem.value) {
+      openQuotesList(context);
     } else if (choice == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }

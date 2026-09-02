@@ -48,6 +48,7 @@ import 'external_link.dart';
 import 'text_line_locator.dart';
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
+import 'quotes_list.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
 import 'quote_menu.dart';
@@ -2280,6 +2281,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         ),
         ),
       );
+    } else if (selected == kQuotesMenuItem.value) {
+      openQuotesList(context);
     } else if (selected == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }
