@@ -34,6 +34,9 @@ class QuotableSelectionArea extends StatefulWidget {
   /// Обикновеният текст на блоковете, в реда на четене.
   final List<String> Function() blocks;
 
+  /// Индексът на блока с БУКВИЦА, или -1 — виж [captureSelection].
+  final int Function()? dropCapBlock;
+
   const QuotableSelectionArea({
     super.key,
     required this.child,
@@ -41,6 +44,7 @@ class QuotableSelectionArea extends StatefulWidget {
     required this.locator,
     required this.title,
     required this.blocks,
+    this.dropCapBlock,
   });
 
   @override
@@ -57,7 +61,8 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     region.hideToolbar();
     if (text == null || text.isEmpty) return;
 
-    final spot = captureSelection(widget.blocks(), text);
+    final spot = captureSelection(widget.blocks(), text,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1);
     if (!mounted) return;
     if (spot == null) {
       // ⚠ Случва се при маркиране ПРЕЗ няколко блока: селекцията носи текст,

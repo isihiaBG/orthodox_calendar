@@ -2263,6 +2263,38 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Менюто "Още" — плъзва се отгоре надясно и се прибира по същия начин.
   /// Написано е ръчно (showGeneralDialog + SlideTransition), защото
   /// вграденият PopupMenuButton не позволява смяна на вида на анимацията.
+  /// Индексът на региона, който се рисува с БУКВИЦА, или -1.
+  int get _dropCapBlockIndex {
+    final rs = _prepared?.regions;
+    if (rs == null) return -1;
+    for (var i = 0; i < rs.length; i++) {
+      if (rs[i].kind == RegionKind.dropCap) return i;
+    }
+    return -1;
+  }
+
+  /// Текстът на блоковете за нуждите на ЦИТАТИТЕ.
+  ///
+  /// ⚠ Различава се от `regionPlainTexts` по едно: в региона с буквицата
+  /// първата буква Е ВЪТРЕ. Тя се отрязва още в `_prepareReaderContent`
+  /// (`computeRegions` я получава отделно) и се рисува с отделен `Text` в
+  /// `Stack` — тоест липсва и от плоския текст. Без нея цитат от началото на
+  /// житие излиза „вети Иоан Рилски…".
+  ///
+  /// ⚠ НЕ се поправя в самия `regionPlainTexts`: той храни оценката на
+  /// височините (`_estimateRegionHeight`), а тя трябва да мери каквото
+  /// РЕАЛНО се рисува в потока — а буквицата не се рисува там.
+  List<String> _quoteBlocks() {
+    final p = _prepared;
+    if (p == null) return const [];
+    final out = [...p.regionPlainTexts];
+    final i = _dropCapBlockIndex;
+    if (i >= 0 && i < out.length && p.dropCap.isNotEmpty) {
+      out[i] = p.dropCap + out[i];
+    }
+    return out;
+  }
+
   Future<void> _showMoreMenu() async {
     // Точките живеят в reader_more_menu.dart — общи с четеца на книги.
     final selected = await showReaderMoreMenu(context, items: kReaderMenuItems);
@@ -2959,7 +2991,8 @@ class _ReaderScreenState extends State<ReaderScreen>
               title: () => widget.lifeTitle ?? widget.texts.name,
               // Плоският текст на регионите вече е сметнат и кеширан в
               // `_prepared` — оттам, а не наново.
-              blocks: () => _prepared?.regionPlainTexts ?? const [],
+              blocks: _quoteBlocks,
+              dropCapBlock: () => _dropCapBlockIndex,
               child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [
