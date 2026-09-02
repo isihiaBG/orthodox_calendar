@@ -51,6 +51,7 @@ import 'reader_match_ticks.dart';
 import 'quotes_list.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
+import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
 import 'reader_regions.dart';
@@ -721,12 +722,20 @@ class ReaderScreen extends StatefulWidget {
   /// подава отвън. Празно значи старото поведение — „Служба".
   final String? typeLabel;
 
+  /// Отвори веднага на този цитат — от списъка с любими или от споделен
+  /// линк.
+  ///
+  /// ⚠ Носи И координатите, И отпечатъка: числата казват откъде да се почне,
+  /// а текстът потвърждава, че още сочат където трябва. Виж `quotes.dart`.
+  final ParsedQuoteLink? openAtQuote;
+
   const ReaderScreen.life({
     super.key,
     required this.texts,
     required this.lookup,
     this.lifeTitle,
     this.typeLabel,
+    this.openAtQuote,
   }) : _mode = _ReaderMode.life;
 
   const ReaderScreen.prayers({
@@ -735,6 +744,7 @@ class ReaderScreen extends StatefulWidget {
     required this.lookup,
     this.lifeTitle,
     this.typeLabel,
+    this.openAtQuote,
   }) : _mode = _ReaderMode.prayers;
 
   const ReaderScreen.sluzhba({
@@ -743,6 +753,7 @@ class ReaderScreen extends StatefulWidget {
     required this.lookup,
     this.lifeTitle,
     this.typeLabel,
+    this.openAtQuote,
   }) : _mode = _ReaderMode.sluzhba;
 
   @override
@@ -838,6 +849,15 @@ class _ReaderScreenState extends State<ReaderScreen>
     ).then((result) async {
       if (!mounted) return;
       setState(() => _prepared = result);
+
+      // ⚠ ЦИТАТЪТ ПРЕДИ ПОДКАНАТА ЗА ВРЪЩАНЕ. Дошъл от списъка с любими или
+      // от споделен линк, човекът е поискал КОНКРЕТНО място — питането
+      // „да продължим ли оттам, докъдето беше стигнал" тук само пречи.
+      if (widget.openAtQuote != null) {
+        _goToQuote(widget.openAtQuote!);
+        return;
+      }
+
       // Има ли вече запазена позиция за това четиво? Ако да — показваме
       // resume-подканата (виж ResumePrompt) вместо да скачаме безшумно.
       final slug = widget.texts.slug;
@@ -1427,6 +1447,31 @@ class _ReaderScreenState extends State<ReaderScreen>
         extraOffset;
     final position = _scrollController.position;
     position.jumpTo(target.clamp(position.minScrollExtent, position.maxScrollExtent));
+  }
+
+  /// Отваря на мястото на цитат — от списъка с любими или от споделен линк.
+  ///
+  /// ⚠ КООРДИНАТИТЕ СЕ ПОТВЪРЖДАВАТ, НЕ СЕ ВЯРВАТ СЛЯПО. Текстът може да е
+  /// редактиран, откакто цитатът е запазен (всяко пускане на конвейера
+  /// пренаписва `life` изцяло), а споделеният линк идва от ЧУЖД телефон с
+  /// друга версия на базата. Затова [locateQuote] проверява дали числата
+  /// още сочат където трябва и ги коригира, ако не сочат — а при твърде
+  /// къс цитат или пренаписан текст просто връща самите числа.
+  /// Виж `quotes.dart` за целия довод.
+  void _goToQuote(ParsedQuoteLink q) {
+    final blocks = _quoteBlocks();
+    final b = q.anchor.block;
+    if (b < 0 || b >= blocks.length) return;
+
+    final hit = locateQuote(
+        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+
+    // ⚠ Чака се кадър: регионите още не са построени в мига, в който
+    // `_prepared` току-що е сложено — а `_jumpToBookmarkRegion` търси
+    // `currentContext` на ключа им. Същият механизъм като при отметките.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _jumpToBookmarkRegion(b, hit.start);
+    });
   }
 
   void _onResumePromptJump() {
@@ -2329,7 +2374,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         ),
       );
     } else if (selected == kQuotesMenuItem.value) {
-      openQuotesList(context);
+      openQuotesList(context, widget.lookup);
     } else if (selected == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }

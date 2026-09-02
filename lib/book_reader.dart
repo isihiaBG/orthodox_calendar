@@ -1289,7 +1289,7 @@ class _BookReaderState extends State<BookReader>
         ),
       ));
     } else if (choice == kQuotesMenuItem.value) {
-      openQuotesList(context);
+      openQuotesList(context, lookupBySlug);
     } else if (choice == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }

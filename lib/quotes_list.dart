@@ -8,7 +8,10 @@
 import 'package:flutter/material.dart';
 
 import 'bookmarks.dart';
+import 'quote_link.dart';
 import 'quotes.dart';
+import 'reader_screen.dart';
+import 'saint_expandable_tile.dart' show SaintLookup;
 
 /// Запазените цитати, готови за общия екран.
 ///
@@ -16,7 +19,7 @@ import 'quotes.dart';
 /// томове, защото един том носи стотици четива и без заглавия списъкът се
 /// чете като каша. Цитатите са малко и идват отвсякъде — група „Жития",
 /// „Книги", „Библия" би сложила по два реда под всяко заглавие.
-Future<List<BookmarkEntry>> quoteEntries() async {
+Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
   final quotes = await QuotesStore.load();
   quotes.sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs));
 
@@ -33,26 +36,50 @@ Future<List<BookmarkEntry>> quoteEntries() async {
         savedAtMs: q.savedAtMs,
         delete: () => QuotesStore.remove(q.id),
         open: (context) async {
-          // ⚠ ОТВАРЯНЕТО ОЩЕ НЕ Е СВЪРЗАНО. Ще мине по същия път, по който
-          // ще минава и споделеният линк — през [locateQuote], за да е един
-          // механизъм, а не два. Дотогава редът се показва и се трие, но не
-          // води наникъде: по-честно от това да отвори четивото „някъде".
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Отварянето на цитат още не е готово'),
-              duration: Duration(seconds: 2),
-            ),
-          );
+          // ⚠ СЪЩИЯТ ПЪТ, ПО КОЙТО ЩЕ МИНАВА И СПОДЕЛЕНИЯТ ЛИНК — затова
+          // четецът получава `ParsedQuoteLink`, а не самия [Quote]: така
+          // единият механизъм служи и на двата случая и не могат да се
+          // разминат.
+          switch (q.anchor.source) {
+            case QuoteSource.life:
+              final texts = await lookup(q.anchor.locator);
+              if (!context.mounted) return;
+              if (texts == null) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Няма запис за този светия.')),
+                );
+                return;
+              }
+              Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => ReaderScreen.life(
+                  texts: texts,
+                  lookup: lookup,
+                  openAtQuote: ParsedQuoteLink(
+                    anchor: q.anchor,
+                    fingerprint: fingerprint(q.text),
+                  ),
+                ),
+              ));
+            case QuoteSource.book:
+            case QuoteSource.bible:
+              // ⚠ Още не са свързани — казва се направо. Цитати оттам още не
+              // могат да се запазват, тъй че на практика не се среща.
+              ScaffoldMessenger.of(context).showSnackBar(
+                const SnackBar(
+                  content: Text('Отварянето от този вид четиво още не е готово'),
+                ),
+              );
+          }
         },
       ),
   ];
 }
 
 /// Отваря списъка с любими цитати.
-void openQuotesList(BuildContext context) {
+void openQuotesList(BuildContext context, SaintLookup lookup) {
   Navigator.of(context).push(MaterialPageRoute(
     builder: (_) => BookmarksListScreen(
-      load: quoteEntries,
+      load: () => quoteEntries(lookup),
       screenTitle: 'Любими цитати',
       emptyText: 'Няма запазени цитати.\n'
           'Маркирай текст в четиво и избери „Запази цитат".',
