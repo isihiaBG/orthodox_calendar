@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
+import 'quote_incoming.dart';
+import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'app_settings.dart';
 import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
@@ -21,12 +23,38 @@ void main() async {
   runApp(const OrthodoxCalendarApp());
 }
 
-class OrthodoxCalendarApp extends StatelessWidget {
+class OrthodoxCalendarApp extends StatefulWidget {
   const OrthodoxCalendarApp({super.key});
+
+  @override
+  State<OrthodoxCalendarApp> createState() => _OrthodoxCalendarAppState();
+}
+
+class _OrthodoxCalendarAppState extends State<OrthodoxCalendarApp> {
+  /// ⚠ Ключ, а не BuildContext: входящ линк към цитат може да дойде когато си
+  /// иска — включително докато приложението е на заден план — а контекст,
+  /// уловен при пускането, отдавна е разрушен. Виж [IncomingQuoteLinks].
+  final _navigatorKey = GlobalKey<NavigatorState>();
+
+  @override
+  void initState() {
+    super.initState();
+    IncomingQuoteLinks.start(
+      navigatorKey: _navigatorKey,
+      lookup: lookupBySlug,
+    );
+  }
+
+  @override
+  void dispose() {
+    IncomingQuoteLinks.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'Православен Календар',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [

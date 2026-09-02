@@ -135,6 +135,13 @@ class AppIcons {
   static const tipikonSemiCircle    = 'assets/icons/tipikon_02_SemiCircleCross.svg';
   static const tipikonCross         = 'assets/icons/tipikon_03_Cross.svg';
   static const tipikonThreeDots     = 'assets/icons/tipikon_04_ThreeDots.svg';
+
+  /// „Запази цитат" — сърце с плюс, за контекстното меню при маркиране.
+  ///
+  /// ⚠ Собствена, защото `heart_plus` няма в Material. Рисувана е черна и
+  /// се оцветява при изписване (`ColorFilter`), тъй че следва темата на
+  /// четеца — както знаците на Типикона по-горе следват `signRed`.
+  static const addToFavorites       = 'assets/icons/icon_AddToFavorites.svg';
   
   static (String?, Color?) forRank(int rank) {
     switch (rank) {

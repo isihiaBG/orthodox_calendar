@@ -56,6 +56,12 @@ dependencies:
   logger: ^2.7.0
   shared_preferences: ^2.5.5
   printing: ^5.15.0
+  # Споделяне на ТЕКСТ навън (цитати). PDF-ът върви през printing —
+  # то умее само файлове, не и обикновен текст.
+  share_plus: ^10.1.4
+  # Прихваща линковете към цитати, отворени отвън (Android App Links).
+  # Виж CLAUDE.md, „Споделяне на цитати навън".
+  app_links: ^6.3.2
   pdf: ^3.13.0
 
 dev_dependencies:

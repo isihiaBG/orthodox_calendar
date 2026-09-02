@@ -14,6 +14,9 @@
 
 import 'package:flutter/material.dart';
 
+import 'package:flutter_svg/flutter_svg.dart';
+
+import 'app_theme.dart';
 import 'reader_theme.dart';
 
 /// Размерът на иконките в лентата.
@@ -23,46 +26,6 @@ import 'reader_theme.dart';
 /// палец в движение и се чете за части от секундата — там дребната иконка е
 /// по-лоша от надпис.
 const double _kIconSize = 26;
-
-/// Иконката за „Запази цитат" — ПЛЪТНО сърце с плюс в кръгче.
-///
-/// ⚠ Съставена, защото `heart_plus` няма в тази версия на Material. Следва
-/// общоприетия вид „добави в любими": плюсът е в долния десен ъгъл, върху
-/// кръгче в цвета на ЛЕНТАТА — то изрязва сърцето и двете не се сливат в
-/// едно петно. Точно затова [background] идва отвън, а не е закован.
-class _AddToFavouritesIcon extends StatelessWidget {
-  final Color color;
-  final Color background;
-  const _AddToFavouritesIcon({required this.color, required this.background});
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: _kIconSize,
-      height: _kIconSize,
-      child: Stack(
-        clipBehavior: Clip.none,
-        children: [
-          // ПЛЪТНО, не контурно: в еталона сърцето е запълнено, а и на дребно
-          // контурът се губи между останалите плътни иконки.
-          Icon(Icons.favorite, size: _kIconSize - 2, color: color),
-          Positioned(
-            right: -2,
-            bottom: -2,
-            child: Container(
-              padding: const EdgeInsets.all(1.5),
-              decoration: BoxDecoration(
-                color: background,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(Icons.add_circle, size: 13, color: color),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// Обичайната иконка за всеки познат вид бутон, или `null` за непознат.
 ///
@@ -99,11 +62,19 @@ class IconSelectionToolbar extends StatelessWidget {
   /// и да застане ПОСЛЕДНА сред нашите.
   final VoidCallback? onSaveQuote;
 
+  /// Ако е подадено, ЗАМЕСТВА системното „Сподели".
+  ///
+  /// ⚠ Системното праща гол текст; това праща цитата с източник и линк, който
+  /// отваря приложението на мястото му. Иконката остава същата — за човека
+  /// действието е същото, само резултатът е по-полезен.
+  final VoidCallback? onShareQuote;
+
   const IconSelectionToolbar({
     super.key,
     required this.anchors,
     required this.items,
     this.onSaveQuote,
+    this.onShareQuote,
   });
 
   @override
@@ -117,7 +88,11 @@ class IconSelectionToolbar extends StatelessWidget {
     for (final it in items) {
       final icon = _iconFor(it.type);
       if (icon != null) {
-        known.add((icon, it.onPressed, _labelFor(it.type)));
+        final replaced = it.type == ContextMenuButtonType.share &&
+                onShareQuote != null
+            ? onShareQuote
+            : it.onPressed;
+        known.add((icon, replaced, _labelFor(it.type)));
       } else {
         // ⚠ Платформено — оставя се както си е, зад трите точки. Не му се
         // измисля иконка: не знаем какво е и надписът е единственото
@@ -146,7 +121,16 @@ class IconSelectionToolbar extends StatelessWidget {
           ),
         if (onSaveQuote != null)
           IconButton(
-            icon: _AddToFavouritesIcon(color: ink, background: sheet),
+            // ⚠ SVG, а не съставена от две Material иконки: първият опит
+            // (сърце + плюс в Stack) излезе ситен и неравен до останалите.
+            // Тази е рисувана нарочно и се оцветява при изписване, тъй че
+            // следва темата — както знаците на Типикона.
+            icon: SvgPicture.asset(
+              AppIcons.addToFavorites,
+              width: _kIconSize,
+              height: _kIconSize,
+              colorFilter: ColorFilter.mode(ink, BlendMode.srcIn),
+            ),
             tooltip: 'Запази цитат',
             onPressed: onSaveQuote,
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),

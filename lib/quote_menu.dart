@@ -11,8 +11,10 @@
 // копиране.
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'quote_capture.dart';
+import 'quote_link.dart';
 import 'quotes.dart';
 import 'reader_theme.dart';
 import 'selection_toolbar.dart';
@@ -54,6 +56,39 @@ class QuotableSelectionArea extends StatefulWidget {
 
 class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
   String? _selected;
+
+  /// Сглобява цитат от текущата селекция, или `null`, ако не се улови.
+  Quote? _quoteFromSelection() {
+    final text = _selected?.trim();
+    if (text == null || text.isEmpty) return null;
+    final spot = captureSelection(widget.blocks(), text,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1);
+    if (spot == null) return null;
+    return buildQuote(
+      source: widget.source,
+      locator: widget.locator(),
+      title: widget.title(),
+      blocks: widget.blocks(),
+      spot: spot,
+    );
+  }
+
+  /// ⚠ ЗАМЕСТВА системното „Сподели", което праща гол текст.
+  ///
+  /// Навън тръгва самият цитат в кавички, източникът и ЛИНК, който отваря
+  /// приложението право на мястото — виж [quoteShareText]. Смисълът е, че
+  /// получателят вижда откъса в контекста му, а не изваден от нищото.
+  /// (Описано от потребителя, 02.09.2026.)
+  Future<void> _share(SelectableRegionState region) async {
+    final q = _quoteFromSelection();
+    region.hideToolbar();
+    if (!mounted) return;
+    if (q == null) {
+      _tell('Маркирай откъс в рамките на един абзац');
+      return;
+    }
+    await Share.share(quoteShareText(q));
+  }
 
   Future<void> _save(SelectableRegionState region) async {
     final text = _selected?.trim();
@@ -111,6 +146,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
           anchors: region.contextMenuAnchors,
           items: region.contextMenuButtonItems,
           onSaveQuote: () => _save(region),
+          onShareQuote: () => _share(region),
         );
       },
       child: widget.child,
