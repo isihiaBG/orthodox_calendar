@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'quote_capture.dart';
 import 'quotes.dart';
 import 'reader_theme.dart';
+import 'selection_toolbar.dart';
 
 /// Обгръща съдържанието в `SelectionArea` и добавя „Запази цитат".
 ///
@@ -103,16 +104,13 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
       onSelectionChanged: (content) => _selected = content?.plainText,
       contextMenuBuilder: (context, region) {
         // ⚠ Стандартните бутони се ВЗИМАТ от региона, не се пресъздават:
-        // „Копирай", „Сподели", „Избери всичко" се менят според платформата и
-        // според това какво е маркирано.
-        final items = [...region.contextMenuButtonItems];
-        items.add(ContextMenuButtonItem(
-          onPressed: () => _save(region),
-          label: 'Запази цитат',
-        ));
-        return AdaptiveTextSelectionToolbar.buttonItems(
+        // те се менят според платформата и според това какво е маркирано.
+        // [IconSelectionToolbar] после ги разделя по вид — познатите стават
+        // иконки отпред, платформените отиват зад трите точки.
+        return IconSelectionToolbar(
           anchors: region.contextMenuAnchors,
-          buttonItems: items,
+          items: region.contextMenuButtonItems,
+          onSaveQuote: () => _save(region),
         );
       },
       child: widget.child,

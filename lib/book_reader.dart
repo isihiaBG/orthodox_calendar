@@ -61,6 +61,7 @@ import 'reader_text_utils.dart';
 import 'reader_theme.dart';
 import 'round_icon_button.dart';
 import 'reader_toolbar.dart';
+import 'selection_toolbar.dart';
 
 class BookReader extends StatefulWidget {
   final EpubBook book;
@@ -2065,6 +2066,13 @@ class _BookReaderState extends State<BookReader>
             ),
           ),
           child: SelectionArea(
+            // ⚠ Същото контекстно меню като в четеца на жития — с иконки, а
+            // не с надписи. Общо, за да не се разминат: първата разлика
+            // между преписани на две места неща минава тихо.
+            contextMenuBuilder: (context, region) => IconSelectionToolbar(
+              anchors: region.contextMenuAnchors,
+              items: region.contextMenuButtonItems,
+            ),
             child: CustomScrollView(
               controller: _scroll,
               slivers: [

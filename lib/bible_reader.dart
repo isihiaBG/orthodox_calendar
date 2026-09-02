@@ -51,6 +51,7 @@ import 'reader_toolbar.dart';
 import 'search_match.dart';
 import 'round_icon_button.dart';
 import 'settings_screen.dart';
+import 'selection_toolbar.dart';
 
 /// Разстоянието между номера на стиха и текста му.
 ///
@@ -1118,6 +1119,13 @@ class _BibleReaderState extends State<BibleReader>
       // тоест готови за селекция — както беше пропуснато и в четеца на книги
       // (докладвано 21.08.2026).
       child: SelectionArea(
+            // ⚠ Същото контекстно меню като в четеца на жития — с иконки, а
+            // не с надписи. Общо, за да не се разминат: първата разлика
+            // между преписани на две места неща минава тихо.
+            contextMenuBuilder: (context, region) => IconSelectionToolbar(
+              anchors: region.contextMenuAnchors,
+              items: region.contextMenuButtonItems,
+            ),
         child: Scrollbar(
         controller: _scroll,
         // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
