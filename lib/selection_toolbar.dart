@@ -16,12 +16,20 @@ import 'package:flutter/material.dart';
 
 import 'reader_theme.dart';
 
-/// Иконката за „Запази цитат" — сърце с плюс.
+/// Размерът на иконките в лентата.
 ///
-/// ⚠ Съставена, защото готова такава няма в Material. Плюсът стои в долния
-/// десен ъгъл, върху кръгче в цвета на ЛЕНТАТА, за да не се слее с линията
-/// на сърцето. [background] идва отвън по същата причина, по която и всичко
-/// останало тук — виж бележката при [IconSelectionToolbar].
+/// ⚠ Едро НАРОЧНО. Първият опит беше 22 и потребителят го отхвърли като
+/// „прекалено ситно" (02.09.2026): лентата изскача над текста, натиска се с
+/// палец в движение и се чете за части от секундата — там дребната иконка е
+/// по-лоша от надпис.
+const double _kIconSize = 26;
+
+/// Иконката за „Запази цитат" — ПЛЪТНО сърце с плюс в кръгче.
+///
+/// ⚠ Съставена, защото `heart_plus` няма в тази версия на Material. Следва
+/// общоприетия вид „добави в любими": плюсът е в долния десен ъгъл, върху
+/// кръгче в цвета на ЛЕНТАТА — то изрязва сърцето и двете не се сливат в
+/// едно петно. Точно затова [background] идва отвън, а не е закован.
 class _AddToFavouritesIcon extends StatelessWidget {
   final Color color;
   final Color background;
@@ -30,21 +38,24 @@ class _AddToFavouritesIcon extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      width: 24,
-      height: 24,
+      width: _kIconSize,
+      height: _kIconSize,
       child: Stack(
         clipBehavior: Clip.none,
         children: [
-          Icon(Icons.favorite_border, size: 22, color: color),
+          // ПЛЪТНО, не контурно: в еталона сърцето е запълнено, а и на дребно
+          // контурът се губи между останалите плътни иконки.
+          Icon(Icons.favorite, size: _kIconSize - 2, color: color),
           Positioned(
-            right: -1,
-            bottom: 0,
+            right: -2,
+            bottom: -2,
             child: Container(
+              padding: const EdgeInsets.all(1.5),
               decoration: BoxDecoration(
                 color: background,
-                borderRadius: BorderRadius.circular(6),
+                shape: BoxShape.circle,
               ),
-              child: Icon(Icons.add, size: 12, color: color),
+              child: Icon(Icons.add_circle, size: 13, color: color),
             ),
           ),
         ],
@@ -54,12 +65,17 @@ class _AddToFavouritesIcon extends StatelessWidget {
 }
 
 /// Обичайната иконка за всеки познат вид бутон, или `null` за непознат.
+///
+/// ⚠ ПЛЪТНИТЕ варианти, не контурните (`*_outlined`). Тези иконки се четат
+/// на един поглед и трябва да имат тежест; контурните се губят на дребно и
+/// изглеждат недовършени до плътното сърце. Сверено срещу еталоните,
+/// подадени от потребителя (02.09.2026).
 IconData? _iconFor(ContextMenuButtonType? type) => switch (type) {
-      ContextMenuButtonType.copy => Icons.content_copy_outlined,
+      ContextMenuButtonType.copy => Icons.content_copy,
       ContextMenuButtonType.cut => Icons.content_cut,
-      ContextMenuButtonType.paste => Icons.content_paste_outlined,
+      ContextMenuButtonType.paste => Icons.content_paste,
       ContextMenuButtonType.selectAll => Icons.select_all,
-      ContextMenuButtonType.share => Icons.share_outlined,
+      ContextMenuButtonType.share => Icons.share,
       _ => null,
     };
 
@@ -122,21 +138,23 @@ class IconSelectionToolbar extends StatelessWidget {
       children: [
         for (final (icon, onTap, tip) in known)
           IconButton(
-            icon: Icon(icon, size: 22, color: ink),
+            icon: Icon(icon, size: _kIconSize, color: ink),
             tooltip: tip,
             onPressed: onTap,
-            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            constraints: const BoxConstraints(),
           ),
         if (onSaveQuote != null)
           IconButton(
             icon: _AddToFavouritesIcon(color: ink, background: sheet),
             tooltip: 'Запази цитат',
             onPressed: onSaveQuote,
-            visualDensity: VisualDensity.compact,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            constraints: const BoxConstraints(),
           ),
         if (rest.isNotEmpty)
           PopupMenuButton<int>(
-            icon: Icon(Icons.more_vert, size: 22, color: ink),
+            icon: Icon(Icons.more_vert, size: _kIconSize, color: ink),
             tooltip: 'Още',
             color: sheet,
             itemBuilder: (_) => [
