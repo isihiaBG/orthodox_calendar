@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
+import 'quotes_list.dart' show openBookQuote;
 import 'reader_screen.dart';
 import 'saint_expandable_tile.dart' show SaintLookup;
 
@@ -121,10 +122,13 @@ class IncomingQuoteLinks {
           ),
         ));
       case QuoteSource.book:
+        final ctx = navigatorKey.currentContext;
+        if (ctx != null && ctx.mounted) {
+          await openBookQuote(ctx, q.anchor, q.fingerprint);
+        }
       case QuoteSource.bible:
-        // ⚠ Още не се споделят цитати оттам, тъй че такъв линк може да дойде
-        // само от бъдеща версия. Мълчаливото нищо е по-добре от отваряне на
-        // грешно място.
+        // ⚠ Още не се споделят цитати оттам. Мълчаливото нищо е по-добре от
+        // отваряне на грешно място.
         return;
     }
   }

@@ -36,6 +36,8 @@ import 'app_theme.dart';
 import 'bible_bg_source.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
+import 'quote_menu.dart';
+import 'quotes.dart';
 import 'bible_ref.dart';
 import 'bible_search_panel.dart';
 import 'bible_search_settings.dart';
@@ -1118,14 +1120,17 @@ class _BibleReaderState extends State<BibleReader>
       // Липсваше тук, макар стиховете да са обикновени `Text`/`Text.rich`,
       // тоест готови за селекция — както беше пропуснато и в четеца на книги
       // (докладвано 21.08.2026).
-      child: SelectionArea(
-            // ⚠ Същото контекстно меню като в четеца на жития — с иконки, а
-            // не с надписи. Общо, за да не се разминат: първата разлика
-            // между преписани на две места неща минава тихо.
-            contextMenuBuilder: (context, region) => IconSelectionToolbar(
-              anchors: region.contextMenuAnchors,
-              items: region.contextMenuButtonItems,
-            ),
+      child: QuotableSelectionArea(
+        source: QuoteSource.bible,
+        // ⚠ Адресът носи ВСИЧКО — език, книга, глава — защото Писанието не
+        // се адресира с „абзац номер N": стиховете имат свои номера, които
+        // не се менят, а редовете на екрана зависят от избраната двойка
+        // преводи. `block` тук е индексът в текущия списък и служи само за
+        // подсказка; истинското място се потвърждава по текста.
+        locator: () =>
+            '${_shownCode(_pair, null)}|${widget.bookCode}|${widget.chapter}',
+        title: () => _chapterLabel(),
+        blocks: _quoteBlocks,
         child: Scrollbar(
         controller: _scroll,
         // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
@@ -2988,6 +2993,25 @@ class _BibleReaderState extends State<BibleReader>
   /// човек вижда „бг", а чете църковнославянски, докато не пусне.
   ///
   /// В ЛЕГНАЛО менютата са две и всяко си знае колоната.
+  /// Плоският текст на стиховете — за цитатите.
+  ///
+  /// ⚠ Взима се САМО показваният превод: цитат от българския и цитат от
+  /// църковнославянския са различни неща и не бива да се смесват в един
+  /// списък от блокове.
+  List<String> _quoteBlocks() {
+    final lang = _shownCode(_pair, null);
+    return [
+      for (final r in _rows)
+        (r[lang]?.text ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
+    ];
+  }
+
+  /// Кратко име на главата — за подзаглавието в споделения цитат.
+  String _chapterLabel() {
+    final b = _book?.title ?? widget.bookCode;
+    return '$b ${widget.chapter}';
+  }
+
   String _shownCode(BibleLanguagePair pair, int? column) {
     if (column != null) return column == 0 ? pair.first : pair.second;
     return _slide.value >= 0.5 ? pair.second : pair.first;

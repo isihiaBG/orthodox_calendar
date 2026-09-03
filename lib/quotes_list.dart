@@ -8,6 +8,8 @@
 import 'package:flutter/material.dart';
 
 import 'bookmarks.dart';
+import 'book_reader.dart';
+import 'epub_source.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
 import 'reader_screen.dart';
@@ -61,18 +63,51 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
                 ),
               ));
             case QuoteSource.book:
+              await openBookQuote(context, q.anchor, fingerprint(q.text));
             case QuoteSource.bible:
-              // ⚠ Още не са свързани — казва се направо. Цитати оттам още не
-              // могат да се запазват, тъй че на практика не се среща.
+              // ⚠ Още не е свързано — казва се направо.
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
-                  content: Text('Отварянето от този вид четиво още не е готово'),
+                  content: Text('Отварянето от Библията още не е готово'),
                 ),
               );
           }
         },
       ),
   ];
+}
+
+/// Отваря цитат от том на „Месецослов".
+///
+/// ⚠ `locator` е „път до тома|href на главата" — двете заедно, защото един
+/// том носи стотици четива, а href сам по себе си не казва от коя книга е.
+Future<void> openBookQuote(
+    BuildContext context, QuoteAnchor anchor, String fp) async {
+  final parts = anchor.locator.split('|');
+  if (parts.length < 2) return;
+  final book = await EpubBook.open(parts[0]);
+  if (!context.mounted) return;
+  final entry = book.toc
+      .expand((e) => e.flattened())
+      .where((e) => e.href == parts[1])
+      .firstOrNull;
+  if (entry == null) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Четивото вече го няма в книгата.')),
+    );
+    return;
+  }
+  Navigator.of(context).push(MaterialPageRoute(
+    builder: (_) => BookReader(
+      book: book,
+      start: entry,
+      openAtQuote: ParsedQuoteLink(anchor: anchor, fingerprint: fp),
+    ),
+  ));
+}
+
+extension _FirstOrNull<T> on Iterable<T> {
+  T? get firstOrNull => isEmpty ? null : first;
 }
 
 /// Отваря списъка с любими цитати.

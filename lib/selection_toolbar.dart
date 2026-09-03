@@ -21,11 +21,15 @@ import 'reader_theme.dart';
 
 /// Размерът на иконките в лентата.
 ///
-/// ⚠ Едро НАРОЧНО. Първият опит беше 22 и потребителят го отхвърли като
-/// „прекалено ситно" (02.09.2026): лентата изскача над текста, натиска се с
-/// палец в движение и се чете за части от секундата — там дребната иконка е
-/// по-лоша от надпис.
-const double _kIconSize = 26;
+/// ⚠ Едро НАРОЧНО, и вдигано ДВА ПЪТИ по бележка на потребителя: 22 → 26 →
+/// 30 (02–03.09.2026). Лентата изскача над текста, натиска се с палец в
+/// движение и се чете за части от секундата — там дребната иконка е по-лоша
+/// от надпис.
+///
+/// ⚠ Таванът е ширината: при пет бутона по 30 + 2×10 отстъп лентата излиза
+/// около 250 dp, тоест се побира и на тесен телефон. Още по-едро започва да
+/// я разлива през целия екран.
+const double _kIconSize = 30;
 
 /// Обичайната иконка за всеки познат вид бутон, или `null` за непознат.
 ///
@@ -116,7 +120,7 @@ class IconSelectionToolbar extends StatelessWidget {
             icon: Icon(icon, size: _kIconSize, color: ink),
             tooltip: tip,
             onPressed: onTap,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             constraints: const BoxConstraints(),
           ),
         if (onSaveQuote != null)
@@ -133,7 +137,7 @@ class IconSelectionToolbar extends StatelessWidget {
             ),
             tooltip: 'Запази цитат',
             onPressed: onSaveQuote,
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             constraints: const BoxConstraints(),
           ),
         if (rest.isNotEmpty)

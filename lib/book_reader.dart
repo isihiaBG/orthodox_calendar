@@ -49,6 +49,9 @@ import 'reader_font_size.dart';
 import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
 import 'pdf_export.dart';
+import 'quote_link.dart';
+import 'quote_menu.dart';
+import 'quotes.dart';
 import 'quotes_list.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
@@ -78,6 +81,10 @@ class BookReader extends StatefulWidget {
   /// по-добре да не се пали, отколкото да се гаси наново.
   final bool keepImmersiveOnExit;
 
+  /// Отвори веднага на този цитат — от списъка с любими или от споделен
+  /// линк. Виж [ReaderScreen.openAtQuote] за пълното обяснение.
+  final ParsedQuoteLink? openAtQuote;
+
   /// Да подсети ли, че оттук нататък се върви през съдържанието.
   ///
   /// Вдига се САМО от екрана за избор на книга: там човек тъкмо е отворил
@@ -92,6 +99,7 @@ class BookReader extends StatefulWidget {
     this.start,
     this.hintContents = false,
     this.keepImmersiveOnExit = false,
+    this.openAtQuote,
   });
 
   @override
@@ -285,6 +293,13 @@ class _BookReaderState extends State<BookReader>
     ReaderDropCapScale.notifier.addListener(_onDropCapScaleChanged);
     // Кое четиво е било последно в този том — решава какво пише опашката
     // под заглавната страница и кой ред е маркиран в съдържанието.
+    if (widget.openAtQuote != null) {
+      // ⚠ Чака се кадър: регионите не са построени в мига на initState, а
+      // позиционирането търси currentContext на ключовете им.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _goToQuote(widget.openAtQuote!);
+      });
+    }
     BookLastReadStore.load(widget.book.assetPath).then((v) {
       if (mounted) setState(() => _lastRead = v);
     });
@@ -771,7 +786,11 @@ class _BookReaderState extends State<BookReader>
   ///
   /// [extraOffset] — ръчна корекция в пиксели след изчисленото
   /// подравняване; виж бележката в _toggleSearch защо е нужна.
-  void _jumpToLine(int region, int charInRegion, {double extraOffset = 0}) {
+  /// [alignment] — къде на екрана да застане редът: 0.0 е най-горе (при
+  /// връщане към отметка), а по-голяма стойност го сваля надолу (за цитат —
+  /// така се вижда и малко от предхождащото).
+  void _jumpToLine(int region, int charInRegion,
+      {double extraOffset = 0, double alignment = 0.0}) {
     if (!mounted || !_scroll.hasClients) return;
     if (region < 0 || region >= _regionKeys.length) return;
     final position = _scroll.position;
@@ -785,7 +804,7 @@ class _BookReaderState extends State<BookReader>
     final target = RenderAbstractViewport.of(box)
             .getOffsetToReveal(
               box,
-              0.0,
+              alignment,
               rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2),
             )
             .offset +
@@ -967,6 +986,63 @@ class _BookReaderState extends State<BookReader>
   }
 
   /// Регионите на текущата глава — същото деление, което рисува build().
+  /// Диапазонът, който да се покрие със СИН фон — цитатът, заради който
+  /// четивото е отворено. -1 = няма.
+  int _quoteRegion = -1;
+  int _quoteStart = 0;
+  int _quoteLength = 0;
+
+  /// Отваря на мястото на цитат — същият механизъм като в четеца на жития.
+  void _goToQuote(ParsedQuoteLink q) {
+    final blocks = _quoteBlocks();
+    final b = q.anchor.block;
+    if (b < 0 || b >= blocks.length) return;
+
+    final hit = locateQuote(
+        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+
+    // ⚠ Буквицата е в `_quoteBlocks`, но не и в рисувания текст — диапазонът
+    // за фона трябва да е в координатите на РИСУВАНОТО.
+    final capLen =
+        (b == _dropCapBlockIndex()) ? _currentDropCap().length : 0;
+    setState(() {
+      _quoteRegion = b;
+      _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
+      _quoteLength = hit.length;
+    });
+    // ⚠ 0.22 — цитатът в ГОРНАТА ЧАСТ, не най-горе: залепен за ръба
+    // изглежда като начало на четивото и не се вижда какво го предхожда.
+    _jumpToLine(b, hit.start, alignment: 0.22);
+  }
+
+  /// Индексът на региона с БУКВИЦА в текущото четиво, или -1.
+  int _dropCapBlockIndex() {
+    final rs = _currentRegions();
+    for (var i = 0; i < rs.length; i++) {
+      if (rs[i].kind == RegionKind.dropCap) return i;
+    }
+    return -1;
+  }
+
+  /// Плоският текст на блоковете — за цитатите.
+  ///
+  /// ⚠ В региона с буквицата инициалът Е ВЪТРЕ, за разлика от рисуваното.
+  /// Той се отрязва при подготовката и се изписва отделно, тъй че без него
+  /// цитат от началото на четиво излиза без първата си буква. Същото както
+  /// в reader_screen.dart.
+  List<String> _quoteBlocks() {
+    final cap = _currentDropCap();
+    final out = <String>[];
+    for (final r in _currentRegions()) {
+      final head = r.kind == RegionKind.dropCap ? cap : '';
+      out.add([
+        head + _plainOf(r.content),
+        for (final x in r.rest) _plainOf(x),
+      ].join('\n'));
+    }
+    return out;
+  }
+
   /// Буквицата на текущото четиво, или празно.
   ///
   /// ⚠ Нужна е за БРОЕНЕТО при търсене: инициалът се отрязва от текста и се
@@ -1612,9 +1688,18 @@ class _BookReaderState extends State<BookReader>
         children.add(KeyedSubtree(
           key: _regionKeys[i],
           child: Html(
-            data: _query.isEmpty
-                ? r.content
-                : highlightHtml(r.content, _query, matchOffset, _currentHit),
+            data: () {
+              var d = _query.isEmpty
+                  ? r.content
+                  : highlightHtml(r.content, _query, matchOffset, _currentHit);
+              // ⚠ Синият фон на ЦИТАТА се слага НАД маркирането от търсенето,
+              // не вместо него: жълтото значи „намерено сега", синьото —
+              // „това поиска да видиш". Същото както в четеца на жития.
+              if (i == _quoteRegion && _quoteLength > 0) {
+                d = wrapRangeHtml(d, _quoteStart, _quoteLength, 'quotehit');
+              }
+              return d;
+            }(),
             style: styles,
             extensions: _htmlExtensions,
             onLinkTap: (u, _, __) => _onLinkTap(u),
@@ -2065,14 +2150,15 @@ class _BookReaderState extends State<BookReader>
               cursorColor: AppColors.sectionTitle,
             ),
           ),
-          child: SelectionArea(
-            // ⚠ Същото контекстно меню като в четеца на жития — с иконки, а
-            // не с надписи. Общо, за да не се разминат: първата разлика
-            // между преписани на две места неща минава тихо.
-            contextMenuBuilder: (context, region) => IconSelectionToolbar(
-              anchors: region.contextMenuAnchors,
-              items: region.contextMenuButtonItems,
-            ),
+          child: QuotableSelectionArea(
+            source: QuoteSource.book,
+            // ⚠ Адресът на четивото в тома: „път до тома|href на главата".
+            // Двете заедно, защото един том носи стотици четива, а href сам
+            // по себе си не казва от коя книга е.
+            locator: () => '${widget.book.assetPath}|${_current.href}',
+            title: () => _current.title,
+            blocks: _quoteBlocks,
+            dropCapBlock: _dropCapBlockIndex,
             child: CustomScrollView(
               controller: _scroll,
               slivers: [
