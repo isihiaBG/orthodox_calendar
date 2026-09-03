@@ -687,17 +687,6 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // маркирането по HTML (`wrapQuoteByText`) изобщо не стига дотук. А
         // точно тук пада ПЪРВИЯТ абзац на четивото — най-често цитираният.
         // (Докладвано от потребителя, 03.09.2026.)
-        final quoteRanges = <(int, int)>[];
-        if (widget.quoteText.isNotEmpty) {
-          final want = fold(widget.quoteText).text;
-          final f = fold(plain);
-          final at = want.isEmpty ? -1 : f.text.indexOf(want);
-          if (at >= 0) {
-            quoteRanges.add(
-                (f.origIndex[at], f.origIndex[at + want.length - 1] + 1));
-          }
-        }
-
         // ⚠ Буквицата е част от ЦИТАТА, ако сгънатият цитат започва с нея.
         // Сравнява се сгънато, защото цитатът идва от друга формула на
         // плоския текст (виж wrapQuoteByText в quote_link.dart).
@@ -706,6 +695,27 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             fold(widget.quoteText)
                 .text
                 .startsWith(fold(widget.dropCap).text);
+
+        // ⚠⚠ КОГАТО ЦИТАТЪТ ЗАПОЧВА ОТ БУКВИЦАТА, В `plain` СЕ ТЪРСИ САМО
+        // ОСТАТЪКЪТ, не целият цитат — `plain` НЕ съдържа буквата (тя се
+        // рисува отделно), тъй че търсене на целия сгънат цитат в него
+        // никога не съвпада на позиция 0. Резултатът: остатъкът не
+        // светваше изобщо, а на екрана изглеждаше, че „маркира само
+        // буквицата". (Докладвано от потребителя, 03.09.2026 — точно
+        // случаят със св. Кирил Философ, чиято буква е „С".)
+        final quoteRanges = <(int, int)>[];
+        if (widget.quoteText.isNotEmpty) {
+          final full = fold(widget.quoteText).text;
+          final want = capInQuote
+              ? full.substring(fold(widget.dropCap).text.length)
+              : full;
+          final f = fold(plain);
+          final at = want.isEmpty ? -1 : f.text.indexOf(want);
+          if (at >= 0) {
+            quoteRanges.add(
+                (f.origIndex[at], f.origIndex[at + want.length - 1] + 1));
+          }
+        }
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от

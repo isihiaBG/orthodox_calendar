@@ -154,8 +154,12 @@ const int kLinkTextChars = 60;
 /// невъзстановим цитат (само хеш); това е третият — къс адрес И пълни данни.
 String buildQuoteLink(Quote q) {
   final text = q.text.trim();
-  final short =
-      text.length <= kLinkTextChars ? text : text.substring(0, kLinkTextChars);
+  // ⚠ Реже се по ДУМА, не по знак — иначе полученият текст свършва насред
+  // дума и осветяването на страницата за неинсталирали изглежда счупено.
+  // Същият похват като в [quoteShareText].
+  final short = text.length <= kLinkTextChars
+      ? text
+      : text.substring(0, text.lastIndexOf(' ', kLinkTextChars)).trimRight();
   final packed = _pack([
     '$kQuoteLinkVersion',
     q.anchor.source.name,
@@ -478,42 +482,61 @@ String wrapQuoteByText(String html, String quoteText, String className,
   final want = foldForMatch(quoteText);
   if (want.isEmpty) return html;
 
-  // Сгъваме, като помним откъде идва всеки знак в СУРОВИЯ html.
+  // Сгъваме, като помним откъде идва всеки знак — но НЕ в СУРОВИЯ html,
+  // а в „ПЛОСКИЯ" му вид (без таговете), защото точно ТАКИВА позиции
+  // очаква [wrapRangeHtml] по-долу (виж докстринга ѝ: „ПОЗИЦИИТЕ ТУК СА В
+  // СУРОВИЯ текст МЕЖДУ таговете" — тоест броени БЕЗ самите тагове).
   //
-  // ⚠⚠ ENTITY-ТАТА СЕ ПРЕСКАЧАТ ЦЕЛИ. Това беше същинският бъг: `&nbsp;` се
-  // сгъваше като БУКВИТЕ „nbsp" (n, b, s и p са валидни латински знаци), тъй
-  // че „Той рече&nbsp;му" ставаше „тойречеnbspму", докато цитатът — дошъл от
-  // `_plainTextOf`, който декодира — беше „тойречему". Не съвпадаха.
+  // ⚠⚠ ДОТУК `map` пазеше индекс в СУРОВИЯ html (броящ и `<p>`, `<em>` и
+  // т.н.), а после се подаваше directно на `wrapRangeHtml`, която брои
+  // без тях. Разликата е точно дължината на предходните тагове — за абзац,
+  // започващ direct с `<p>`, това са 3 знака, и маркирането излизаше
+  // отместено с точно толкова напред. (Диагностицирано от потребителя,
+  // 03.09.2026, върху реалния текст на св. Кирил Философ и Методий
+  // Моравски — „А след това…" излизаше маркирано от „лед това…".)
   //
-  // Оттам и обърканата картина „в едни абзаци маркира, в други не": зависи
-  // само дали абзацът съдържа entity. (Диагностицирано с тест върху реален
-  // текст от базата, 03.09.2026, след като потребителят съобщи, че липсва
-  // маркиране и в кратки жития.)
-  //
-  // ⚠ Самото entity се брои за ЕДИН знак и се сгъва като интервал — тоест
-  // отпада, точно както прави и `foldForMatch` с пунктуацията.
+  // ⚠ ENTITY-ТАТА СЕ ПРЕСКАЧАТ ЦЕЛИ ЗА СГЪВАНЕТО (по-раншна поправка,
+  // 03.09.2026): `&nbsp;` не бива да се сгъва като буквите „nbsp". Но за
+  // БРОЕНЕТО на плоска позиция ТЕ СИ УЧАСТВАТ с пълната си дължина —
+  // `wrapRangeHtml` не разпознава entity-та и брои всеки неин знак
+  // поотделно, тъй че плоското броене тук трябва да прави същото.
   final entity = RegExp(r'&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);');
   final map = <int>[];
   final folded = StringBuffer();
   var inTag = false;
-  for (var i = 0; i < html.length; i++) {
+  var plainPos = 0;
+  var i = 0;
+  while (i < html.length) {
     final ch = html[i];
-    if (ch == '<') inTag = true;
-    if (!inTag) {
-      if (ch == '&') {
-        final m = entity.matchAsPrefix(html, i);
-        if (m != null) {
-          i = m.end - 1;
-          continue;
-        }
-      }
-      final c = ch.toLowerCase();
-      if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
-        folded.write(c);
-        map.add(i);
+    if (ch == '<') {
+      inTag = true;
+      i++;
+      continue;
+    }
+    if (ch == '>') {
+      inTag = false;
+      i++;
+      continue;
+    }
+    if (inTag) {
+      i++;
+      continue;
+    }
+    if (ch == '&') {
+      final m = entity.matchAsPrefix(html, i);
+      if (m != null) {
+        plainPos += m.end - i;
+        i = m.end;
+        continue;
       }
     }
-    if (ch == '>') inTag = false;
+    final c = ch.toLowerCase();
+    if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
+      folded.write(c);
+      map.add(plainPos);
+    }
+    plainPos++;
+    i++;
   }
   final hay = folded.toString();
 
