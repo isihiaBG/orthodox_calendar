@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -9,6 +10,25 @@ class DatabaseHelper {
   static Database? _database;
   static bool _initializing = false;
   static bool? _lastStyle;
+
+  // ⚠⚠ ОТЛОЖЕНО ЗАТВАРЯНЕ — идея на потребителя (03.09.2026), срещу
+  // конфликта между няколко живи инстанции на приложението (всяка от
+  // тях — отделен FlutterEngine/изолат, отделна нативна sqflite връзка,
+  // защото taskAffinity="" ражда нова Activity в нова задача при всеки
+  // външен линк). Календарната база (с ATTACH-натата lives.db) стоеше
+  // отворена постоянно, докато екранът е жив — а екран може да стои жив
+  // цял ден без нито едно ново прелистване.
+  //
+  // Вместо това: всяко повикване на `database` отлага затварянето с 3 сек.
+  // Бързо прелистване на дни/месеци просто отмества таймера напред и не го
+  // усеща; спре ли прелистването, връзката се пуска — и следващата
+  // инстанция, отворена по линк, я намира свободна.
+  //
+  // ⚠ Безопасно е само защото ВСИЧКИ 15 повиквания в проекта викат getter-а
+  // ПРЕДИ всяка своя заявка, вместо да пазят обекта през дълго изчакване —
+  // проверено с grep преди да се пише това.
+  static Timer? _closeTimer;
+  static const _idleClose = Duration(seconds: 3);
 
   // Житията, службите и молитвите живеят в ОТДЕЛНА база, обща за двата
   // стила. Причината: текстът за св. Атанасий Атонски не зависи нито от
@@ -42,7 +62,7 @@ class DatabaseHelper {
 
   static Future<Database> get database async {
     if (_database != null && _lastStyle == AppSettings.isOldStyle) {
-      return _database!;
+      return _armIdleClose(_database!);
     }
 
     while (_initializing) {
@@ -50,7 +70,7 @@ class DatabaseHelper {
     }
 
     if (_database != null && _lastStyle == AppSettings.isOldStyle) {
-      return _database!;
+      return _armIdleClose(_database!);
     }
 
     _initializing = true;
@@ -66,7 +86,30 @@ class DatabaseHelper {
     } finally {
       _initializing = false;
     }
-    return _database!;
+    return _armIdleClose(_database!);
+  }
+
+  /// Отмества таймера за автоматично затваряне и връща подадената база.
+  ///
+  /// ⚠ ПАЗАЧ СРЕЩУ ЗАТВАРЯНЕ ПО ВРЕМЕ НА ИНИЦИАЛИЗАЦИЯ: ако между
+  /// изтичането на таймера и реалното затваряне вече тече ново отваряне
+  /// (`_initializing == true`), затварянето се прескача — новото отваряне
+  /// вече ще замести `_database` и старата връзка не бива да се пипа.
+  static Database _armIdleClose(Database db) {
+    _closeTimer?.cancel();
+    _closeTimer = Timer(_idleClose, () async {
+      if (_initializing || _database == null) return;
+      final toClose = _database!;
+      _database = null;
+      _lastStyle = null;
+      try {
+        await toClose.close();
+      } catch (_) {
+        // Вече затворена или в междинно състояние — без значение, целта
+        // (връзката да не стои отворена) е постигната.
+      }
+    });
+    return db;
   }
 
   static Future<void> _loadLookupTables(Database db) async {
