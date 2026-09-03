@@ -36,6 +36,7 @@ import 'app_theme.dart';
 import 'bible_bg_source.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
+import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
 import 'bible_ref.dart';
@@ -206,7 +207,15 @@ class BibleReader extends StatefulWidget {
     this.resultsNote,
     this.searchQuery,
     this.totalFound,
+    this.openAtQuote,
   });
+
+  /// Отвори веднага на този цитат — от списъка с любими или от споделен линк.
+  ///
+  /// ⚠ Различава се от [highlight]: тя маркира ПОИСКАНИ СТИХОВЕ по препратка
+  /// от житие, а това е запазен откъс — възможно и част от стих, и през
+  /// няколко стиха.
+  final ParsedQuoteLink? openAtQuote;
 
   /// Отваря препратка от житие: списък с цитати, ако местата са няколко или
   /// частични; направо главата, ако е поискана цялата.
@@ -600,6 +609,10 @@ class _BibleReaderState extends State<BibleReader>
             : (rows.isEmpty ? 'Тази глава още не е свалена.' : null);
       });
 
+      // ⚠ След като редовете са в състоянието — тогава цитатът има какво да
+      // намери. Преди това `_rows` е празен и всичко пропада мълчаливо.
+      _maybeOpenQuote();
+
       if (widget.initialVerse != null) {
         _pendingAnchor = widget.initialVerse;
         _restorePending();
@@ -770,6 +783,16 @@ class _BibleReaderState extends State<BibleReader>
   /// натискане на +) заварва скрола ПО СРЕДА и улавя нито старата, нито
   /// новата позиция — така грешката се натрупва. Същият урок е записан в
   /// CLAUDE.md за другите два четеца.
+  /// Отваря цитата, ако четецът е пуснат с такъв — след като редовете са
+  /// заредени и построени.
+  void _maybeOpenQuote() {
+    final q = widget.openAtQuote;
+    if (q == null || _rows.isEmpty) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _goToQuote(q);
+    });
+  }
+
   void _jumpToVerse(String verse, {bool animate = true}) {
     final ctx = _keyFor(verse).currentContext;
     if (ctx == null || !_scroll.hasClients) return;
@@ -2130,6 +2153,7 @@ class _BibleReaderState extends State<BibleReader>
       );
     } else if ((language?.rubricate ?? false) ||
         _zachaloLabel(lang, row) != null ||
+        _rowInQuote(row, lang) ||
         (_markQuery.isNotEmpty && _marksLang(lang))) {
       // ⚠ Рубрикацията на ВСЕКИ стих (червена главна буква) си остава само
       // за църковнославянския — това е негова книжна конвенция, не украса.
@@ -2143,12 +2167,16 @@ class _BibleReaderState extends State<BibleReader>
               _zachaloLabel(lang, row) != null
           ? _rubricatedSpans(verse.text, palette, _zachaloLabel(lang, row))
           : <TextSpan>[TextSpan(text: verse.text)];
+      // ⚠ Фонът на ЦИТАТА ляга ПЪРВИ, а маркирането от търсенето — върху
+      // него. „Намерено сега" побеждава „това поиска да видиш", както и в
+      // другите два четеца.
+      final withQuote = _rowInQuote(row, lang) ? _quoteSpans(rub) : rub;
       body = Text.rich(
         TextSpan(
             style: style,
             children: _marksLang(lang)
-                ? _highlightSpans(rub, row.verse)
-                : rub),
+                ? _highlightSpans(withQuote, row.verse)
+                : withQuote),
         textAlign: TextAlign.start,
       );
     } else {
@@ -2993,6 +3021,67 @@ class _BibleReaderState extends State<BibleReader>
   /// човек вижда „бг", а чете църковнославянски, докато не пусне.
   ///
   /// В ЛЕГНАЛО менютата са две и всяко си знае колоната.
+  /// Пада ли този ред в цитата, заради който главата е отворена.
+  ///
+  /// ⚠ Проверява се и ЕЗИКЪТ: цитат от българския не бива да свети в
+  /// църковнославянската колона — те са различни текстове.
+  bool _rowInQuote(BibleRow row, String lang) {
+    if (_quoteText.isEmpty || _quoteRow < 0) return false;
+    if (lang != _quoteLang) return false;
+    final i = _rows.indexOf(row);
+    return i >= _quoteRow && i <= _quoteRowEnd;
+  }
+
+  /// Слага синия фон върху готовите парчета.
+  ///
+  /// ⚠ Не се търси къде точно в стиха е цитатът: при Писанието единицата е
+  /// СТИХЪТ, а цитат почти винаги обхваща цели стихове. Частичен би искал
+  /// същото разцепване като в житията — не си струва за случай, който на
+  /// практика не се среща.
+  List<TextSpan> _quoteSpans(List<TextSpan> src) => [
+        for (final sp in src)
+          TextSpan(
+            text: sp.text,
+            style: (sp.style ?? const TextStyle())
+                .copyWith(backgroundColor: ReaderTheme.palette.quote),
+            children: sp.children,
+          ),
+      ];
+
+  /// Езикът, от който е цитатът.
+  String _quoteLang = '';
+
+  /// Диапазонът, който да се покрие със СИН фон — цитатът, заради който
+  /// главата е отворена. -1 = няма.
+  int _quoteRow = -1;
+  int _quoteRowEnd = -1;
+  String _quoteText = '';
+
+  /// Отваря на мястото на цитат.
+  ///
+  /// ⚠ „Блокът" тук е индекс в [_rows], тоест зависи от избраната ДВОЙКА
+  /// преводи. Затова е само подсказка: истинското място се намира по текста,
+  /// както навсякъде другаде.
+  void _goToQuote(ParsedQuoteLink q) {
+    final blocks = _quoteBlocks();
+    if (blocks.isEmpty) return;
+    final b = q.anchor.block.clamp(0, blocks.length - 1);
+    final hit = locateQuote(
+        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+    setState(() {
+      _quoteLang = q.anchor.locator.split('|').first;
+      _quoteRow = b;
+      _quoteRowEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      _quoteText = q.text.isNotEmpty
+          ? q.text
+          : blocks[b].substring(
+              hit.start.clamp(0, blocks[b].length),
+              (hit.start + hit.length).clamp(0, blocks[b].length));
+    });
+    final row = _rows.length > b ? _rows[b] : null;
+    if (row != null) _jumpToVerse(row.verse);
+  }
+
   /// Плоският текст на стиховете — за цитатите.
   ///
   /// ⚠ Взима се САМО показваният превод: цитат от българския и цитат от

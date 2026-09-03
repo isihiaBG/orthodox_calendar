@@ -24,7 +24,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
-import 'quotes_list.dart' show openBookQuote;
+import 'quotes_list.dart' show openBookQuote, openBibleQuote;
 import 'reader_screen.dart';
 import 'saint_expandable_tile.dart' show SaintLookup;
 
@@ -45,6 +45,18 @@ class IncomingQuoteLinks {
   /// Затова адресът само се ЗАПАЗВА тук, а главният екран го поема, щом е
   /// готов — виж [takePending].
   static ParsedQuoteLink? _pending;
+
+  /// ⚠ ПРИКЛЮЧИЛА ЛИ Е ПРОВЕРКАТА за начален линк.
+  ///
+  /// `getInitialLink` е АСИНХРОНЕН, а главният екран решава още в `initState`
+  /// дали да покаже посрещането. Дотук двете се надбягваха: при по-бавен
+  /// отговор екранът с избора на календар вече беше показан, а линкът
+  /// пристигаше подире му — човекът засядаше там. (Докладвано от потребителя,
+  /// 03.09.2026: „засядаш на първия екран с избор на календар, а този екран
+  /// изобщо не бива да се вижда при външните линкове".)
+  ///
+  /// Затова главният екран ЧАКА това, вместо да гадае.
+  static final ready = Completer<void>();
 
   /// Има ли чакащ линк. Гледа се и от началния екран: при отваряне по линк
   /// изборът на календар се ПРОПУСКА — човекът е дошъл да види цитат в
@@ -94,8 +106,14 @@ class IncomingQuoteLinks {
     }
 
     // ⚠ ПРИ СТУДЕН СТАРТ адресът само се запазва — виж [_pending].
-    final initial = await links.getInitialLink();
-    if (initial != null) await handle(initial, appIsUp: false);
+    try {
+      final initial = await links.getInitialLink();
+      if (initial != null) await handle(initial, appIsUp: false);
+    } finally {
+      // ⚠ ВИНАГИ, дори при грешка: главният екран чака този сигнал и без него
+      // би висял на празен изглед.
+      if (!ready.isCompleted) ready.complete();
+    }
 
     // Докато приложението върви, всичко е готово и линкът се отваря веднага.
     await _sub?.cancel();
@@ -157,9 +175,11 @@ class IncomingQuoteLinks {
               text: q.text, replaceStack: true);
         }
       case QuoteSource.bible:
-        // ⚠ Още не се споделят цитати оттам. Мълчаливото нищо е по-добре от
-        // отваряне на грешно място.
-        return;
+        final bctx = navigatorKey.currentContext;
+        if (bctx != null && bctx.mounted) {
+          await openBibleQuote(bctx, q.anchor, q.fingerprint,
+              text: q.text, replaceStack: true);
+        }
     }
   }
 

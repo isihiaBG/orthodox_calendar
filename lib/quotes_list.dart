@@ -8,6 +8,7 @@
 import 'package:flutter/material.dart';
 
 import 'bookmarks.dart';
+import 'bible_reader.dart';
 import 'book_reader.dart';
 import 'epub_source.dart';
 import 'quote_link.dart';
@@ -71,12 +72,8 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
               await openBookQuote(context, q.anchor, fingerprint(q.text),
                   text: q.text);
             case QuoteSource.bible:
-              // ⚠ Още не е свързано — казва се направо.
-              ScaffoldMessenger.of(context).showSnackBar(
-                const SnackBar(
-                  content: Text('Отварянето от Библията още не е готово'),
-                ),
-              );
+              await openBibleQuote(context, q.anchor, fingerprint(q.text),
+                  text: q.text);
           }
         },
       ),
@@ -127,6 +124,34 @@ Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
 
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
+}
+
+/// Отваря цитат от Писанието.
+///
+/// ⚠ `locator` е „език|код на книгата|глава". Езикът е този, който е бил
+/// показван при маркирането — цитат от българския и от църковнославянския са
+/// различни неща.
+Future<void> openBibleQuote(
+    BuildContext context, QuoteAnchor anchor, String fp,
+    {String text = '', bool replaceStack = false}) async {
+  final parts = anchor.locator.split('|');
+  if (parts.length < 3) return;
+  final chapter = int.tryParse(parts[2]);
+  if (chapter == null) return;
+  final route = MaterialPageRoute<void>(
+    builder: (_) => BibleReader(
+      bookCode: parts[1],
+      chapter: chapter,
+      openAtQuote:
+          ParsedQuoteLink(anchor: anchor, fingerprint: fp, text: text),
+    ),
+  );
+  final nav = Navigator.of(context);
+  if (replaceStack) {
+    nav.pushAndRemoveUntil(route, (r) => false);
+  } else {
+    nav.push(route);
+  }
 }
 
 /// Отваря списъка с любими цитати.

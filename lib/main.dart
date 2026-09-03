@@ -176,18 +176,24 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // на календар там е спънка, а не услуга. (Искане на потребителя,
     // 03.09.2026.) Настройката не се губи: посрещането ще се появи при
     // следващото обикновено пускане.
-    if (IncomingQuoteLinks.hasPending) {
-      // ⚠ Чака се ПЪРВИЯТ КАДЪР, а не се отваря веднага: дотук базата още се
-      // копира от assets и четецът оставаше на безкраен спинър.
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        IncomingQuoteLinks.openPending(
-          navigatorKey: OrthodoxCalendarApp.navigatorKey,
-          lookup: lookupBySlug,
-        );
-      });
-    } else if (AppSettings.showWelcome) {
-      WidgetsBinding.instance.addPostFrameCallback((_) => _showWelcome());
-    }
+    // ⚠ ЧАКА СЕ ПРОВЕРКАТА ЗА ЛИНК, преди каквото и да е решение.
+    // `getInitialLink` е асинхронен; питано веднага, `hasPending` още е false
+    // и посрещането се показва, а линкът пристига подире му.
+    IncomingQuoteLinks.ready.future.then((_) {
+      if (!mounted) return;
+      if (IncomingQuoteLinks.hasPending) {
+        // ⚠ Чака се и КАДЪР: дотук базата още се копира от assets и четецът
+        // оставаше на безкраен спинър.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          IncomingQuoteLinks.openPending(
+            navigatorKey: OrthodoxCalendarApp.navigatorKey,
+            lookup: lookupBySlug,
+          );
+        });
+      } else if (AppSettings.showWelcome) {
+        WidgetsBinding.instance.addPostFrameCallback((_) => _showWelcome());
+      }
+    });
   }
 
   Future<void> _showWelcome() async {
