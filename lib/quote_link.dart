@@ -26,9 +26,18 @@ import 'dart:io';
 
 import 'quotes.dart';
 
-/// Пътят, по който Android разпознава линка. ⚠ Трябва да съвпада с
-/// `android:pathPrefix` в AndroidManifest.xml.
-const String kQuotePath = '/q';
+/// Пътят, по който Android разпознава линка.
+///
+/// ⚠ Трябва да съвпада с `android:pathPrefix` в AndroidManifest.xml.
+///
+/// ⚠ Носи ИМЕТО НА ПРИЛОЖЕНИЕТО нарочно (03.09.2026, по искане на
+/// потребителя): пакетираният адрес е непрозрачен и без това човек не вижда
+/// никаква връзка с календара — а линк, който пристига в чат, се преценява
+/// точно по вида си. `/orthodox_calendar/q/…` поне казва откъде идва.
+///
+/// ⚠ Това НЕ мени къде стои `assetlinks.json` — той остава в КОРЕНА на
+/// домейна и важи за целия хост, независимо от пътя на линка.
+const String kQuotePath = '/orthodox_calendar/q';
 
 /// Колко СГЪНАТИ знака се хешват за отпечатъка.
 ///
@@ -354,6 +363,12 @@ extension _FirstOrNull<T> on Iterable<T> {
 /// Обгражда [start]..[start]+[length] (в ПЛОСКИЯ текст) с `<span>` от класа
 /// [className], без да разваля HTML-а наоколо.
 ///
+/// ⚠ ПОЗИЦИИТЕ ТУК СА В СУРОВИЯ текст между таговете — без декодирани
+/// entity-та и без свити интервали. Ако викащият брои по ДРУГА формула
+/// (напр. `_plainTextOf`, която декодира и нормализира), двете се разминават
+/// при всеки `&nbsp;` или двоен интервал. За такива случаи има
+/// [wrapQuoteByText], която ТЪРСИ вместо да брои.
+///
 /// ⚠ Различава се от `highlightHtml` по входа: тя търси ЗАЯВКА и маркира
 /// всяко нейно срещане, а тук мястото е известно предварително — цитатът е
 /// вече намерен от [locateQuote]. Затова е отделна функция, а не параметър
@@ -406,9 +421,24 @@ String wrapRangeHtml(String html, int start, int length, String className) {
 ///
 /// ⚠ Линкът е на СОБСТВЕН РЕД, най-отдолу. Чатовете го правят кликаем сам, а
 /// сложен насред изречение би разкъсал текста при пренасяне.
+/// Над колко знака цитатът се смята за ДЪЛЪГ и се съкращава в съобщението.
+///
+/// ⚠ 12 реда по мярката на потребителя (03.09.2026). В чат ред е около 40
+/// знака, тъй че 480 е горницата — над нея съобщението заема цял екран и
+/// самият линк изпада надолу, където не се вижда.
+const int kLongQuoteChars = 480;
+
 String quoteShareText(Quote q) {
+  final full = q.text.trim();
+  final long = full.length > kLongQuoteChars;
+  // ⚠ Реже се по ДУМА, не по знак: „…поради което той реши да н…" изглежда
+  // като счупено, а не като съкратено.
+  final shown = long
+      ? '${full.substring(0, full.lastIndexOf(' ', kLongQuoteChars)).trimRight()}…'
+      : full;
+
   final b = StringBuffer()
-    ..writeln('„${q.text.trim()}"')
+    ..writeln('„$shown"')
     ..writeln();
   if (q.title.trim().isNotEmpty) {
     b
@@ -416,7 +446,69 @@ String quoteShareText(Quote q) {
       ..writeln();
   }
   b
-    ..writeln('Чети в контекст:')
+    // ⚠ Поканата е РАЗЛИЧНА при съкратен цитат: „чети в контекст" подсказва,
+    // че е показано всичко и линкът само добавя обкръжението — а тук има и
+    // недоказан остатък. (Искане на потребителя.)
+    ..writeln(long ? 'Виж продължението:' : 'Чети в контекст:')
     ..write(buildQuoteLink(q));
   return b.toString();
+}
+
+
+/// Обгражда цитата в HTML-а, като го ТЪРСИ по съдържание.
+///
+/// ⚠⚠ ПРЕДПОЧИТАЙ ТАЗИ ПРЕД [wrapRangeHtml] за всичко, което идва отвън.
+///
+/// Причината е измерена, не теоретична: плоският текст на един абзац се
+/// смята на няколко места в проекта и формулите не съвпадат — `_plainTextOf`
+/// декодира entity-та, свива поредните интервали и реже краищата, докато
+/// [wrapRangeHtml] брои суровите знаци между таговете. При кратък прост
+/// абзац разликата е нула и всичко изглежда наред; в дълго житие с
+/// форматиране фонът се разминава или изчезва.
+/// (Докладвано от потребителя, 03.09.2026: „позиционира на цитата, но не го
+/// маркира" — св. Кирил Философ.)
+///
+/// Търсенето минава през [foldForMatch], тъй че е нечувствително и към
+/// пунктуация, и към регистър — същият механизъм, който пази споделените
+/// линкове.
+///
+/// [hintStart] насочва избора, когато цитатът се среща няколко пъти.
+String wrapQuoteByText(String html, String quoteText, String className,
+    {int hintStart = 0}) {
+  final want = foldForMatch(quoteText);
+  if (want.isEmpty) return html;
+
+  // Сгъваме, като помним откъде идва всеки знак в СУРОВИЯ html.
+  final map = <int>[];
+  final folded = StringBuffer();
+  var inTag = false;
+  for (var i = 0; i < html.length; i++) {
+    final ch = html[i];
+    if (ch == '<') inTag = true;
+    if (!inTag) {
+      final c = ch.toLowerCase();
+      if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
+        folded.write(c);
+        map.add(i);
+      }
+    }
+    if (ch == '>') inTag = false;
+  }
+  final hay = folded.toString();
+
+  // ⚠ Най-близкото до подсказката, не първото: цитат от няколко думи може да
+  // се повтори в дълъг абзац.
+  var best = -1, from = 0;
+  while (true) {
+    final at = hay.indexOf(want, from);
+    if (at < 0) break;
+    if (best < 0 || (map[at] - hintStart).abs() < (map[best] - hintStart).abs()) {
+      best = at;
+    }
+    from = at + 1;
+  }
+  if (best < 0) return html;
+
+  return wrapRangeHtml(
+      html, map[best], map[best + want.length - 1] + 1 - map[best], className);
 }

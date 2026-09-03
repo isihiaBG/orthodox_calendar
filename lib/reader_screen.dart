@@ -529,9 +529,15 @@ _PreparedContent _prepareReaderContent(_PrepareArgs args) {
     // _estimateRegionHeight, който сумира по абзац, за да отчете и
     // отстоянието между тях.
     plainTexts.add([
+      // ⚠ НАДПИСЪТ ПОД ИЛЮСТРАЦИЯТА влиза ПЪРВИ, защото се рисува под нея, а
+      // `content` е текстът, който я обтича. Без него маркиране на надпис
+      // отказваше с „в рамките на един абзац" — той просто не се срещаше в
+      // нито един блок. (Докладвано от потребителя, 03.09.2026.)
+      if (r.captionHtml != null && r.captionHtml!.isNotEmpty)
+        _plainTextOf(r.captionHtml!),
       _plainTextOf(r.content),
       for (final p in r.rest) _plainTextOf(p),
-    ].join('\n'));
+    ].where((x) => x.isNotEmpty).join('\n'));
     linkCounts.add('href='.allMatches(r.content).length +
         r.rest.fold<int>(0, (n, p) => n + 'href='.allMatches(p).length));
   }
@@ -1453,6 +1459,26 @@ class _ReaderScreenState extends State<ReaderScreen>
     position.jumpTo(target.clamp(position.minScrollExtent, position.maxScrollExtent));
   }
 
+  /// Оцветява частта от цитата, която пада в региона [i].
+  ///
+  /// ⚠ При цитат през няколко абзаца целият текст не се среща в нито един
+  /// регион. Затова се търси съответният му ДЯЛ: първият регион дава края си,
+  /// последният — началото си, а междинните влизат цели.
+  String _markQuotePart(String html, int i) {
+    final parts = _quoteText.split('\n\n');
+    final n = _quoteRegionEnd - _quoteRegion;
+    // Един абзац — целият цитат е тук.
+    if (n == 0) {
+      return wrapQuoteByText(html, _quoteText, 'quotehit',
+          hintStart: _quoteStart);
+    }
+    // Няколко: коя част отговаря на този регион.
+    final idx = i - _quoteRegion;
+    if (idx < 0 || idx >= parts.length) return html;
+    return wrapQuoteByText(html, parts[idx], 'quotehit',
+        hintStart: i == _quoteRegion ? _quoteStart : 0);
+  }
+
   /// Отваря на мястото на цитат — от списъка с любими или от споделен линк.
   ///
   /// ⚠ КООРДИНАТИТЕ СЕ ПОТВЪРЖДАВАТ, НЕ СЕ ВЯРВАТ СЛЯПО. Текстът може да е
@@ -1476,8 +1502,17 @@ class _ReaderScreenState extends State<ReaderScreen>
     final capLen = (b == _dropCapBlockIndex) ? (_prepared?.dropCap.length ?? 0) : 0;
     setState(() {
       _quoteRegion = b;
+      // ⚠ Цитатът може да минава през няколко абзаца — тогава фонът покрива
+      // всички засегнати региони, а не само първия.
+      _quoteRegionEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
+      // Ако линкът носи текста — по него; инак се взима от самия блок.
+      _quoteText = q.text.isNotEmpty
+          ? q.text
+          : blocks[b].substring(
+              hit.start.clamp(0, blocks[b].length),
+              (hit.start + hit.length).clamp(0, blocks[b].length));
     });
 
     // ⚠ Чака се кадър: регионите още не са построени в мига, в който
@@ -1500,8 +1535,14 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Диапазонът, който да се покрие със СИН фон — цитатът, заради който
   /// четивото е отворено. -1 = няма.
   int _quoteRegion = -1;
+  int _quoteRegionEnd = -1;
   int _quoteStart = 0;
   int _quoteLength = 0;
+
+  /// ⚠ САМИЯТ текст на цитата — по него се намира мястото за фона.
+  /// Броенето по индекс не върши работа: плоският текст се смята по
+  /// различни формули на различни места (виж [wrapQuoteByText]).
+  String _quoteText = '';
 
   void _onResumePromptJump() {
     final idx = _bookmarkedRegionIndex;
@@ -2669,8 +2710,12 @@ class _ReaderScreenState extends State<ReaderScreen>
         // жълтото е „намерено сега", синьото е „това поиска да видиш".
         // Същото разграничение като в библейския четец (виж CLAUDE.md,
         // „Цветът на маркирането — palette.quote").
-        if (i == _quoteRegion && _quoteLength > 0) {
-          data = wrapRangeHtml(data, _quoteStart, _quoteLength, 'quotehit');
+        // ⚠ Всеки регион в обхвата получава своя дял от фона. При цитат в
+        // един абзац това е един регион; при цитат през няколко — всички.
+        // Търси се ЧАСТТА, която пада в този регион, а не целият цитат:
+        // той не се съдържа никъде цял.
+        if (i >= _quoteRegion && i <= _quoteRegionEnd && _quoteText.isNotEmpty) {
+          data = _markQuotePart(data, i);
         }
         regionWidgets.add(
           KeyedSubtree(
@@ -2738,6 +2783,12 @@ class _ReaderScreenState extends State<ReaderScreen>
             currentGlobalMatch: _currentMatch,
             hitColor: _hitColor,
             hitCurrentColor: _hitCurrentColor,
+            // ⚠ Буквицата се маркира като част от цитата — тя е извън
+            // HTML-а и не минава през wrapQuoteByText.
+            quoteText: (i >= _quoteRegion && i <= _quoteRegionEnd)
+                ? _quoteText
+                : '',
+            quoteColor: _p.quote,
           ),
           ),
         );

@@ -991,6 +991,7 @@ class _BookReaderState extends State<BookReader>
   int _quoteRegion = -1;
   int _quoteStart = 0;
   int _quoteLength = 0;
+  String _quoteText = '';
 
   /// Отваря на мястото на цитат — същият механизъм като в четеца на жития.
   void _goToQuote(ParsedQuoteLink q) {
@@ -1009,6 +1010,11 @@ class _BookReaderState extends State<BookReader>
       _quoteRegion = b;
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
+      _quoteText = q.text.isNotEmpty
+          ? q.text
+          : blocks[b].substring(
+              hit.start.clamp(0, blocks[b].length),
+              (hit.start + hit.length).clamp(0, blocks[b].length));
     });
     // ⚠ 0.22 — цитатът в ГОРНАТА ЧАСТ, не най-горе: залепен за ръба
     // изглежда като начало на четивото и не се вижда какво го предхожда.
@@ -1695,8 +1701,9 @@ class _BookReaderState extends State<BookReader>
               // ⚠ Синият фон на ЦИТАТА се слага НАД маркирането от търсенето,
               // не вместо него: жълтото значи „намерено сега", синьото —
               // „това поиска да видиш". Същото както в четеца на жития.
-              if (i == _quoteRegion && _quoteLength > 0) {
-                d = wrapRangeHtml(d, _quoteStart, _quoteLength, 'quotehit');
+              if (i == _quoteRegion && _quoteText.isNotEmpty) {
+                d = wrapQuoteByText(d, _quoteText, 'quotehit',
+                    hintStart: _quoteStart);
               }
               return d;
             }(),

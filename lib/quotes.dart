@@ -68,13 +68,29 @@ class QuoteAnchor {
   /// Адресът на самото четиво. Смисълът зависи от [source] — виж enum-а.
   final String locator;
 
-  /// Индекс на абзаца/региона вътре в четивото; за Библията — номер на стих.
+  /// Индекс на абзаца/региона, В КОЙТО ЗАПОЧВА цитатът.
   final int block;
 
-  /// Начален знак в блока и дължина. ⚠ Подсказка, не истина — виж докстринга
-  /// на файла.
+  /// Начален знак в [block].
   final int charStart;
+
+  /// Дължина В ПЪРВИЯ блок — колко знака от него влизат.
   final int charLength;
+
+  /// Индекс на абзаца, В КОЙТО СВЪРШВА цитатът, и докъде стига в него.
+  ///
+  /// ⚠ ЦИТАТ ПРЕЗ НЯКОЛКО АБЗАЦА (03.09.2026, по искане на потребителя:
+  /// „важно е да можеш да маркираш в повече от един абзац и дори много
+  /// абзаци без ограничение").
+  ///
+  /// Първата версия държеше само (блок, знак, дължина) и отказваше всяка
+  /// селекция, пресякла граница на абзац — а това е обичайното при цитиране
+  /// на разказ. Сега краят е изричен: `blockEnd` е същият като [block] при
+  /// цитат в един абзац, и по-голям при цитат през няколко.
+  ///
+  /// ⚠ Междинните абзаци НЕ се изброяват — те влизат ЦЕЛИ по определение.
+  final int blockEnd;
+  final int charEnd;
 
   const QuoteAnchor({
     required this.source,
@@ -82,7 +98,13 @@ class QuoteAnchor {
     required this.block,
     required this.charStart,
     required this.charLength,
-  });
+    int? blockEnd,
+    int? charEnd,
+  })  : blockEnd = blockEnd ?? block,
+        charEnd = charEnd ?? (charStart + charLength);
+
+  /// Обхваща ли цитатът повече от един абзац.
+  bool get spansBlocks => blockEnd > block;
 
   Map<String, dynamic> toJson() => {
         's': source.name,
@@ -90,6 +112,10 @@ class QuoteAnchor {
         'b': block,
         'c': charStart,
         'n': charLength,
+        // ⚠ Пишат се САМО при цитат през няколко абзаца — иначе се извеждат.
+        // Така старите записи се четат без промяна.
+        if (blockEnd != block) 'be': blockEnd,
+        if (blockEnd != block) 'ce': charEnd,
       };
 
   static QuoteAnchor fromJson(Map<String, dynamic> j) => QuoteAnchor(
@@ -101,6 +127,8 @@ class QuoteAnchor {
         block: (j['b'] as num?)?.toInt() ?? 0,
         charStart: (j['c'] as num?)?.toInt() ?? 0,
         charLength: (j['n'] as num?)?.toInt() ?? 0,
+        blockEnd: (j['be'] as num?)?.toInt(),
+        charEnd: (j['ce'] as num?)?.toInt(),
       );
 }
 

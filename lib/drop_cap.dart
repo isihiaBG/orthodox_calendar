@@ -361,6 +361,15 @@ class DropCapParagraph extends StatefulWidget {
   final int firstGlobalMatchIndex;
   final int currentGlobalMatch;
   final Color hitColor;
+
+  /// ⚠ Цитатът, заради който четивото е отворено — буквицата получава СИН
+  /// фон, ако той започва от нея. Без това цитат от началото на житие
+  /// изглежда като започващ от втората буква: инициалът се рисува отделно
+  /// и не минава през маркирането на HTML-а.
+  /// (Докладвано от потребителя, 03.09.2026: „буквицата също трябва да може
+  /// да се маркира!")
+  final String quoteText;
+  final Color quoteColor;
   final Color hitCurrentColor;
   final void Function(String?) onLinkTap;
 
@@ -383,6 +392,8 @@ class DropCapParagraph extends StatefulWidget {
     this.firstGlobalMatchIndex = 0,
     this.currentGlobalMatch = -1,
     this.hitColor = const Color(0x00000000),
+    this.quoteText = '',
+    this.quoteColor = const Color(0x00000000),
     this.hitCurrentColor = const Color(0x00000000),
   });
 
@@ -665,6 +676,15 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         final capIsCurrent = capIsHit &&
             widget.firstGlobalMatchIndex + capMatchLocal ==
                 widget.currentGlobalMatch;
+
+        // ⚠ Буквицата е част от ЦИТАТА, ако сгънатият цитат започва с нея.
+        // Сравнява се сгънато, защото цитатът идва от друга формула на
+        // плоския текст (виж wrapQuoteByText в quote_link.dart).
+        final capInQuote = widget.quoteText.isNotEmpty &&
+            widget.dropCap.isNotEmpty &&
+            fold(widget.quoteText)
+                .text
+                .startsWith(fold(widget.dropCap).text);
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от
@@ -1056,11 +1076,14 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                             // няколко реда — петното е едро. Прието: то трае
                             // само докато върви търсенето и казва
                             // недвусмислено, че намереното е тук.
+                            // ⚠ Търсенето има превес пред цитата: жълтото
+                            // казва „намерено СЕГА", а синьото — „това
+                            // поиска да видиш". Активното действие печели.
                             backgroundColor: capIsHit
                                 ? (capIsCurrent
                                     ? widget.hitCurrentColor
                                     : widget.hitColor)
-                                : null,
+                                : (capInQuote ? widget.quoteColor : null),
                           ),
                         ),
                       ),

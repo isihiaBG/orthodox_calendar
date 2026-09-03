@@ -60,7 +60,8 @@
                  браузъра, без грешка. Затова и двете бяха закотвени преди
                  тази стъпка: смяната им после чупи всеки вече споделен линк.
 
-                 ⚠ `pathPrefix` е стеснен до /q — НЕ целия домейн. Иначе
+                 ⚠ `pathPrefix` е стеснен до /orthodox_calendar/q — НЕ целия
+                 домейн. Иначе
                  приложението би прихващало и обикновените страници на сайта
                  (напр. самото README), които трябва да се отварят в браузър. -->
             <intent-filter android:autoVerify="true">
@@ -69,7 +70,7 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https"
                       android:host="isihiabg.github.io"
-                      android:pathPrefix="/q"/>
+                      android:pathPrefix="/orthodox_calendar/q"/>
             </intent-filter>
         </activity>
         <!-- Don't delete the meta-data below.

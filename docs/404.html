@@ -1,0 +1,64 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Православен календар — цитат</title>
+<!--
+  ⚠ ЗАЩО 404.html, а не q/index.html.
+  GitHub Pages е статичен: адресът /orthodox_calendar/q/<кодирано> сочи файл,
+  какъвто няма и не може да има — низчето е различно за всеки цитат. Затова
+  се използва обичайният за GitHub Pages похват: 404.html поема всичко
+  непознато, а JavaScript-ът разчита пътя.
+
+  ⚠ СЛЕДСТВИЕ: Open Graph визитка в чата НЯМА как да се направи оттук.
+  Чатовете четат мета-таговете БЕЗ да изпълняват JavaScript, а те трябва да
+  са различни за всеки цитат. Това иска истински сървър; засега цитатът и без
+  това стои в самото съобщение, над линка.
+-->
+<style>
+  :root { color-scheme: light dark; }
+  body { margin:0; padding:24px; font:16px/1.55 -apple-system,Roboto,sans-serif;
+         background:#F5E6C5; color:#1A1A1A; }
+  @media (prefers-color-scheme: dark) { body { background:#121212; color:#E6E1D8; } }
+  main { max-width:34rem; margin:0 auto; }
+  blockquote { margin:0 0 1rem; font-size:1.15rem; }
+  .src { font-style:italic; opacity:.75; font-size:.95rem; margin-bottom:2rem; }
+  a.btn { display:inline-block; padding:.7rem 1.2rem; border-radius:8px;
+          background:#8A9BB0; color:#fff; text-decoration:none; font-weight:600; }
+  .note { margin-top:1.5rem; font-size:.9rem; opacity:.7; }
+</style>
+<main>
+  <blockquote id="q"></blockquote>
+  <div class="src" id="s"></div>
+  <a class="btn" id="open" href="#">Отвори в приложението</a>
+  <p class="note" id="n">Ако приложението е инсталирано, линкът се отваря право
+     на мястото на цитата.</p>
+</main>
+<script>
+(async () => {
+  const m = location.pathname.match(/\/q\/(.+)$/);
+  const q = document.getElementById('q'), s = document.getElementById('s');
+  if (!m) { q.textContent = 'Няма цитат в този адрес.'; return; }
+  try {
+    // Пакетът: първи знак „r" (суров) или „z" (zlib), после base64url.
+    const kind = m[1][0];
+    let b64 = m[1].slice(1).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    let bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    if (kind === 'z') {
+      const ds = new DecompressionStream('deflate');
+      bytes = new Uint8Array(await new Response(
+        new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
+    }
+    // ⚠ Полетата: версия|вид|блок|знак|дължина|слъг|текст. Текстът е
+    // ПОСЛЕДЕН и може да съдържа „|", затова се слепва обратно.
+    const f = new TextDecoder().decode(bytes).split('|');
+    q.textContent = '„' + f.slice(6).join('|') + '…"';
+    s.textContent = 'из „' + f[5].replace(/^sv-/, '').replace(/-/g, ' ') + '"';
+    document.getElementById('open').href = location.href;
+  } catch (e) {
+    q.textContent = 'Този адрес не се разчита.';
+    document.getElementById('n').textContent =
+      'Възможно е да е от по-нова версия на приложението.';
+  }
+})();
+</script>
