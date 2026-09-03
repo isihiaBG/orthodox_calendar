@@ -3099,7 +3099,18 @@ class _ReaderScreenState extends State<ReaderScreen>
             child: QuotableSelectionArea(
               source: QuoteSource.life,
               locator: () => widget.texts.slug,
-              title: () => widget.lifeTitle ?? widget.texts.name,
+              // ⚠ ИМЕТО НА СВЕТИЯТА, не видът на четивото. `lifeTitle` е
+              // „Житие"/„Сказание"/„Служба" — тоест ВИД, а не заглавие, и
+              // споделеното излизаше „— из „Сказание"", без да се разбира на
+              // кого. (Докладвано от потребителя, 03.09.2026.)
+              // Видът остава в скоби: той различава житието от службата на
+              // един и същи светия.
+              title: () {
+                final name = widget.texts.name.trim();
+                final kind = widget.lifeTitle?.trim() ?? '';
+                if (name.isEmpty) return kind;
+                return kind.isEmpty ? name : '$name ($kind)';
+              },
               // Плоският текст на регионите вече е сметнат и кеширан в
               // `_prepared` — оттам, а не наново.
               blocks: _quoteBlocks,
