@@ -3072,11 +3072,11 @@ class _BibleReaderState extends State<BibleReader>
       _quoteLang = q.anchor.locator.split('|').first;
       _quoteRow = b;
       _quoteRowEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
-      _quoteText = q.text.isNotEmpty
-          ? q.text
-          : blocks[b].substring(
-              hit.start.clamp(0, blocks[b].length),
-              (hit.start + hit.length).clamp(0, blocks[b].length));
+      // ⚠ ВИНАГИ от стиха, по hit.start/hit.length — виж същото място в
+      // reader_screen.dart за пълния довод: q.text е отрязан до 60 знака.
+      _quoteText = blocks[b].substring(
+          hit.start.clamp(0, blocks[b].length),
+          (hit.start + hit.length).clamp(0, blocks[b].length));
     });
     final row = _rows.length > b ? _rows[b] : null;
     if (row != null) _jumpToVerse(row.verse);

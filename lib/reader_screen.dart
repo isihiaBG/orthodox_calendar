@@ -1536,11 +1536,16 @@ class _ReaderScreenState extends State<ReaderScreen>
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
       // Ако линкът носи текста — по него; инак се взима от самия блок.
-      _quoteText = q.text.isNotEmpty
-          ? q.text
-          : blocks[b].substring(
-              hit.start.clamp(0, blocks[b].length),
-              (hit.start + hit.length).clamp(0, blocks[b].length));
+      // ⚠⚠ ВИНАГИ ОТ БЛОКА, ПО hit.start/hit.length — НЕ от q.text директно.
+      // `q.text` е тексТ ОТ ЛИНКА, ограничен до kLinkTextChars (60 суровини
+      // знака): за по-дълъг цитат той е ОТРЯЗАН, а `hit.length` носи
+      // ПЪЛНАТА дължина (тя идва от anchor.charLength, кодирана отделно и
+      // без ограничение). Използван директно, q.text подрязваше и
+      // маркирането — „на Бога" накрая не светваше, защото него просто го
+      // нямаше в изпратения текст. (Докладвано от потребителя, 03.09.2026.)
+      _quoteText = blocks[b].substring(
+          hit.start.clamp(0, blocks[b].length),
+          (hit.start + hit.length).clamp(0, blocks[b].length));
     });
 
     // ⚠ Чака се кадър: регионите още не са построени в мига, в който
