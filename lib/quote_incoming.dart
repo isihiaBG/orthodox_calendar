@@ -114,17 +114,37 @@ class IncomingQuoteLinks {
           }
           return;
         }
-        nav.push(MaterialPageRoute(
-          builder: (_) => ReaderScreen.life(
-            texts: texts,
-            lookup: lookup,
-            openAtQuote: q,
+        // ⚠⚠ ВСИЧКИ ЕКРАНИ ПОД ЧЕТЕЦА СЕ РАЗРУШАВАТ (`(r) => false`).
+        //
+        // Човек, дошъл по линк от Viber, очаква „назад" да го върне ТАМ, а не
+        // да го прекара през календара и списъка. Дотук стекът беше
+        // календар → (каквото е имало) → четец, и връщането минаваше през два
+        // чужди екрана, преди да излезе. (Предложение на потребителя,
+        // 03.09.2026.)
+        //
+        // ⚠ САМО ЗА ВЪНШЕН ЛИНК. Отварянето от списъка с любими цитати е
+        // обикновен `push` (виж quotes_list.dart) — там човекът е ВЪТРЕ в
+        // приложението и „назад" трябва да го върне в списъка.
+        //
+        // ⚠ Следствие, което е приемливо: този сеанс остава само с четеца, тъй
+        // че от него не се стига до календара. Приложението обаче не е
+        // „заключено" — отворено наново от иконата си, то тръгва нормално.
+        nav.pushAndRemoveUntil(
+          MaterialPageRoute(
+            builder: (_) => ReaderScreen.life(
+              texts: texts,
+              lookup: lookup,
+              openAtQuote: q,
+            ),
           ),
-        ));
+          (route) => false,
+        );
       case QuoteSource.book:
         final ctx = navigatorKey.currentContext;
         if (ctx != null && ctx.mounted) {
-          await openBookQuote(ctx, q.anchor, q.fingerprint, text: q.text);
+          // ⚠ `replaceStack` — същият довод като при житията по-горе.
+          await openBookQuote(ctx, q.anchor, q.fingerprint,
+              text: q.text, replaceStack: true);
         }
       case QuoteSource.bible:
         // ⚠ Още не се споделят цитати оттам. Мълчаливото нищо е по-добре от

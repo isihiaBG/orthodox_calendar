@@ -87,8 +87,14 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
 ///
 /// ⚠ `locator` е „път до тома|href на главата" — двете заедно, защото един
 /// том носи стотици четива, а href сам по себе си не казва от коя книга е.
+/// [replaceStack] — да разруши ли всички екрани под четеца.
+///
+/// ⚠ `true` САМО при идване от ВЪНШЕН линк: тогава „назад" трябва да върне в
+/// приложението, от което е дошъл човекът (Viber, браузър), а не да го
+/// прекара през екраните на календара. От списъка с любими е `false` —
+/// там „назад" се връща в списъка, както се очаква.
 Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
-    {String text = ''}) async {
+    {String text = '', bool replaceStack = false}) async {
   final parts = anchor.locator.split('|');
   if (parts.length < 2) return;
   final book = await EpubBook.open(parts[0]);
@@ -103,14 +109,20 @@ Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
     );
     return;
   }
-  Navigator.of(context).push(MaterialPageRoute(
+  final route = MaterialPageRoute<void>(
     builder: (_) => BookReader(
       book: book,
       start: entry,
       openAtQuote:
           ParsedQuoteLink(anchor: anchor, fingerprint: fp, text: text),
     ),
-  ));
+  );
+  final nav = Navigator.of(context);
+  if (replaceStack) {
+    nav.pushAndRemoveUntil(route, (r) => false);
+  } else {
+    nav.push(route);
+  }
 }
 
 extension _FirstOrNull<T> on Iterable<T> {
