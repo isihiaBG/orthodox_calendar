@@ -56,14 +56,20 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
                 builder: (_) => ReaderScreen.life(
                   texts: texts,
                   lookup: lookup,
+                  // ⚠ И САМИЯТ ТЕКСТ, не само отпечатъкът. Без него четецът
+                  // го вади от блока ПО КООРДИНАТИ — а те може да са
+                  // разместени и тогава маркирането търси грешно нещо.
+                  // Тук текстът е налице; няма причина да се гадае.
                   openAtQuote: ParsedQuoteLink(
                     anchor: q.anchor,
                     fingerprint: fingerprint(q.text),
+                    text: q.text,
                   ),
                 ),
               ));
             case QuoteSource.book:
-              await openBookQuote(context, q.anchor, fingerprint(q.text));
+              await openBookQuote(context, q.anchor, fingerprint(q.text),
+                  text: q.text);
             case QuoteSource.bible:
               // ⚠ Още не е свързано — казва се направо.
               ScaffoldMessenger.of(context).showSnackBar(
@@ -81,8 +87,8 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
 ///
 /// ⚠ `locator` е „път до тома|href на главата" — двете заедно, защото един
 /// том носи стотици четива, а href сам по себе си не казва от коя книга е.
-Future<void> openBookQuote(
-    BuildContext context, QuoteAnchor anchor, String fp) async {
+Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
+    {String text = ''}) async {
   final parts = anchor.locator.split('|');
   if (parts.length < 2) return;
   final book = await EpubBook.open(parts[0]);
@@ -101,7 +107,8 @@ Future<void> openBookQuote(
     builder: (_) => BookReader(
       book: book,
       start: entry,
-      openAtQuote: ParsedQuoteLink(anchor: anchor, fingerprint: fp),
+      openAtQuote:
+          ParsedQuoteLink(anchor: anchor, fingerprint: fp, text: text),
     ),
   ));
 }

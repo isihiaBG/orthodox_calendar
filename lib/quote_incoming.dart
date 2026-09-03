@@ -124,7 +124,7 @@ class IncomingQuoteLinks {
       case QuoteSource.book:
         final ctx = navigatorKey.currentContext;
         if (ctx != null && ctx.mounted) {
-          await openBookQuote(ctx, q.anchor, q.fingerprint);
+          await openBookQuote(ctx, q.anchor, q.fingerprint, text: q.text);
         }
       case QuoteSource.bible:
         // ⚠ Още не се споделят цитати оттам. Мълчаливото нищо е по-добре от

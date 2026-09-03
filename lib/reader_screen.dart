@@ -1376,11 +1376,39 @@ class _ReaderScreenState extends State<ReaderScreen>
       position.maxScrollExtent,
     );
     position.jumpTo(estimate);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      Future.delayed(const Duration(milliseconds: 100), () {
-        if (mounted) refine();
-      });
-    });
+
+    // ⚠ ПОВТОРНИ ОПИТИ, не един. Списъкът е МЪРЗЕЛИВ: скокът по оценка го
+    // принуждава да построи региона, но при дълго житие това не става за
+    // един кадър — а дотук се опитваше веднъж, след 100 ms, и при неуспех
+    // мълчаливо се отказваше. Отвън изглеждаше като „скролът стига донякъде,
+    // но не до цитата".
+    // (Докладвано от потребителя, 03.09.2026; същият клас бъг като „Тихият
+    // отказ при връщане на позицията" от 25.08 — виж CLAUDE.md.)
+    //
+    // ⚠ Всеки следващ опит скача наново по ПРЯСНА оценка: щом съседни
+    // региони са се построили, кумулативните височини стават по-точни и
+    // целта се приближава.
+    var tries = 0;
+    void attempt() {
+      if (!mounted) return;
+      if (key.currentContext != null) {
+        refine();
+        return;
+      }
+      if (++tries > 10) return;
+      if (_scrollController.hasClients) {
+        final cum = _effectiveCumulativeHeights;
+        final e = (regionIndex > 0 && regionIndex - 1 < cum.length
+                ? cum[regionIndex - 1]
+                : 0.0)
+            .clamp(_scrollController.position.minScrollExtent,
+                _scrollController.position.maxScrollExtent);
+        _scrollController.position.jumpTo(e);
+      }
+      Future.delayed(const Duration(milliseconds: 80), attempt);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) => attempt());
   }
 
   /// Вариант на [_jumpToBookmarkRegion] БЕЗ анимация — скача направо

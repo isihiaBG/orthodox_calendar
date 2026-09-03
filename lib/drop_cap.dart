@@ -677,6 +677,27 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             widget.firstGlobalMatchIndex + capMatchLocal ==
                 widget.currentGlobalMatch;
 
+        // ⚠ Къде в ТЕКСТА пада цитатът — за фона. Търси се сгънато, защото
+        // цитатът идва от друга формула на плоския текст (виж
+        // wrapQuoteByText в quote_link.dart).
+
+        // ⚠ Къде в ТЕКСТА пада цитатът — за синия фон.
+        //
+        // Този регион се рисува с `Text.rich`, а НЕ през flutter_html, тъй че
+        // маркирането по HTML (`wrapQuoteByText`) изобщо не стига дотук. А
+        // точно тук пада ПЪРВИЯТ абзац на четивото — най-често цитираният.
+        // (Докладвано от потребителя, 03.09.2026.)
+        final quoteRanges = <(int, int)>[];
+        if (widget.quoteText.isNotEmpty) {
+          final want = fold(widget.quoteText).text;
+          final f = fold(plain);
+          final at = want.isEmpty ? -1 : f.text.indexOf(want);
+          if (at >= 0) {
+            quoteRanges.add(
+                (f.origIndex[at], f.origIndex[at + want.length - 1] + 1));
+          }
+        }
+
         // ⚠ Буквицата е част от ЦИТАТА, ако сгънатият цитат започва с нея.
         // Сравнява се сгънато, защото цитатът идва от друга формула на
         // плоския текст (виж wrapQuoteByText в quote_link.dart).
@@ -797,6 +818,30 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               continue;
             }
 
+            // ⚠ ФОНЪТ НА ЦИТАТА се слага на нивото на СТИЛА, преди
+            // насичането по съвпадения.
+            //
+            // Причината е структурна: този регион се рисува с `Text.rich`, а
+            // НЕ през flutter_html, тъй че маркирането по HTML
+            // (`wrapQuoteByText`) изобщо не стига дотук. А точно тук пада
+            // ПЪРВИЯТ абзац на четивото — най-често цитираният. Отвън
+            // изглеждаше като „намира цитата, но не го маркира".
+            // (Докладвано от потребителя, 03.09.2026.)
+            //
+            // ⚠ Търсенето има превес: жълтият фон се слага ПОДИР този и го
+            // презаписва там, където двете се застъпват. „Намерено сега"
+            // побеждава „това поиска да видиш".
+
+            // ⚠ Фонът на ЦИТАТА се слага на нивото на стила; жълтото на
+            // търсенето се налага ПОДИР него и го презаписва, където двете се
+            // застъпват — „намерено сега" побеждава „това поиска да видиш".
+            Color? quoteBgAt(int a, int b) {
+              for (final (qs, qe) in quoteRanges) {
+                if (a < qe && b > qs) return widget.quoteColor;
+              }
+              return null;
+            }
+
             // Парчето се насича допълнително по границите на съвпаденията.
             var cursor = lo;
             for (var i = 0; i < hits.length; i++) {
@@ -807,7 +852,8 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               if (s0 > cursor) {
                 out.add(TextSpan(
                     text: text.substring(cursor, s0),
-                    style: style,
+                    style: style.copyWith(
+                        backgroundColor: quoteBgAt(cursor, s0)),
                     recognizer: tap));
               }
               final isCurrent = matchBase + i == widget.currentGlobalMatch;
@@ -823,7 +869,8 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             if (cursor < hi) {
               out.add(TextSpan(
                   text: text.substring(cursor, hi),
-                  style: style,
+                  style:
+                      style.copyWith(backgroundColor: quoteBgAt(cursor, hi)),
                   recognizer: tap));
             }
           }

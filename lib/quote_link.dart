@@ -479,6 +479,20 @@ String wrapQuoteByText(String html, String quoteText, String className,
   if (want.isEmpty) return html;
 
   // Сгъваме, като помним откъде идва всеки знак в СУРОВИЯ html.
+  //
+  // ⚠⚠ ENTITY-ТАТА СЕ ПРЕСКАЧАТ ЦЕЛИ. Това беше същинският бъг: `&nbsp;` се
+  // сгъваше като БУКВИТЕ „nbsp" (n, b, s и p са валидни латински знаци), тъй
+  // че „Той рече&nbsp;му" ставаше „тойречеnbspму", докато цитатът — дошъл от
+  // `_plainTextOf`, който декодира — беше „тойречему". Не съвпадаха.
+  //
+  // Оттам и обърканата картина „в едни абзаци маркира, в други не": зависи
+  // само дали абзацът съдържа entity. (Диагностицирано с тест върху реален
+  // текст от базата, 03.09.2026, след като потребителят съобщи, че липсва
+  // маркиране и в кратки жития.)
+  //
+  // ⚠ Самото entity се брои за ЕДИН знак и се сгъва като интервал — тоест
+  // отпада, точно както прави и `foldForMatch` с пунктуацията.
+  final entity = RegExp(r'&(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);');
   final map = <int>[];
   final folded = StringBuffer();
   var inTag = false;
@@ -486,6 +500,13 @@ String wrapQuoteByText(String html, String quoteText, String className,
     final ch = html[i];
     if (ch == '<') inTag = true;
     if (!inTag) {
+      if (ch == '&') {
+        final m = entity.matchAsPrefix(html, i);
+        if (m != null) {
+          i = m.end - 1;
+          continue;
+        }
+      }
       final c = ch.toLowerCase();
       if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
         folded.write(c);
