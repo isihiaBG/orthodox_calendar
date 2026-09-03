@@ -466,6 +466,10 @@ class _BookReaderState extends State<BookReader>
     _stopNudge();
     setState(() {
       _index = i;
+      // ⚠ Кешът на предишната глава се изхвърля ТУК, преди новата да се
+      // поиска: инак `_currentBody()` би върнал стария текст, докато
+      // `_current.href` вече сочи новия. (Виж [_invalidateChapterCache].)
+      _invalidateChapterCache();
       // Отметката е на ниво ЖИТИЕ. Новата глава е ново четиво: бутонът
       // изгасва, а състоянието се чете наново за нея. Без това нулиране
       // бутонът светеше и в жития, които човек не е отбелязвал, а първото
@@ -1049,26 +1053,83 @@ class _BookReaderState extends State<BookReader>
     return out;
   }
 
+  // ⚠⚠ КЕШ НА ОТВОРЕНОТО ЧЕТИВО — една глава, прочетена ВЕДНЪЖ.
+  //
+  // Дотук `_currentRegions()` се викаше на осем места и ВСЯКО повикване
+  // разархивираше главата от .epub наново, минаваше я през `_normalize`
+  // (десетина регекса върху целия текст), разцепваше буквицата и строеше
+  // регионите. При търсене това става по няколко пъти на заявка — оттам
+  // идваше усещането, че търсачката в „Месецослов" пълзи.
+  // (Диагностицирано от потребителя, 03.09.2026.)
+  //
+  // ⚠ Ползата е двойна и втората е по-важна: щом текстът е в паметта,
+  // достъпът до .epub-а (и до базата при житията) е КРАТЪК — отваря се,
+  // прочита се, приключва. Това маха и почвата за „database is already in
+  // use" между две живи инстанции на приложението.
+  //
+  // ⚠ Кешът е за ЕДНА глава. Смени ли се четивото („следващо"/„предишно",
+  // избор от съдържанието), старото се изхвърля и новото се чете веднъж —
+  // виж [_invalidateChapterCache].
+  String? _cachedHref;
+  String? _cachedRaw;
+  String? _cachedBody;
+  List<ReaderRegion>? _cachedRegions;
+  String? _cachedDropCap;
+
+  /// Изхвърля кеша — вика се при всяка смяна на четивото.
+  void _invalidateChapterCache() {
+    _cachedHref = null;
+    _cachedRaw = null;
+    _cachedBody = null;
+    _cachedRegions = null;
+    _cachedDropCap = null;
+  }
+
+  /// СУРОВИЯТ текст на главата, прочетен веднъж.
+  ///
+  /// ⚠ Ползва се от `build()` и от PDF-а. Дотук `build()` разархивираше
+  /// главата ПРИ ВСЕКИ КАДЪР — по-скъпо дори от търсенето.
+  String? _currentRaw() {
+    if (_cachedHref == _current.href && _cachedRaw != null) return _cachedRaw;
+    if (_cachedHref != _current.href) _invalidateChapterCache();
+    _cachedHref = _current.href;
+    return _cachedRaw = widget.book.readFile(_current.href);
+  }
+
+  /// Нормализираният текст на текущата глава, прочетен веднъж.
+  String _currentBody() {
+    if (_cachedHref == _current.href && _cachedBody != null) {
+      return _cachedBody!;
+    }
+    return _cachedBody = _normalize(_currentRaw() ?? '');
+  }
+
   /// Буквицата на текущото четиво, или празно.
   ///
   /// ⚠ Нужна е за БРОЕНЕТО при търсене: инициалът се отрязва от текста и се
   /// рисува отделно, тъй че без него дума, започваща с първата буква на
   /// четивото, не се намираше изобщо.
   String _currentDropCap() {
-    final body = _normalize(widget.book.readFile(_current.href) ?? '');
-    final (_, _, cap, _, _) = splitDropCap(body);
-    return cap;
+    if (_cachedDropCap != null && _cachedHref == _current.href) {
+      return _cachedDropCap!;
+    }
+    final (_, _, cap, _, _) = splitDropCap(_currentBody());
+    return _cachedDropCap = cap;
   }
 
   List<ReaderRegion> _currentRegions() {
-    final body = _normalize(widget.book.readFile(_current.href) ?? '');
+    if (_cachedRegions != null && _cachedHref == _current.href) {
+      return _cachedRegions!;
+    }
+    final body = _currentBody();
     // ⚠ splitDropCap сега връща и евентуална отваряща кавичка пред
     // буквицата (виж drop_cap.dart) — не се ползва тук (само за преброяване
     // на региони), затова е "_" и не се подава на computeRegions: тя строи
     // региони от текст (beforeHtml/firstP/afterHtml), не от глифа на
     // буквицата — той се подава директно на DropCapParagraph по-долу.
     final (beforeHtml, _, dropCap, firstP, afterHtml) = splitDropCap(body);
-    return computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+    return _cachedRegions =
+        computeRegions(beforeHtml, dropCap, firstP, afterHtml);
   }
 
   int _countIn(String html, String foldedQuery) {
@@ -1395,7 +1456,7 @@ class _BookReaderState extends State<BookReader>
   /// `hasOwnTitle` и пропуска своето — инак излизат две заглавия едно под
   /// друго. При житията е обратното: там името идва отвън.
   Future<void> _shareAsPdf() async {
-    final raw = widget.book.readFile(_current.href);
+    final raw = _currentRaw();
     if (raw == null) return;
     await shareReaderPdf(
       context,
@@ -1459,7 +1520,8 @@ class _BookReaderState extends State<BookReader>
   @override
   Widget build(BuildContext context) {
     final palette = ReaderTheme.palette;
-    final raw = widget.book.readFile(_current.href);
+    // ⚠ ОТ КЕША, не от архива: това е `build()` и се вика при всеки кадър.
+    final raw = _currentRaw();
 
     return Scaffold(
       key: _scaffoldKey,

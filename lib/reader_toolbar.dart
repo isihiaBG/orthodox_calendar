@@ -12,6 +12,7 @@
 // четиво и няма какво да съдържа.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'nudge_shake.dart';
 import 'reader_font_size.dart';
@@ -275,4 +276,37 @@ List<Widget> readerToolbarActions({
 
   out.add(const SizedBox(width: 2)); // разстояние до десния край
   return out;
+}
+
+
+/// Стрелката „назад" в четец, отворен по ВЪНШЕН ЛИНК.
+///
+/// ⚠ ЗАЩО НЕ СТИГА подразбиращата се. При идване от Viber четецът се отваря с
+/// `pushAndRemoveUntil((r) => false)`, тъй че под него няма нищо — а
+/// `AppBar` крие стрелката, когато няма какво да се върне. Отвън изглежда
+/// като изчезнало копче. (Докладвано от потребителя, 03.09.2026.)
+///
+/// Тук стрелката ОСТАВА и прави очакваното: има ли екран отдолу — връща на
+/// него; няма ли — излиза от приложението, тоест обратно в онова, което е
+/// отворило линка.
+///
+/// ⚠ `SystemNavigator.pop()`, а не `exit()`: то затваря activity-то по
+/// правилата на Android, тъй че задачата се връща там, откъдето е дошла, а
+/// приложението остава в „скорошни".
+Widget readerBackButton(BuildContext context, {Color? color}) {
+  final ink = color ??
+      AppBarTheme.of(context).foregroundColor ??
+      Colors.white;
+  return IconButton(
+    icon: Icon(Icons.arrow_back, color: ink),
+    tooltip: 'Назад',
+    onPressed: () {
+      final nav = Navigator.of(context);
+      if (nav.canPop()) {
+        nav.pop();
+      } else {
+        SystemNavigator.pop();
+      }
+    },
+  );
 }

@@ -3106,6 +3106,9 @@ class _ReaderScreenState extends State<ReaderScreen>
       animation: _searchAnim,
       builder: (context, _) => SliverAppBar(
         primary: false,
+        // ⚠ Изрична стрелка: при идване по външен линк стекът е празен и
+        // подразбиращата се изчезва — виж [readerBackButton].
+        leading: readerBackButton(context),
         // Заковава се временно след +/- на шрифта — виж _toolbarPinned.
         floating: !_toolbarPinned,
         snap: !_toolbarPinned,
