@@ -21,6 +21,9 @@
 // ⚠ ЛИНКЪТ Е ЕДНОПОСОЧЕН КЪМ БЪДЕЩЕТО. Щом един тръгне по Viber, форматът
 // му вече не се сменя — затова `v=1` стои вътре още от първия.
 
+import 'dart:convert';
+import 'dart:io';
+
 import 'quotes.dart';
 
 /// Пътят, по който Android разпознава линка. ⚠ Трябва да съвпада с
@@ -118,20 +121,74 @@ String _hash(String s) {
   return h.toRadixString(16).padLeft(8, '0');
 }
 
+/// Колко СУРОВИ знака от цитата пътуват в адреса.
+///
+/// ⚠ Не са само за проверката — стигат и до СТРАНИЦАТА, която вижда човек
+/// БЕЗ приложението. Затова текстът е суров (с интервали и пунктуация), а не
+/// сгънат: сгънатият се чете „ощеотмладигодини".
+///
+/// 60 знака са около изречение — достатъчно да се разбере за какво иде реч,
+/// и достатъчно малко, за да не раздуе адреса. Целият цитат и без това стои
+/// в самото съобщение, над линка.
+const int kLinkTextChars = 60;
+
 /// Сглобява споделимия адрес.
+///
+/// ⚠ ВСИЧКО Е В ЕДНО КОДИРАНО НИЗЧЕ, не в отделни параметри. Причината е
+/// кирилицата: в обикновен `?t=…` всяка буква става шест знака (`%D0%9E`) и
+/// адресът минаваше 230 знака — ред, който пълзи през половин екран в чата.
+/// Пакетиран и кодиран в base64url, същият текст заема наполовина.
+/// (Решено с потребителя, 03.09.2026.)
+///
+/// ⚠ Цената: адресът е напълно НЕПРОЗРАЧЕН — не се вижда нито слъгът, нито
+/// цитатът. Другите два изхода бяха или дълъг адрес (текст в параметър), или
+/// невъзстановим цитат (само хеш); това е третият — къс адрес И пълни данни.
 String buildQuoteLink(Quote q) {
-  final p = <String, String>{
-    'v': '$kQuoteLinkVersion',
-    's': q.anchor.source.name,
-    'l': q.anchor.locator,
-    'b': '${q.anchor.block}',
-    'c': '${q.anchor.charStart}',
-    'n': '${q.anchor.charLength}',
-    't': fingerprint(q.text),
-  };
-  final query =
-      p.entries.map((e) => '${e.key}=${Uri.encodeQueryComponent(e.value)}');
-  return 'https://$kQuoteLinkHost$kQuotePath?${query.join('&')}';
+  final text = q.text.trim();
+  final short =
+      text.length <= kLinkTextChars ? text : text.substring(0, kLinkTextChars);
+  final packed = _pack([
+    '$kQuoteLinkVersion',
+    q.anchor.source.name,
+    '${q.anchor.block}',
+    '${q.anchor.charStart}',
+    '${q.anchor.charLength}',
+    q.anchor.locator,
+    short,
+  ]);
+  return 'https://$kQuoteLinkHost$kQuotePath/$packed';
+}
+
+/// Полетата → едно низче за адреса.
+///
+/// ⚠ Разделителят е `|`, а НЕ запетая или интервал: той не се среща нито в
+/// слъг, нито в български текст, тъй че полетата не могат да се разлепят
+/// погрешно. Текстът е ПОСЛЕДЕН и точно затова може да съдържа какво да е —
+/// при разчитането всичко след шестото поле се слепва обратно.
+String _pack(List<String> fields) {
+  final bytes = utf8.encode(fields.join('|'));
+  // ⚠ Компресията се пробва, но НЕ се налага: заглавката на zlib е 11 байта
+  // и при къс низ пакетът излиза ПО-ГОЛЯМ от суровия. Затова се взима
+  // по-малкото от двете, а първият знак казва кое е.
+  final z = ZLibCodec(level: 9).encode(bytes);
+  final useZ = z.length < bytes.length;
+  final body = base64Url.encode(useZ ? z : bytes).replaceAll('=', '');
+  return (useZ ? 'z' : 'r') + body;
+}
+
+/// Обратното на [_pack]. `null` при повреден низ.
+List<String>? _unpack(String s) {
+  if (s.length < 2) return null;
+  final kind = s[0];
+  // base64 иска дължина, кратна на четири — допълва се обратно.
+  final body = s.substring(1).padRight((s.length - 1 + 3) ~/ 4 * 4, '=');
+  try {
+    final raw = base64Url.decode(body);
+    final bytes = kind == 'z' ? ZLibCodec().decode(raw) : raw;
+    return utf8.decode(bytes).split('|');
+  } catch (_) {
+    return null;
+  }
 }
 
 /// Разчетен линк. `null` при непознат формат — тогава адресът се отваря в
@@ -139,35 +196,54 @@ String buildQuoteLink(Quote q) {
 class ParsedQuoteLink {
   final QuoteAnchor anchor;
 
-  /// Сведеният отпечатък от оригиналния текст. Празен при стар линк без `t`.
+  /// Отпечатъкът, изведен от [text] — за [locateQuote].
   final String fingerprint;
 
-  const ParsedQuoteLink({required this.anchor, required this.fingerprint});
+  /// САМИЯТ цитат, както е бил при споделянето (отрязан до
+  /// [kLinkTextChars]).
+  ///
+  /// ⚠ Пътува в адреса, за да може и СТРАНИЦАТА за хора без приложението да
+  /// покаже за какво иде реч. Вътре в приложението не се ползва за
+  /// намирането — там работи отпечатъкът.
+  final String text;
+
+  const ParsedQuoteLink({
+    required this.anchor,
+    required this.fingerprint,
+    this.text = '',
+  });
 }
 
 ParsedQuoteLink? parseQuoteLink(Uri uri) {
-  if (!uri.path.startsWith(kQuotePath)) return null;
-  final q = uri.queryParameters;
+  if (!uri.path.startsWith('$kQuotePath/')) return null;
+  final packed = uri.path.substring(kQuotePath.length + 1);
+  final f = _unpack(packed);
+  if (f == null || f.length < 7) return null;
 
   // ⚠ Непозната ВЕРСИЯ се отхвърля мълчаливо, вместо да се разчита „както
   // дойде": по-добре линкът да се отвори в браузъра, отколкото приложението
   // да заведе човека на произволно място с вид на правилно.
-  final v = int.tryParse(q['v'] ?? '');
+  final v = int.tryParse(f[0]);
   if (v == null || v > kQuoteLinkVersion) return null;
 
-  final source = QuoteSource.values.where((e) => e.name == q['s']).firstOrNull;
-  final locator = q['l'];
-  if (source == null || locator == null || locator.isEmpty) return null;
+  final source = QuoteSource.values.where((e) => e.name == f[1]).firstOrNull;
+  final locator = f[5];
+  if (source == null || locator.isEmpty) return null;
+
+  // ⚠ Текстът може да съдържа `|` (рядко, но възможно) — затова се сглобява
+  // обратно от ВСИЧКО след шестото поле, вместо да се взима само f[6].
+  final text = f.sublist(6).join('|');
 
   return ParsedQuoteLink(
     anchor: QuoteAnchor(
       source: source,
       locator: locator,
-      block: int.tryParse(q['b'] ?? '') ?? 0,
-      charStart: int.tryParse(q['c'] ?? '') ?? 0,
-      charLength: int.tryParse(q['n'] ?? '') ?? 0,
+      block: int.tryParse(f[2]) ?? 0,
+      charStart: int.tryParse(f[3]) ?? 0,
+      charLength: int.tryParse(f[4]) ?? 0,
     ),
-    fingerprint: q['t'] ?? '',
+    fingerprint: fingerprint(text),
+    text: text,
   );
 }
 
