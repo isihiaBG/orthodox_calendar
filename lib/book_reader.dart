@@ -993,9 +993,47 @@ class _BookReaderState extends State<BookReader>
   /// Диапазонът, който да се покрие със СИН фон — цитатът, заради който
   /// четивото е отворено. -1 = няма.
   int _quoteRegion = -1;
+
+  /// Последният регион, който цитатът засяга. Равен на [_quoteRegion] при
+  /// цитат в един абзац — виж `_markQuoteHtml` за какво служи.
+  int _quoteRegionEnd = -1;
   int _quoteStart = 0;
   int _quoteLength = 0;
   String _quoteText = '';
+
+  /// Коя част от цитата се пада на регион [i].
+  String _quotePartFor(int i) {
+    if (_quoteRegionEnd == _quoteRegion) return _quoteText;
+    final parts = _quoteText.split('\n\n');
+    final idx = i - _quoteRegion;
+    if (idx < 0 || idx >= parts.length) return '';
+    return parts[idx];
+  }
+
+  /// Слага синия фон върху html-а на регион [i].
+  ///
+  /// ⚠ Огледално на `_markQuoteHtml` в reader_screen.dart — там е пълният
+  /// довод. Накратко: `_quoteText` идва от СЛЕПЕНИЯ блок (`content` плюс
+  /// всеки изтеглен абзац, съединени с „\n"), а рисуването е на парчета,
+  /// тъй че търсенето на целия цитат в едно парче се проваля МЪЛЧАЛИВО.
+  String _markQuoteHtml(String html, int i) {
+    if (i < _quoteRegion || i > _quoteRegionEnd || _quoteText.isEmpty) {
+      return html;
+    }
+    final part = _quotePartFor(i);
+    if (part.isEmpty) return html;
+
+    var out = wrapQuoteByText(html, part, 'quotehit',
+        hintStart: i == _quoteRegion ? _quoteStart : 0);
+    if (out != html) return out;
+
+    for (final piece in part.split('\n')) {
+      if (piece.trim().length < 3) continue;
+      final tried = wrapQuoteByText(out, piece, 'quotehit');
+      if (tried != out) out = tried;
+    }
+    return out;
+  }
 
   /// Отваря на мястото на цитат — същият механизъм като в четеца на жития.
   void _goToQuote(ParsedQuoteLink q) {
@@ -1010,20 +1048,27 @@ class _BookReaderState extends State<BookReader>
     // за фона трябва да е в координатите на РИСУВАНОТО.
     final capLen =
         (b == _dropCapBlockIndex()) ? _currentDropCap().length : 0;
+    final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
     setState(() {
       _quoteRegion = b;
+      _quoteRegionEnd = bEnd;
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
-      // ⚠⚠ ВИНАГИ ОТ БЛОКА, ПО hit.start/hit.length — НЕ от q.text директно.
-      // `q.text` е тексТ ОТ ЛИНКА, ограничен до kLinkTextChars (60 суровини
-      // знака): за по-дълъг цитат той е ОТРЯЗАН, а `hit.length` носи
-      // ПЪЛНАТА дължина (тя идва от anchor.charLength, кодирана отделно и
-      // без ограничение). Използван директно, q.text подрязваше и
-      // маркирането — „на Бога" накрая не светваше, защото него просто го
-      // нямаше в изпратения текст. (Докладвано от потребителя, 03.09.2026.)
-      _quoteText = blocks[b].substring(
-          hit.start.clamp(0, blocks[b].length),
-          (hit.start + hit.length).clamp(0, blocks[b].length));
+      // ⚠ ВИНАГИ от блоковете по КООРДИНАТИ, и то от ЦЕЛИЯ обхват — виж
+      // подробния довод на същото място в reader_screen.dart: q.text е
+      // отрязан до 60 знака, а взето само от първия блок, маркирането
+      // изчезва за всеки следващ регион при цитат през няколко абзаца.
+      final parts = <String>[];
+      for (var k = b; k <= bEnd; k++) {
+        final raw = blocks[k];
+        final from = (k == b ? hit.start : 0).clamp(0, raw.length);
+        final to = (k == bEnd
+                ? (k == b ? hit.start + hit.length : q.anchor.charEnd)
+                : raw.length)
+            .clamp(from, raw.length);
+        parts.add(raw.substring(from, to));
+      }
+      _quoteText = parts.join('\n\n');
     });
     // ⚠ 0.22 — цитатът в ГОРНАТА ЧАСТ, не най-горе: залепен за ръба
     // изглежда като начало на четивото и не се вижда какво го предхожда.
@@ -1768,10 +1813,10 @@ class _BookReaderState extends State<BookReader>
               // ⚠ Синият фон на ЦИТАТА се слага НАД маркирането от търсенето,
               // не вместо него: жълтото значи „намерено сега", синьото —
               // „това поиска да видиш". Същото както в четеца на жития.
-              if (i == _quoteRegion && _quoteText.isNotEmpty) {
-                d = wrapQuoteByText(d, _quoteText, 'quotehit',
-                    hintStart: _quoteStart);
-              }
+              // ⚠ ЦЕЛИЯТ обхват, не само първият регион: дотук условието
+              // беше `i == _quoteRegion`, тъй че цитат през няколко абзаца
+              // светваше само в първия. (03.09.2026.)
+              d = _markQuoteHtml(d, i);
               return d;
             }(),
             style: styles,

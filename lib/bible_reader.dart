@@ -3072,11 +3072,22 @@ class _BibleReaderState extends State<BibleReader>
       _quoteLang = q.anchor.locator.split('|').first;
       _quoteRow = b;
       _quoteRowEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
-      // ⚠ ВИНАГИ от стиха, по hit.start/hit.length — виж същото място в
-      // reader_screen.dart за пълния довод: q.text е отрязан до 60 знака.
-      _quoteText = blocks[b].substring(
-          hit.start.clamp(0, blocks[b].length),
-          (hit.start + hit.length).clamp(0, blocks[b].length));
+      // ⚠ ВИНАГИ от блоковете по КООРДИНАТИ, и то от ЦЕЛИЯ обхват — виж
+      // подробния довод на същото място в reader_screen.dart: q.text е
+      // отрязан до 60 знака, а взето само от първия блок, маркирането
+      // изчезва за всеки следващ регион при цитат през няколко абзаца.
+      final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      final parts = <String>[];
+      for (var k = b; k <= bEnd; k++) {
+        final raw = blocks[k];
+        final from = (k == b ? hit.start : 0).clamp(0, raw.length);
+        final to = (k == bEnd
+                ? (k == b ? hit.start + hit.length : q.anchor.charEnd)
+                : raw.length)
+            .clamp(from, raw.length);
+        parts.add(raw.substring(from, to));
+      }
+      _quoteText = parts.join('\n\n');
     });
     final row = _rows.length > b ? _rows[b] : null;
     if (row != null) _jumpToVerse(row.verse);

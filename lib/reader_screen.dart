@@ -1492,20 +1492,63 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// ⚠ При цитат през няколко абзаца целият текст не се среща в нито един
   /// регион. Затова се търси съответният му ДЯЛ: първият регион дава края си,
   /// последният — началото си, а междинните влизат цели.
-  String _markQuotePart(String html, int i) {
-    final parts = _quoteText.split('\n\n');
+  /// Коя част от цитата се пада на регион [i].
+  String _quotePartFor(int i) {
     final n = _quoteRegionEnd - _quoteRegion;
     // Един абзац — целият цитат е тук.
-    if (n == 0) {
-      return wrapQuoteByText(html, _quoteText, 'quotehit',
-          hintStart: _quoteStart);
-    }
+    if (n == 0) return _quoteText;
     // Няколко: коя част отговаря на този регион.
+    final parts = _quoteText.split('\n\n');
     final idx = i - _quoteRegion;
-    if (idx < 0 || idx >= parts.length) return html;
-    return wrapQuoteByText(html, parts[idx], 'quotehit',
-        hintStart: i == _quoteRegion ? _quoteStart : 0);
+    if (idx < 0 || idx >= parts.length) return '';
+    return parts[idx];
   }
+
+  /// Слага синия фон върху ЕДИН html, принадлежащ на регион [i].
+  ///
+  /// ⚠⚠ ЕДИН РЕГИОН СЕ РИСУВА ОТ НЯКОЛКО ОТДЕЛНИ HTML-А, а `_quoteText`
+  /// идва от СЛЕПЕНИЯ блок. Виж `regionPlainTexts` по-горе: там надписът
+  /// под илюстрацията, `content` и всеки изтеглен абзац (`rest`) се
+  /// съединяват с „\n" в ЕДИН низ — тъй че `hit.start`/`hit.length` и
+  /// извлеченият по тях `_quoteText` са в координатите на СЛЕПЕНОТО.
+  /// Рисуването обаче става на парчета: илюстрационният регион подава
+  /// поотделно надпис, обтичащ текст и блок.
+  ///
+  /// Търсене на целия цитат в едно такова парче се проваля, щом цитатът
+  /// живее в друго парче — а `wrapQuoteByText` връща html-а непроменен и
+  /// на екрана НЕ СЕ МАРКИРА НИЩО, без грешка и без следа в лога.
+  /// (Докладвано от потребителя, 03.09.2026: „Христолюбци" в житието на
+  /// св. Кирил Философ — житие с много картинки; абзацът обтича
+  /// илюстрация.)
+  ///
+  /// Затова: пробва се цялата част, а не намери ли се — всяко парче между
+  /// „\n" поотделно. Онова, което пада в ТОЗИ html, се намира; останалите
+  /// го оставят непокътнат, защото търсенето просто не съвпада.
+  String _markQuoteHtml(String html, int i) {
+    if (i < _quoteRegion || i > _quoteRegionEnd || _quoteText.isEmpty) {
+      return html;
+    }
+    final part = _quotePartFor(i);
+    if (part.isEmpty) return html;
+
+    var out = wrapQuoteByText(html, part, 'quotehit',
+        hintStart: i == _quoteRegion ? _quoteStart : 0);
+    if (out != html) return out;
+
+    // Не се намери цяла — цитатът пресича границите между съставките на
+    // региона (надпис / обтичащ текст / изтеглени абзаци).
+    //
+    // ⚠ Късите парчета се прескачат: дума от два знака се среща навсякъде
+    // и би осветила случайно място.
+    for (final piece in part.split('\n')) {
+      if (piece.trim().length < 3) continue;
+      final tried = wrapQuoteByText(out, piece, 'quotehit');
+      if (tried != out) out = tried;
+    }
+    return out;
+  }
+
+  String _markQuotePart(String html, int i) => _markQuoteHtml(html, i);
 
   /// Отваря на мястото на цитат — от списъка с любими или от споделен линк.
   ///
@@ -1535,17 +1578,34 @@ class _ReaderScreenState extends State<ReaderScreen>
       _quoteRegionEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
-      // Ако линкът носи текста — по него; инак се взима от самия блок.
-      // ⚠⚠ ВИНАГИ ОТ БЛОКА, ПО hit.start/hit.length — НЕ от q.text директно.
-      // `q.text` е тексТ ОТ ЛИНКА, ограничен до kLinkTextChars (60 суровини
-      // знака): за по-дълъг цитат той е ОТРЯЗАН, а `hit.length` носи
-      // ПЪЛНАТА дължина (тя идва от anchor.charLength, кодирана отделно и
-      // без ограничение). Използван директно, q.text подрязваше и
-      // маркирането — „на Бога" накрая не светваше, защото него просто го
-      // нямаше в изпратения текст. (Докладвано от потребителя, 03.09.2026.)
-      _quoteText = blocks[b].substring(
-          hit.start.clamp(0, blocks[b].length),
-          (hit.start + hit.length).clamp(0, blocks[b].length));
+      // ⚠⚠ ВИНАГИ ОТ БЛОКОВЕТЕ, ПО КООРДИНАТИ — НЕ от q.text директно.
+      // `q.text` е текстът ОТ ЛИНКА, ограничен до kLinkTextChars (60
+      // суровини знака): за по-дълъг цитат той е ОТРЯЗАН, а координатите
+      // носят ПЪЛНАТА дължина (`anchor.charLength`/`charEnd` се кодират
+      // отделно и без ограничение). Използван директно, q.text подрязваше
+      // и маркирането — „на Бога" накрая не светваше, защото него просто
+      // го нямаше в изпратения текст.
+      //
+      // ⚠⚠ СГЛОБЯВА СЕ ОТ ЦЕЛИЯ ОБХВАТ, не само от първия блок — със
+      // СЪЩИЯ разделител „\n\n", с който `buildQuote` (quote_capture.dart)
+      // го сглобява при ЗАПИСА, защото по него `_quotePartFor` после
+      // раздава коя част на кой регион се пада. Взето ли е само от
+      // `blocks[b]`, при цитат през няколко абзаца parts излиза с един
+      // елемент и всеки следващ регион остава без фон — цитатът се
+      // споделя и скролът го намира, но НЕ СЕ МАРКИРА.
+      // (Двете докладвани от потребителя, 03.09.2026.)
+      final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      final parts = <String>[];
+      for (var k = b; k <= bEnd; k++) {
+        final raw = blocks[k];
+        final from = (k == b ? hit.start : 0).clamp(0, raw.length);
+        final to = (k == bEnd
+                ? (k == b ? hit.start + hit.length : q.anchor.charEnd)
+                : raw.length)
+            .clamp(from, raw.length);
+        parts.add(raw.substring(from, to));
+      }
+      _quoteText = parts.join('\n\n');
     });
 
     // ⚠ Чака се кадър: регионите още не са построени в мига, в който
@@ -2785,9 +2845,19 @@ class _ReaderScreenState extends State<ReaderScreen>
               aspect: r.imageAspect,
               // Шахматната подредба: коя по ред е картинката в четивото.
               index: illustrationIndex++,
-              captionHtml: mark(headHtml, matchOffset),
-              flowHtml: mark(r.flowHtml, matchOffset + headCount),
-              blockHtml: mark(r.illustrationHtml, matchOffset),
+              // ⚠⚠ И ТРИТЕ минават през `_markQuoteHtml` — дотук синият фон
+              // на цитата НЕ СТИГАШЕ ДО ИЛЮСТРАЦИОНЕН РЕГИОН ИЗОБЩО (само
+              // жълтото от търсенето, през `mark`). В житие с много
+              // картинки абзаците обтичат илюстрациите и попадат точно
+              // тук, тъй че цитат оттам не се маркираше НИКЪДЕ — скролът
+              // спираше на вярното място, но фон нямаше.
+              // (Докладвано от потребителя, 03.09.2026, върху житието на
+              // св. Кирил Философ.)
+              captionHtml: _markQuoteHtml(mark(headHtml, matchOffset), i),
+              flowHtml: _markQuoteHtml(
+                  mark(r.flowHtml, matchOffset + headCount), i),
+              blockHtml:
+                  _markQuoteHtml(mark(r.illustrationHtml, matchOffset), i),
               styles: _htmlStyles(context),
               onLinkTap: _onLinkTap,
             ),
