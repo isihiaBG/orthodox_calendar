@@ -890,36 +890,64 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               return null;
             }
 
-            // Парчето се насича допълнително по границите на съвпаденията.
-            var cursor = lo;
-            for (var i = 0; i < hits.length; i++) {
-              final (ms, me) = hits[i];
-              if (me <= cursor || ms >= hi) continue;
-              final s0 = ms < cursor ? cursor : ms;
-              final e0 = me > hi ? hi : me;
-              if (s0 > cursor) {
-                out.add(TextSpan(
-                    text: text.substring(cursor, s0),
-                    style: style.copyWith(
-                        backgroundColor: quoteBgAt(cursor, s0)),
-                    recognizer: tap));
+            // ⚠⚠ НАСИЧА СЕ ПО ГРАНИЦИТЕ И НА ДВЕТЕ — търсенето И цитата.
+            //
+            // Дотук се режеше САМО по съвпаденията от търсенето, а фонът на
+            // цитата се слагаше върху ЦЕЛИЯ остатък при всяко ПРЕСИЧАНЕ
+            // (`quoteBgAt` връща цвят, щом диапазоните се допират изобщо).
+            // Без активно търсене `hits` е празен, тъй че остатъкът е
+            // целият абзац — и цитат насред него оцветяваше ВСИЧКО.
+            // Отвън: „маркира целия параграф, почти цял екран с текст" и
+            // „хваща и предишния абзац".
+            // (Докладвано от потребителя, 03.09.2026.)
+            //
+            // ⚠ Точките се събират в МНОЖЕСТВО и се подреждат — така двата
+            // вида граници се сливат правилно, вместо да се редуват.
+            final cuts = <int>{lo, hi};
+            for (final (ms, me) in hits) {
+              if (me > lo && ms < hi) {
+                cuts.add(ms.clamp(lo, hi));
+                cuts.add(me.clamp(lo, hi));
               }
-              final isCurrent = matchBase + i == widget.currentGlobalMatch;
+            }
+            for (final (qs, qe) in ranges) {
+              if (qe > lo && qs < hi) {
+                cuts.add(qs.clamp(lo, hi));
+                cuts.add(qe.clamp(lo, hi));
+              }
+            }
+            final points = cuts.toList()..sort();
+
+            // ⚠ Реже се ЕДНАКВО и при мерене, и при рисуване — правилото на
+            // този файл е „мерещият е огледален на рисуващия, същите
+            // парчета". Фонът не влияе на метриките, но броят и границите
+            // на парчетата трябва да съвпадат.
+            for (var k = 0; k + 1 < points.length; k++) {
+              final a = points[k];
+              final b = points[k + 1];
+              if (a >= b) continue;
+
+              // Търсенето има превес над цитата: „намерено сега" побеждава
+              // „това поиска да видиш".
+              int? hitIdx;
+              for (var i = 0; i < hits.length; i++) {
+                final (ms, me) = hits[i];
+                if (a >= ms && b <= me) {
+                  hitIdx = i;
+                  break;
+                }
+              }
+              final bg = hitIdx != null
+                  ? (matchBase + hitIdx == widget.currentGlobalMatch
+                      ? widget.hitCurrentColor
+                      : widget.hitColor)
+                  : quoteBgAt(a, b);
+
               out.add(TextSpan(
-                text: text.substring(s0, e0),
-                style: style.copyWith(
-                    backgroundColor:
-                        isCurrent ? widget.hitCurrentColor : widget.hitColor),
+                text: text.substring(a, b),
+                style: style.copyWith(backgroundColor: bg),
                 recognizer: tap,
               ));
-              cursor = e0;
-            }
-            if (cursor < hi) {
-              out.add(TextSpan(
-                  text: text.substring(cursor, hi),
-                  style:
-                      style.copyWith(backgroundColor: quoteBgAt(cursor, hi)),
-                  recognizer: tap));
             }
           }
           return out;
