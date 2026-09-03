@@ -26,21 +26,26 @@ void main() async {
 class OrthodoxCalendarApp extends StatefulWidget {
   const OrthodoxCalendarApp({super.key});
 
+  /// ⚠ Ключ, а не BuildContext: входящ линк към цитат може да дойде когато си
+  /// иска — включително докато приложението е на заден план — а контекст,
+  /// уловен при пускането, отдавна е разрушен. Виж [IncomingQuoteLinks].
+  ///
+  /// Статичен, защото го ползва и главният екран, за да отвори чакащия линк
+  /// след първия кадър.
+  static final navigatorKey = GlobalKey<NavigatorState>();
+
   @override
   State<OrthodoxCalendarApp> createState() => _OrthodoxCalendarAppState();
 }
 
 class _OrthodoxCalendarAppState extends State<OrthodoxCalendarApp> {
-  /// ⚠ Ключ, а не BuildContext: входящ линк към цитат може да дойде когато си
-  /// иска — включително докато приложението е на заден план — а контекст,
-  /// уловен при пускането, отдавна е разрушен. Виж [IncomingQuoteLinks].
-  final _navigatorKey = GlobalKey<NavigatorState>();
+
 
   @override
   void initState() {
     super.initState();
     IncomingQuoteLinks.start(
-      navigatorKey: _navigatorKey,
+      navigatorKey: OrthodoxCalendarApp.navigatorKey,
       lookup: lookupBySlug,
     );
   }
@@ -54,7 +59,7 @@ class _OrthodoxCalendarAppState extends State<OrthodoxCalendarApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      navigatorKey: _navigatorKey,
+      navigatorKey: OrthodoxCalendarApp.navigatorKey,
       title: 'Православен Календар',
       debugShowCheckedModeBanner: false,
       localizationsDelegates: const [
@@ -166,7 +171,21 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // вместо календара: така екранът отдолу вече е построен и при затваряне
     // не се вижда как се сглобява. Ако човек смени стила там, връщаме се
     // през същия път, по който минава и смяната от настройките.
-    if (AppSettings.showWelcome) {
+    // ⚠ ВХОДЯЩ ЛИНК ИМА ПРЕВЕС НАД ПОСРЕЩАНЕТО. Човек, дошъл по споделен
+    // цитат, е тръгнал да види конкретно място в конкретно четиво — изборът
+    // на календар там е спънка, а не услуга. (Искане на потребителя,
+    // 03.09.2026.) Настройката не се губи: посрещането ще се появи при
+    // следващото обикновено пускане.
+    if (IncomingQuoteLinks.hasPending) {
+      // ⚠ Чака се ПЪРВИЯТ КАДЪР, а не се отваря веднага: дотук базата още се
+      // копира от assets и четецът оставаше на безкраен спинър.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        IncomingQuoteLinks.openPending(
+          navigatorKey: OrthodoxCalendarApp.navigatorKey,
+          lookup: lookupBySlug,
+        );
+      });
+    } else if (AppSettings.showWelcome) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _showWelcome());
     }
   }

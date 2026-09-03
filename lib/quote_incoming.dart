@@ -21,6 +21,7 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter/material.dart';
 
+import 'database_helper.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
 import 'reader_screen.dart';
@@ -31,6 +32,30 @@ import 'saint_expandable_tile.dart' show SaintLookup;
 /// Пуска се веднъж, от корена на приложението.
 class IncomingQuoteLinks {
   static StreamSubscription<Uri>? _sub;
+
+  /// ⚠ ЛИНК, КОЙТО ЧАКА ПРИЛОЖЕНИЕТО ДА СЕ ВДИГНЕ.
+  ///
+  /// При студен старт адресът пристига ПРЕДИ да има какво да го поеме:
+  /// навигаторът още не е построен, а базата не е отворена. Първата версия
+  /// отваряше четеца веднага и той оставаше на безкраен спинър — четивото
+  /// се искаше от база, която още се копира от assets.
+  /// (Докладвано от потребителя, 03.09.2026.)
+  ///
+  /// Затова адресът само се ЗАПАЗВА тук, а главният екран го поема, щом е
+  /// готов — виж [takePending].
+  static ParsedQuoteLink? _pending;
+
+  /// Има ли чакащ линк. Гледа се и от началния екран: при отваряне по линк
+  /// изборът на календар се ПРОПУСКА — човекът е дошъл да види цитат в
+  /// контекст, а не да настройва приложението. (Искане на потребителя.)
+  static bool get hasPending => _pending != null;
+
+  /// Взима чакащия линк и го забравя.
+  static ParsedQuoteLink? takePending() {
+    final p = _pending;
+    _pending = null;
+    return p;
+  }
 
   /// [navigatorKey] — навигаторът на приложението.
   ///
@@ -44,22 +69,26 @@ class IncomingQuoteLinks {
   }) async {
     final links = AppLinks();
 
-    Future<void> handle(Uri uri) async {
+    Future<void> handle(Uri uri, {required bool appIsUp}) async {
       final parsed = parseQuoteLink(uri);
       // Непознат адрес — не е наша работа. Мълчи: Android вече е решил да го
       // даде на нас, но ако не го разбираме, по-добре нищо, отколкото да
       // отворим наслуки.
       if (parsed == null) return;
-      await _open(navigatorKey, lookup, parsed);
+      if (appIsUp) {
+        await _open(navigatorKey, lookup, parsed);
+      } else {
+        _pending = parsed;
+      }
     }
 
-    // Приложението е било затворено.
+    // ⚠ ПРИ СТУДЕН СТАРТ адресът само се запазва — виж [_pending].
     final initial = await links.getInitialLink();
-    if (initial != null) await handle(initial);
+    if (initial != null) await handle(initial, appIsUp: false);
 
-    // Приложението върви.
+    // Докато приложението върви, всичко е готово и линкът се отваря веднага.
     await _sub?.cancel();
-    _sub = links.uriLinkStream.listen(handle);
+    _sub = links.uriLinkStream.listen((u) => handle(u, appIsUp: true));
   }
 
   static Future<void> _open(
@@ -98,6 +127,29 @@ class IncomingQuoteLinks {
         // грешно място.
         return;
     }
+  }
+
+  /// Отваря чакащия линк, ако има такъв. Вика се от главния екран, СЛЕД
+  /// като той е построен и базата е отворена.
+  static Future<void> openPending({
+    required GlobalKey<NavigatorState> navigatorKey,
+    required SaintLookup lookup,
+  }) async {
+    final p = takePending();
+    if (p == null) return;
+
+    // ⚠ БАЗАТА СЕ ИЗЧАКВА ИЗРИЧНО. При студен старт тя се копира от assets
+    // (десетки мегабайта) и `lookup` би висял, докато това стане — а четецът
+    // дотогава показва спинър, който отвън изглежда като забиване.
+    // Изчакването тук е ПРЕДИ отварянето, тъй че екранът се появява готов.
+    try {
+      await DatabaseHelper.database;
+    } catch (_) {
+      // Не успя — по-добре нищо, отколкото четец, който никога няма да се
+      // напълни. Човекът вижда календара и може да опита пак.
+      return;
+    }
+    await _open(navigatorKey, lookup, p);
   }
 
   /// Спира слушането — при затваряне на приложението.
