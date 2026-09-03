@@ -90,18 +90,41 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
 /// приложението, от което е дошъл човекът (Viber, браузър), а не да го
 /// прекара през екраните на календара. От списъка с любими е `false` —
 /// там „назад" се връща в списъка, както се очаква.
+/// ⚠ `navigator` се подава, когато повикващият вече държи `NavigatorState`
+/// (входящ линк — виж quote_incoming.dart). Тогава `context` служи само за
+/// съобщения. Причината е в бележката вътре: `Navigator.of` търси НАГОРЕ от
+/// подадения контекст, тъй че контекстът на самия навигатор НЕ намира него.
 Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
-    {String text = '', bool replaceStack = false}) async {
+    {String text = '',
+    bool replaceStack = false,
+    NavigatorState? navigator}) async {
   final parts = anchor.locator.split('|');
   if (parts.length < 2) return;
+
+  // ⚠⚠ НАВИГАТОРЪТ СЕ ВЗИМА ПРЕДИ ПЪРВОТО `await`, НЕ СЛЕД НЕГО.
+  //
+  // `EpubBook.open` разархивира том от порядъка на 19 MB. Докато то тече —
+  // при идване по ВЪНШЕН ЛИНК това е и времето, в което приложението тъкмо
+  // се вдига — контекстът, подаден отвън (`navigatorKey.currentContext`),
+  // вече е друг, тъй че `context.mounted` е false и функцията се отказваше
+  // МЪЛЧАЛИВО точно преди да отвори четеца. Отвън: линкът се отваря,
+  // приложението стартира и човек остава в КАЛЕНДАРА, без грешка и без
+  // признак. (Докладвано от потребителя, 03.09.2026.)
+  //
+  // ⚠ Това е ТОЧНО вече платеният капан с `_openBible` в app_drawer.dart —
+  // виж CLAUDE.md, „BuildContext ПРЕЗ await". `NavigatorState` живее,
+  // докато живее приложението, тъй че взет предварително, той е валиден и
+  // след най-дългото изчакване.
+  final nav = navigator ?? Navigator.of(context);
+  final messenger = ScaffoldMessenger.maybeOf(context);
+
   final book = await EpubBook.open(parts[0]);
-  if (!context.mounted) return;
   final entry = book.toc
       .expand((e) => e.flattened())
       .where((e) => e.href == parts[1])
       .firstOrNull;
   if (entry == null) {
-    ScaffoldMessenger.of(context).showSnackBar(
+    messenger?.showSnackBar(
       const SnackBar(content: Text('Четивото вече го няма в книгата.')),
     );
     return;
@@ -114,7 +137,6 @@ Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
           ParsedQuoteLink(anchor: anchor, fingerprint: fp, text: text),
     ),
   );
-  final nav = Navigator.of(context);
   if (replaceStack) {
     nav.pushAndRemoveUntil(route, (r) => false);
   } else {
@@ -133,7 +155,9 @@ extension _FirstOrNull<T> on Iterable<T> {
 /// различни неща.
 Future<void> openBibleQuote(
     BuildContext context, QuoteAnchor anchor, String fp,
-    {String text = '', bool replaceStack = false}) async {
+    {String text = '',
+    bool replaceStack = false,
+    NavigatorState? navigator}) async {
   final parts = anchor.locator.split('|');
   if (parts.length < 3) return;
   final chapter = int.tryParse(parts[2]);
@@ -146,7 +170,7 @@ Future<void> openBibleQuote(
           ParsedQuoteLink(anchor: anchor, fingerprint: fp, text: text),
     ),
   );
-  final nav = Navigator.of(context);
+  final nav = navigator ?? Navigator.of(context);
   if (replaceStack) {
     nav.pushAndRemoveUntil(route, (r) => false);
   } else {

@@ -687,35 +687,68 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // маркирането по HTML (`wrapQuoteByText`) изобщо не стига дотук. А
         // точно тук пада ПЪРВИЯТ абзац на четивото — най-често цитираният.
         // (Докладвано от потребителя, 03.09.2026.)
-        // ⚠ Буквицата е част от ЦИТАТА, ако сгънатият цитат започва с нея.
-        // Сравнява се сгънато, защото цитатът идва от друга формула на
-        // плоския текст (виж wrapQuoteByText в quote_link.dart).
-        final capInQuote = widget.quoteText.isNotEmpty &&
-            widget.dropCap.isNotEmpty &&
-            fold(widget.quoteText)
-                .text
-                .startsWith(fold(widget.dropCap).text);
+        // ⚠⚠ ДИАПАЗОНИТЕ НА ЦИТАТА СЕ СМЯТАТ ЗА ВСЕКИ АБЗАЦ ПООТДЕЛНО.
+        //
+        // Регионът рисува първия абзац И всеки изтеглен до буквицата
+        // (`restParagraphs`), а всички минават през ЕДНА И СЪЩА `spansOf`.
+        // Смятани веднъж — за първия абзац — числата се прилагаха и върху
+        // изтеглените, но там те значат СЪВСЕМ ДРУГИ знаци: диапазон
+        // (10,30) от първия абзац оцветяваше знаци 10–30 на всеки следващ.
+        // Оттам „маркира от буквицата до Свети Константин И МАЛКО СЛЕД
+        // ТОВА" — последното е точно чуждият диапазон, паднал в съседен
+        // абзац. (Докладвано от потребителя, 03.09.2026.)
+        //
+        // И обратното: цитат, който живее в ИЗТЕГЛЕН абзац, не се търсеше
+        // никъде — `plain` е само първият — тъй че не светваше нищо.
+        // Вдига се САМО в клона, който е разпознал буквицата — виж долу.
+        // ⚠ „Диапазонът започва на 0" НЕ Е достатъчен признак: цитат,
+        // маркиран от втората буква нататък, също започва на 0 в `plain`
+        // (буквицата е отрязана оттам), а тогава тя НЕ е част от него.
+        var capIsInQuote = false;
 
-        // ⚠⚠ КОГАТО ЦИТАТЪТ ЗАПОЧВА ОТ БУКВИЦАТА, В `plain` СЕ ТЪРСИ САМО
-        // ОСТАТЪКЪТ, не целият цитат — `plain` НЕ съдържа буквата (тя се
-        // рисува отделно), тъй че търсене на целия сгънат цитат в него
-        // никога не съвпада на позиция 0. Резултатът: остатъкът не
-        // светваше изобщо, а на екрана изглеждаше, че „маркира само
-        // буквицата". (Докладвано от потребителя, 03.09.2026 — точно
-        // случаят със св. Кирил Философ, чиято буква е „С".)
-        final quoteRanges = <(int, int)>[];
-        if (widget.quoteText.isNotEmpty) {
+        List<(int, int)> quoteRangesIn(String paraText, {bool first = false}) {
+          if (widget.quoteText.isEmpty) return const [];
           final full = fold(widget.quoteText).text;
-          final want = capInQuote
-              ? full.substring(fold(widget.dropCap).text.length)
-              : full;
-          final f = fold(plain);
-          final at = want.isEmpty ? -1 : f.text.indexOf(want);
-          if (at >= 0) {
-            quoteRanges.add(
-                (f.origIndex[at], f.origIndex[at + want.length - 1] + 1));
+          if (full.isEmpty) return const [];
+          final f = fold(paraText);
+
+          // ⚠⚠ БУКВИЦАТА СЕ ПРИЗНАВА ЗА ЧАСТ ОТ ЦИТАТА САМО АКО ОСТАТЪКЪТ
+          // ЗАПОЧВА ТОЧНО В НАЧАЛОТО НА ПЪРВИЯ АБЗАЦ.
+          //
+          // Дотук условието беше просто „сгънатият цитат започва със
+          // сгънатата буквица" — тоест ЕДНА БУКВА. В четиво с буквица „С"
+          // това е вярно за ВСЕКИ цитат, започващ със „С" („Скоро при
+          // императора", „Свети Константин"), където и да стои той. Тогава
+          // от цитата се отрязваше водеща буква, която не му принадлежи,
+          // окълцаният остатък не се намираше, и на екрана светваше САМО
+          // инициалът. (Точно двата случая, докладвани от потребителя на
+          // 03.09.2026 — „нещо го обърква тотално".)
+          //
+          // Сега проверката се самопотвърждава: махаме буквата И искаме
+          // остатъкът да седне на позиция 0. Не седне ли — буквицата не е
+          // част от този цитат и се търси целият текст, както обикновено.
+          if (first && widget.dropCap.isNotEmpty) {
+            final cap = fold(widget.dropCap).text;
+            if (cap.isNotEmpty && full.startsWith(cap)) {
+              final rest = full.substring(cap.length);
+              if (rest.isEmpty) return const [];
+              if (f.text.startsWith(rest)) {
+                capIsInQuote = true;
+                return [(0, f.origIndex[rest.length - 1] + 1)];
+              }
+            }
           }
+
+          final at = f.text.indexOf(full);
+          if (at < 0) return const [];
+          return [(f.origIndex[at], f.origIndex[at + full.length - 1] + 1)];
         }
+
+        final quoteRanges = quoteRangesIn(plain, first: true);
+
+        // Буквицата свети само когато остатъкът наистина е седнал в
+        // началото — виж дългата бележка горе.
+        final capInQuote = capIsInQuote;
 
         // Стилът е ПЪЛЕН нарочно: дебелина, наклон и разредка са изрично
         // зададени, а не оставени празни. Празно поле се попълва от
@@ -744,9 +777,14 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         /// тук се мери само за да се реши докъде стига текстът до буквицата.
         /// Ширината е ЕДНАКВА в двата случая (повдигането е чисто вертикално
         /// отместване), тъй че резът пада на същото място.
+        // ⚠ `qRanges` е ЗА ТОЗИ абзац. По подразбиране — на първия; всеки
+        // изтеглен подава своите (виж quoteRangesIn). Оставено ли беше
+        // общо, чуждите числа оцветяваха произволни знаци в съседните
+        // абзаци — виж дългата бележка при quoteRangesIn.
         List<InlineSpan> spansOf(List<HtmlRun> src, String text,
             List<(int, int)> hits, int matchBase, int from, int to,
-            {bool forMeasure = false}) {
+            {bool forMeasure = false, List<(int, int)>? qRanges}) {
+          final ranges = qRanges ?? quoteRanges;
           final out = <InlineSpan>[];
           var pos = 0;
           for (final run in src) {
@@ -846,7 +884,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             // търсенето се налага ПОДИР него и го презаписва, където двете се
             // застъпват — „намерено сега" побеждава „това поиска да видиш".
             Color? quoteBgAt(int a, int b) {
-              for (final (qs, qe) in quoteRanges) {
+              for (final (qs, qe) in ranges) {
                 if (a < qe && b > qs) return widget.quoteColor;
               }
               return null;
@@ -952,6 +990,8 @@ class DropCapParagraphState extends State<DropCapParagraph> {
           final runsI = htmlRuns(p);
           final plainI = runsI.map((r) => r.text).join();
           final matchesI = _matchRanges(plainI, widget.searchQuery);
+          // ⚠ СВОИТЕ диапазони — не тези на първия абзац.
+          final qRangesI = quoteRangesIn(plainI);
           final matchBaseI = matchBase;
           matchBase += matchesI.length;
 
@@ -962,7 +1002,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             final freeLines = remainingLines - gapLines;
             if (freeLines >= 1) {
               final measureI = spansOf(runsI, plainI, matchesI, matchBaseI, 0,
-                  plainI.length, forMeasure: true);
+                  plainI.length, forMeasure: true, qRanges: qRangesI);
               final fI = fit(measureI, freeLines, plainI.length);
               cut = fI.cut;
               lines = fI.lines;
@@ -975,8 +1015,9 @@ class DropCapParagraphState extends State<DropCapParagraph> {
 
           final besideTop = besideCursor + paraGap;
           if (lines > 0) {
-            restBesideSpans.add(
-                spansOf(runsI, plainI, matchesI, matchBaseI, 0, cut));
+            restBesideSpans.add(spansOf(
+                runsI, plainI, matchesI, matchBaseI, 0, cut,
+                qRanges: qRangesI));
             besideCursor = besideTop + lines * lineHeightPx;
           } else {
             restBesideSpans.add(const <InlineSpan>[]);
@@ -984,7 +1025,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
 
           final tailMeasure = cut < plainI.length
               ? spansOf(runsI, plainI, matchesI, matchBaseI, cut,
-                  plainI.length, forMeasure: true)
+                  plainI.length, forMeasure: true, qRanges: qRangesI)
               : const <InlineSpan>[];
           var tailTop = 0.0;
           if (cut < plainI.length) {
@@ -1005,8 +1046,9 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               child: Text.rich(
                 TextSpan(
                     style: base,
-                    children: spansOf(
-                        runsI, plainI, matchesI, matchBaseI, cut, plainI.length)),
+                    children: spansOf(runsI, plainI, matchesI, matchBaseI,
+                        cut, plainI.length,
+                        qRanges: qRangesI)),
                 textAlign: TextAlign.justify,
               ),
             ));
@@ -1014,7 +1056,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
 
           restGeoms.add(_RestParaGeom(
             narrowSpans: spansOf(runsI, plainI, matchesI, matchBaseI, 0,
-                plainI.length, forMeasure: true),
+                plainI.length, forMeasure: true, qRanges: qRangesI),
             tailSpans: tailMeasure,
             cut: cut,
             plainLength: plainI.length,

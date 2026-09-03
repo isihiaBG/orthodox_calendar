@@ -167,18 +167,26 @@ class IncomingQuoteLinks {
           ),
           (route) => false,
         );
+      // ⚠⚠ ПОДАВА СЕ ГОТОВИЯТ `nav`, а контекстът служи само за съобщения.
+      //
+      // Дотук тези два клона взимаха `navigatorKey.currentContext` и
+      // разчитаха вътре на `Navigator.of(ctx)`. Но `Navigator.of` търси
+      // НАГОРЕ от подадения контекст — а контекстът на самия навигатор НЕ
+      // намира него. Житията (по-горе) открай време ползват
+      // `currentState` и затова работеха, докато цитат от „Месецослов"
+      // оставаше в календара. (Докладвано от потребителя, 03.09.2026.)
       case QuoteSource.book:
         final ctx = navigatorKey.currentContext;
-        if (ctx != null && ctx.mounted) {
+        if (ctx != null) {
           // ⚠ `replaceStack` — същият довод като при житията по-горе.
           await openBookQuote(ctx, q.anchor, q.fingerprint,
-              text: q.text, replaceStack: true);
+              text: q.text, replaceStack: true, navigator: nav);
         }
       case QuoteSource.bible:
         final bctx = navigatorKey.currentContext;
-        if (bctx != null && bctx.mounted) {
+        if (bctx != null) {
           await openBibleQuote(bctx, q.anchor, q.fingerprint,
-              text: q.text, replaceStack: true);
+              text: q.text, replaceStack: true, navigator: nav);
         }
     }
   }
