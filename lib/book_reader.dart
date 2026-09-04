@@ -388,6 +388,7 @@ class _BookReaderState extends State<BookReader>
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
     ReaderFontSize.flush();
@@ -958,7 +959,31 @@ class _BookReaderState extends State<BookReader>
   /// скролбара това е достатъчно точно и не иска мерене на всеки абзац.
   /// (В четеца на жития е другояче: там четивото е разделено на региони с
   /// различни шрифтове и височините се оценяват поотделно.)
+  /// ⚠⚠ ДЕБОУНС: смята се 220 ms СЛЕД последната буква, не при всяка.
+  ///
+  /// Главата тук е ЕДИН непрекъснат блок (без виртуализация — виж
+  /// `_scrollBody`), тъй че всеки `setState` пуска flutter_html да
+  /// преизгради ЦЯЛОТО четиво с ново маркиране. При писане на „слънце"
+  /// това ставаше шест пъти, всеки път за целия текст.
+  ///
+  /// ⚠ Празната заявка минава ВЕДНАГА, без изчакване: изчистването на
+  /// полето трябва да махне маркирането в същия миг, инак ✕ изглежда
+  /// заяло.
+  Timer? _searchDebounce;
+  static const _searchDebounceDelay = Duration(milliseconds: 220);
+
   void _runSearch(String raw) {
+    _searchDebounce?.cancel();
+    if (raw.trim().isEmpty) {
+      _runSearchNow(raw);
+      return;
+    }
+    _searchDebounce = Timer(_searchDebounceDelay, () {
+      if (mounted) _runSearchNow(raw);
+    });
+  }
+
+  void _runSearchNow(String raw) {
     final q = fold(raw.trim()).text;
     // Броим ПО РЕГИОНИ, със същата сметка, с която се и маркира (виж
     // _chapterBody). Дотук се броеше по слепения текст на цялата глава — а
@@ -1236,11 +1261,13 @@ class _BookReaderState extends State<BookReader>
       //   • за ЧЕРТИЧКИТЕ — къде е това вътре в съдържанието, 0..1.
       final top =
           RenderAbstractViewport.of(box).getOffsetToReveal(box, 0.0).offset;
+      // ⚠⚠ ВСИЧКИ ПОЗИЦИИ В РЕГИОНА С ЕДНО МЕРЕНЕ — виж [_lineDysForRegion].
+      // Дотук се викаше `_lineOfMatch` за ВСЯКО съвпадение поотделно, а то
+      // строи нов `LineLocator` (пълен TextPainter.layout на абзаца) и го
+      // изхвърля. Оттам „по няколко секунди на всяка въведена буква".
+      final dys = _lineDysForRegion(regions, i, count, box.size.width);
       for (int k = 0; k < count; k++) {
-        final line = _lineOfMatch(regions, i, k, box.size.width);
-        final dy = line?.$1 ?? 0;
-        final y = top + dy;
-        ys.add(y);
+        ys.add(top + (k < dys.length ? dys[k] : 0));
       }
     }
     if (mounted) setState(() => _hitYs = ys);
@@ -1313,6 +1340,63 @@ class _BookReaderState extends State<BookReader>
     } finally {
       locator.dispose();
     }
+  }
+
+  /// Отместванията на ВСИЧКИ съвпадения в един регион — с ЕДНО мерене.
+  ///
+  /// ⚠⚠ ЗАРАДИ ТОВА ТЪРСЕНЕТО ЗАБИВАШЕ ПРИ ВСЯКА БУКВА. `_recomputeHitYs`
+  /// викаше `_lineOfMatch(regions, i, k, …)` в цикъл по `k`, а всяко
+  /// повикване СТРОИ нов `LineLocator` (пълен `TextPainter.layout` на
+  /// целия абзац) и веднага го изхвърля. Регион с 50 съвпадения значеше 50
+  /// оформления на един и същи текст, а честа буква като „с" дава хиляди
+  /// през цялото четиво — квадратично по брой съвпадения.
+  /// (Докладвано от потребителя, 04.09.2026: „пишеш „слънце", а то се бави
+  /// по няколко секунди на всяка буква".)
+  ///
+  /// Тук оформлението е ЕДНО на регион и от него се вадят всички позиции.
+  /// ⚠ Резултатът е ЕДИН КЪМ ЕДИН с досегашния — същият `LineLocator`,
+  /// същите `charOfMatch`/`dyForChar`; сменен е само редът на работа.
+  List<double> _lineDysForRegion(
+      List<ReaderRegion> regions, int i, int count, double width) {
+    if (width <= 0 || i < 0 || i >= regions.length || count <= 0) {
+      return const [];
+    }
+    final r = regions[i];
+    final out = <double>[];
+
+    if (!r.isHtml) {
+      final state = _dropCapKey.currentState;
+      if (state == null) return const [];
+      // ⚠ Буквицата се брои и тук — виж [_lineOfMatch] за пълния довод.
+      // Началата се смятат ВЕДНЪЖ за абзац, а не наново за всяко k.
+      final cap = _currentDropCap();
+      final starts = matchStartsOf(cap + _plainOf(r.content), _query);
+      for (final at in starts) {
+        if (out.length >= count) return out;
+        out.add(at < cap.length ? 0.0 : (state.dyForChar(at - cap.length) ?? 0));
+      }
+      for (var pi = 0; pi < r.rest.length; pi++) {
+        final startsI = matchStartsOf(_plainOf(r.rest[pi]), _query);
+        for (final at in startsI) {
+          if (out.length >= count) return out;
+          out.add(state.dyForCharInRest(pi, at) ?? 0);
+        }
+      }
+      return out;
+    }
+
+    final (base, topMargin) = _measureStyleFor(r.content);
+    final locator =
+        LineLocator.forHtml(html: r.content, base: base, maxWidth: width);
+    try {
+      for (var k = 0; k < count; k++) {
+        final at = locator.charOfMatch(_query, k);
+        out.add(at == null ? 0 : topMargin + locator.dyForChar(at));
+      }
+    } finally {
+      locator.dispose();
+    }
+    return out;
   }
 
   /// Отместването и височината на реда със знак [charInRegion] от региона
