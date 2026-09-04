@@ -1153,6 +1153,8 @@ class _BookReaderState extends State<BookReader>
 
   /// Изхвърля кеша — вика се при всяка смяна на четивото.
   void _invalidateChapterCache() {
+    _regionWidgets.clear();
+    _regionSigs.clear();
     _cachedHref = null;
     _cachedRaw = null;
     _cachedBody = null;
@@ -1824,6 +1826,16 @@ class _BookReaderState extends State<BookReader>
     return body;
   }
 
+  /// Готовите widget-и на HTML-регионите и подписът, от който са направени.
+  /// ⚠ Чистят се при смяна на глава — виж [_invalidateChapterCache].
+  final Map<int, Widget> _regionWidgets = {};
+  final Map<int, String> _regionSigs = {};
+
+  /// Всичко извън самата заявка, което мени вида на регион. Влиза в подписа,
+  /// за да не остане кеширан widget със стария шрифт или стара тема.
+  String get _regionSigPrefix => '${ReaderFontSize.value}|${ReaderTheme.dark}'
+      '|${ReaderDropCapScale.value.name}|$_quoteRegion|$_quoteRegionEnd';
+
   Widget _chapterBody(String raw, ReaderPalette palette) {
     final body = _chapterHtml(raw);
     // Главата се дели на РЕГИОНИ (по абзац), както в четеца на жития.
@@ -1840,6 +1852,11 @@ class _BookReaderState extends State<BookReader>
     final regions = computeRegions(beforeHtml, dropCap, firstP, afterHtml);
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
+      // ⚠ ЗАДЪЛЖИТЕЛНО заедно с ключовете: кеширан widget носи СТАРИЯ ключ,
+      // тъй че `_regionKeys[i].currentContext` би бил null и всяко
+      // позициониране би отказало МЪЛЧАЛИВО (познатият капан в този проект).
+      _regionWidgets.clear();
+      _regionSigs.clear();
     }
     final styles = readerStyles(
       fontSize: ReaderFontSize.value,
@@ -1888,27 +1905,50 @@ class _BookReaderState extends State<BookReader>
     for (int i = 0; i < regions.length; i++) {
       final r = regions[i];
       if (r.isHtml) {
-        children.add(KeyedSubtree(
-          key: _regionKeys[i],
-          child: Html(
-            data: () {
-              var d = _query.isEmpty
-                  ? r.content
-                  : highlightHtml(r.content, _query, matchOffset, _currentHit);
+        // ⚠⚠ РЕГИОН, ЧИЙТО HTML НЕ СЕ Е СМЕНИЛ, НЕ СЕ СТРОИ НАНОВО.
+        //
+        // Главата тук е ЕДИН sliver (без виртуализация — виж
+        // `SliverToBoxAdapter` по-долу), тъй че всеки `setState` караше
+        // flutter_html да разпарсва и построи ВСИЧКИТЕ ~360 региона.
+        // При търсене това ставаше на всяка заявка, макар че съвпаденията
+        // засягат шепа от тях: при „слънце" се мени ЕДИН регион от 360.
+        //
+        // Подадем ли СЪЩИЯ Widget инстанс, Flutter не пуска rebuild на
+        // поддървото му — затова кешът пази готовия widget срещу низа, от
+        // който е направен.
+        //
+        // ⚠ Подписът включва и всичко извън заявката, което мени вида:
+        // шрифт, тема, мащаб на буквицата. Пропуснато, регионът щеше да
+        // остане със стария си облик след смяна на настройка.
+        final d = () {
+          var d = _query.isEmpty
+              ? r.content
+              : highlightHtml(r.content, _query, matchOffset, _currentHit);
               // ⚠ Синият фон на ЦИТАТА се слага НАД маркирането от търсенето,
               // не вместо него: жълтото значи „намерено сега", синьото —
               // „това поиска да видиш". Същото както в четеца на жития.
               // ⚠ ЦЕЛИЯТ обхват, не само първият регион: дотук условието
               // беше `i == _quoteRegion`, тъй че цитат през няколко абзаца
               // светваше само в първия. (03.09.2026.)
-              d = _markQuoteHtml(d, i);
-              return d;
-            }(),
-            style: styles,
-            extensions: _htmlExtensions,
-            onLinkTap: (u, _, __) => _onLinkTap(u),
-          ),
-        ));
+          d = _markQuoteHtml(d, i);
+          return d;
+        }();
+        final sig = '$_regionSigPrefix|$d';
+        var w = _regionWidgets[i];
+        if (w == null || _regionSigs[i] != sig) {
+          w = KeyedSubtree(
+            key: _regionKeys[i],
+            child: Html(
+              data: d,
+              style: styles,
+              extensions: _htmlExtensions,
+              onLinkTap: (u, _, __) => _onLinkTap(u),
+            ),
+          );
+          _regionWidgets[i] = w;
+          _regionSigs[i] = sig;
+        }
+        children.add(w);
         matchOffset += _countHits(r.content);
       } else {
         children.add(KeyedSubtree(
