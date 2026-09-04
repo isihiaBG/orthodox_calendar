@@ -2248,9 +2248,14 @@ class _ReaderScreenState extends State<ReaderScreen>
       final locator =
           LineLocator.forHtml(html: region.content, base: base, maxWidth: width);
       try {
+        // ⚠ ВСИЧКИ позиции с едно обхождане — виж [LineLocator.allMatchChars].
+        // Дотук `charOfMatch` се викаше в цикъл по `k`, а той сканира от
+        // начало и сгъва текста наново при всяко повикване.
+        final ats = locator.allMatchChars(folded);
         for (int k = 0; k < count; k++) {
-          final at = locator.charOfMatch(folded, k);
-          ys.add(at == null ? top : top + topMargin + locator.dyForChar(at));
+          ys.add(k < ats.length
+              ? top + topMargin + locator.dyForChar(ats[k])
+              : top);
         }
       } finally {
         locator.dispose();

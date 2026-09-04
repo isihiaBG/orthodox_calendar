@@ -32,6 +32,22 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
+
+            <!-- ⚠⚠ ВГРАДЕНАТА ОБРАБОТКА НА DEEP LINKS СЕ ИЗКЛЮЧВА ИЗРИЧНО.
+
+                 Без този ред Flutter обработва входящия адрес ВТОРИ ПЪТ, по
+                 своя път: `WidgetsApp.didPushRouteInformation` го подава на
+                 `Navigator.pushNamed` като ИМЕ НА МАРШРУТ. Приложението няма
+                 именувани маршрути, тъй че се стига до `_onUnknownRoute` и
+                 гърми с „Null check operator used on a null value" — видяно
+                 в logcat при реален тест на устройството (04.09.2026).
+
+                 Линковете се обработват ЕДИНСТВЕНО от пакета `app_links`
+                 (виж quote_incoming.dart). Двата пътя си пречеха. -->
+            <meta-data
+              android:name="flutter_deeplinking_enabled"
+              android:value="false"
+              />
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>

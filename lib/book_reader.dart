@@ -1389,9 +1389,10 @@ class _BookReaderState extends State<BookReader>
     final locator =
         LineLocator.forHtml(html: r.content, base: base, maxWidth: width);
     try {
+      // ⚠ ВСИЧКИ позиции с едно обхождане — виж [LineLocator.allMatchChars].
+      final ats = locator.allMatchChars(_query);
       for (var k = 0; k < count; k++) {
-        final at = locator.charOfMatch(_query, k);
-        out.add(at == null ? 0 : topMargin + locator.dyForChar(at));
+        out.add(k < ats.length ? topMargin + locator.dyForChar(ats[k]) : 0);
       }
     } finally {
       locator.dispose();
