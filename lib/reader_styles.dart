@@ -44,6 +44,20 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.justify,
       color: ink,
     ),
+    // ПРОДЪЛЖЕНИЕТО на абзац, разрязан от обтичащата илюстрация.
+    //
+    // ⚠ БЕЗ отстъп отгоре: това е СЪЩИЯТ абзац, който просто минава под
+    // картинката, а не нов. С обичайните полета на `<p>` между двете
+    // половини зее празнина и текстът се чете като прекъснат.
+    // Виж `_splitFlow` в reader_screen.dart.
+    '.contflow': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.only(top: 0, bottom: 8),
+      textAlign: TextAlign.justify,
+      color: ink,
+    ),
     // Двете кутии около буквицата: като обикновен абзац, но без полета —
     // отстоянията там се мерят в редове и се задават отвън.
     '.dropcap': Style(
