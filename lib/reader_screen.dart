@@ -3786,6 +3786,7 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
         final (besideHtml, belowHtml) =
             _splitFlow(flowHtml, imgHProbe, colWidth);
 
+
         // ⚠ ЧАСТИЧНОТО ОБТИЧАНЕ Е ПО-ДОБРО ОТ НИКАКВОТО — решено от
         // потребителя (31.08.2026), след като обратното беше пробвано.
         //
@@ -3998,19 +3999,23 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
     }
   }
 
-  // ⚠⚠ ПРЕЛИВАЩИЯТ БЛОК СЕ РАЗРЯЗВА — инак под картинката зее.
+  // ⚠⚠ ПРЕЛИВАЩИЯТ БЛОК: РАЗРЯЗВА СЕ, а не стане ли — СЛИЗА ЦЯЛ ДОЛУ.
   //
-  // Дотук ПОНЕ ЕДИН блок оставаше горе ЦЯЛ, дори да е двойно по-висок от
-  // картинката. Тогава текстовата колона надрастваше картинката и вляво —
-  // под нея — оставаше празно, понякога колкото самата картинка.
+  // Дотук липсваше вторият изход и точно това правеше празнината. Ето
+  // истинските числа от устройството (Симеон Самоковски, легнало, шрифт 22):
   //
-  // ⚠ Личеше САМО при илюстрация БЕЗ надпис и САМО в легнало: надписът
-  // добавя два-три реда към блока и разликата се скрива, а в изправено
-  // обтичане изобщо няма.
+  //     блок 1: h=436  used=0    zone=479  → ГОРЕ  (остават 43 px)
+  //     блок 2: h=352  used=436  zone=479  → ГОРЕ  ← защото 436 < 479
+  //     общо:   used=788 vs zone=479   ПРЕЛИВА с 309
+  //     разрез: room=43, minRoom=69    → НЕ РЕЖЕ
   //
-  // ⚠ Реже се по КРАЙ НА ИЗРЕЧЕНИЕ. Мястото се намира ТОЧНО: къде свършва
-  // мястото се пита самия `LineLocator` (`charAtDy`), а не се пресмята по
-  // средна ширина на знак.
+  // Вторият блок влиза, понеже ЗАПОЧНАТОТО още се събира (това е нарочно —
+  // инак зоната остава полупразна), но целият той не се побира. Разрезът
+  // после се отказва, защото са останали 43 px. И блокът оставаше ГОРЕ —
+  // 788 px текст до 479 px картинка, тоест 309 px празно под нея.
+  //
+  // ⚠ Редът на изходите има значение: разрезът е ПО-ДОБРИЯТ (зоната се
+  // запълва догоре), слизането цял е резервният.
   if (beside.isNotEmpty && used > zoneHeight) {
     final before = beside
         .take(beside.length - 1)
@@ -4018,19 +4023,19 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
     final room = zoneHeight - before;
     final last = beside.last;
     final m = RegExp(r'^(<p[^>]*>)(.*)(</p>)$', dotAll: true).firstMatch(last);
-    // ⚠ Само ако в зоната е останало място за поне два-три реда — инак до
-    // картинката застава чуканче, което изглежда по-зле от празнината.
-    final (base, topMargin) = m == null
-        ? (const TextStyle(), 0.0)
-        : measureStyleFor(last);
+    final (base, topMargin) =
+        m == null ? (const TextStyle(), 0.0) : measureStyleFor(last);
+    // ⚠ Под два-три реда до картинката застава чуканче, което изглежда
+    // по-зле от празнината — затова там се минава на другия изход.
     final minRoom = (base.fontSize ?? 16) * kReaderLineHeight * 2.5;
+
+    var handled = false;
     if (m != null && room > minRoom) {
       final inner = m.group(2)!;
       final loc =
           LineLocator.forHtml(html: last, base: base, maxWidth: colWidth);
       try {
         if (loc.height > room - topMargin) {
-          // Знакът, който пада на границата на зоната.
           final at = loc.charAtDy(room - topMargin - kPTopMargin);
           final cut = _sentenceCutNear(inner, at);
           if (cut != null) {
@@ -4040,11 +4045,19 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
             // върви ПРЕДИ следващите абзаци, не подире им.
             below.insert(0,
                 '<p class="contflow">${inner.substring(cut).trimLeft()}</p>');
+            handled = true;
           }
         }
       } finally {
         loc.dispose();
       }
+    }
+
+    // ⚠ РЕЗЕРВНИЯТ ИЗХОД. Не се ли е получил разрез — блокът слиза ЦЯЛ, но
+    // само ако горе остава поне един друг: зона без нито ред текст изглежда
+    // като счупено оформление, а и картинката би останала сама.
+    if (!handled && beside.length > 1) {
+      below.insert(0, beside.removeLast());
     }
   }
 
