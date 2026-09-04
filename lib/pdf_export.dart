@@ -27,6 +27,8 @@ import 'drop_cap.dart'
 import 'drop_cap_scale.dart'
     show ReaderDropCapScale, DropCapScaleMetrics, DropCapScale;
 import 'external_link.dart' show decodeHref;
+import 'floating_illustration.dart'
+    show kIllustrationGap, kIllustrationFullWidthAspect;
 
 // Кеш на шрифтовете — зареждат се веднъж за целия живот на приложението.
 pw.Font? _body, _bodyItalic, _bodyBold, _title, _dropCapFont;
@@ -714,6 +716,26 @@ List<_Block> _reorderBlocks(
 /// целия текст под себе си и оставя половин лист празен.
 const double _kPdfImageMaxHeightFactor = 0.52;
 
+/// Каква част от реда заема ОБТИЧАНАТА илюстрация в PDF-а.
+///
+/// ⚠ ПОЛОВИНАТА — изрично искане на потребителя (04.09.2026): „да се
+/// коригира размерът на илюстрацията, така че да не надхвърля половината от
+/// хоризонталата, заделена за текст, и обтичащият текст винаги да е с
+/// еднаква ширина".
+///
+/// ⚠ Точно затова е ФИКСИРАН дял, а не „колкото се получи": така колоната
+/// до всяка картинка е една и съща през целия документ. На екрана правилото
+/// е друго (виж [illustrationFlowWidth]) — там основата е късата страна на
+/// устройството, защото картинката трябва да изглежда еднакво едра при
+/// завъртане. Листът не се върти.
+const double _kPdfFlowImageWidthFactor = 0.5;
+
+/// Над това съотношение картинката заема ЦЯЛАТА ширина и обтичане няма.
+///
+/// ⚠ Същата граница като на екрана ([kIllustrationFullWidthAspect]):
+/// панорамна снабка, набутана в половин ред, губи всичко, заради което е
+/// сложена. ⚠ И ЦЯЛАТА, не „почти цялата" — също изрично указание.
+
 // ⚠ Таванът на разтягането е МАХНАТ и тук — по същото решение, с което
 // отпадна и в четеца (01.09.2026): илюстрацията заема цялата ширина на
 // колоната, каквато и да е тя в източника.
@@ -734,6 +756,208 @@ const double _kPdfImageMaxHeightFactor = 0.52;
     w = h * ratio;
   }
   return (w, h);
+}
+
+/// Слага илюстрация с ОБТИЧАЩ текст отстрани и връща колко блока е погълнала
+/// (0 = няма какво да обтича, повикващият да мине по общия път).
+///
+/// ⚠⚠ ЦЕЛИЯТ ОПИТ ОТ ЧЕТЕЦА Е ПРЕНЕСЕН ТУК — виж „Празнината под обтичащата
+/// илюстрация" в CLAUDE.md. Трите неща, които там струваха три билда:
+///
+///   1. **Височините се МЕРЯТ, не се оценяват по знаци.** Оценка
+///      „знаци_на_ред × редове" предполага, че всеки ред се пълни докрай
+///      (при justify не е така) и не отчита отстъпите — уцелва при ЕДИН
+///      размер на шрифта и греши при всички други.
+///   2. **Блок се приема, ДОКАТО започнатото още се събира** — инак дълъг
+///      абзац отпада цял и зоната остава полупразна.
+///   3. **ТРИТЕ изхода за преливащия блок**, и точно този ред: разрез (най-
+///      добър), после слизане ЦЯЛ долу, и чак накрая оставане горе. Липсата
+///      на втория беше причината за празнината на екрана.
+///
+/// ⚠ Тук РАЗРЕЗ няма — в PDF-а блокът вече е разложен на `InlineSpan`-ове и
+/// рязането им по изречение е отделна работа. Затова изходите са два:
+/// слиза цял, или остава (когато горе няма друг). Практически стига:
+/// колоната е фиксирана на половин ред, тъй че блоковете са по-дребни
+/// спрямо нея, отколкото на екрана.
+int _addFlowImage({
+  required void Function(pw.Widget,
+      {bool isImage, bool isHeading, bool splittable}) add,
+  required void Function(int) setBlock,
+  required List<_Block> arranged,
+  required int index,
+  required pw.MemoryImage img,
+  required Map<String, pw.MemoryImage> images,
+  required double contentWidth,
+  required pw.Context context,
+  required PdfFont font,
+  required double bodySize,
+  required PdfColor strongColor,
+}) {
+  final b = arranged[index];
+  final imgW = contentWidth * _kPdfFlowImageWidthFactor;
+  final size = _imageBox(b.imageAspect, img, imgW);
+  final colW = contentWidth - size.$1 - kIllustrationGap;
+  if (colW < 80) return 0; // няма смислена колона — по общия път
+
+  // Надписът пътува с картинката (както навсякъде другаде).
+  var cursor = index + 1;
+  _Block? capBlock;
+  if (cursor < arranged.length && arranged[cursor].cls.contains('caption')) {
+    capBlock = arranged[cursor];
+    cursor++;
+  }
+
+  /// Готовият widget за един текстов блок при зададена ширина.
+  pw.Widget? textWidgetFor(_Block blk) {
+    if (blk.isImage) return null;
+    final style = _blockStyleOf(blk, font, bodySize);
+    final spans = _inlineSpans(
+      blk.inner.isEmpty ? blk.text : blk.inner,
+      style,
+      strongColor: strongColor,
+      font: font,
+      baseBold: blk.cls.contains('prayerhead'),
+      baseItalic: blk.isItalic || blk.cls.contains('memorydate'),
+    );
+    return pw.RichText(
+      textAlign:
+          blk.isHeading ? pw.TextAlign.center : pw.TextAlign.justify,
+      text: pw.TextSpan(style: style, children: spans),
+    );
+  }
+
+  // ── Колко блока се събират до картинката ────────────────────────────
+  //
+  // ⚠ МЕРИ СЕ с `layout()` при ШИРИНАТА НА КОЛОНАТА — същата примитива, с
+  // която мери и `MultiPage` (виж [_reorderBlocks]).
+  final zoneHeight = size.$2;
+  final beside = <pw.Widget>[];
+  final besideBlocks = <int>[];
+  var used = 0.0;
+  final narrow = pw.BoxConstraints(maxWidth: colW);
+
+  while (cursor < arranged.length) {
+    final blk = arranged[cursor];
+    // ⚠ Спира се на СЛЕДВАЩАТА картинка: две илюстрации в една зона се
+    // застъпват, а редът им в разказа се губи.
+    if (blk.isImage) break;
+    final w = textWidgetFor(blk);
+    if (w == null) break;
+    // ⚠ Приема се, ДОКАТО започнатото още се събира — виж точка 2 горе.
+    if (beside.isNotEmpty && used >= zoneHeight) break;
+    double h;
+    try {
+      w.layout(context, narrow);
+      h = w.box?.height ?? 0;
+    } catch (_) {
+      break; // не се е оформил — не рискуваме
+    }
+    beside.add(w);
+    besideBlocks.add(cursor);
+    used += h + 8; // отстоянието между абзаците
+    cursor++;
+  }
+
+  if (beside.isEmpty) return 0; // нищо за обтичане
+
+  // ⚠ ТРЕТИЯТ ИЗХОД (виж точка 3): преливащият последен блок слиза ЦЯЛ
+  // долу, стига горе да остава поне един друг. Без това текстовата колона
+  // надраства картинката и под НЕЯ зее — точно бъгът, платен на екрана.
+  if (used > zoneHeight && beside.length > 1) {
+    beside.removeLast();
+    besideBlocks.removeLast();
+    cursor--;
+    used = 0;
+    for (final w in beside) {
+      used += (w.box?.height ?? 0) + 8;
+    }
+  }
+
+  // ⚠⚠ ТАВАН ПО ВИСОЧИНАТА НА ЛИСТА — иначе `Inseparable` гърми.
+  //
+  // Зоната е ЕДНО ЦЯЛО и не може да се раздели между две страници, тъй че
+  // надрасне ли листа, `MultiPage` хвърля:
+  //   „Widget won't fit into the page as its height … exceed a page height".
+  // Хванато от `test/pdf_layout_test.dart` при първото пускане — един абзац
+  // в тясната колона стана 842 pt при 762 pt страница.
+  //
+  // ⚠ Тук НЕ помага да се маха още от `beside`: превишението идва от
+  // ЕДИНСТВЕН блок, който сам е по-висок от листа. Тогава обтичане просто
+  // не се прави и картинката минава по общия път (цяла ширина) — по-добре
+  // отколкото PDF, който не се сглобява.
+  final pageLimit = PdfPageFormat.a4.height - 80;
+  while (used > pageLimit && beside.length > 1) {
+    beside.removeLast();
+    besideBlocks.removeLast();
+    cursor--;
+    used = 0;
+    for (final w in beside) {
+      used += (w.box?.height ?? 0) + 8;
+    }
+  }
+  if (used > pageLimit) return 0;
+
+  final capStyle =
+      capBlock == null ? null : _blockStyleOf(capBlock, font, bodySize);
+
+  final block = pw.SizedBox(
+    width: size.$1,
+    child: pw.Column(
+      crossAxisAlignment: pw.CrossAxisAlignment.start,
+      mainAxisSize: pw.MainAxisSize.min,
+      children: [
+        pw.Image(img, width: size.$1, height: size.$2),
+        if (capBlock != null && capStyle != null) ...[
+          pw.SizedBox(height: 5),
+          pw.RichText(
+            textAlign: pw.TextAlign.left,
+            text: pw.TextSpan(
+              style: capStyle,
+              children: _inlineSpans(
+                capBlock.inner.isEmpty ? capBlock.text : capBlock.inner,
+                capStyle,
+                strongColor: strongColor,
+                font: font,
+                baseItalic: true,
+              ),
+            ),
+          ),
+        ],
+      ],
+    ),
+  );
+
+  setBlock(index);
+  add(pw.SizedBox(height: 8));
+  // ⚠ ЕДНО ЦЯЛО: картинка, надпис и текстът до нея не бива да се разделят
+  // между две страници — половин зона на единия лист изглежда като дефект.
+  add(
+    pw.Inseparable(
+      child: pw.Row(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        children: [
+          block,
+          pw.SizedBox(width: kIllustrationGap),
+          pw.Expanded(
+            child: pw.Column(
+              crossAxisAlignment: pw.CrossAxisAlignment.stretch,
+              mainAxisSize: pw.MainAxisSize.min,
+              children: [
+                for (var k = 0; k < beside.length; k++) ...[
+                  if (k > 0) pw.SizedBox(height: 8),
+                  beside[k],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+    isImage: true,
+  );
+  add(pw.SizedBox(height: 14));
+
+  return cursor - index;
 }
 
 /// Размерът на шрифта за един блок — ЕДНО място за таблицата.
@@ -1234,6 +1458,16 @@ bool _eligibleForDropCap(_Block b) {
   // без нея буквицата кацаше върху него и излизаше „П|амет на 9 август",
   // а истинското начало („Когато на престола…") оставаше без нея.
   if (b.cls.contains('memorydate')) return false;
+  // ⚠ СЪЩОТО важи за въвеждащите блокове пред самия разказ: цитат, с който
+  // започва житието (`epigraph`), и бележката откъде е той (`centernote`).
+  // В ЧЕТЕЦА те се прескачат сами — `splitDropCap` търси ГОЛ `<p>`, а те
+  // носят клас. Тук пътят е друг и правилото трябва да е изрично: без него
+  // инициалът кацаше върху „**П**реписка, открита в Лозенския манастир…"
+  // (свщмч. Симеон Самоковски), а истинското начало на разказа оставаше
+  // без буквица. Видяно в готов PDF, изпратен от потребителя (04.09.2026).
+  if (b.cls.contains('epigraph') || b.cls.contains('centernote')) return false;
+  // ⚠ И надписът под илюстрация — той описва картинката, не започва разказ.
+  if (b.cls.contains('caption')) return false;
   // Наистина "скипващи" знаци — бележки в скоби, звездички, разделител
   // на сцена. Кавичките НЕ са тук вече — те минават през _dropCapLetterInfo.
   const skipChars = {'(', '*', '/', '['};
@@ -1710,6 +1944,38 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
             final next = i + 1 < arranged.length ? arranged[i + 1] : null;
             final capBlock =
                 (next != null && next.cls.contains('caption')) ? next : null;
+            // ⚠⚠ ОБТИЧАНЕ: тясната картинка застава ОТСТРАНИ, а текстът
+            // тече до нея. Дотук всяка илюстрация заемаше цял ред и текст
+            // покрай нея нямаше — оттам „огромните празни полета", които
+            // потребителят докладва (04.09.2026), особено при портретните
+            // снимки: те се свиват по височина до 52% от листа, тъй че
+            // вдясно оставаше почти половин страница бяло.
+            //
+            // ⚠ ШИРОКИТЕ остават на ЦЯЛА ширина, без обтичане — панорамна
+            // снимка в половин ред губи смисъла си. Границата е същата като
+            // на екрана.
+            final wideImage = b.imageAspect <= 0 ||
+                b.imageAspect >= kIllustrationFullWidthAspect;
+            if (!wideImage) {
+              final consumed = _addFlowImage(
+                add: add,
+                setBlock: (v) => curBlock = v,
+                arranged: arranged,
+                index: i,
+                img: img,
+                images: images,
+                contentWidth: contentWidth,
+                context: context,
+                font: _body!.getFont(context),
+                bodySize: _bodySize,
+                strongColor: strongIsWine ? _wine : _ink,
+              );
+              if (consumed > 0) {
+                i += consumed - 1;
+                continue;
+              }
+              // consumed == 0 → няма текст за обтичане; минава по общия път.
+            }
             final size = _imageBox(b.imageAspect, img, contentWidth);
             final capStyle = capBlock == null
                 ? null
