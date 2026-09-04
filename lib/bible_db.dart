@@ -193,9 +193,36 @@ class BibleDb {
   static const String _dbName = 'bible.db';
   static Database? _db;
 
+  /// ⚠⚠ ПАЗАЧ СРЕЩУ ЕДНОВРЕМЕННИ ИЗВИКВАНИЯ (single-flight).
+  ///
+  /// Без него две паралелни повиквания влизат ЗАЕДНО: и двете виждат
+  /// `_db == null`, и двете виждат файла на място, ПЪРВОТО го трие, а
+  /// второто гърми с
+  /// `PathNotFoundException: Cannot delete file … (errno = 2)` — и екранът
+  /// остава празен със „Грешка при четене". Оттам и подвеждащото
+  /// „първия път се отвори, всеки следващ дава грешка": паралелният
+  /// повикващ се появява чак когато четецът вече е построен.
+  ///
+  /// `DatabaseHelper` открай време има такъв пазач; тук липсваше.
+  /// (Докладвано от потребителя, 03.09.2026, при отваряне на линк към
+  /// Евангелието.)
+  static Future<Database>? _opening;
+
   static Future<Database> get database async {
-    if (_db != null) return _db!;
+    final ready = _db;
+    if (ready != null) return ready;
+    // ⚠ `whenComplete` чисти пазача И при грешка — инак един провал би
+    // заключил базата до рестарт.
+    return _opening ??= _open().whenComplete(() => _opening = null);
+  }
+
+  static Future<Database> _open() async {
     final dbPath = await getDatabasesPath();
+    // ⚠ Папката `databases/` може да я няма изобщо при отваряне ПО ЛИНК:
+    // приложението стига дотук, без да е минало по обичайния път, който я
+    // създава. Тогава записът гърми със същия errno = 2, само че на друг
+    // ред.
+    await Directory(dbPath).create(recursive: true);
     final path = join(dbPath, _dbName);
     final file = File(path);
     if (await file.exists()) {
@@ -203,12 +230,21 @@ class BibleDb {
       // assets/db/ не стига до устройството: копието отпреди остава и
       // приложението чете стария текст, докато данните не се изчистят на
       // ръка. Точно този капан беше платен веднъж с томовете (виж CLAUDE.md).
-      await file.delete();
+      //
+      // ⚠ Изтриването е ТОЛЕРАНТНО: файлът може да си е отишъл между
+      // проверката и самото триене (друг повикващ, чистене на паметта).
+      // Целта е „да го няма", а не „аз да съм го изтрил".
+      try {
+        await file.delete();
+      } on FileSystemException catch (_) {
+        // вече го няма — точно каквото искахме
+      }
     }
     final data = await rootBundle.load('assets/db/$_dbName');
     await file.writeAsBytes(data.buffer.asUint8List());
-    _db = await openDatabase(path, readOnly: true);
-    return _db!;
+    final db = await openDatabase(path, readOnly: true);
+    _db = db;
+    return db;
   }
 
   /// Отворените езикови пакети — по един на свален превод.

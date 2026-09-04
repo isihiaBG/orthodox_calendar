@@ -2127,7 +2127,12 @@ class _BookReaderState extends State<BookReader>
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const BackButton(),
+            // ⚠ НЕ `BackButton` — при отваряне ПО ВЪНШЕН ЛИНК стекът е
+            // изпразнен (`pushAndRemoveUntil`), а `maybePop` отказва да
+            // махне последния маршрут, тъй че копчето просто не вършеше
+            // нищо; работеше само системният жест, защото той стига до
+            // Android. Виж [readerBackButton]. (03.09.2026.)
+            readerBackButton(context),
             const SizedBox(width: _contentsGap),
             readerContentsButton(
               context: context,

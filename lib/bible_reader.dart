@@ -2714,9 +2714,10 @@ class _BibleReaderState extends State<BibleReader>
         // Същият израз, с който `reader_toolbar.dart` оцветява останалите
         // иконки в лентата — така стрелката не може да се разсинхронизира с
         // тях при бъдеща промяна.
-        BackButton(
-          color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
-        ),
+        // ⚠ НЕ `BackButton` — при отваряне по външен линк стекът е изпразнен
+        // и `maybePop` отказва да махне последния маршрут. Виж
+        // [readerBackButton]. (03.09.2026.)
+        readerBackButton(context),
         // ⚠ БЕЗ отстъп след стрелката. `BackButton` е 48 широк, а иконката в
         // него е 24 и стои центрирана — тоест вдясно от глифа вече има 12
         // празни. Добавени още 8 отгоре, заглавието тръгваше на 62 dp, при
@@ -2811,9 +2812,10 @@ class _BibleReaderState extends State<BibleReader>
         // Същият израз, с който `reader_toolbar.dart` оцветява останалите
         // иконки в лентата — така стрелката не може да се разсинхронизира с
         // тях при бъдеща промяна.
-        BackButton(
-          color: AppBarTheme.of(context).foregroundColor ?? Colors.white,
-        ),
+        // ⚠ НЕ `BackButton` — при отваряне по външен линк стекът е изпразнен
+        // и `maybePop` отказва да махне последния маршрут. Виж
+        // [readerBackButton]. (03.09.2026.)
+        readerBackButton(context),
         const SizedBox(width: 8),
         SizedBox(
           width: headWidth,
@@ -3032,21 +3034,125 @@ class _BibleReaderState extends State<BibleReader>
     return i >= _quoteRow && i <= _quoteRowEnd;
   }
 
-  /// Слага синия фон върху готовите парчета.
+  /// Слага синия фон върху готовите парчета — САМО под самия цитат.
   ///
-  /// ⚠ Не се търси къде точно в стиха е цитатът: при Писанието единицата е
-  /// СТИХЪТ, а цитат почти винаги обхваща цели стихове. Частичен би искал
-  /// същото разцепване като в житията — не си струва за случай, който на
-  /// практика не се среща.
-  List<TextSpan> _quoteSpans(List<TextSpan> src) => [
-        for (final sp in src)
-          TextSpan(
-            text: sp.text,
-            style: (sp.style ?? const TextStyle())
-                .copyWith(backgroundColor: ReaderTheme.palette.quote),
-            children: sp.children,
-          ),
-      ];
+  /// ⚠⚠ ДОТУК СВЕТВАШЕ ЦЕЛИЯТ СТИХ. Доводът беше „при Писанието единицата е
+  /// стихът, а цитат почти винаги обхваща цели стихове" — и той се оказа
+  /// неверен на практика: човек маркира точно частта, която го е спряла, а
+  /// стихът около нея е контекст, не цитат. (Докладвано от потребителя,
+  /// 03.09.2026: „беше маркиран целия стих, а не само цитата".)
+  ///
+  /// ⚠ Механизмът е СЪЩИЯТ като на [_highlightSpans] — реже се по
+  /// ОБЕДИНЕНИТЕ граници: на парчетата И на намереното. Търси се в
+  /// СЛЕПЕНИЯ текст, защото рубрикацията реже стиха на червена главна буква
+  /// плюс остатък, тъй че цитат, започващ от началото, пресича границата
+  /// помежду им и търсен поотделно във всяко парче не се улавя никъде.
+  ///
+  /// ⚠ Не се ли намери нищо (текстът се е разминал), се връща ЦЕЛИЯТ стих
+  /// оцветен — старото поведение. По-добре твърде много, отколкото нищо:
+  /// човекът е дошъл по линк точно за това място.
+  List<TextSpan> _quoteSpans(List<TextSpan> src) {
+    List<TextSpan> whole() => [
+          for (final sp in src)
+            TextSpan(
+              text: sp.text,
+              style: (sp.style ?? const TextStyle())
+                  .copyWith(backgroundColor: ReaderTheme.palette.quote),
+              children: sp.children,
+            ),
+        ];
+
+    if (_quoteText.trim().isEmpty) return whole();
+
+    final full = src.map((s) => s.text ?? '').join();
+    // ⚠ Цитатът може да се е сглобил от НЯКОЛКО стиха (виж `_goToQuote` —
+    // частите се съединяват с „\n\n"). За ТОЗИ стих се търси всяка част
+    // поотделно: онази, която е негова, се намира; останалите — не.
+    final ranges = <(int, int)>[];
+    for (final part in _quoteText.split('\n\n')) {
+      final t = part.trim();
+      if (t.length < 3) continue;
+      final hit = _looseIndexOf(full, t);
+      if (hit != null) ranges.add(hit);
+    }
+    if (ranges.isEmpty) return whole();
+
+    final cuts = <int>{0, full.length};
+    var at = 0;
+    for (final sp in src) {
+      at += (sp.text ?? '').length;
+      cuts.add(at);
+    }
+    for (final (a, b) in ranges) {
+      cuts
+        ..add(a)
+        ..add(b);
+    }
+    final points = cuts.toList()..sort();
+
+    TextStyle? styleAt(int pos) {
+      var start = 0;
+      for (final sp in src) {
+        final end = start + (sp.text ?? '').length;
+        if (pos < end) return sp.style;
+        start = end;
+      }
+      return src.isEmpty ? null : src.last.style;
+    }
+
+    bool inQuote(int pos) {
+      for (final (a, b) in ranges) {
+        if (pos >= a && pos < b) return true;
+      }
+      return false;
+    }
+
+    final out = <TextSpan>[];
+    for (var i = 0; i + 1 < points.length; i++) {
+      final a = points[i];
+      final b = points[i + 1];
+      if (a >= b) continue;
+      final base = styleAt(a) ?? const TextStyle();
+      out.add(TextSpan(
+        text: full.substring(a, b),
+        style: inQuote(a)
+            ? base.copyWith(backgroundColor: ReaderTheme.palette.quote)
+            : base,
+      ));
+    }
+    return out;
+  }
+
+  /// Търси [needle] в [hay], без да държи на пунктуация и интервали.
+  ///
+  /// ⚠ Цитатът идва от ПЛОСКИЯ текст на стиха, а тук се търси в текста
+  /// както е построен за рисуване — двете се разминават по интервали
+  /// (`_plainTextOf` свива поредните бели знаци) и по махнатото вградено
+  /// зачало. Търсене буквално се проваля точно там, където зачалото е
+  /// най-често: в началото на стиха.
+  ///
+  /// Връща границите В [hay] или `null`.
+  (int, int)? _looseIndexOf(String hay, String needle) {
+    final at = hay.indexOf(needle);
+    if (at >= 0) return (at, at + needle.length);
+
+    final f = foldForMatch(needle);
+    if (f.length < 3) return null;
+
+    // Сгъваме сеното, като помним откъде идва всеки оцелял знак.
+    final map = <int>[];
+    final b = StringBuffer();
+    for (var i = 0; i < hay.length; i++) {
+      final c = hay[i].toLowerCase();
+      if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
+        b.write(c);
+        map.add(i);
+      }
+    }
+    final k = b.toString().indexOf(f);
+    if (k < 0) return null;
+    return (map[k], map[k + f.length - 1] + 1);
+  }
 
   /// Езикът, от който е цитатът.
   String _quoteLang = '';
