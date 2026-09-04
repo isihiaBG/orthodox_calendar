@@ -2713,16 +2713,17 @@ class _ReaderScreenState extends State<ReaderScreen>
         final colW = avail - imgWProbe - kIllustrationGap;
         final imgHProbe =
             r.imageAspect > 0 ? imgWProbe / r.imageAspect : imgWProbe;
-        final perLine =
-            (colW / (ReaderFontSize.value * 0.52)).clamp(10.0, 300.0);
-        final needed = perLine *
-            (imgHProbe / (ReaderFontSize.value * kReaderLineHeight));
-        // ⚠ СЪЩОТО делене, което прави и рисуването (`_splitFlow`). Тук се
-        // повтаря, защото оценката трябва да предскаже ТОЧНО каквото ще се
-        // нарисува: колко текст застава до картинката и колко продължава под
-        // нея. Разминат ли се двете, кутията се заковава по едната сметка, а
-        // Flutter рисува по другата.
-        final (besideProbe, belowProbe) = _splitFlow(r.flowHtml, needed);
+        // ⚠ СЪЩОТО делене, което прави и рисуването (`_splitFlow`), и със
+        // СЪЩИТЕ мерки. Тук се повтаря, защото оценката трябва да предскаже
+        // ТОЧНО каквото ще се нарисува: колко текст застава до картинката и
+        // колко продължава под нея. Разминат ли се двете, кутията се
+        // заковава по едната сметка, а Flutter рисува по другата.
+        //
+        // ⚠ Дотук тук стоеше СВОЯ оценка по знаци („perLine × редове"), а
+        // рисуването ползваше друга — двете вече не могат да се разминат,
+        // защото минават през една и съща функция с едни и същи входове.
+        final (besideProbe, belowProbe) =
+            _splitFlow(r.flowHtml, imgHProbe, colW);
         // ⚠ СЪЩИТЕ условия, които ползва и `_IllustrationRegion` — включително
         // това, че вече НЯМА условие за запълненост на зоната (виж бележката
         // там). Разминат ли се двете, кутията на региона се заковава по
@@ -3769,13 +3770,21 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
         // Груба, но достатъчна сметка колко ЗНАКА се събират в зоната.
         // Средната ширина на знак е същата константа, с която мери и
         // `_estimateRegionHeight` (0.52 от размера на шрифта).
-        final charsPerLine =
-            (colWidth / (ReaderFontSize.value * 0.52)).clamp(10.0, 300.0);
-        final linesFit =
-            imgHProbe / (ReaderFontSize.value * kReaderLineHeight);
-        final charsFit = charsPerLine * linesFit;
-
-        final (besideHtml, belowHtml) = _splitFlow(flowHtml, charsFit);
+        // ⚠⚠ МЕРИ СЕ, НЕ СЕ ОЦЕНЯВА — виж [_splitFlow].
+        //
+        // Дотук тук стоеше оценка по ЗНАЦИ:
+        //   charsPerLine = colWidth / (fontSize * 0.52)
+        //   linesFit     = imgH / (fontSize * lineHeight)
+        // Тя предполага, че всеки ред се пълни докрай, и НЕ отчита
+        // отстъпите между абзаците — тъй че уцелва точно при ЕДИН размер
+        // на шрифта и греши при всички останали. Точно това докладва
+        // потребителят: „при една определена големина стои идеално, при
+        // всички други е зле" (04.09.2026).
+        //
+        // Височината на блока вдясно е [imgHProbe] плюс надписа, ако има
+        // такъв — затова се подава готова, а не се смята пак вътре.
+        final (besideHtml, belowHtml) =
+            _splitFlow(flowHtml, imgHProbe, colWidth);
 
         // ⚠ ЧАСТИЧНОТО ОБТИЧАНЕ Е ПО-ДОБРО ОТ НИКАКВОТО — решено от
         // потребителя (31.08.2026), след като обратното беше пробвано.
@@ -3938,7 +3947,8 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
 ///
 /// [charsFit] е груба преценка колко знака се събират отстрани — виж
 /// повикващия.
-(String, String) _splitFlow(String flowHtml, double charsFit) {
+(String, String) _splitFlow(
+    String flowHtml, double zoneHeight, double colWidth) {
   // ⚠ И ЗАГЛАВИЯТА влизат, не само абзаците — зоната се дозапълва с
   // каквото следва (31.08.2026). Дотук изразът търсеше само `<p>` и
   // заглавието изпадаше от деленето.
@@ -3947,83 +3957,93 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
       .map((m) => m.group(0)!)
       .toList();
   if (blocks.isEmpty) return (flowHtml, '');
+  if (zoneHeight <= 0 || colWidth <= 0) return (flowHtml, '');
 
-  final tagRe = RegExp(r'<[^>]+>');
   final beside = <String>[];
   final below = <String>[];
   var used = 0.0;
 
+  // ⚠⚠ ВИСОЧИНИТЕ СЕ МЕРЯТ С `TextPainter`, НЕ СЕ ОЦЕНЯВАТ ПО ЗНАЦИ.
+  //
+  // Старата сметка беше „знаци на ред × редове в зоната" и предполагаше,
+  // че всеки ред се пълни докрай. При justify това не е вярно, а и
+  // отстъпите между абзаците изобщо не влизаха — тъй че разрезът уцелваше
+  // при ЕДИН размер на шрифта и грешеше при всички други.
+  // (Наблюдение на потребителя, което посочи причината: „при една
+  // определена големина стои идеално, при всички други е зле".)
+  //
+  // Същото правило вече важи за PDF-а — виж „ВИСОЧИНИТЕ СЕ МЕРЯТ" в
+  // CLAUDE.md.
+  double heightOf(String block) {
+    final (base, topMargin) = measureStyleFor(block);
+    final loc =
+        LineLocator.forHtml(html: block, base: base, maxWidth: colWidth);
+    try {
+      return topMargin + loc.height + kPTopMargin;
+    } finally {
+      loc.dispose();
+    }
+  }
+
   for (final b in blocks) {
-    final len = b.replaceAll(tagRe, '').trim().length.toDouble();
-    // ⚠ Приема се, ДОКАТО зоната не е запълнена — гледа се дали ЗАПОЧНАТОТО
-    // още се събира, не дали целият блок ще се побере. Иначе дълъг абзац
-    // отпада цял и зоната остава полупразна: точно това беше „кутията не се
-    // дозапълва".
-    if (below.isEmpty && (beside.isEmpty || used < charsFit)) {
+    final h = heightOf(b);
+    // ⚠ Приема се, ДОКАТО зоната не е запълнена — гледа се дали
+    // ЗАПОЧНАТОТО още се събира, не дали целият блок ще се побере. Иначе
+    // дълъг абзац отпада цял и зоната остава полупразна.
+    if (below.isEmpty && (beside.isEmpty || used < zoneHeight)) {
       beside.add(b);
-      used += len;
+      used += h;
     } else {
       below.add(b);
     }
   }
 
-  // ⚠⚠ ПРЕЛИВАЩИЯТ АБЗАЦ СЕ РАЗРЯЗВА — инак под картинката зее.
+  // ⚠⚠ ПРЕЛИВАЩИЯТ БЛОК СЕ РАЗРЯЗВА — инак под картинката зее.
   //
-  // Дотук ПОНЕ ЕДИН абзац оставаше горе ЦЯЛ, дори да е двойно по-дълъг от
-  // зоната. Тогава текстовата колона става по-висока от картинката и под
-  // НЕЯ остава празно — понякога колкото самата картинка.
+  // Дотук ПОНЕ ЕДИН блок оставаше горе ЦЯЛ, дори да е двойно по-висок от
+  // картинката. Тогава текстовата колона надрастваше картинката и вляво —
+  // под нея — оставаше празно, понякога колкото самата картинка.
   //
-  // ⚠ Личеше САМО при илюстрация БЕЗ надпис и САМО в легнало. Не е
-  // случайност: надписът добавя два-три реда към блока, тъй че разликата
-  // се скрива; а в изправено обтичане изобщо няма. Точно това докладва
-  // потребителят на 04.09.2026 („надценяване на вертикалния размер").
+  // ⚠ Личеше САМО при илюстрация БЕЗ надпис и САМО в легнало: надписът
+  // добавя два-три реда към блока и разликата се скрива, а в изправено
+  // обтичане изобщо няма.
   //
-  // ⚠ Реже се по КРАЙ НА ИЗРЕЧЕНИЕ, не по знак: разсечена дума се чете
-  // като счупен текст. Ако изречение не се намери в разумните граници,
-  // абзацът остава цял — по-добре празнина, отколкото разкъсана дума.
-  //
-  // ⚠ Продължението получава `class="contflow"` — без отстъп на нов ред и
-  // без празнина отгоре, защото това е СЪЩИЯТ абзац, който просто минава
-  // под картинката. С обикновено `<p>` се чете като нов абзац.
-  // ⚠ Реже се ПОСЛЕДНИЯТ блок в зоната, а не „единственият".
-  //
-  // Дотук условието беше `beside.length == 1` и се задействаше почти
-  // никога: при по-едър шрифт в зоната влизат ДВА абзаца, а при по-дребен
-  // — три. Меродавно е КОЛКО ОБЩО е влязло спрямо мястото, не колко са на
-  // брой блоковете.
-  //
-  // ⚠ Целта е сумата в зоната да стане ≈ `charsFit`, тъй че разрезът се
-  // смята от ОСТАТЪКА до целта, а не от целта наготово: първите блокове
-  // вече са изяли част от мястото.
-  //
-  // ⚠ ПРАГОВЕТЕ СА НИСКИ (1.05), защото при първия опит бяха 1.25/1.2 и
-  // разрязването се задействаше САМО при най-едрия шрифт — проверено със
-  // симулация върху реалните абзаци на житието. Празнината обаче се вижда
-  // при всеки размер. ⚠ Ниският праг е безопасен: не се ли намери край на
-  // изречение в прозореца, [_sentenceCut] връща `null` и абзацът остава
-  // цял — по-добре празнина, отколкото разсечено изречение.
-  if (beside.isNotEmpty && charsFit > 40 && used > charsFit * 1.05) {
+  // ⚠ Реже се по КРАЙ НА ИЗРЕЧЕНИЕ. Мястото се намира ТОЧНО: къде свършва
+  // мястото се пита самия `LineLocator` (`charAtDy`), а не се пресмята по
+  // средна ширина на знак.
+  if (beside.isNotEmpty && used > zoneHeight) {
     final before = beside
         .take(beside.length - 1)
-        .fold<int>(0, (n, b) => n + b.replaceAll(tagRe, '').trim().length);
-    final room = charsFit - before;
+        .fold<double>(0, (n, b) => n + heightOf(b));
+    final room = zoneHeight - before;
     final last = beside.last;
     final m = RegExp(r'^(<p[^>]*>)(.*)(</p>)$', dotAll: true).firstMatch(last);
-    // ⚠ Само ако в зоната изобщо е останало РАЗУМНО място за първата
-    // половина — инак се получава чуканче от два реда до картинката.
-    if (m != null && room > 80) {
+    // ⚠ Само ако в зоната е останало място за поне два-три реда — инак до
+    // картинката застава чуканче, което изглежда по-зле от празнината.
+    final (base, topMargin) = m == null
+        ? (const TextStyle(), 0.0)
+        : measureStyleFor(last);
+    final minRoom = (base.fontSize ?? 16) * kReaderLineHeight * 2.5;
+    if (m != null && room > minRoom) {
       final inner = m.group(2)!;
-      final plainLen = inner.replaceAll(tagRe, '').length;
-      if (plainLen > room * 1.05) {
-        final cut = _sentenceCut(inner, room, tagRe);
-        if (cut != null) {
-          beside[beside.length - 1] =
-              '${m.group(1)}${inner.substring(0, cut)}</p>';
-          // ⚠ В НАЧАЛОТО на `below`: продължението на разрязания абзац
-          // върви ПРЕДИ следващите абзаци, не подире им.
-          below.insert(
-              0, '<p class="contflow">${inner.substring(cut).trimLeft()}</p>');
+      final loc =
+          LineLocator.forHtml(html: last, base: base, maxWidth: colWidth);
+      try {
+        if (loc.height > room - topMargin) {
+          // Знакът, който пада на границата на зоната.
+          final at = loc.charAtDy(room - topMargin - kPTopMargin);
+          final cut = _sentenceCutNear(inner, at);
+          if (cut != null) {
+            beside[beside.length - 1] =
+                '${m.group(1)}${inner.substring(0, cut)}</p>';
+            // ⚠ В НАЧАЛОТО на `below`: продължението на разрязания абзац
+            // върви ПРЕДИ следващите абзаци, не подире им.
+            below.insert(0,
+                '<p class="contflow">${inner.substring(cut).trimLeft()}</p>');
+          }
         }
+      } finally {
+        loc.dispose();
       }
     }
   }
@@ -4031,43 +4051,42 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
   return (beside.join('\n'), below.join('\n'));
 }
 
-/// Къде да се среже абзац, който прелива от зоната до картинката.
+/// Край на изречение НАЙ-БЛИЗО до [target] — отместване в [inner] или `null`.
 ///
-/// Връща отместване В СУРОВИЯ html или `null`, ако няма годно място.
+/// ⚠ [target] идва от `LineLocator.charAtDy`, тоест е индекс в текста БЕЗ
+/// таговете, а върнатото е в СУРОВИЯ низ: таговете вътре (курсив, връзки) не
+/// заемат място на екрана, но местят индексите. Разминат ли се двете,
+/// разрезът пада насред таг и абзацът се разпада.
 ///
-/// ⚠ Търси се край на изречение НАЙ-БЛИЗО до целта, но само в прозорец
-/// около нея — далечен разрез би оставил зоната наполовина празна или би
-/// препълнил колоната.
-///
-/// ⚠ Броенето е по ПЛОСКИ знаци, а върнатото отместване е в СУРОВИЯ низ:
-/// таговете вътре (курсив, връзки) не заемат място на екрана, но местят
-/// индексите. Разминат ли се двете, разрезът пада насред таг и абзацът се
-/// разпада.
-int? _sentenceCut(String inner, double charsFit, RegExp tagRe) {
-  final target = charsFit.round();
-  final lo = (target * 0.55).round();
-  final hi = (target * 1.15).round();
-
+/// ⚠ Търси се само в разумен прозорец около целта — далечен разрез би
+/// оставил зоната наполовина празна или би препълнил колоната.
+int? _sentenceCutNear(String inner, int target) {
+  if (target <= 0) return null;
+  final window = (target * 0.35).clamp(40.0, 400.0);
   var plain = 0;
   var inTag = false;
   int? best;
+  var bestDist = double.infinity;
   for (var i = 0; i < inner.length; i++) {
     final ch = inner[i];
     if (ch == '<') inTag = true;
     if (!inTag) {
       plain++;
-      // Край на изречение: препинателен знак, следван от интервал.
       if ('.!?…'.contains(ch) &&
           i + 1 < inner.length &&
           (inner[i + 1] == ' ' || inner[i + 1] == '\n')) {
-        if (plain >= lo && plain <= hi) best = i + 1;
-        if (plain > hi) break;
+        final d = (plain - target).abs().toDouble();
+        if (d <= window && d < bestDist) {
+          bestDist = d;
+          best = i + 1;
+        }
       }
+      if (plain > target + window) break;
     }
     if (ch == '>') inTag = false;
   }
-  // ⚠ Сигурност: разрезът не бива да пада вътре в таг.
   if (best == null) return null;
+  // ⚠ Сигурност: разрезът не бива да пада вътре в таг.
   final head = inner.substring(0, best);
   if (head.split('<').length != head.split('>').length) return null;
   return best;
