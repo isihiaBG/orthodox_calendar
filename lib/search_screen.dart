@@ -35,6 +35,11 @@ const Map<String, String> _contentAliases = {
   'молитва': 'molitva',
   'mol': 'molitva', 'moli': 'molitva', 'molit': 'molitva',
   'molitva': 'molitva', 'pray': 'molitva', 'prayer': 'molitva',
+  // акатист
+  'ак': 'akatist', 'ака': 'akatist', 'акат': 'akatist',
+  'акатист': 'akatist',
+  'ak': 'akatist', 'aka': 'akatist', 'akat': 'akatist',
+  'akatist': 'akatist',
   // величание
   'вел': 'velichanie', 'вели': 'velichanie', 'велич': 'velichanie',
   'величание': 'velichanie',
@@ -788,6 +793,7 @@ const Map<String, String> _contentTitles = {
   'kondak': 'кондак',
   'molitva': 'молитва',
   'velichanie': 'величание',
+  'akatist': 'акатист',
   'other': 'друго песнопение',
   'life': 'житие (което и да е)',
   'life1': 'кратко житие',
