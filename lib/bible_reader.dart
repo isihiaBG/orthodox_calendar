@@ -36,6 +36,7 @@ import 'app_theme.dart';
 import 'bible_bg_source.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
+import 'quote_capture.dart';
 import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
@@ -1154,6 +1155,11 @@ class _BibleReaderState extends State<BibleReader>
             '${_shownCode(_pair, null)}|${widget.bookCode}|${widget.chapter}',
         title: () => _chapterLabel(),
         blocks: _quoteBlocks,
+        // ⚠ Виж същото място в reader_screen.dart — без ориентир къс откъс
+        // се запазваше на първото си срещане.
+        blockKey: (i) =>
+            i >= 0 && i < _rows.length ? _keyFor(_rows[i].verse) : null,
+        anchorOf: _bibleAnchor,
         child: Scrollbar(
         controller: _scroll,
         // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
@@ -1620,8 +1626,8 @@ class _BibleReaderState extends State<BibleReader>
             Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                    width: _numberWidth, child: _number(palette, list[i])),
+                _unselectable(SizedBox(
+                    width: _numberWidth, child: _number(palette, list[i]))),
                 const SizedBox(width: _kNumberGap),
                 SizedBox(
                   width: textWidth,
@@ -1633,6 +1639,33 @@ class _BibleReaderState extends State<BibleReader>
       ],
     );
   }
+
+  /// ⚠⚠ ИЗВЪН СЕЛЕКЦИЯТА — номерът на стиха.
+  ///
+  /// `SelectionArea` обгръща целия скрол, тъй че хваща ВСЕКИ `Text` под себе
+  /// си, включително колонката с номерата. Маркиране през два стиха връщаше
+  /// „…слово Божие 6 И рече им…" — текст, какъвто никъде в Писанието няма, и
+  /// улавянето честно се отказваше. Оттам идваше докладваното „не дава да
+  /// споделиш цитат през повече от един стих": единичният стих минаваше,
+  /// защото между началото и края му номер не стои.
+  /// (Докладвано от потребителя, 05.09.2026.)
+  Widget _unselectable(Widget child) =>
+      SelectionContainer.disabled(child: child);
+
+  /// ⚠⚠ ИЗВЪН СЕЛЕКЦИЯТА — и преводът, който НЕ се цитира.
+  ///
+  /// В изправено двата превода се строят ВИНАГИ (виж [_slidingPair]) и само
+  /// се отместват настрани, тъй че невидимият пак е под селекцията: широко
+  /// маркиране прибираше и него. В легнало и двата се виждат, но цитат от
+  /// български и цитат от църковнославянски са различни неща и не бива да се
+  /// смесват в един откъс.
+  ///
+  /// ⚠ Условието е СЪЩОТО, с което [_quoteBlocks] избира от кой превод вади
+  /// текста — инак маркираното и търсеното пак биха били две различни неща.
+  /// В легнало това значи, че се цитира ЛЯВАТА колона; иска ли се дясната,
+  /// двата превода се разменят от менюто в лентата.
+  Widget _quotableOnly(String lang, Widget child) =>
+      lang == _shownCode(_pair, null) ? child : _unselectable(child);
 
   /// Двата превода на ЕДИН стих, наслоени и отместени по X.
   ///
@@ -1661,14 +1694,10 @@ class _BibleReaderState extends State<BibleReader>
     BibleLanguagePair pair,
     double w,
   ) {
-    final first = SizedBox(
-      width: w,
-      child: _verseBody(palette, row, pair.first),
-    );
-    final second = SizedBox(
-      width: w,
-      child: _verseBody(palette, row, pair.second),
-    );
+    Widget cell(String lang) => SizedBox(
+          width: w,
+          child: _quotableOnly(lang, _verseBody(palette, row, lang)),
+        );
 
     return ClipRect(
       child: AnimatedBuilder(
@@ -1678,10 +1707,14 @@ class _BibleReaderState extends State<BibleReader>
           return Stack(
             alignment: AlignmentDirectional.topStart,
             children: [
-              Transform.translate(offset: Offset(-t * w, 0), child: first),
+              // ⚠ Клетките се строят ВЪТРЕ в builder-а: кой превод може да
+              // се маркира зависи от `_slide`, тъй че уловени отвън те биха
+              // останали със състоянието отпреди плъзгането.
+              Transform.translate(
+                  offset: Offset(-t * w, 0), child: cell(pair.first)),
               Transform.translate(
                 offset: Offset((1 - t) * w, 0),
-                child: second,
+                child: cell(pair.second),
               ),
             ],
           );
@@ -1717,10 +1750,12 @@ class _BibleReaderState extends State<BibleReader>
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  SizedBox(
-                      width: _numberWidth, child: _number(palette, list[i])),
+                  _unselectable(SizedBox(
+                      width: _numberWidth, child: _number(palette, list[i]))),
                   const SizedBox(width: _kNumberGap),
-                  Expanded(child: _verseBody(palette, list[i], pair.first)),
+                  Expanded(
+                      child: _quotableOnly(pair.first,
+                          _verseBody(palette, list[i], pair.first))),
                   // Чертата по средата — тънка и приглушена: тя разделя, а не
                   // рисува таблица. Границите между РЕДОВЕТЕ нарочно ги няма.
                   Container(
@@ -1728,7 +1763,9 @@ class _BibleReaderState extends State<BibleReader>
                     margin: const EdgeInsets.symmetric(horizontal: 12),
                     color: palette.dim.withValues(alpha: 0.25),
                   ),
-                  Expanded(child: _verseBody(palette, list[i], pair.second)),
+                  Expanded(
+                      child: _quotableOnly(pair.second,
+                          _verseBody(palette, list[i], pair.second))),
                 ],
               ),
             ),
@@ -3165,52 +3202,101 @@ class _BibleReaderState extends State<BibleReader>
 
   /// Отваря на мястото на цитат.
   ///
-  /// ⚠ „Блокът" тук е индекс в [_rows], тоест зависи от избраната ДВОЙКА
-  /// преводи. Затова е само подсказка: истинското място се намира по текста,
-  /// както навсякъде другаде.
+  /// ⚠⚠ ЧИСЛАТА ТУК ЗНАЧАТ СТИХ И ОТРЯЗВАНЕ, а не абзац и знак — виж
+  /// [QuoteAnchor.block] и [buildBibleQuoteLink]. Затова тук няма нито
+  /// отпечатък, нито пореден номер, нито [locateQuote]: номерът на стиха е
+  /// точният адрес и той не се мени НИКОГА.
   void _goToQuote(ParsedQuoteLink q) {
-    final blocks = _quoteBlocks();
-    if (blocks.isEmpty) return;
-    final b = q.anchor.block.clamp(0, blocks.length - 1);
-    final hit = locateQuote(
-        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+    if (_rows.isEmpty) return;
+
+    // ⚠ Нула значи „цяла глава" — адрес като „Mt.2". Главата е отворена,
+    // няма какво да се маркира.
+    final fromVerse = q.anchor.block;
+    if (fromVerse <= 0) return;
+    final b = _rowOfVerse(fromVerse);
+    if (b < 0) return;
+    final toRow = _rowOfVerse(q.anchor.blockEnd);
+    final bEnd = toRow < b ? b : toRow;
+
+    // ⚠ ОТРЯЗВАНЕТО ВАЖИ САМО ЗА СВОЯ ПРЕВОД, защото се брои в ЗНАЦИ: девет
+    // знака от българския стих не са девет знака от църковнославянския.
+    // Не се ли показва онзи превод, цитатът се маркира ЦЯЛ — по-добре малко
+    // повече от искането, отколкото откъс, който реже насред друга дума.
+    final want = q.anchor.locator.split('|').first;
+    final shown = _shownCode(_pair, null);
+    final showing =
+        want.isNotEmpty && (want == _pair.first || want == _pair.second);
+    final lang = showing ? want : shown;
+    // ⚠ Празен език (адрес без „@") значи „преводът на получателя" — там
+    // отрязването СЕ прилага: човекът, който е написал адреса на ръка, е
+    // мерил по онова, което вижда.
+    final useTrims = showing || want.isEmpty;
+
+    final blocks = _quoteBlocksFor(lang);
+    if (blocks.length <= bEnd) return;
+
+    final startChar =
+        useTrims ? q.anchor.charStart.clamp(0, blocks[b].length) : 0;
+    final endTrim = useTrims ? q.anchor.charEnd : 0;
+
     setState(() {
-      _quoteLang = q.anchor.locator.split('|').first;
+      _quoteLang = lang;
       _quoteRow = b;
-      _quoteRowEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
-      // ⚠ ВИНАГИ от блоковете по КООРДИНАТИ, и то от ЦЕЛИЯ обхват — виж
-      // подробния довод на същото място в reader_screen.dart: q.text е
-      // отрязан до 60 знака, а взето само от първия блок, маркирането
-      // изчезва за всеки следващ регион при цитат през няколко абзаца.
-      final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      _quoteRowEnd = bEnd;
       final parts = <String>[];
       for (var k = b; k <= bEnd; k++) {
         final raw = blocks[k];
-        final from = (k == b ? hit.start : 0).clamp(0, raw.length);
-        final to = (k == bEnd
-                ? (k == b ? hit.start + hit.length : q.anchor.charEnd)
-                : raw.length)
-            .clamp(from, raw.length);
+        final from = k == b ? startChar : 0;
+        final to = k == bEnd
+            ? (raw.length - endTrim).clamp(from, raw.length)
+            : raw.length;
         parts.add(raw.substring(from, to));
       }
       _quoteText = parts.join('\n\n');
     });
-    final row = _rows.length > b ? _rows[b] : null;
-    if (row != null) _jumpToVerse(row.verse);
+    _jumpToVerse(_rows[b].verse);
   }
+
+  /// Кой ред носи този номер стих, или -1.
+  ///
+  /// ⚠ `row.verse` е ТЕКСТ, не число (надписанието на псалом е „0"), тъй че
+  /// сравнението минава през него, а не през `int.parse` на всеки ред.
+  int _rowOfVerse(int verse) {
+    final want = '$verse';
+    for (var i = 0; i < _rows.length; i++) {
+      if (_rows[i].verse == want) return i;
+    }
+    return -1;
+  }
+
+  /// Адресът на маркираното, преведен от редове в СТИХОВЕ и отрязване.
+  ///
+  /// ⚠ Тук се затваря кръгът с [buildBibleQuoteLink]: улавянето връща
+  /// (ред, знак), а Писанието се адресира с (стих, отрязано отпред, отрязано
+  /// отзад). Отзад се смята като „дължината на стиха минус докъде стига
+  /// цитатът" — точно затова се прави ТУК, където текстът е под ръка, а не
+  /// при сглобяването на адреса, където го няма.
+  QuoteAnchor _bibleAnchor(CapturedSpot spot, List<String> blocks) =>
+      bibleAnchorFromSpot(
+        spot: spot,
+        blocks: blocks,
+        verses: [for (final r in _rows) r.verse],
+        lang: _shownCode(_pair, null),
+        book: widget.bookCode,
+        chapter: widget.chapter,
+      );
 
   /// Плоският текст на стиховете — за цитатите.
   ///
   /// ⚠ Взима се САМО показваният превод: цитат от българския и цитат от
   /// църковнославянския са различни неща и не бива да се смесват в един
   /// списък от блокове.
-  List<String> _quoteBlocks() {
-    final lang = _shownCode(_pair, null);
-    return [
-      for (final r in _rows)
-        (r[lang]?.text ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
-    ];
-  }
+  List<String> _quoteBlocks() => _quoteBlocksFor(_shownCode(_pair, null));
+
+  List<String> _quoteBlocksFor(String lang) => [
+        for (final r in _rows)
+          (r[lang]?.text ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
+      ];
 
   /// Кратко име на главата — за подзаглавието в споделения цитат.
   String _chapterLabel() {

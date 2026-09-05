@@ -13,6 +13,16 @@
   Чатовете четат мета-таговете БЕЗ да изпълняват JavaScript, а те трябва да
   са различни за всеки цитат. Това иска истински сървър; засега цитатът и без
   това стои в самото съобщение, над линка.
+
+  ⚠⚠ ДВА ВИДА АДРЕС, и това е нарочно (05.09.2026):
+
+    …/q/Mt.2:3-5(9;15)@bg   Писанието — ЧЕТИМ адрес
+    …/q/zH4sIAAAA…          жития и книги — пакетиран
+
+  Първият стъпва на системата за вътрешни препратки в приложението: стихът е
+  точната единица в Писанието и номерът му не се мени никога, тъй че там няма
+  какво да се пази с отпечатъци. Скобите са колко знака се режат от началото
+  на първия стих и от края на последния; и те, и „@език" са ПО ИЗБОР.
 -->
 <style>
   :root { color-scheme: light dark; }
@@ -21,12 +31,14 @@
   @media (prefers-color-scheme: dark) { body { background:#121212; color:#E6E1D8; } }
   main { max-width:34rem; margin:0 auto; }
   blockquote { margin:0 0 1rem; font-size:1.15rem; }
+  .ref { margin:0 0 1rem; font-size:1.6rem; font-weight:600; }
   .src { font-style:italic; opacity:.75; font-size:.95rem; margin-bottom:2rem; }
   a.btn { display:inline-block; padding:.7rem 1.2rem; border-radius:8px;
           background:#8A9BB0; color:#fff; text-decoration:none; font-weight:600; }
   .note { margin-top:1.5rem; font-size:.9rem; opacity:.7; }
 </style>
 <main>
+  <div class="ref" id="r" hidden></div>
   <blockquote id="q"></blockquote>
   <div class="src" id="s"></div>
   <a class="btn" id="open" href="#">Отвори в приложението</a>
@@ -34,14 +46,82 @@
      на мястото на цитата.</p>
 </main>
 <script>
+// Съкращенията на библейските книги — от `books.bg_abbr` в bible.db.
+const BOOKS = {"Mt":"Мат.","Mk":"Марк.","Lk":"Лук.","Jn":"Йоан.","Act":"Деян.","Jac":"Иак.","1Pet":"1 Петр.","2Pet":"2 Петр.","1Jn":"1 Йоан.","2Jn":"2 Йоан.","3Jn":"3 Йоан.","Juda":"Юда","Rom":"Рим.","1Cor":"1 Кор.","2Cor":"2 Кор.","Gal":"Гал.","Eph":"Еф.","Phil":"Флп.","Col":"Кол.","1Thes":"1 Сол.","2Thes":"2 Сол.","1Tim":"1 Тим.","2Tim":"2 Тим.","Tit":"Тит.","Phlm":"Флм.","Hebr":"Евр.","Apok":"Откр.","Gen":"Бит.","Ex":"Изх.","Lev":"Лев.","Num":"Чис.","Deut":"Втор.","Nav":"Иис. Нав.","Judg":"Съд.","Rth":"Рут","1Sam":"1 Царств.","2Sam":"2 Царств.","1King":"3 Царств.","2King":"4 Царств.","1Chron":"1 Парал.","2Chron":"2 Парал.","Ezr":"1 Ездр.","2Ezr":"2 Ездр.","Nehem":"Неем.","Tov":"Тов.","Judf":"Иудит","Est":"Ест.","1Mac":"1 Мак.","2Mac":"2 Мак.","3Mac":"3 Мак.","Job":"Иов","Ps":"Пс.","Prov":"Притч.","Eccl":"Екл.","Song":"Песн.","Solom":"Прем.","Sir":"Сир.","Is":"Ис.","Jer":"Иер.","Lam":"Плач Иер.","pJer":"Посл. Иер.","Bar":"Вар.","Ezek":"Иез.","Dan":"Дан.","Hos":"Ос.","Joel":"Иоил","Am":"Ам.","Avd":"Авд.","Jona":"Иона","Mic":"Мих.","Naum":"Наум","Habak":"Авак.","Sofon":"Соф.","Hag":"Аг.","Zah":"Зах.","Mal":"Мал.","3Ezr":"3 Ездр."};
+
+// ⚠ Обратното на `_escField` в quote_link.dart: „\\p" е „|", „\\\\" е „\\".
+// Без това locator на книга („път|href") се показва с видима наклонена черта.
+function unesc(v) {
+  let out = '';
+  for (let i = 0; i < v.length; i++) {
+    if (v[i] === '\\' && i + 1 < v.length) {
+      const c = v[++i];
+      out += c === 'p' ? '|' : c;
+    } else out += v[i];
+  }
+  return out;
+}
+
+function splitFields(s) {
+  // Полетата са разделени с „|", но екранираното „\\p" НЕ е разделител.
+  const out = [];
+  let cur = '';
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '\\' && i + 1 < s.length) { cur += s[i] + s[++i]; continue; }
+    if (s[i] === '|') { out.push(cur); cur = ''; continue; }
+    cur += s[i];
+  }
+  out.push(cur);
+  return out.map(unesc);
+}
+
+// „Mt.2:3-5(9;15)@bg" → четим надпис, или null.
+function readableRef(tail) {
+  let body = tail, m;
+  const at = body.lastIndexOf('@');
+  if (at >= 0) body = body.slice(0, at);
+  const open = body.indexOf('(');
+  if (open >= 0) {
+    const close = body.indexOf(')', open);
+    if (close < 0) return null;
+    body = body.slice(0, open) + body.slice(close + 1);
+  }
+  // ⚠ И ЗАПЕТАЯТА, не само двоеточието: „Act.14,22" значи глава 14, стих 22
+  // (виж parseBibleRef в bible_ref.dart — 197 такива в проекта). Приложението
+  // ги приема, тъй че и страницата трябва.
+  m = body.match(/^([0-9A-Za-z]+)\.(\d+)(?:[:,](.+))?$/);
+  if (!m) return null;
+  const name = BOOKS[m[1]] || (m[1] + '.');
+  return name + ' ' + m[2] + (m[3] ? ':' + m[3] : '');
+}
+
 (async () => {
   const m = location.pathname.match(/\/q\/(.+)$/);
-  const q = document.getElementById('q'), s = document.getElementById('s');
+  const q = document.getElementById('q'), s = document.getElementById('s'),
+        r = document.getElementById('r');
+  document.getElementById('open').href = location.href;
   if (!m) { q.textContent = 'Няма цитат в този адрес.'; return; }
+
+  const tail = decodeURIComponent(m[1]);
+
+  // ⚠ РАЗПОЗНАВАНЕТО Е ПО ТОЧКАТА — в base64url точка няма и не може да има,
+  // а всяка библейска препратка носи точно една. Същият признак ползва и
+  // приложението (`parseQuoteLink`).
+  if (tail.indexOf('.') >= 0) {
+    const label = readableRef(tail);
+    if (label) {
+      r.hidden = false;
+      r.textContent = label;
+      q.textContent = '';
+      s.textContent = 'из Свещеното Писание';
+      return;
+    }
+  }
+
   try {
     // Пакетът: първи знак „r" (суров) или „z" (zlib), после base64url.
-    const kind = m[1][0];
-    let b64 = m[1].slice(1).replace(/-/g, '+').replace(/_/g, '/');
+    const kind = tail[0];
+    let b64 = tail.slice(1).replace(/-/g, '+').replace(/_/g, '/');
     while (b64.length % 4) b64 += '=';
     let bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     if (kind === 'z') {
@@ -49,12 +129,13 @@
       bytes = new Uint8Array(await new Response(
         new Blob([bytes]).stream().pipeThrough(ds)).arrayBuffer());
     }
-    // ⚠ Полетата: версия|вид|блок|знак|дължина|слъг|текст. Текстът е
-    // ПОСЛЕДЕН и може да съдържа „|", затова се слепва обратно.
-    const f = new TextDecoder().decode(bytes).split('|');
-    q.textContent = '„' + f.slice(6).join('|') + '…"';
+    const f = splitFields(new TextDecoder().decode(bytes));
+    // ⚠ ДВЕ ВЕРСИИ. 1: версия|вид|блок|знак|дължина|слъг|текст.
+    // 2: … плюс край, отпечатък и пореден номер, а текстът е дванайсети.
+    const v = parseInt(f[0], 10) || 1;
+    const text = f.slice(v >= 2 ? 12 : 6).join('|');
+    q.textContent = text ? '„' + text + '…"' : '';
     s.textContent = 'из „' + f[5].replace(/^sv-/, '').replace(/-/g, ' ') + '"';
-    document.getElementById('open').href = location.href;
   } catch (e) {
     q.textContent = 'Този адрес не се разчита.';
     document.getElementById('n').textContent =

@@ -40,6 +40,34 @@ class QuotableSelectionArea extends StatefulWidget {
   /// Индексът на блока с БУКВИЦА, или -1 — виж [captureSelection].
   final int Function()? dropCapBlock;
 
+  /// ⚠⚠ КЛЮЧЪТ НА ВСЕКИ БЛОК — с него се познава КОЙ блок е под селекцията.
+  ///
+  /// Без този ориентир [captureSelection] намира ПЪРВОТО срещане на
+  /// маркирания текст в цялото четиво. За дълъг откъс това е безобидно (той
+  /// се среща веднъж), но за къс — не: „година" се среща петнайсет пъти в
+  /// житието на св. Кирил Философ, тъй че маркираното дълбоко в текста се
+  /// запазваше като първото горе, и оттам нататък ВСИЧКО беше последователно
+  /// сгрешено — и линкът, и осветяването.
+  /// (Докладвано от потребителя, 05.09.2026.)
+  ///
+  /// ⚠ ОРИЕНТИРЪТ Е САМАТА СЕЛЕКЦИЯ, не „най-горният видим ред". Второто е
+  /// по-лесно, но е приблизително: на един екран може да има две срещания и
+  /// човекът да е маркирал второто. `SelectableRegion` знае къде точно стои
+  /// селекцията (`contextMenuAnchors` — точките, около които се строи самото
+  /// меню), тъй че се пита тя.
+  ///
+  /// ⚠ Достатъчна е ТОЧНОСТ ДО БЛОК. Вътре в блока мястото се оценява по
+  /// дела от височината му — груба сметка, но в един абзац едно и също късо
+  /// съвпадение рядко стои повече от веднъж-дваж, а вече знаем кой е абзацът.
+  ///
+  /// `null` за блок, който в момента не е построен (мързелив списък) — той се
+  /// прескача, а селекцията и без това е на екрана, тоест блокът ѝ е построен.
+  final GlobalKey? Function(int index)? blockKey;
+
+  /// Замества извеждания адрес — виж [buildQuote]. Ползва се от Библията,
+  /// където числата значат стих и отрязване, а не абзац и знак.
+  final QuoteAnchor Function(CapturedSpot spot, List<String> blocks)? anchorOf;
+
   const QuotableSelectionArea({
     super.key,
     required this.child,
@@ -48,6 +76,8 @@ class QuotableSelectionArea extends StatefulWidget {
     required this.title,
     required this.blocks,
     this.dropCapBlock,
+    this.blockKey,
+    this.anchorOf,
   });
 
   @override
@@ -58,19 +88,66 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
   String? _selected;
 
   /// Сглобява цитат от текущата селекция, или `null`, ако не се улови.
-  Quote? _quoteFromSelection() {
+  Quote? _quoteFromSelection(SelectableRegionState region) {
     final text = _selected?.trim();
     if (text == null || text.isEmpty) return null;
-    final spot = captureSelection(widget.blocks(), text,
-        dropCapBlock: widget.dropCapBlock?.call() ?? -1);
+    final blocks = widget.blocks();
+    final spot = captureSelection(blocks, text,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1,
+        hint: _hintFor(region, blocks));
     if (spot == null) return null;
     return buildQuote(
       source: widget.source,
       locator: widget.locator(),
       title: widget.title(),
-      blocks: widget.blocks(),
+      blocks: blocks,
       spot: spot,
+      anchor: widget.anchorOf?.call(spot, blocks),
     );
+  }
+
+  /// Къде на екрана стои селекцията, преведено в (блок, знак).
+  ///
+  /// ⚠ Взима се СРЕДАТА между двете котви на менюто, а не горната: горната
+  /// стои НАД началото на селекцията и при откъс, започващ на първия ред на
+  /// абзац, пада в предишния. Средата е вътре в селекцията по определение, а
+  /// за къс откъс двете котви са на един ред и средата е точно върху него.
+  ///
+  /// ⚠ Не намери ли блок ПОД точката, взима се най-близкият, вместо да се
+  /// върне `null`: тихият отказ е най-скъпият вид отказ в този проект
+  /// (платен вече няколко пъти — виж CLAUDE.md), а тук цената му е връщане
+  /// към стария бъг с първото срещане.
+  (int, int)? _hintFor(SelectableRegionState region, List<String> blocks) {
+    final keyOf = widget.blockKey;
+    if (keyOf == null || blocks.isEmpty) return null;
+
+    final anchors = region.contextMenuAnchors;
+    final top = anchors.primaryAnchor;
+    final bottom = anchors.secondaryAnchor ?? top;
+    final y = (top.dy + bottom.dy) / 2;
+
+    int? bestBlock;
+    var bestGap = double.infinity;
+    var bestFrac = 0.0;
+    for (var i = 0; i < blocks.length; i++) {
+      final ctx = keyOf(i)?.currentContext;
+      if (ctx == null) continue;
+      final box = ctx.findRenderObject();
+      if (box is! RenderBox || !box.hasSize || !box.attached) continue;
+      final boxTop = box.localToGlobal(Offset.zero).dy;
+      final h = box.size.height;
+      final gap = y < boxTop
+          ? boxTop - y
+          : (y > boxTop + h ? y - (boxTop + h) : 0.0);
+      if (gap < bestGap) {
+        bestGap = gap;
+        bestBlock = i;
+        bestFrac = h <= 0 ? 0.0 : ((y - boxTop) / h).clamp(0.0, 1.0);
+      }
+      if (gap == 0) break;
+    }
+    if (bestBlock == null) return null;
+    return (bestBlock, (bestFrac * blocks[bestBlock].length).round());
   }
 
   /// ⚠ ЗАМЕСТВА системното „Сподели", което праща гол текст.
@@ -80,7 +157,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
   /// получателят вижда откъса в контекста му, а не изваден от нищото.
   /// (Описано от потребителя, 02.09.2026.)
   Future<void> _share(SelectableRegionState region) async {
-    final q = _quoteFromSelection();
+    final q = _quoteFromSelection(region);
     region.hideToolbar();
     if (!mounted) return;
     if (q == null) {
@@ -92,13 +169,26 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
 
   Future<void> _save(SelectableRegionState region) async {
     final text = _selected?.trim();
-    // Менюто се скрива ПРЕДИ работата: инак стои на екрана, докато
+    if (text == null || text.isEmpty) {
+      region.hideToolbar();
+      return;
+    }
+
+    // ⚠ ОРИЕНТИРЪТ СЕ ВЗИМА ПРЕДИ СКРИВАНЕТО НА МЕНЮТО. Той се смята от
+    // котвите, около които менюто е построено (`contextMenuAnchors`) — тоест
+    // от живата селекция. Скрито първо, менюто отнася и тях, а грешката би
+    // била тиха: цитатът пак се запазва, само че на първото срещане, тъй че
+    // изглежда сякаш поправката изобщо не е направена.
+    final blocks = widget.blocks();
+    final hint = _hintFor(region, blocks);
+
+    // Менюто се скрива ПРЕДИ останалата работа: инак стои на екрана, докато
     // съобщението изскача под него.
     region.hideToolbar();
-    if (text == null || text.isEmpty) return;
 
-    final spot = captureSelection(widget.blocks(), text,
-        dropCapBlock: widget.dropCapBlock?.call() ?? -1);
+    final spot = captureSelection(blocks, text,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1,
+        hint: hint);
     if (!mounted) return;
     if (spot == null) {
       // ⚠ Случва се при маркиране ПРЕЗ няколко блока: селекцията носи текст,
@@ -113,8 +203,9 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
       source: widget.source,
       locator: widget.locator(),
       title: widget.title(),
-      blocks: widget.blocks(),
+      blocks: blocks,
       spot: spot,
+      anchor: widget.anchorOf?.call(spot, blocks),
     );
     await QuotesStore.add(q);
     if (!mounted) return;

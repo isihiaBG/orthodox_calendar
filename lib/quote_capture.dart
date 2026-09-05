@@ -36,8 +36,13 @@ class CapturedSpot {
   final int blockEnd;
   final int charEnd;
 
+  /// Кое поред съвпадение е това и колко са били общо — виж
+  /// [QuoteAnchor.occurrence]. Нула значи „не се брои" (твърде къс откъс).
+  final int occurrence;
+  final int occurrenceTotal;
+
   const CapturedSpot(this.block, this.charStart, this.charLength,
-      {int? blockEnd, int? charEnd})
+      {int? blockEnd, int? charEnd, this.occurrence = 0, this.occurrenceTotal = 0})
       : blockEnd = blockEnd ?? block,
         charEnd = charEnd ?? (charStart + charLength);
 }
@@ -64,58 +69,58 @@ class CapturedSpot {
 /// абзац човек може да маркира нарочно от втората буква и добавянето на
 /// чужда буква отпред би било грешка.
 CapturedSpot? captureSelection(List<String> blocks, String selected,
-    {int dropCapBlock = -1}) {
+    {int dropCapBlock = -1, (int, int)? hint}) {
   final want = foldForMatch(selected);
   if (want.isEmpty) return null;
 
-  // ⚠ ПЪРВО в един блок — обичайният случай, и по-точен: там позицията се
-  // мери точно, без да се гадае къде минават границите.
-  final one = _captureInOneBlock(blocks, want, dropCapBlock);
-  if (one != null) return one;
+  // ⚠⚠ ЕДНО ТЪРСЕНЕ ПРЕЗ ЦЯЛОТО ЧЕТИВО, не блок по блок. Дотук се пробваше
+  // първо „в един блок" и се връщаше ПЪРВИЯТ блок, който съдържа текста — а
+  // това е точно докладваният бъг: маркираш „година" дълбоко в житието на
+  // св. Кирил Философ (единайсетото от петнайсет срещания), а се запазва
+  // първото горе. Оттам нататък всичко е последователно сгрешено — и
+  // линкът, и осветяването. (Докладвано от потребителя, 05.09.2026.)
+  final f = foldBlocks(blocks);
+  if (f.text.isEmpty) return null;
 
-  // ⚠ ИНАК ПРЕЗ НЯКОЛКО БЛОКА. Слепваме всичко и търсим там; после
-  // намереното се превежда обратно в (блок, знак). Без това всяка селекция,
-  // пресякла граница на абзац, се отказваше — а тъкмо това е обичайното при
-  // цитиране на разказ. (Искане на потребителя, 03.09.2026: „важно е да
-  // можеш да маркираш в повече от един абзац и дори много абзаци без
-  // ограничение".)
-  return _captureAcrossBlocks(blocks, want);
-}
+  final all = <int>[];
+  for (var i = f.text.indexOf(want); i >= 0; i = f.text.indexOf(want, i + 1)) {
+    all.add(i);
+  }
+  if (all.isEmpty) return null;
 
-/// Сгъва блок, като пази откъде идва всеки знак.
-(String, List<int>) _fold(String raw) {
-  final map = <int>[];
-  final buf = StringBuffer();
-  for (var j = 0; j < raw.length; j++) {
-    final c = raw[j].toLowerCase();
-    if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
-      buf.write(c);
-      map.add(j);
+  final at = _pick(all, want, f, hint);
+
+  // ⚠ ПОРЕДНИЯТ НОМЕР СЕ БРОИ ПО ПРОЗОРЕЦА НА ОТПЕЧАТЪКА, а не по целия
+  // откъс — защото отварянето брои точно него (в линка пътува хеш, не
+  // текст). Дълъг цитат се разпознава по първите си шестнайсет сгънати
+  // знака, тъй че съвпаденията му може да са повече от съвпаденията на
+  // целия откъс; двете страни трябва да гледат едно и също нещо.
+  final (fp, window) = quoteFingerprint(selected);
+  var occurrence = 0;
+  var total = 0;
+  if (fp.isNotEmpty) {
+    final m = fingerprintMatches(f.text, fp, window);
+    final k = m.indexOf(at);
+    if (k >= 0) {
+      occurrence = k + 1;
+      total = m.length;
     }
   }
-  return (buf.toString(), map);
-}
-
-CapturedSpot? _captureAcrossBlocks(List<String> blocks, String want) {
-  // Сгънатият текст на всички блокове, наред, плюс за всеки сгънат знак —
-  // в кой блок е и на кой суров знак вътре в него.
-  final hay = StringBuffer();
-  final ofBlock = <int>[];
-  final ofChar = <int>[];
-  for (var i = 0; i < blocks.length; i++) {
-    final (f, map) = _fold(blocks[i]);
-    hay.write(f);
-    for (final c in map) {
-      ofBlock.add(i);
-      ofChar.add(c);
-    }
-  }
-  final at = hay.toString().indexOf(want);
-  if (at < 0) return null;
 
   final endIdx = at + want.length - 1;
-  final b1 = ofBlock[at], b2 = ofBlock[endIdx];
-  final c1 = ofChar[at], c2 = ofChar[endIdx] + 1;
+  final b1 = f.ofBlock[at], b2 = f.ofBlock[endIdx];
+  var c1 = f.ofChar[at];
+  final c2 = f.ofChar[endIdx] + 1;
+
+  // ⚠ Буквицата — виж докстринга. Разширяваме назад САМО ако намереното
+  // започва на ВТОРИЯ сгънат знак на блока с инициала и пред него стои точно
+  // един знак, който е буква: тогава той е инициалът, който селекцията не е
+  // могла да хване.
+  if (b1 == dropCapBlock && at == f.blockStart[b1] + 1 && c1 >= 1) {
+    final before = blocks[b1].substring(0, c1);
+    if (RegExp(r'^\s*[^\s]\s*$').hasMatch(before)) c1 = 0;
+  }
+
   return CapturedSpot(
     b1,
     c1,
@@ -123,35 +128,35 @@ CapturedSpot? _captureAcrossBlocks(List<String> blocks, String want) {
     b1 == b2 ? c2 - c1 : blocks[b1].length - c1,
     blockEnd: b2,
     charEnd: c2,
+    occurrence: occurrence,
+    occurrenceTotal: total,
   );
 }
 
-CapturedSpot? _captureInOneBlock(
-    List<String> blocks, String want, int dropCapBlock) {
-  for (var i = 0; i < blocks.length; i++) {
-    final raw = blocks[i];
-
-    final (hay, map) = _fold(raw);
-    final at = hay.indexOf(want);
-    if (at < 0) continue;
-
-    // ⚠ Дължината се мери В СУРОВИЯ текст, не в сгънатия: осветяването после
-    // рисува върху суровия, а между първия и последния знак на цитата стоят
-    // интервали и пунктуация, които сгъването е изхвърлило.
-    var startRaw = map[at];
-    final endRaw = map[at + want.length - 1] + 1;
-
-    // ⚠ Буквицата — виж докстринга. Разширяваме назад САМО ако пред
-    // намереното стои точно един знак и той е буква: тогава той е
-    // инициалът, който селекцията не е могла да хване.
-    if (i == dropCapBlock && at == 1 && startRaw >= 1) {
-      final before = raw.substring(0, startRaw);
-      if (RegExp(r'^\s*[^\s]\s*$').hasMatch(before)) startRaw = 0;
+/// Кое от намерените съвпадения е маркираното.
+///
+/// ⚠ С ОРИЕНТИР — най-близкото до него. Селекцията е НА ЕКРАНА, тъй че
+/// ориентирът (средата на самата селекция, преведена в „блок и знак") сочи
+/// право в нея; за къс откъс двете съвпадат на знак.
+///
+/// ⚠ БЕЗ ОРИЕНТИР — първото, което се побира ЦЯЛО в един блок, и чак после
+/// първото изобщо. Това възпроизвежда старото поведение дословно: то също
+/// пробваше „в един блок" преди „през блокове". Пази и от рядкото
+/// съвпадение, залепено на границата между два абзаца, каквото никой не е
+/// маркирал.
+int _pick(List<int> all, String want, FoldedBlocks f, (int, int)? hint) {
+  if (hint != null) {
+    final h = f.foldedIndexOf(hint.$1, hint.$2);
+    var best = all.first;
+    for (final a in all) {
+      if ((a - h).abs() < (best - h).abs()) best = a;
     }
-
-    return CapturedSpot(i, startRaw, endRaw - startRaw);
+    return best;
   }
-  return null;
+  for (final a in all) {
+    if (f.ofBlock[a] == f.ofBlock[a + want.length - 1]) return a;
+  }
+  return all.first;
 }
 
 /// Сглобява цитат от уловеното място.
@@ -160,12 +165,19 @@ CapturedSpot? _captureInOneBlock(
 /// селекцията: Flutter понякога добавя нови редове между вътрешните части и
 /// маха меките пренасяния, а в цитата трябва да стои текстът както е в
 /// четивото — той се показва в списъка и се праща в споделения линк.
+/// [anchor] замества извеждания адрес — за четива, чиито числа значат друго.
+///
+/// ⚠ Ползва се САМО от Библията: там „блок" е номер на СТИХ, а не индекс на
+/// абзац, и отрязването се брои от краищата на стиха. Виж [QuoteAnchor.block]
+/// и [buildBibleQuoteLink]. Текстът и тук се взима от блоковете по обичайния
+/// начин — различава се адресирането, не съдържанието.
 Quote buildQuote({
   required QuoteSource source,
   required String locator,
   required String title,
   required List<String> blocks,
   required CapturedSpot spot,
+  QuoteAnchor? anchor,
 }) {
   // ⚠ При цитат ПРЕЗ НЯКОЛКО АБЗАЦА текстът се сглобява от всички — с празен
   // ред помежду, както се чете на екрана.
@@ -179,17 +191,88 @@ Quote buildQuote({
     if (to > from) parts.add(raw.substring(from, to));
   }
   return Quote(
-    anchor: QuoteAnchor(
-      source: source,
-      locator: locator,
-      block: spot.block,
-      charStart: spot.charStart,
-      charLength: spot.charLength,
-      blockEnd: spot.blockEnd,
-      charEnd: spot.charEnd,
-    ),
+    anchor: anchor ??
+        QuoteAnchor(
+          source: source,
+          locator: locator,
+          block: spot.block,
+          charStart: spot.charStart,
+          charLength: spot.charLength,
+          blockEnd: spot.blockEnd,
+          charEnd: spot.charEnd,
+          occurrence: spot.occurrence,
+          occurrenceTotal: spot.occurrenceTotal,
+        ),
     text: parts.join('\n\n'),
     title: title,
     savedAtMs: DateTime.now().millisecondsSinceEpoch,
   );
+}
+
+/// Уловеното (ред, знак) → адрес по СТИХ и отрязване, за Писанието.
+///
+/// ⚠⚠ ТУК СЕ ЗАТВАРЯ КРЪГЪТ С [buildBibleQuoteLink]. Улавянето работи с
+/// редове на екрана, а Писанието се адресира със стихове — номера, който не
+/// се мени никога. Отрязването отзад се смята като „дължината на последния
+/// стих минус докъде стига цитатът", тъй че се прави ТУК, където текстът е
+/// под ръка, а не при сглобяването на адреса, където го няма.
+///
+/// [verses] са номерата на редовете, по реда на показване — текст, а не
+/// число, защото надписанието на псалом е „0".
+///
+/// ⚠ Чиста функция нарочно: това е единственото място, където се превежда
+/// между двете адресирания, и трябва да може да се провери без екран.
+QuoteAnchor bibleAnchorFromSpot({
+  required CapturedSpot spot,
+  required List<String> blocks,
+  required List<String> verses,
+  required String lang,
+  required String book,
+  required int chapter,
+}) {
+  int verseAt(int row) =>
+      row >= 0 && row < verses.length ? (int.tryParse(verses[row]) ?? 0) : 0;
+  final lastLen =
+      spot.blockEnd >= 0 && spot.blockEnd < blocks.length
+          ? blocks[spot.blockEnd].length
+          : 0;
+  final firstLen =
+      spot.block >= 0 && spot.block < blocks.length ? blocks[spot.block].length : 0;
+
+  // ⚠⚠ ОПАШКА САМО ОТ ПУНКТУАЦИЯ СЕ БРОИ ЗА НУЛА. Сгъването изхвърля
+  // точката, тъй че маркиран ЦЯЛ стих свършва на последната БУКВА и
+  // отрязването отзад излизаше 1 — а линкът, вместо чистото „Mt.2:4",
+  // се пишеше „Mt.2:4(0;1)". Същото важи и отпред, за откриваща кавичка.
+  //
+  // ⚠ Правилото е ТУК, а не в общото улавяне: там разширяването би добавило
+  // към цитата знак, който човекът не е маркирал, и то във всички четива.
+  // Тук цената е само един препинателен знак повече в осветеното, а
+  // печалбата е адрес, който се чете.
+  final tail = lastLen - spot.charEnd;
+  final trimEnd = _noLetters(blocks, spot.blockEnd, spot.charEnd, lastLen)
+      ? 0
+      : (tail < 0 ? 0 : (tail > lastLen ? lastLen : tail));
+  final head = spot.charStart < 0 ? 0 : spot.charStart;
+  final trimStart =
+      _noLetters(blocks, spot.block, 0, head) ? 0 : (head > firstLen ? firstLen : head);
+
+  return QuoteAnchor(
+    source: QuoteSource.bible,
+    locator: '$lang|$book|$chapter',
+    block: verseAt(spot.block),
+    charStart: trimStart,
+    charLength: 0,
+    blockEnd: verseAt(spot.blockEnd),
+    charEnd: trimEnd,
+  );
+}
+
+/// Има ли БУКВА или ЦИФРА в [from]..[to) на блока [block].
+bool _noLetters(List<String> blocks, int block, int from, int to) {
+  if (block < 0 || block >= blocks.length) return true;
+  final raw = blocks[block];
+  for (var i = from < 0 ? 0 : from; i < to && i < raw.length; i++) {
+    if (kWordChar.hasMatch(raw[i].toLowerCase())) return false;
+  }
+  return true;
 }

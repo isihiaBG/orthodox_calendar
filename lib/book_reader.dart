@@ -1063,17 +1063,18 @@ class _BookReaderState extends State<BookReader>
   /// Отваря на мястото на цитат — същият механизъм като в четеца на жития.
   void _goToQuote(ParsedQuoteLink q) {
     final blocks = _quoteBlocks();
-    final b = q.anchor.block;
-    if (b < 0 || b >= blocks.length) return;
+    if (blocks.isEmpty) return;
 
-    final hit = locateQuote(
-        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+    // ⚠ Виж същото място в reader_screen.dart — търси се през цялото четиво.
+    final hit = locateParsedQuote(blocks, q);
+    final b = hit.block.clamp(0, blocks.length - 1);
 
     // ⚠ Буквицата е в `_quoteBlocks`, но не и в рисувания текст — диапазонът
     // за фона трябва да е в координатите на РИСУВАНОТО.
     final capLen =
         (b == _dropCapBlockIndex()) ? _currentDropCap().length : 0;
-    final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+    final bEnd = (b + (q.anchor.blockEnd - q.anchor.block))
+        .clamp(b, blocks.length - 1);
     setState(() {
       _quoteRegion = b;
       _quoteRegionEnd = bEnd;
@@ -2408,6 +2409,9 @@ class _BookReaderState extends State<BookReader>
             title: () => _current.title,
             blocks: _quoteBlocks,
             dropCapBlock: _dropCapBlockIndex,
+            // ⚠ Виж същото място в reader_screen.dart.
+            blockKey: (i) =>
+                i >= 0 && i < _regionKeys.length ? _regionKeys[i] : null,
             child: CustomScrollView(
               controller: _scroll,
               slivers: [

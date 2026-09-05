@@ -1561,11 +1561,15 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// Виж `quotes.dart` за целия довод.
   void _goToQuote(ParsedQuoteLink q) {
     final blocks = _quoteBlocks();
-    final b = q.anchor.block;
-    if (b < 0 || b >= blocks.length) return;
+    if (blocks.isEmpty) return;
 
-    final hit = locateQuote(
-        blocks[b], q.anchor.charStart, q.anchor.charLength, q.fingerprint);
+    // ⚠⚠ ТЪРСИ СЕ ПРЕЗ ЦЯЛОТО ЧЕТИВО, не в един абзац. Оттам идват двете
+    // нови неща: цитат, изместен в СЪСЕДЕН абзац (сливане или разделяне при
+    // поправка в превода), се намира където реално е; а когато линкът носи
+    // пореден номер и броят съвпадения не се е променил, се отваря ТОЧНО
+    // онова съвпадение, а не най-близкото. Виж [locateQuoteAcross].
+    final hit = locateParsedQuote(blocks, q);
+    final b = hit.block.clamp(0, blocks.length - 1);
 
     // ⚠ Отместването с буквицата: `_quoteBlocks` я включва, а рисуваният
     // текст на региона я няма (изписва се от самия инициал). Диапазонът за
@@ -1575,7 +1579,10 @@ class _ReaderScreenState extends State<ReaderScreen>
       _quoteRegion = b;
       // ⚠ Цитатът може да минава през няколко абзаца — тогава фонът покрива
       // всички засегнати региони, а не само първия.
-      _quoteRegionEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      // ⚠ Краят се мести ЗАЕДНО с началото: намери ли се цитатът в друг
+      // абзац, обхватът му е същият на брой абзаци, но по-нататък.
+      _quoteRegionEnd = (b + (q.anchor.blockEnd - q.anchor.block))
+          .clamp(b, blocks.length - 1);
       _quoteStart = (hit.start - capLen).clamp(0, 1 << 30);
       _quoteLength = hit.length;
       // ⚠⚠ ВИНАГИ ОТ БЛОКОВЕТЕ, ПО КООРДИНАТИ — НЕ от q.text директно.
@@ -1594,7 +1601,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       // елемент и всеки следващ регион остава без фон — цитатът се
       // споделя и скролът го намира, но НЕ СЕ МАРКИРА.
       // (Двете докладвани от потребителя, 03.09.2026.)
-      final bEnd = q.anchor.blockEnd.clamp(b, blocks.length - 1);
+      final bEnd = (b + (q.anchor.blockEnd - q.anchor.block))
+          .clamp(b, blocks.length - 1);
       final parts = <String>[];
       for (var k = b; k <= bEnd; k++) {
         final raw = blocks[k];
@@ -3278,6 +3286,11 @@ class _ReaderScreenState extends State<ReaderScreen>
               // `_prepared` — оттам, а не наново.
               blocks: _quoteBlocks,
               dropCapBlock: () => _dropCapBlockIndex,
+              // ⚠ Кой регион е под селекцията — без това къс откъс се
+              // запазваше на ПЪРВОТО си срещане в житието. Ключовете са
+              // подравнени с `_quoteBlocks` (и двете вървят по регионите).
+              blockKey: (i) =>
+                  i >= 0 && i < _regionKeys.length ? _regionKeys[i] : null,
               child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [

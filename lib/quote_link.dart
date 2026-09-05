@@ -24,6 +24,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'bible_ref.dart';
 import 'quotes.dart';
 
 /// Пътят, по който Android разпознава линка.
@@ -81,6 +82,11 @@ const int kSearchWindow = 400;
 /// ⚠ Пунктуацията и главните букви отпадат нарочно — точно те се менят при
 /// редакция („Богомайка" → „Божията Майка" смени и регистър, и дължина).
 /// Интервалите също, защото сливането на два абзаца е обичайна поправка.
+/// ⚠ ЕДИН ОБЕКТ, не нов при всяка буква. `RegExp(...)` в тяло на цикъл се
+/// строи наново на всяка итерация, а тези цикли обхождат ЦЯЛОТО четиво —
+/// при дълго житие това са милиони излишни обекта.
+final RegExp kWordChar = RegExp(r'[0-9a-zа-яёіѣѫ]');
+
 String foldForMatch(String s) {
   final b = StringBuffer();
   for (final r in s.toLowerCase().runes) {
@@ -114,6 +120,93 @@ String fingerprint(String text) {
   return _hash(f.substring(0, kFingerprintChars));
 }
 
+/// Сгънатото четиво плюс откъде идва всеки негов знак.
+///
+/// ⚠⚠ ЕДНА ФУНКЦИЯ ЗА ДВЕТЕ СТРАНИ. Улавянето ([captureSelection]) брои кое
+/// поред е съвпадението, а отварянето ([locateQuoteAcross]) брои същото, за
+/// да го намери. Броят ли по два различни начина — макар и по еднакво
+/// изглеждащи цикли — номерът значи едно при запазването и друго при
+/// отварянето, и това не личи отникъде.
+class FoldedBlocks {
+  /// Сгънатият текст на ВСИЧКИ блокове, слепени БЕЗ разделител.
+  final String text;
+
+  /// За всеки сгънат знак: в кой блок е и на кой СУРОВ знак вътре в него.
+  final List<int> ofBlock;
+  final List<int> ofChar;
+
+  /// Откъде почва всеки блок в [text] — за да се познае „втори знак на
+  /// блока" (буквицата) без ново обхождане.
+  final List<int> blockStart;
+
+  const FoldedBlocks(this.text, this.ofBlock, this.ofChar, this.blockStart);
+
+  /// (блок, суров знак) → позиция в сгънатото.
+  int foldedIndexOf(int block, int charStart) {
+    for (var i = 0; i < ofBlock.length; i++) {
+      if (ofBlock[i] > block || (ofBlock[i] == block && ofChar[i] >= charStart)) {
+        return i;
+      }
+    }
+    return ofBlock.isEmpty ? 0 : ofBlock.length - 1;
+  }
+}
+
+FoldedBlocks foldBlocks(List<String> blocks) {
+  final buf = StringBuffer();
+  final ofBlock = <int>[];
+  final ofChar = <int>[];
+  final starts = <int>[];
+  for (var i = 0; i < blocks.length; i++) {
+    starts.add(ofBlock.length);
+    final raw = blocks[i];
+    for (var j = 0; j < raw.length; j++) {
+      final c = raw[j].toLowerCase();
+      if (kWordChar.hasMatch(c)) {
+        buf.write(c);
+        ofBlock.add(i);
+        ofChar.add(j);
+      }
+    }
+  }
+  return FoldedBlocks(buf.toString(), ofBlock, ofChar, starts);
+}
+
+/// Всички места в сгънатия текст, чийто прозорец дава този отпечатък.
+///
+/// ⚠ Прозорците се ЗАСТЪПВАТ нарочно: „ааа" с прозорец 2 дава две места, не
+/// едно. Инак поредните номера биха се разминали при повтарящ се текст.
+List<int> fingerprintMatches(String foldedHay, String fp, int window) {
+  final out = <int>[];
+  if (fp.isEmpty || window <= 0 || foldedHay.length < window) return out;
+  for (var i = 0; i + window <= foldedHay.length; i++) {
+    if (_hash(foldedHay.substring(i, i + window)) == fp) out.add(i);
+  }
+  return out;
+}
+
+/// Отпечатъкът за версия 2: (хеш, дължина на прозореца).
+///
+/// ⚠ РАЗЛИКАТА С [fingerprint] е, че тук прозорецът се СВИВА до дължината на
+/// самия цитат, вместо цитатът да се отхвърля като твърде къс. Оттам идва
+/// цялата полза за кратките откъси: „година" получава хеш на шест знака, по
+/// който съвпаденията МОГАТ ДА СЕ ПРЕБРОЯТ — а точно преброяването дава
+/// поредния номер, който потребителят поиска.
+///
+/// ⚠ [kMinFingerprintChars] НЕ Е махнат и продължава да важи, но само за
+/// стария път: къс отпечатък без пореден номер наистина вреди (виж довода
+/// там). С номер той е точен, не приблизителен — затова проверката е в
+/// [locateQuoteAcross], а не тук.
+///
+/// ⚠ Под два сгънати знака няма какво да се хешва — тогава остават чистите
+/// координати, както и досега.
+(String, int) quoteFingerprint(String text) {
+  final f = foldForMatch(text);
+  if (f.length < 2) return ('', 0);
+  final w = f.length < kFingerprintChars ? f.length : kFingerprintChars;
+  return (_hash(f.substring(0, w)), w);
+}
+
 /// FNV-1a, 32 бита. Избран за краткост и за това, че се смята в един проход —
 /// [locateQuote] го вика за всеки прозорец в абзаца.
 ///
@@ -136,10 +229,123 @@ String _hash(String s) {
 /// БЕЗ приложението. Затова текстът е суров (с интервали и пунктуация), а не
 /// сгънат: сгънатият се чете „ощеотмладигодини".
 ///
-/// 60 знака са около изречение — достатъчно да се разбере за какво иде реч,
-/// и достатъчно малко, за да не раздуе адреса. Целият цитат и без това стои
-/// в самото съобщение, над линка.
-const int kLinkTextChars = 60;
+/// ⚠⚠ ОТ ВЕРСИЯ 2 ТЕКСТЪТ Е САМО ЗА ПОКАЗВАНЕ и вече не участва в
+/// намирането. Дотук отпечатъкът се ИЗВЕЖДАШЕ от него при разчитане, тъй че
+/// скъсяването му би убило МЪЛЧАЛИВО цялата устойчивост: 8 сурови знака се
+/// сгъват до ~7, а прагът е [kFingerprintChars] = 16 — отпечатъкът би
+/// излизал празен за всеки цитат и всичко би паднало на голи координати.
+/// Затова хешът пътува като СВОЕ поле (виж [quoteFingerprint]).
+///
+/// ⚠ Осем знака са преценка на потребителя (05.09.2026): „тези дълги
+/// линкове не стоят никак естетично, когато се пращат навън". Цената е, че
+/// страницата за хора БЕЗ приложението показва само началото на цитата —
+/// приета е, защото целият цитат и без това стои в самото съобщение, над
+/// линка, а страницата служи главно за копчето „Отвори в приложението".
+const int kLinkTextChars = 8;
+
+/// ⚠⚠ ЦИТАТ ОТ ПИСАНИЕТО СЕ АДРЕСИРА ЧЕТИМО, а не пакетирано.
+///
+/// Предложение на потребителя (05.09.2026), и то по-добро от пакетирания
+/// вид: приложението вече има система за вътрешни препратки („Мт.3:2-5"),
+/// стихът е точната единица в Писанието, а номерът му НЕ СЕ МЕНИ никога.
+/// Тъй че тук няма какво да се пази с отпечатъци и поредни номера — стихът
+/// сам е адресът.
+///
+///     …/q/Mt.2:3-5(9;15)@bg
+///                └──┘ └┘
+///                 │    └── преводът, на който е маркирано
+///                 └─────── 9 знака отрязани от НАЧАЛОТО на ст. 3,
+///                          15 знака отрязани от КРАЯ на ст. 5
+///
+/// ⚠ И ДВЕТЕ ДОБАВКИ СА ПО ИЗБОР. „Mt.2:3-5" сам по себе си значи цели
+/// стихове на превода, който получателят чете — тъй че всеки съществуващ
+/// вътрешен адрес е и валиден външен линк, без нищо да се дописва.
+///
+/// ⚠ КРЪГЛИ СКОБИ, не ъглови или квадратни. Измерено, не предположено:
+/// „<9;15>" се превръща в „%3C9;15%3E", „[9;15]" — в „%5B9;15%5D", защото
+/// RFC 3986 не ги допуска в път. Кръглите минават НЕПРОМЕНЕНИ, а точно
+/// видът на адреса е целта на цялата тази работа.
+///
+/// ⚠ ЗАЩО ЕЗИКЪТ ИЗОБЩО ПЪТУВА: отрязването се брои в ЗНАЦИ, а те са
+/// различни във всеки превод — девет знака от българския стих не са девет
+/// знака от църковнославянския. Липсва ли езикът или не е свален, показва се
+/// преводът на получателя, а отрязването се ПРОПУСКА (цели стихове) вместо
+/// да сочи наслуки.
+///
+/// Връща `null`, ако адресът не се сглобява — тогава се пада на пакетирания
+/// вид, както за всяко друго четиво.
+String? buildBibleQuoteLink(QuoteAnchor a) {
+  final parts = a.locator.split('|');
+  if (parts.length < 3) return null;
+  final lang = parts[0], book = parts[1];
+  final chapter = int.tryParse(parts[2]);
+  if (book.isEmpty || chapter == null) return null;
+
+  final from = a.block, to = a.blockEnd;
+  if (from <= 0) return null;
+
+  final b = StringBuffer('$book.$chapter:$from');
+  if (to > from) b.write('-$to');
+  // ⚠ Скобите се пишат само когато има какво — „(0;0)" е шум.
+  if (a.charStart > 0 || a.charEnd > 0) {
+    b.write('(${a.charStart};${a.charEnd})');
+  }
+  if (lang.isNotEmpty) b.write('@$lang');
+  return 'https://$kQuoteLinkHost$kQuotePath/$b';
+}
+
+/// Обратното на [buildBibleQuoteLink]. `null`, ако не е такъв адрес.
+///
+/// ⚠ Всичко подир препратката е по избор и липсата му значи подразбиране:
+/// без скоби — цели стихове; без „@" — преводът на получателя. Заради това
+/// и „Mt.2" (цяла глава) се приема: отваря главата, без да маркира нищо.
+ParsedQuoteLink? parseBibleQuoteLink(String tail) {
+  var body = tail;
+  var lang = '';
+  var trimStart = 0, trimEnd = 0;
+
+  final at = body.lastIndexOf('@');
+  if (at >= 0) {
+    lang = body.substring(at + 1).trim();
+    body = body.substring(0, at);
+  }
+
+  final open = body.indexOf('(');
+  if (open >= 0) {
+    final close = body.indexOf(')', open);
+    if (close < 0) return null;
+    final nums = body.substring(open + 1, close).split(';');
+    trimStart = int.tryParse(nums[0].trim()) ?? 0;
+    if (nums.length > 1) trimEnd = int.tryParse(nums[1].trim()) ?? 0;
+    if (trimStart < 0 || trimEnd < 0) return null;
+    body = body.substring(0, open) + body.substring(close + 1);
+  }
+
+  final ref = parseBibleRef(body.trim());
+  // ⚠ ТОЧНО ЕДИН пасаж. Препратка от няколко („Апок.12:3,20:2") е законна за
+  // ЧЕТЕНЕ, но не и за цитат: цитатът е един непрекъснат откъс.
+  if (ref.passages.length != 1) return null;
+  final p = ref.passages.first;
+
+  final from = p.isWholeChapter ? 0 : p.ranges.first.from;
+  final to = p.isWholeChapter ? 0 : p.ranges.last.to;
+
+  return ParsedQuoteLink(
+    anchor: QuoteAnchor(
+      source: QuoteSource.bible,
+      locator: '$lang|${p.book}|${p.chapter}',
+      // ⚠⚠ ЗА БИБЛИЯТА ЧИСЛАТА ЗНАЧАТ ДРУГО — виж [QuoteAnchor].
+      block: from,
+      charStart: trimStart,
+      charLength: 0,
+      blockEnd: to < from ? from : to,
+      charEnd: trimEnd,
+    ),
+    // Отпечатък не трябва: стихът е точният адрес и не се мени.
+    fingerprint: '',
+    fingerprintLength: 0,
+  );
+}
 
 /// Сглобява споделимия адрес.
 ///
@@ -153,6 +359,13 @@ const int kLinkTextChars = 60;
 /// цитатът. Другите два изхода бяха или дълъг адрес (текст в параметър), или
 /// невъзстановим цитат (само хеш); това е третият — къс адрес И пълни данни.
 String buildQuoteLink(Quote q) {
+  // ⚠ Писанието получава ЧЕТИМ адрес — виж [buildBibleQuoteLink]. Не се ли
+  // сглоби (повреден locator), пада на пакетирания вид: по-добре грозен
+  // работещ линк, отколкото никакъв.
+  if (q.anchor.source == QuoteSource.bible) {
+    final readable = buildBibleQuoteLink(q.anchor);
+    if (readable != null) return readable;
+  }
   final text = q.text.trim();
   // ⚠ Реже се по ДУМА, не по знак — иначе полученият текст свършва насред
   // дума и осветяването на страницата за неинсталирали изглежда счупено.
@@ -160,6 +373,10 @@ String buildQuoteLink(Quote q) {
   final short = text.length <= kLinkTextChars
       ? text
       : text.substring(0, text.lastIndexOf(' ', kLinkTextChars)).trimRight();
+  // ⚠ Хешът се смята от ЦЕЛИЯ цитат, не от отрязаното `short`. Дотук двете
+  // съвпадаха по случайност (60 сурови знака дават над 16 сгънати); при 8
+  // вече не съвпадат и от текста няма какво да се извлече.
+  final (fp, fpLen) = quoteFingerprint(text);
   final packed = _pack([
     '$kQuoteLinkVersion',
     q.anchor.source.name,
@@ -167,6 +384,16 @@ String buildQuoteLink(Quote q) {
     '${q.anchor.charStart}',
     '${q.anchor.charLength}',
     q.anchor.locator,
+    // ⚠ ОТ ВЕРСИЯ 2 нататък. Редът на първите шест полета е СЪЩИЯТ като във
+    // версия 1 нарочно — така разчитането на двете дели началото си, а
+    // страницата в GitHub Pages различава версиите по едно число.
+    '${q.anchor.blockEnd}',
+    '${q.anchor.charEnd}',
+    fp,
+    '$fpLen',
+    '${q.anchor.occurrence}',
+    '${q.anchor.occurrenceTotal}',
+    // ⚠ Текстът остава ПОСЛЕДЕН: само така може да съдържа какво да е.
     short,
   ]);
   return 'https://$kQuoteLinkHost$kQuotePath/$packed';
@@ -259,16 +486,35 @@ class ParsedQuoteLink {
   /// намирането — там работи отпечатъкът.
   final String text;
 
+  /// С колко СГЪНАТИ знака е смятан [fingerprint] — виж [quoteFingerprint].
+  ///
+  /// ⚠ НЕ СЕ ИЗВЕЖДА от [text]: той е отрязан до [kLinkTextChars], а сгъването
+  /// маха интервалите и пунктуацията, тъй че суровата дължина не казва нищо
+  /// за сгънатата. Затова числото пътува само.
+  final int fingerprintLength;
+
   const ParsedQuoteLink({
     required this.anchor,
     required this.fingerprint,
+    this.fingerprintLength = kFingerprintChars,
     this.text = '',
   });
 }
 
 ParsedQuoteLink? parseQuoteLink(Uri uri) {
   if (!uri.path.startsWith('$kQuotePath/')) return null;
-  final packed = uri.path.substring(kQuotePath.length + 1);
+  final tail = uri.path.substring(kQuotePath.length + 1);
+
+  // ⚠ РАЗПОЗНАВАНЕТО Е ПО ТОЧКАТА. Пакетираният вид е „r"/„z" плюс base64url
+  // (букви, цифри, „-", „_") — точка в него НЯМА и не може да има. А всяка
+  // библейска препратка носи точно една: „Mt.2:3-5". Тъй че признакът е
+  // еднозначен и не иска нито версия, нито префикс.
+  if (tail.contains('.')) {
+    final b = parseBibleQuoteLink(Uri.decodeComponent(tail));
+    if (b != null) return b;
+  }
+
+  final packed = tail;
   final f = _unpack(packed);
   if (f == null || f.length < 7) return null;
 
@@ -282,19 +528,50 @@ ParsedQuoteLink? parseQuoteLink(Uri uri) {
   final locator = f[5];
   if (source == null || locator.isEmpty) return null;
 
+  final block = int.tryParse(f[2]) ?? 0;
+  final charStart = int.tryParse(f[3]) ?? 0;
+  final charLength = int.tryParse(f[4]) ?? 0;
+
+  // ⚠ ВЕРСИЯ 1 — вече споделени адреси. Носи шест полета и текст; краят на
+  // цитата, отпечатъкът и поредният номер ги няма, тъй че се извеждат както
+  // преди: краят от началото плюс дължината, отпечатъкът от текста (той е
+  // бил 60 знака, тоест над прага), номер — никакъв.
+  if (v < 2) {
+    final text = f.sublist(6).join('|');
+    return ParsedQuoteLink(
+      anchor: QuoteAnchor(
+        source: source,
+        locator: locator,
+        block: block,
+        charStart: charStart,
+        charLength: charLength,
+      ),
+      fingerprint: fingerprint(text),
+      text: text,
+    );
+  }
+
+  // ⚠ ВЕРСИЯ 2. Непълен пакет се отхвърля, вместо да се дочита с нули:
+  // липсващ `charEnd` би дал цитат, който свършва там, където започва.
+  if (f.length < 13) return null;
   // ⚠ Текстът може да съдържа `|` (рядко, но възможно) — затова се сглобява
-  // обратно от ВСИЧКО след шестото поле, вместо да се взима само f[6].
-  final text = f.sublist(6).join('|');
+  // обратно от ВСИЧКО след дванайсетото поле, вместо да се взима само f[12].
+  final text = f.sublist(12).join('|');
 
   return ParsedQuoteLink(
     anchor: QuoteAnchor(
       source: source,
       locator: locator,
-      block: int.tryParse(f[2]) ?? 0,
-      charStart: int.tryParse(f[3]) ?? 0,
-      charLength: int.tryParse(f[4]) ?? 0,
+      block: block,
+      charStart: charStart,
+      charLength: charLength,
+      blockEnd: int.tryParse(f[6]),
+      charEnd: int.tryParse(f[7]),
+      occurrence: int.tryParse(f[10]) ?? 0,
+      occurrenceTotal: int.tryParse(f[11]) ?? 0,
     ),
-    fingerprint: fingerprint(text),
+    fingerprint: f[8],
+    fingerprintLength: int.tryParse(f[9]) ?? kFingerprintChars,
     text: text,
   );
 }
@@ -308,7 +585,16 @@ class QuoteHit {
   /// Как е намерен — за да може повикващият да реши дали да предупреди.
   final QuoteHitKind kind;
 
-  const QuoteHit(this.start, this.length, this.kind);
+  /// В КОЙ блок е намерен.
+  ///
+  /// ⚠ Може да се РАЗЛИЧАВА от подсказания: от версия 2 търсенето минава през
+  /// цялото четиво наведнъж, тъй че цитат, изместен в съседен абзац (сливане
+  /// или разделяне при поправка в превода), се намира там, където реално е.
+  /// Дотук търсенето беше затворено в един блок и такова изместване не се
+  /// поправяше — числата водеха в грешния абзац и това не личеше отникъде.
+  final int block;
+
+  const QuoteHit(this.start, this.length, this.kind, {this.block = 0});
 }
 
 /// ⚠ И ТРИТЕ СТОЙНОСТИ ОТВАРЯТ ЦИТАТА. Разликата е само доколко е потвърдено
@@ -334,69 +620,108 @@ enum QuoteHitKind {
 /// менят при редакция — а после превежда намерената позиция обратно в
 /// суровия текст, защото осветяването рисува върху него.
 QuoteHit locateQuote(String blockText, int hintStart, int hintLength,
-    String wantFingerprint) {
+        String wantFingerprint) =>
+    locateQuoteAcross(
+      [blockText],
+      block: 0,
+      charStart: hintStart,
+      charLength: hintLength,
+      fingerprint: wantFingerprint,
+    );
+
+/// Готовият вид за трите четеца: намира цитата от разчетен линк.
+QuoteHit locateParsedQuote(List<String> blocks, ParsedQuoteLink q) =>
+    locateQuoteAcross(
+      blocks,
+      block: q.anchor.block,
+      charStart: q.anchor.charStart,
+      charLength: q.anchor.charLength,
+      fingerprint: q.fingerprint,
+      fingerprintLength: q.fingerprintLength,
+      occurrence: q.anchor.occurrence,
+      occurrenceTotal: q.anchor.occurrenceTotal,
+    );
+
+/// Намира цитата в ЦЯЛОТО четиво — виж [locateQuote] за довода зад начина.
+///
+/// ⚠⚠ КОЕ ПЕЧЕЛИ, КОГА. Три правила, наредени по сила:
+///
+///   1. **Поредният номер**, ако броят на съвпаденията е СЪЩИЯТ като при
+///      запазването. Тогава мястото е известно точно, а не приблизително —
+///      и точно това решава случая „«година» се среща 15 пъти".
+///   2. **Най-близкото до координатите**, ако броят се е променил (текстът е
+///      пренаписан) или номер изобщо няма (линк от версия 1). Старото,
+///      изпитано правило.
+///   3. **Голите координати**, ако отпечатъкът не се намира никъде.
+///
+/// ⚠ Правило 2 иска отпечатък поне [kMinFingerprintChars] знака — под това
+/// „най-близкото" е по-скоро вредно, отколкото полезно (виж довода там).
+/// Правило 1 няма такъв праг: то не гадае, а брои.
+QuoteHit locateQuoteAcross(
+  List<String> blocks, {
+  required int block,
+  required int charStart,
+  required int charLength,
+  required String fingerprint,
+  int fingerprintLength = kFingerprintChars,
+  int occurrence = 0,
+  int occurrenceTotal = 0,
+}) {
   // ⚠ КООРДИНАТИТЕ СА ОСНОВАТА, отпечатъкът е само потвърждение върху тях.
-  // Няма ли отпечатък или е твърде къс, за да различава — връщаме точно
-  // каквото сочат числата, без да гадаем. Виж [kMinFingerprintChars].
-  if (wantFingerprint.isEmpty) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
+  // Няма ли отпечатък, връщаме точно каквото сочат числата, без да гадаем.
+  final fallback =
+      QuoteHit(charStart, charLength, QuoteHitKind.byCoordinates, block: block);
+  if (blocks.isEmpty || fingerprint.isEmpty) return fallback;
+
+  final window =
+      fingerprintLength <= 0 ? kFingerprintChars : fingerprintLength;
+
+  // ⚠ Къс отпечатък БЕЗ пореден номер не се ползва изобщо — виж
+  // [kMinFingerprintChars]. С номер се ползва, защото тогава не се гадае.
+  if (window < kMinFingerprintChars && occurrence <= 0) return fallback;
+
+  // ⚠ СЪЩОТО сгъване и СЪЩОТО броене, с които [captureSelection] е смятал
+  // поредния номер — виж [FoldedBlocks].
+  final f = foldBlocks(blocks);
+  if (f.text.length < window) return fallback;
+
+  final hintFolded = f.foldedIndexOf(block, charStart);
+  final hits = fingerprintMatches(f.text, fingerprint, window);
+  if (hits.isEmpty) {
+    // Текстът го няма — четивото е пренаписано. Пак се отваря посоченото
+    // място: по-добре приблизително вярно, отколкото нищо.
+    return fallback;
   }
 
-  // Съответствие „позиция в сгънатото → позиция в суровото".
-  final map = <int>[];
-  final folded = StringBuffer();
-  for (var i = 0; i < blockText.length; i++) {
-    final c = blockText[i].toLowerCase();
-    if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
-      folded.write(c);
-      map.add(i);
+  int best;
+  if (occurrence > 0 &&
+      occurrenceTotal > 0 &&
+      hits.length == occurrenceTotal &&
+      occurrence <= hits.length) {
+    // ⚠ ПРАВИЛО 1 — броят съвпада, значи текстът е онзи, и номерът е точен.
+    best = hits[occurrence - 1];
+  } else if (window >= kMinFingerprintChars || occurrence > 0) {
+    // ⚠ ПРАВИЛО 2 — най-близкото до подсказката, не първото в текста. Честа
+    // фраза се среща по няколко пъти в едно житие; първото би отвело далеч.
+    best = hits.first;
+    for (final h in hits) {
+      if ((h - hintFolded).abs() < (best - hintFolded).abs()) best = h;
     }
-  }
-  final hay = folded.toString();
-  if (hay.isEmpty) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
+  } else {
+    return fallback;
   }
 
-  // Къде сочи подсказката в сгънатото пространство.
-  var hintFolded = 0;
-  for (var i = 0; i < map.length; i++) {
-    if (map[i] >= hintStart) {
-      hintFolded = i;
-      break;
-    }
-  }
-
-  // ⚠ Търси се НАЙ-БЛИЗКОТО съвпадение до подсказката, не първото в текста.
-  // Честа фраза („и рече му") се среща по няколко пъти в едно житие; първото
-  // би отвело далеч от истинското място.
-  //
-  // ⚠ Сравняват се ХЕШОВЕ на прозорци, а не подниз: в линка стои хеш, не
-  // текст (виж [fingerprint]). Прозорецът е с дължината, с която хешът е
-  // смятан — [kFingerprintChars] или колкото е бил целият цитат.
-  final window = kFingerprintChars;
-  if (hay.length < window) {
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
-  }
-  var best = -1;
-  for (var i = 0; i + window <= hay.length; i++) {
-    if (_hash(hay.substring(i, i + window)) != wantFingerprint) continue;
-    if (best < 0 || (i - hintFolded).abs() < (best - hintFolded).abs()) {
-      best = i;
-    }
-  }
-  if (best < 0) {
-    // Текстът го няма — абзацът е пренаписан. Пак се отваря посоченото място:
-    // по-добре приблизително вярно, отколкото нищо.
-    return QuoteHit(hintStart, hintLength, QuoteHitKind.byCoordinates);
-  }
-
-  final rawStart = map[best];
-  // Дължината се пренася от подсказката: отпечатъкът е само НАЧАЛОТО на
-  // цитата, а целият откъс може да е много по-дълъг.
-  final kind = (rawStart - hintStart).abs() <= 2
+  final b = f.ofBlock[best];
+  final rawStart = f.ofChar[best];
+  // ⚠ Дължината се пренася от подсказката: отпечатъкът е само НАЧАЛОТО на
+  // цитата, а целият откъс може да е много по-дълъг. Свива се само ако след
+  // изместването вече не се побира в блока.
+  final room = blocks[b].length - rawStart;
+  final len = charLength < room ? charLength : room;
+  final kind = (b == block && (rawStart - charStart).abs() <= 2)
       ? QuoteHitKind.exact
       : QuoteHitKind.shifted;
-  return QuoteHit(rawStart, hintLength, kind);
+  return QuoteHit(rawStart, len < 0 ? 0 : len, kind, block: b);
 }
 
 extension _FirstOrNull<T> on Iterable<T> {
