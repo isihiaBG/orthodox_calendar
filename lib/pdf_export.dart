@@ -736,6 +736,47 @@ const double _kPdfImageMaxHeightFactor = 0.52;
 /// завъртане. Листът не се върти.
 const double _kPdfFlowImageWidthFactor = 0.5;
 
+/// ⚠⚠ В PDF-А ИМА САМО ДВА ВИДА КАРТИНКИ — правило на потребителя
+/// (05.09.2026), формулирано дословно:
+///
+///   1. **Цяла ширина** — само за снимка, която е ПЕЙЗАЖНА (по-широка,
+///      отколкото висока) И с достатъчна резолюция, за да не изглежда
+///      зърнеста разпъната по цялата страница. Тя естествено няма обтичане.
+///   2. **Половин ред с обтичащ текст** — ВСИЧКИ останали, при това страната
+///      се редува: веднъж отляво, веднъж отдясно.
+///
+/// Трети вид няма. Картинка с празно поле около себе си е дефект, не случай.
+///
+/// ⚠ „Пейзажна" значи съотношение над 1.0, а не над 1.15 (старият праг тук
+/// беше взет от ЕКРАНА, където кутията е друга).
+const double _kPdfFullWidthMinAspect = 1.0;
+
+/// Долният праг за резолюция при цяла ширина, в точки на инч.
+///
+/// ⚠ 150 ppi е обичайната граница за прилично изглеждаща снимка в печат (300
+/// е идеалът, под 100 зърнистостта се вижда). При ширина на съдържанието
+/// около 515 pt, тоест 7,15 инча, това иска изображение от поне ~1070
+/// пиксела по ширина.
+///
+/// ⚠⚠ СЛЕДСТВИЕ, което трябва да се знае: НИТО ЕДНА от снимките в житията
+/// днес не го покрива — най-широката е 600 px, а единствената пейзажна е
+/// 500 px, тоест 70 ppi разпъната. Тъй че на практика ВСИЧКИ минават на
+/// половин ред с обтичане. Това е нарочно: разпъната, такава снимка се вижда
+/// зърнеста. Прагът е тук, за да пропусне утрешна снимка с добра резолюция.
+const double _kPdfFullWidthMinPpi = 150;
+
+/// Полага ли се на тази картинка ЦЯЛА ширина — виж [_kPdfFullWidthMinAspect].
+bool _pdfWantsFullWidth(double tagAspect, pw.MemoryImage img, double contentWidth) {
+  final iw = (img.width ?? 0).toDouble();
+  final ih = (img.height ?? 0).toDouble();
+  // ⚠ Съотношението от атрибутите е меродавно; към самото изображение се пада
+  // само ако тагът не го е дал (същото правило като в [_imageBox]).
+  final aspect = tagAspect > 0 ? tagAspect : (ih == 0 ? 0.0 : iw / ih);
+  if (aspect < _kPdfFullWidthMinAspect) return false;
+  if (iw <= 0 || contentWidth <= 0) return false;
+  return iw / (contentWidth / 72) >= _kPdfFullWidthMinPpi;
+}
+
 /// Над това съотношение картинката заема ЦЯЛАТА ширина и обтичане няма.
 ///
 /// ⚠ Същата граница като на екрана ([kIllustrationFullWidthAspect]):
@@ -798,6 +839,10 @@ int _addFlowImage({
   required PdfFont font,
   required double bodySize,
   required PdfColor strongColor,
+  /// ⚠ От коя страна застава картинката. Редува се от повикващия — виж
+  /// [_kPdfFullWidthMinAspect]: „обтичането ще се редува ту отляво, ту
+  /// отдясно на картинката" (правило на потребителя, 05.09.2026).
+  required bool left,
 }) {
   final b = arranged[index];
   final imgW = contentWidth * _kPdfFlowImageWidthFactor;
@@ -918,10 +963,20 @@ int _addFlowImage({
   // разрезът пада на граница на дума, а не насред нея.
   var tailSpans = <pw.InlineSpan>[];
   pw.TextStyle? tailStyle;
+  // ⚠⚠ „ПОБИРА СЕ" — трети изход, който липсваше и тук.
+  //
+  // Преливането се обявява по `used > zoneHeight`, а `used` брои и
+  // ОТСТОЯНИЕТО от 8 пункта след всеки блок. Тъй че блок, чийто ТЕКСТ се
+  // побира, но чието отстояние стърчи, минаваше за преливащ: разрез не се
+  // получаваше (нямаше какво да се реже) и вторият изход го изхвърляше ЦЯЛ
+  // под картинката. Отвън това изглежда като празна ивица срещу надписа —
+  // същият симптом, който потребителят докладва и за четеца (05.09.2026).
+  var fitsWhole = false;
   if (used > zoneHeight && beside.isNotEmpty) {
     final lastIdx = besideBlocks.last;
     final lastBlk = arranged[lastIdx];
-    final before = used - ((beside.last.box?.height ?? 0) + 8);
+    final lastH = beside.last.box?.height ?? 0;
+    final before = used - (lastH + 8);
     final room = zoneHeight - before;
     final style = _blockStyleOf(lastBlk, font, bodySize);
     final fs = style.fontSize ?? bodySize;
@@ -930,7 +985,9 @@ int _addFlowImage({
 
     // ⚠ Под два реда до картинката застава чуканче — тогава е по-добре
     // блокът да слезе цял (вторият изход по-долу).
-    if (linesFit >= 2 && !lastBlk.isHeading) {
+    if (lastH <= room) {
+      fitsWhole = true;
+    } else if (linesFit >= 2 && !lastBlk.isHeading) {
       final plain = lastBlk.text;
       final split =
           _splitLines(plain, colW, font, fs, linesFit);
@@ -957,10 +1014,35 @@ int _addFlowImage({
     }
   }
 
+  // ⚠⚠ `used` СЕ ПРЕСМЯТА НАНОВО СЛЕД РАЗРЕЗА — инак обтичането се отменя.
+  //
+  // Дотук то оставаше с ПЪЛНАТА височина на срязания блок, тоест с онова,
+  // което той би заел БЕЗ разреза. При тясна колона дълъг абзац лесно минава
+  // височината на листа, тъй че таванът по-долу връщаше 0 и обтичане изобщо
+  // не се правеше: картинката минаваше по общия път, свиваше се по ВИСОЧИНА
+  // (52% от листа) и излизаше ПО-ШИРОКА от половин колона, а текст до нея
+  // нямаше.
+  //
+  // ⚠ Забелязано от потребителя по ВИДА на снимката, не по празнината
+  // (05.09.2026): „размерът ѝ не е коригиран да бъде широка колкото
+  // половината от ширината на страницата… и виждаме, че при нея няма
+  // обтичане". Мерено в готовия PDF: 276 pt при 257 за истински обтичащите.
+  if (tailSpans.isNotEmpty) {
+    used = 0;
+    for (final w in beside) {
+      try {
+        w.layout(context, narrow);
+        used += (w.box?.height ?? 0) + 8;
+      } catch (_) {
+        // не се е оформил — оставяме каквото е събрано дотук
+      }
+    }
+  }
+
   // ⚠ ВТОРИЯТ ИЗХОД: не се ли е получил разрез, преливащият блок слиза ЦЯЛ
   // долу — стига горе да остава поне един друг. Без него текстовата колона
   // надраства картинката и под НЕЯ зее (бъгът, платен на екрана).
-  if (tailSpans.isEmpty && used > zoneHeight && beside.length > 1) {
+  if (!fitsWhole && tailSpans.isEmpty && used > zoneHeight && beside.length > 1) {
     beside.removeLast();
     besideBlocks.removeLast();
     cursor--;
@@ -1033,8 +1115,10 @@ int _addFlowImage({
       child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          block,
-          pw.SizedBox(width: kIllustrationGap),
+          // ⚠ Редът на децата Е страната. Текстът е `Expanded` и заема
+          // остатъка, тъй че колоната му е еднакво широка и от двете страни.
+          if (left) block,
+          if (left) pw.SizedBox(width: kIllustrationGap),
           pw.Expanded(
             child: pw.Column(
               crossAxisAlignment: pw.CrossAxisAlignment.stretch,
@@ -1047,6 +1131,8 @@ int _addFlowImage({
               ],
             ),
           ),
+          if (!left) pw.SizedBox(width: kIllustrationGap),
+          if (!left) block,
         ],
       ),
     ),
@@ -2024,6 +2110,8 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
         // 31.08.2026). С брой знаци остатъкът се реже със `_spansAfter` —
         // същата функция, с която работи и буквицата — и таговете оцеляват.
         int? pendingSkip;
+        // Коя по ред е обтичащата илюстрация — за редуването на страната.
+        var flowSide = 0;
         double? mainHeadingGap;
         for (var i = 0; i < arranged.length; i++) {
           final b = arranged[i];
@@ -2075,9 +2163,10 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
             // ⚠ ШИРОКИТЕ остават на ЦЯЛА ширина, без обтичане — панорамна
             // снимка в половин ред губи смисъла си. Границата е същата като
             // на екрана.
-            final wideImage = b.imageAspect <= 0 ||
-                b.imageAspect >= kIllustrationFullWidthAspect;
-            if (!wideImage) {
+            // ⚠ Виж [_kPdfFullWidthMinAspect]: цяла ширина се полага само
+            // на пейзажна снимка с добра резолюция. Всичко останало отива на
+            // половин ред с обтичане.
+            if (!_pdfWantsFullWidth(b.imageAspect, img, contentWidth)) {
               final consumed = _addFlowImage(
                 add: add,
                 setBlock: (v) => curBlock = v,
@@ -2090,8 +2179,13 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                 font: _body!.getFont(context),
                 bodySize: _bodySize,
                 strongColor: strongIsWine ? _wine : _ink,
+                // ⚠ Страната СЕ РЕДУВА — веднъж отляво, веднъж отдясно.
+                // Броячът върви по РЕАЛНО обтичащите: картинка, минала по
+                // общия път, не бива да обръща реда на следващите.
+                left: flowSide.isEven,
               );
               if (consumed > 0) {
+                flowSide++;
                 i += consumed - 1;
                 continue;
               }
@@ -2416,7 +2510,28 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                       ]),
                     ),
                   ));
-                  add(pw.SizedBox(height: fontSize * 0.45));
+                  // ⚠⚠ БЕЗ ОТСТЪП. Тези два widget-а са ЕДИН абзац, срязан
+                  // насред изречение — между тях трябва обикновено
+                  // междуредие, не празнина.
+                  //
+                  // Тук стоеше `fontSize * 0.45`, тоест 9 пункта. Измерено в
+                  // готов PDF: разстоянието след ВТОРИЯ ред на всеки абзац
+                  // излизаше 41,71 pt срещу 32,40 навсякъде другаде — и това
+                  // се вижда с просто око на цял документ.
+                  // (Докладвано от потребителя, 05.09.2026: „между втория и
+                  // третия ред в почти всички параграфи отстоянието е
+                  // по-голямо".)
+                  //
+                  // ⚠ СЪЩИЯТ дефект беше поправен на 31.08.2026 при
+                  // ГРУПИРАНОТО заглавие (виж `grouped ? 0` по-долу и довода
+                  // при него) — но само там. Двете места правят едно и също
+                  // нещо и трябва да се менят заедно.
+                  //
+                  // ⚠ Остават 0,31 pt разлика (32,71 срещу 32,40): вътре в
+                  // един widget действа и отрицателното `lineSpacing`
+                  // (виж [_lineSpacing]), а между два widget-а — не.
+                  // Поправка иска ОТРИЦАТЕЛЕН отстъп, какъвто `SizedBox` няма;
+                  // един процент от реда не се вижда.
                   add(splittable: true, pw.RichText(
                       textAlign: pw.TextAlign.justify,
                       overflow: pw.TextOverflow.span,

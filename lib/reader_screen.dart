@@ -2730,7 +2730,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         // ⚠ Дотук тук стоеше СВОЯ оценка по знаци („perLine × редове"), а
         // рисуването ползваше друга — двете вече не могат да се разминат,
         // защото минават през една и съща функция с едни и същи входове.
-        final (besideProbe, belowProbe) = _splitFlow(
+        final (besideProbe, belowProbe) = splitFlow(
             r.flowHtml,
             illustrationZoneHeight(
                 imgHeight: imgHProbe,
@@ -3802,7 +3802,7 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
         // ⚠ Височината на блока вдясно е картинката ПЛЮС надписа — виж
         // [illustrationZoneHeight]. Дотук тук стоеше само `imgHProbe` и
         // ивицата срещу надписа оставаше празна.
-        final (besideHtml, belowHtml) = _splitFlow(
+        final (besideHtml, belowHtml) = splitFlow(
             flowHtml,
             illustrationZoneHeight(
                 imgHeight: imgHProbe,
@@ -4012,7 +4012,12 @@ double illustrationZoneHeight({
 ///
 /// [charsFit] е груба преценка колко знака се събират отстрани — виж
 /// повикващия.
-(String, String) _splitFlow(
+/// ⚠ ПУБЛИЧНА заради теста. Тази функция вече два пъти произведе докладван
+/// дефект (празнина под картинката, после рязка разлика между два съседни
+/// размера на шрифта), а поведението ѝ зависи от мерки, които се менят с
+/// шрифта — тоест е точно от онова, което не бива да се проверява на око.
+/// Виж `test/illustration_flow_test.dart`.
+(String, String) splitFlow(
     String flowHtml, double zoneHeight, double colWidth) {
   // ⚠ И ЗАГЛАВИЯТА влизат, не само абзаците — зоната се дозапълва с
   // каквото следва (31.08.2026). Дотук изразът търсеше само `<p>` и
@@ -4094,14 +4099,39 @@ double illustrationZoneHeight({
     final minRoom = (base.fontSize ?? 16) * kReaderLineHeight * 2.5;
 
     var handled = false;
-    if (m != null && room > minRoom) {
+
+    // ⚠⚠ ПЪРВО: ПОБИРА ЛИ СЕ ИЗОБЩО. Тук зееше цепнатина точно [kPTopMargin]
+    // пиксела широка и тя обясняваше най-странния симптом — „при една
+    // големина на шрифта стои идеално, при следващата е зле".
+    //
+    // Преливането се обявява по `used > zoneHeight`, тоест по височина С
+    // долното поле на абзаца. Разрезът обаче се пробваше при
+    // `loc.height > room - topMargin`, тоест БЕЗ него. В ивицата между двете
+    // не се пробваше нищо и блокът просто слизаше ЦЯЛ долу — макар текстът
+    // му да се побира, а навън да стърчи само невидимото поле.
+    //
+    // Осем пиксела са тесни, но една стъпка на шрифта мести числата с повече
+    // от толкова, тъй че съседни размери падаха от двете страни на ръба и
+    // резултатът изглеждаше необясним.
+    // (Докладвано от потребителя, 05.09.2026, с две двойки снимки.)
+    if (heightOf(last) - kPTopMargin <= room) {
+      handled = true;
+    } else if (m != null && room > minRoom) {
       final inner = m.group(2)!;
       final loc =
           LineLocator.forHtml(html: last, base: base, maxWidth: colWidth);
       try {
-        if (loc.height > room - topMargin) {
+        {
           final at = loc.charAtDy(room - topMargin - kPTopMargin);
-          final cut = _sentenceCutNear(inner, at);
+          // ⚠ Изречението е ПО-ДОБРИЯТ разрез, но не е единственият. Не се ли
+          // намери край на изречение наблизо, се реже по ДУМА — точно както
+          // прави всяко обтичане около картинка. Дотук тук се връщаше `null`
+          // и целият абзац слизаше долу, тоест заради липсваща точка зоната
+          // оставаше празна.
+          //
+          // ⚠ Продължението е `class="contflow"` — то няма горно поле и не се
+          // чете като нов абзац, тъй че разрез насред изречение е наред.
+          final cut = _sentenceCutNear(inner, at) ?? _wordCutNear(inner, at);
           if (cut != null) {
             beside[beside.length - 1] =
                 '${m.group(1)}${inner.substring(0, cut)}</p>';
@@ -4126,6 +4156,45 @@ double illustrationZoneHeight({
   }
 
   return (beside.join('\n'), below.join('\n'));
+}
+
+/// Край на ДУМА най-близо до [target] — резервният разрез.
+///
+/// ⚠ Ползва се само когато край на изречение няма наблизо. Дотук в такъв
+/// случай абзацът слизаше ЦЯЛ под картинката и зоната оставаше празна —
+/// заради липсваща точка, не заради липсващо място.
+///
+/// ⚠ Прозорецът е по-тесен от този за изречение: дума има навсякъде, тъй че
+/// няма смисъл да се търси надалеч, а колкото по-близо до целта, толкова
+/// по-пълна е зоната.
+int? _wordCutNear(String inner, int target) {
+  if (target <= 0) return null;
+  final window = (target * 0.20).clamp(20.0, 200.0);
+  var plain = 0;
+  var inTag = false;
+  int? best;
+  var bestDist = double.infinity;
+  for (var i = 0; i < inner.length; i++) {
+    final ch = inner[i];
+    if (ch == '<') inTag = true;
+    if (!inTag) {
+      plain++;
+      if (ch == ' ' || ch == '\n') {
+        final d = (plain - target).abs().toDouble();
+        if (d <= window && d < bestDist) {
+          bestDist = d;
+          best = i + 1;
+        }
+      }
+      if (plain > target + window) break;
+    }
+    if (ch == '>') inTag = false;
+  }
+  if (best == null) return null;
+  // ⚠ Същата защита: разрезът не бива да пада вътре в таг.
+  final head = inner.substring(0, best);
+  if (head.split('<').length != head.split('>').length) return null;
+  return best;
 }
 
 /// Край на изречение НАЙ-БЛИЗО до [target] — отместване в [inner] или `null`.
