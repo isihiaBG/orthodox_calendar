@@ -1160,6 +1160,7 @@ class _BibleReaderState extends State<BibleReader>
         blockKey: (i) =>
             i >= 0 && i < _rows.length ? _keyFor(_rows[i].verse) : null,
         anchorOf: _bibleAnchor,
+        titleOf: _bibleCitation,
         child: Scrollbar(
         controller: _scroll,
         // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
@@ -3297,6 +3298,31 @@ class _BibleReaderState extends State<BibleReader>
         for (final r in _rows)
           (r[lang]?.text ?? '').replaceAll(RegExp(r'<[^>]+>'), ''),
       ];
+
+  /// ⚠⚠ СТАНДАРТНАТА СЪКРАТЕНА ПРЕПРАТКА — „Мат. 3:15", „Йоан. 2:3-5".
+  ///
+  /// Дотук под споделен библейски цитат стоеше „— из «Евангелие от Йоан 2»".
+  /// Вярно, но нестандартно: Писанието се цитира с установен съкратен запис,
+  /// а не с име на книга и номер на глава. (Поискано от потребителя,
+  /// 05.09.2026: „така изглежда много по-стандартизирано".)
+  ///
+  /// ⚠ Записът се строи от СЪЩИТЕ две части, с които приложението рисува
+  /// препратките в житията — съкращението на книгата от базата и
+  /// [BiblePassage.whereLabel]. Преписан на ръка, той щеше да се размине с
+  /// тях при първата промяна и цитатът да изглежда от друго приложение.
+  String _bibleCitation(CapturedSpot spot, List<String> blocks) {
+    final from = _verseAt(spot.block), to = _verseAt(spot.blockEnd);
+    if (from <= 0) return _chapterLabel();
+    final passage = BiblePassage(
+      book: widget.bookCode,
+      chapter: widget.chapter,
+      ranges: [VerseRange(from, to < from ? from : to)],
+    );
+    return '${_book?.abbr ?? widget.bookCode} ${passage.whereLabel}';
+  }
+
+  int _verseAt(int row) =>
+      row >= 0 && row < _rows.length ? (int.tryParse(_rows[row].verse) ?? 0) : 0;
 
   /// Кратко име на главата — за подзаглавието в споделения цитат.
   String _chapterLabel() {

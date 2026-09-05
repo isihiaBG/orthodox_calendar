@@ -1035,9 +1035,17 @@ String quoteShareText(Quote q) {
   final b = StringBuffer()
     ..writeln('„$shown"')
     ..writeln();
-  if (q.title.trim().isNotEmpty) {
+  final title = q.title.trim();
+  if (title.isNotEmpty) {
+    // ⚠⚠ ПИСАНИЕТО СЕ ЦИТИРА ПО СВОЯ РЕД. „— из «Евангелие от Йоан 2»" е
+    // вярно, но нестандартно: за Библията установеният запис е съкратената
+    // препратка в скоби. За всичко останало („Св. Иоан Рилски (Житие)")
+    // такъв запис няма и си остава „— из".
+    // (Поискано от потребителя, 05.09.2026.)
     b
-      ..writeln('— из „${q.title.trim()}"')
+      ..writeln(q.anchor.source == QuoteSource.bible
+          ? '($title)'
+          : '— из „$title"')
       ..writeln();
   }
   b

@@ -68,6 +68,13 @@ class QuotableSelectionArea extends StatefulWidget {
   /// където числата значат стих и отрязване, а не абзац и знак.
   final QuoteAnchor Function(CapturedSpot spot, List<String> blocks)? anchorOf;
 
+  /// Замества [title], когато то зависи от МАРКИРАНОТО, а не само от четивото.
+  ///
+  /// ⚠ Ползва се от Библията: там надписът под цитата е стандартната съкратена
+  /// препратка („Мат. 3:15"), а тя иска да се знае докъде стига откъсът —
+  /// нещо, което [title] няма откъде да разбере, защото се вика без данни.
+  final String Function(CapturedSpot spot, List<String> blocks)? titleOf;
+
   const QuotableSelectionArea({
     super.key,
     required this.child,
@@ -78,6 +85,7 @@ class QuotableSelectionArea extends StatefulWidget {
     this.dropCapBlock,
     this.blockKey,
     this.anchorOf,
+    this.titleOf,
   });
 
   @override
@@ -99,7 +107,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     return buildQuote(
       source: widget.source,
       locator: widget.locator(),
-      title: widget.title(),
+      title: widget.titleOf?.call(spot, blocks) ?? widget.title(),
       blocks: blocks,
       spot: spot,
       anchor: widget.anchorOf?.call(spot, blocks),
@@ -202,7 +210,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     final q = buildQuote(
       source: widget.source,
       locator: widget.locator(),
-      title: widget.title(),
+      title: widget.titleOf?.call(spot, blocks) ?? widget.title(),
       blocks: blocks,
       spot: spot,
       anchor: widget.anchorOf?.call(spot, blocks),

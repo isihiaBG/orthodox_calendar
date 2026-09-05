@@ -226,6 +226,7 @@ void main() {
   group('цялата верига за Писанието', bibleChainTests);
   group('поредното съвпадение', occurrenceTests);
   group('двоичният пакет (версия 3)', v3Tests);
+  group('надписът под цитата', citationTests);
 }
 
 // ── улавяне на селекция ──────────────────────────────────────────────────
@@ -1070,5 +1071,39 @@ void v3Tests() {
               'https://isihiabg.github.io/orthodox_calendar/q/$s')),
           returnsNormally);
     }
+  });
+}
+
+/// Как изглежда надписът под споделения цитат.
+void citationTests() {
+  Quote make(QuoteSource src, String title) => Quote(
+        anchor: QuoteAnchor(
+            source: src,
+            locator: src == QuoteSource.bible ? 'bg|Jn|2' : 'sv-x',
+            block: src == QuoteSource.bible ? 3 : 0,
+            charStart: 0,
+            charLength: 20,
+            blockEnd: src == QuoteSource.bible ? 5 : null),
+        text: 'достатъчно дълъг цитат, за да има отпечатък',
+        title: title,
+        savedAtMs: 0,
+      );
+
+  test('⚠ Писанието се цитира със стандартната препратка в СКОБИ', () {
+    final t = quoteShareText(make(QuoteSource.bible, 'Йоан. 2:3-5'));
+    expect(t, contains('(Йоан. 2:3-5)'));
+    expect(t, isNot(contains('— из')),
+        reason: 'за Писанието „— из «Евангелие от Йоан 2»" е нестандартно');
+  });
+
+  test('останалите четива запазват „— из"', () {
+    final t = quoteShareText(make(QuoteSource.life, 'Св. Иоан Рилски (Житие)'));
+    expect(t, contains('— из „Св. Иоан Рилски (Житие)"'));
+    expect(t, isNot(contains('(Св. Иоан Рилски (Житие))')));
+  });
+
+  test('без заглавие не се появява празна скоба', () {
+    final t = quoteShareText(make(QuoteSource.bible, ''));
+    expect(t, isNot(contains('()')));
   });
 }
