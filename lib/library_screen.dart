@@ -57,7 +57,13 @@ const List<_Volume> _volumes = [
   _Volume('декември', 'XII', 31, 96, '12'),
 ];
 
-const Map<String, String> _epubOf = {
+/// Кой том на кой файл отговаря.
+///
+/// ⚠ ПУБЛИЧНА нарочно: същата карта трябва и на [resolveQuoteLocator], който
+/// разгъва свитите адреси („~09/397" → том септември, глава 397). Преписана
+/// на две места, тя щеше да се разминае при първата подмяна на том — а
+/// разминаването би личало само като „линкът не отваря нищо".
+const Map<String, String> kEpubOf = {
   '01': 'assets/books/Жития на светиите - 01(яну) - Димитрий Ростовски.epub',
   '02': 'assets/books/Жития на светиите - 02(фев) - Димитрий Ростовски.epub',
   '03': 'assets/books/Жития на светиите - 03(мар) - Димитрий Ростовски.epub',
@@ -116,7 +122,7 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (_opening) return;
     setState(() => _opening = true);
 
-    final loading = EpubBook.open(_epubOf[_volumes[i].file]!);
+    final loading = EpubBook.open(kEpubOf[_volumes[i].file]!);
     final rect = _flow.currentState?.centerCoverRect();
     OverlayEntry? flying;
 

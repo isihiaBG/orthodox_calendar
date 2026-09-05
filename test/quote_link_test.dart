@@ -34,21 +34,28 @@ void main() {
       expect(link, startsWith('https://isihiabg.github.io/orthodox_calendar/q/'));
       // ⚠ Адресът трябва да е КЪС: кирилицата в обикновен параметър го
       // раздуваше над 230 знака.
-      expect(link.length, lessThan(200), reason: 'дълъг адрес в чата пълзи');
+      expect(link.length, lessThan(200), reason: 'long адрес в чата пълзи');
+
+      // ⚠ ЦЕЛТА НА ВЕРСИЯ 3 Е ДЪЛЖИНАТА. Житийният адрес беше 156 знака и
+      // потребителят го отхвърли като „никак естетичен"; сега е около 70.
+      expect(link.length, lessThan(90), reason: 'long адрес в чата пълзи');
 
       final p = parseQuoteLink(Uri.parse(link))!;
       expect(p.anchor.source, QuoteSource.life);
-      expect(p.anchor.locator, 'sv-ioan-rilski');
       expect(p.anchor.block, 12);
       expect(p.anchor.charStart, 43);
+      expect(p.anchor.charLength, 60);
       expect(p.fingerprint, fingerprint(q.text),
-          reason: 'от версия 2 отпечатъкът пътува като СВОЕ поле, но за '
-              'достатъчно дълъг цитат стойността е същата като преди');
-      // ⚠ ТЕКСТЪТ ВЕЧЕ Е САМО НАЧАЛОТО — от версия 2 той служи единствено на
-      // страницата за хора без приложението, а намирането минава по
-      // отпечатъка. Виж [kLinkTextChars].
-      expect(p.text.length, lessThanOrEqualTo(kLinkTextChars));
-      expect(q.text, startsWith(p.text));
+          reason: 'отпечатъкът пътува като свое поле, но за достатъчно дълъг '
+              'цитат стойността е същата, каквато е била винаги');
+
+      // ⚠ СЛЪГЪТ СЕ СВИВА ДО ОТПЕЧАТЪК — 28 знака стават 4 байта. Обратно се
+      // разгъва чак при отваряне, срещу базата (виж [resolveQuoteLocator]),
+      // затова тук стои МАРКЕР, а не самият слъг.
+      expect(p.anchor.locator, '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
+      expect(p.text, isEmpty,
+          reason: 'от версия 3 откъсът изобщо не пътува — целият цитат и без '
+              'това стои в самото съобщение, над линка');
     });
 
     test('⚠ версия 2 носи КРАЯ на цитата — дотук го нямаше изобщо', () {
@@ -218,6 +225,7 @@ void main() {
   group('четимият адрес за Писанието', bibleLinkTests);
   group('цялата верига за Писанието', bibleChainTests);
   group('поредното съвпадение', occurrenceTests);
+  group('двоичният пакет (версия 3)', v3Tests);
 }
 
 // ── улавяне на селекция ──────────────────────────────────────────────────
@@ -400,7 +408,8 @@ void shareTests() {
     // същото място, откъдето е тръгнал.
     final link = quoteShareText(q).split('\n').last;
     final parsed = parseQuoteLink(Uri.parse(link))!;
-    expect(parsed.anchor.locator, 'sv-ioan-rilski');
+    expect(parsed.anchor.locator,
+        '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
     expect(parsed.anchor.block, 3);
     expect(parsed.anchor.charStart, 10);
     expect(parsed.fingerprint, fingerprint(q.text));
@@ -517,7 +526,26 @@ void coordinateBugTests() {
 }
 
 void linkTruncationTests() {
-  test('⚠ отрязването на цитата в линка е по ДУМА', () {
+  // ⚠ ОТРЯЗВАНЕТО В САМИЯ АДРЕС ОТПАДНА с версия 3 — откъсът вече не пътува
+  // в него изобщо. Правилото „реже се по ДУМА" обаче важи с пълна сила там,
+  // където текстът СЕ показва: в съобщението за споделяне. Проверката се
+  // мести при него, вместо да се изхвърли.
+  test('⚠ съкращаването в съобщението е по ДУМА, не насред нея', () {
+    final q = Quote(
+      anchor: const QuoteAnchor(
+          source: QuoteSource.life, locator: 'sv-x', block: 0,
+          charStart: 0, charLength: 400),
+      // ⚠ Достатъчно дълъг, за да мине прага [kLongQuoteChars].
+      text: 'дума ' * 200,
+      title: 'нещо',
+      savedAtMs: 0,
+    );
+    final shown = quoteShareText(q).split('\n').first;
+    expect(shown, contains('…'), reason: 'дълъг цитат се съкращава');
+    expect(shown, isNot(contains('дум…')), reason: 'не реже насред дума');
+  });
+
+  test('⚠ адресът вече не носи откъса изобщо', () {
     final q = Quote(
       anchor: const QuoteAnchor(
           source: QuoteSource.life, locator: 'sv-x', block: 0,
@@ -527,8 +555,7 @@ void linkTruncationTests() {
       savedAtMs: 0,
     );
     final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
-    expect(p.text, isNot(endsWith('дум')), reason: 'не бива да реже насред дума');
-    expect(p.text.trim().endsWith('дума'), isTrue);
+    expect(p.text, isEmpty);
   });
 }
 
@@ -599,7 +626,7 @@ void separatorTests() {
       savedAtMs: 0,
     );
     final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
-    expect(p.anchor.locator, 'sv-x');
+    expect(p.anchor.locator, '${kLocatorMarker}${locatorFingerprint('sv-x')}');
   });
 
   test('обикновен житиен locator минава непроменен (съвместимост)', () {
@@ -612,7 +639,8 @@ void separatorTests() {
       savedAtMs: 0,
     );
     final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
-    expect(p.anchor.locator, 'sv-ioan-rilski');
+    expect(p.anchor.locator,
+        '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
     expect(p.anchor.block, 4);
   });
 }
@@ -934,5 +962,113 @@ void occurrenceTests() {
     expect(hit.block, greaterThan(5));
     expect(edited[hit.block].substring(hit.start, hit.start + hit.length),
         'година');
+  });
+}
+
+/// Двоичният пакет на версия 3 — това, което направи адреса къс.
+void v3Tests() {
+  Quote life(String slug, {int block = 3, int start = 10, int len = 20,
+          int? blockEnd, int? charEnd, int occ = 0, int total = 0}) =>
+      Quote(
+        anchor: QuoteAnchor(
+          source: QuoteSource.life, locator: slug, block: block,
+          charStart: start, charLength: len,
+          blockEnd: blockEnd, charEnd: charEnd,
+          occurrence: occ, occurrenceTotal: total,
+        ),
+        text: 'достатъчно дълъг цитат, за да има отпечатък',
+        title: 'нещо', savedAtMs: 0,
+      );
+
+  test('⚠ пакетът се различава по ПЪРВИЯ знак — „b"/„c", не „r"/„z"', () {
+    final packed = buildQuoteLink(life('sv-x')).split('/').last;
+    expect(packed[0], anyOf('b', 'c'),
+        reason: 'първият БАЙТ на двоичния пакет е 0x30..0x32, тоест „0"/„1"/'
+            '„2" — точно с каквито започват текстовите пакети');
+  });
+
+  test('⚠⚠ ОТРИЦАТЕЛНА разлика за края оцелява (цитат през няколко блока)', () {
+    // Тук charEnd (25 в ПОСЛЕДНИЯ блок) е ПО-МАЛКО от charStart+charLength
+    // (10+40 в първия) — обикновен varint изяждаше знака и краят се
+    // разместваше. Оттам зигзагът.
+    final q = life('sv-x', block: 3, start: 10, len: 40,
+        blockEnd: 6, charEnd: 25);
+    final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
+    expect(p.anchor.block, 3);
+    expect(p.anchor.blockEnd, 6);
+    expect(p.anchor.charStart, 10);
+    expect(p.anchor.charLength, 40);
+    expect(p.anchor.charEnd, 25);
+  });
+
+  test('краят НЕ се пише, когато се извежда', () {
+    final short = buildQuoteLink(life('sv-x')).length;
+    final long =
+        buildQuoteLink(life('sv-x', blockEnd: 9, charEnd: 7)).length;
+    expect(short, lessThan(long), reason: 'изводимият край не заема място');
+  });
+
+  test('⚠ локаторът на КНИГА се свива до „том/глава"', () {
+    final q = Quote(
+      anchor: const QuoteAnchor(
+        source: QuoteSource.book,
+        locator: 'assets/books/Жития на светиите - 09(сеп) - Димитрий '
+            'Ростовски.epub|Text/index_split_397.xhtml',
+        block: 12, charStart: 430, charLength: 96,
+      ),
+      text: 'достатъчно дълъг цитат, за да има отпечатък',
+      title: 'нещо', savedAtMs: 0,
+    );
+    final link = buildQuoteLink(q);
+    expect(link.length, lessThan(90),
+        reason: 'пътят до тома е над шейсет байта сам по себе си');
+    final p = parseQuoteLink(Uri.parse(link))!;
+    expect(p.anchor.locator, '${kLocatorMarker}09/397');
+    expect(p.anchor.block, 12);
+    expect(p.anchor.charStart, 430);
+  });
+
+  test('⚠ непознат път до том влиза ЛИТЕРАЛНО, вместо да се загуби', () {
+    const odd = 'assets/books/друго.epub|Text/glava.xhtml';
+    final q = Quote(
+      anchor: const QuoteAnchor(
+          source: QuoteSource.book, locator: odd,
+          block: 1, charStart: 0, charLength: 30),
+      text: 'достатъчно дълъг цитат, за да има отпечатък',
+      title: 'нещо', savedAtMs: 0,
+    );
+    final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
+    expect(p.anchor.locator, odd,
+        reason: 'по-дълъг адрес, но работещ — вместо тих отказ');
+  });
+
+  test('⚠ поредният номер оцелява през двоичния пакет', () {
+    final p = parseQuoteLink(
+        Uri.parse(buildQuoteLink(life('sv-x', occ: 11, total: 15))))!;
+    expect(p.anchor.occurrence, 11);
+    expect(p.anchor.occurrenceTotal, 15);
+  });
+
+  test('⚠ по-нова версия се отхвърля, вместо да се гадае', () {
+    final packed = buildQuoteLink(life('sv-x')).split('/').last;
+    final bytes = base64Url.decode(
+        packed.substring(1).padRight((packed.length + 2) ~/ 4 * 4, '='));
+    // Вдигаме версията в горните четири бита на първия байт.
+    bytes[0] = (15 << 4) | (bytes[0] & 0x0F);
+    final broken = packed[0] +
+        base64Url.encode(bytes).replaceAll('=', '');
+    expect(
+        parseQuoteLink(Uri.parse(
+            'https://isihiabg.github.io/orthodox_calendar/q/$broken')),
+        isNull);
+  });
+
+  test('повреден двоичен пакет не гърми, а се отказва', () {
+    for (final s in ['b', 'b!!!!', 'bAA', 'c', 'cZZZZZZZZ']) {
+      expect(
+          () => parseQuoteLink(Uri.parse(
+              'https://isihiabg.github.io/orthodox_calendar/q/$s')),
+          returnsNormally);
+    }
   });
 }

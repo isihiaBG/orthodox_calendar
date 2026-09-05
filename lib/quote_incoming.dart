@@ -24,6 +24,7 @@ import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
+import 'quote_locator.dart';
 import 'quotes_list.dart' show openBookQuote, openBibleQuote;
 import 'reader_screen.dart';
 import 'saint_expandable_tile.dart' show SaintLookup;
@@ -123,10 +124,24 @@ class IncomingQuoteLinks {
   static Future<void> _open(
     GlobalKey<NavigatorState> navigatorKey,
     SaintLookup lookup,
-    ParsedQuoteLink q,
+    ParsedQuoteLink parsed,
   ) async {
     final nav = navigatorKey.currentState;
     if (nav == null) return;
+
+    // ⚠⚠ СВИТИЯТ ЛОКАТОР СЕ РАЗГЪВА ПЪРВО. От версия 3 адресът носи маркер
+    // („~18fed407" за житие, „~09/397" за книга) вместо целия слъг или път —
+    // оттам идва по-голямата част от скъсяването. Виж [resolveQuoteLocator].
+    //
+    // ⚠ Прави се ТУК, а не в [parseQuoteLink]: разгъването иска базата и
+    // картата на томовете, тоест е асинхронно, а разчитането на адрес трябва
+    // да остане чиста функция — само така се проверява без устройство.
+    final q = ParsedQuoteLink(
+      anchor: await resolveQuoteLocator(parsed.anchor),
+      fingerprint: parsed.fingerprint,
+      fingerprintLength: parsed.fingerprintLength,
+      text: parsed.text,
+    );
 
     switch (q.anchor.source) {
       case QuoteSource.life:

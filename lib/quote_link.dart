@@ -22,6 +22,7 @@
 // му вече не се сменя — затова `v=1` стои вътре още от първия.
 
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:io';
 
 import 'bible_ref.dart';
@@ -229,18 +230,20 @@ String _hash(String s) {
 /// БЕЗ приложението. Затова текстът е суров (с интервали и пунктуация), а не
 /// сгънат: сгънатият се чете „ощеотмладигодини".
 ///
-/// ⚠⚠ ОТ ВЕРСИЯ 2 ТЕКСТЪТ Е САМО ЗА ПОКАЗВАНЕ и вече не участва в
-/// намирането. Дотук отпечатъкът се ИЗВЕЖДАШЕ от него при разчитане, тъй че
-/// скъсяването му би убило МЪЛЧАЛИВО цялата устойчивост: 8 сурови знака се
-/// сгъват до ~7, а прагът е [kFingerprintChars] = 16 — отпечатъкът би
-/// излизал празен за всеки цитат и всичко би паднало на голи координати.
-/// Затова хешът пътува като СВОЕ поле (виж [quoteFingerprint]).
+/// Колко СУРОВИ знака от цитата пътуваха в адреса на версии 1 и 2.
 ///
-/// ⚠ Осем знака са преценка на потребителя (05.09.2026): „тези дълги
-/// линкове не стоят никак естетично, когато се пращат навън". Цената е, че
-/// страницата за хора БЕЗ приложението показва само началото на цитата —
-/// приета е, защото целият цитат и без това стои в самото съобщение, над
-/// линка, а страницата служи главно за копчето „Отвори в приложението".
+/// ⚠⚠ ОТ ВЕРСИЯ 3 ТЕКСТЪТ НЕ ПЪТУВА ИЗОБЩО и константата служи само на
+/// РАЗЧИТАНЕТО на стари адреси. Пътят дотук минава през два извода:
+///
+///   • на версия 2 текстът беше свит от 60 на 8 знака — и това щеше да убие
+///     МЪЛЧАЛИВО цялата устойчивост, защото отпечатъкът се извеждаше от него,
+///     а осем сурови знака се сгъват под прага [kFingerprintChars];
+///   • на версия 3 стана ясно, че щом отпечатъкът пътува сам, текстът не
+///     върши нищо освен показване — а целият цитат и без това стои в самото
+///     съобщение, над линка. Тъй че отпадна.
+///
+/// Цената: страницата за хора БЕЗ приложението вече не показва откъса, а само
+/// поканата да го отворят. Приета съзнателно заради дължината на адреса.
 const int kLinkTextChars = 8;
 
 /// ⚠⚠ ЦИТАТ ОТ ПИСАНИЕТО СЕ АДРЕСИРА ЧЕТИМО, а не пакетирано.
@@ -347,6 +350,95 @@ ParsedQuoteLink? parseBibleQuoteLink(String tail) {
   );
 }
 
+/// ⚠⚠ ЛОКАТОР, СВИТ ДО НЯКОЛКО БАЙТА — виж [kQuoteLinkVersion] версия 3.
+///
+/// Разчетеният адрес носи МАРКЕР вместо истинския локатор, защото свиването е
+/// необратимо без базата (за житие) и без списъка с томове (за книга).
+/// [resolveQuoteLocator] го превръща обратно, преди четивото да се отвори.
+///
+///     ~a1b2c3d4        житие: отпечатък на слъга
+///     ~09/397          книга: том 09, глава „Text/index_split_397.xhtml"
+///
+/// ⚠ Знакът „~" не се среща нито в слъг (те са само `a-z0-9-`), нито в път до
+/// том, тъй че маркерът не може да се сбърка с истински локатор.
+const String kLocatorMarker = '~';
+
+/// Отпечатък на локатор — четири байта, изписани шестнайсетично.
+///
+/// ⚠ СЪЩИЯТ [_hash] като при цитата, но приложен върху слъга. Сблъсък при
+/// около 1600 слъга и четири байта е под 0,03%, а и се проверява при
+/// СГЛОБЯВАНЕТО: не е ли отпечатъкът единствен, слъгът влиза цял.
+String locatorFingerprint(String locator) => _hash(locator);
+
+/// Свива локатора на КНИГА до „том/глава", или `null`, ако не се разпознава.
+///
+/// ⚠ Пътят до тома е дълъг и кирилски („Жития на светиите - 09(сеп) -
+/// Димитрий Ростовски.epub" — над шейсет байта), а от него носи смисъл
+/// единствено НОМЕРЪТ. Главите пък се казват всичките „index_split_NNN".
+/// Проверено срещу всичките дванайсет тома: 141 записа в първия, нито един с
+/// друга форма и нито един с котва.
+///
+/// ⚠ Не съвпадне ли шаблонът (нов том, друг сглобяващ скрипт), се връща
+/// `null` и локаторът влиза литерално. По-дълъг адрес, но работещ.
+(int, int)? compactBookLocator(String locator) {
+  final parts = locator.split('|');
+  if (parts.length != 2) return null;
+  final vol = RegExp(r'-\s*(\d{2})\s*\(').firstMatch(parts[0]);
+  final ch = RegExp(r'index_split_(\d+)\.xhtml$').firstMatch(parts[1]);
+  if (vol == null || ch == null) return null;
+  return (int.parse(vol.group(1)!), int.parse(ch.group(1)!));
+}
+
+// ── Двоичният пакет на версия 3 ──────────────────────────────────────────
+//
+// байт 0   версия<<4 | вид                    (вид: 0 житие, 1 книга, 2 Библия)
+// байт 1   флагове<<4 | (прозорец − 1)
+//            бит 0  има отпечатък
+//            бит 1  краят НЕ се извежда — следват две РАЗЛИКИ
+//            бит 2  има пореден номер
+//            бит 3  локаторът е СВИТ (как — решава видът)
+// varint   блок, начален знак, дължина
+// [бит 1]  varint разлика на блока, varint разлика на знака
+// [бит 0]  4 байта отпечатък
+// [бит 2]  varint кое поред, varint от колко
+// локатор  [бит 3] житие: 4 байта; книга: байт том + varint глава
+//          [иначе] varint дължина + байтове
+//
+// ⚠ Прозорецът се пише като „−1", за да се събере в четири бита: стойностите
+// му са 1..16, а нула значи „няма отпечатък" и се носи от бит 0.
+
+/// ⚠⚠ РАЗЛИКИТЕ МОГАТ ДА СА ОТРИЦАТЕЛНИ и това не е рядкост: при цитат през
+/// няколко блока `charEnd` е знак в ПОСЛЕДНИЯ блок, а `charStart+charLength`
+/// сочи в първия, тъй че разликата обикновено е под нулата. Обикновеният
+/// varint не носи знак — първата версия просто изяждаше отрицателните и
+/// краят на цитата се разместваше. Хванато от тест, не на око.
+///
+/// Зигзагът препъва числата така: 0→0, −1→1, 1→2, −2→3, … тъй че малките по
+/// модул стойности остават малки и след кодирането.
+int _zigzag(int n) => (n << 1) ^ (n >> 63);
+int _unzigzag(int z) => (z >> 1) ^ -(z & 1);
+
+void _putVarint(List<int> out, int v) {
+  var n = v < 0 ? 0 : v;
+  while (n >= 0x80) {
+    out.add((n & 0x7F) | 0x80);
+    n >>= 7;
+  }
+  out.add(n);
+}
+
+int _getVarint(List<int> b, List<int> pos) {
+  var res = 0, shift = 0;
+  while (pos[0] < b.length) {
+    final c = b[pos[0]++];
+    res |= (c & 0x7F) << shift;
+    if (c < 0x80) return res;
+    shift += 7;
+    if (shift > 35) break;
+  }
+  return res;
+}
+
 /// Сглобява споделимия адрес.
 ///
 /// ⚠ ВСИЧКО Е В ЕДНО КОДИРАНО НИЗЧЕ, не в отделни параметри. Причината е
@@ -366,63 +458,200 @@ String buildQuoteLink(Quote q) {
     final readable = buildBibleQuoteLink(q.anchor);
     if (readable != null) return readable;
   }
-  final text = q.text.trim();
-  // ⚠ Реже се по ДУМА, не по знак — иначе полученият текст свършва насред
-  // дума и осветяването на страницата за неинсталирали изглежда счупено.
-  // Същият похват като в [quoteShareText].
-  final short = text.length <= kLinkTextChars
-      ? text
-      : text.substring(0, text.lastIndexOf(' ', kLinkTextChars)).trimRight();
-  // ⚠ Хешът се смята от ЦЕЛИЯ цитат, не от отрязаното `short`. Дотук двете
-  // съвпадаха по случайност (60 сурови знака дават над 16 сгънати); при 8
-  // вече не съвпадат и от текста няма какво да се извлече.
-  final (fp, fpLen) = quoteFingerprint(text);
-  final packed = _pack([
-    '$kQuoteLinkVersion',
-    q.anchor.source.name,
-    '${q.anchor.block}',
-    '${q.anchor.charStart}',
-    '${q.anchor.charLength}',
-    q.anchor.locator,
-    // ⚠ ОТ ВЕРСИЯ 2 нататък. Редът на първите шест полета е СЪЩИЯТ като във
-    // версия 1 нарочно — така разчитането на двете дели началото си, а
-    // страницата в GitHub Pages различава версиите по едно число.
-    '${q.anchor.blockEnd}',
-    '${q.anchor.charEnd}',
-    fp,
-    '$fpLen',
-    '${q.anchor.occurrence}',
-    '${q.anchor.occurrenceTotal}',
-    // ⚠ Текстът остава ПОСЛЕДЕН: само така може да съдържа какво да е.
-    short,
-  ]);
-  return 'https://$kQuoteLinkHost$kQuotePath/$packed';
+  return 'https://$kQuoteLinkHost$kQuotePath/${_packV3(q)}';
 }
 
-/// Полетата → едно низче за адреса.
-///
-/// ⚠ Разделителят е `|`, а НЕ запетая или интервал: той не се среща нито в
-/// слъг, нито в български текст, тъй че полетата не могат да се разлепят
-/// погрешно. Текстът е ПОСЛЕДЕН и точно затова може да съдържа какво да е —
-/// при разчитането всичко след шестото поле се слепва обратно.
-/// Екранира едно поле, за да не се сблъска с разделителя.
-///
-/// ⚠⚠ РАЗДЕЛИТЕЛЯТ „|" СЕ СРЕЩА В САМИТЕ ДАННИ. `locator` за книга е
-/// „път до тома|href на главата", а за Библия — „език|код|глава". Без
-/// екраниране полетата се разместваха при разчитане: `locator` се режеше
-/// до първата чертичка, `openBookQuote` виждаше `parts.length < 2` и се
-/// отказваше МЪЛЧАЛИВО — линкът се отваряше, приложението стартираше и
-/// човек оставаше в КАЛЕНДАРА. Житията работеха през цялото време, защото
-/// техният `locator` е слъг и чертичка няма.
-/// (Докладвано от потребителя, 03.09.2026, три пъти подред.)
-///
-/// ⚠ СЪВМЕСТИМО СЪС ЗАВАРЕНИТЕ ЛИНКОВЕ: поле без „|" и без „\" минава
-/// непроменено и в двете посоки, тъй че вече споделените житийни адреси се
-/// четат както преди. А за книга и Библия работещи линкове и без това не е
-/// имало — те са били счупени по определение.
-String _escField(String v) =>
-    v.replaceAll('\\', '\\\\').replaceAll('|', '\\p');
+/// Двоичният пакет на версия 3 — устройството е описано по-горе.
+String _packV3(Quote q) {
+  final a = q.anchor;
+  final out = <int>[];
 
+  // ⚠ Отпечатъкът се смята от ЦЕЛИЯ цитат, а не от отрязък: от версия 3
+  // текстът изобщо не пътува, тъй че няма откъде да се извлече после.
+  final (fp, fpLen) = quoteFingerprint(q.text.trim());
+  final hasFp = fp.isNotEmpty && fpLen >= 1 && fpLen <= 16;
+
+  // Краят се ИЗВЕЖДА при цитат в един блок — обичайното. Пише се само когато
+  // наистина носи нещо.
+  final endBlockDelta = a.blockEnd - a.block;
+  final endCharDelta = a.charEnd - (a.charStart + a.charLength);
+  final hasEnd = endBlockDelta != 0 || endCharDelta != 0;
+
+  final hasOcc = a.occurrence > 0 && a.occurrenceTotal > 0;
+
+  // Свиване на локатора — виж [kLocatorMarker].
+  List<int>? compact;
+  switch (a.source) {
+    case QuoteSource.life:
+      if (a.locator.isNotEmpty) {
+        compact = [
+          for (var i = 0; i < 8; i += 2)
+            int.parse(locatorFingerprint(a.locator).substring(i, i + 2), radix: 16)
+        ];
+      }
+    case QuoteSource.book:
+      final c = compactBookLocator(a.locator);
+      if (c != null) {
+        compact = [c.$1];
+        _putVarint(compact, c.$2);
+      }
+    case QuoteSource.bible:
+      compact = null;
+  }
+
+  var flags = 0;
+  if (hasFp) flags |= 1;
+  if (hasEnd) flags |= 2;
+  if (hasOcc) flags |= 4;
+  if (compact != null) flags |= 8;
+
+  out.add((kQuoteLinkVersion << 4) | a.source.index);
+  out.add((flags << 4) | (hasFp ? fpLen - 1 : 0));
+  _putVarint(out, a.block);
+  _putVarint(out, a.charStart);
+  _putVarint(out, a.charLength);
+  if (hasEnd) {
+    _putVarint(out, _zigzag(endBlockDelta));
+    _putVarint(out, _zigzag(endCharDelta));
+  }
+  if (hasFp) {
+    for (var i = 0; i < 8; i += 2) {
+      out.add(int.parse(fp.substring(i, i + 2), radix: 16));
+    }
+  }
+  if (hasOcc) {
+    _putVarint(out, a.occurrence);
+    _putVarint(out, a.occurrenceTotal);
+  }
+  if (compact != null) {
+    out.addAll(compact);
+  } else {
+    final raw = utf8.encode(a.locator);
+    _putVarint(out, raw.length);
+    out.addAll(raw);
+  }
+
+  // ⚠ „b"/„c" вместо „r"/„z": първият знак различава ДВОИЧНИЯ пакет от
+  // текстовия на версии 1 и 2. Без свой знак двата вида не се разпознават —
+  // първият байт на двоичния е 0x30..0x32, тоест точно „0"/„1"/„2", каквито
+  // започват и текстовите.
+  final bytes = Uint8List.fromList(out);
+  final z = ZLibCodec(level: 9).encode(bytes);
+  final useZ = z.length < bytes.length;
+  final body =
+      base64Url.encode(useZ ? z : bytes).replaceAll('=', '');
+  return (useZ ? 'c' : 'b') + body;
+}
+
+/// Обратното на [_packV3]. `null` при повреден или непознат пакет.
+ParsedQuoteLink? _unpackV3(String packed) {
+  List<int> b;
+  try {
+    var body = packed.substring(1);
+    body = body.padRight((body.length + 3) ~/ 4 * 4, '=');
+    b = base64Url.decode(body);
+    if (packed[0] == 'c') b = ZLibCodec().decode(b);
+  } catch (_) {
+    return null;
+  }
+  if (b.length < 5) return null;
+
+  final v = b[0] >> 4;
+  // ⚠ По-нова версия се отхвърля МЪЛЧАЛИВО, вместо да се чете „както дойде":
+  // по-добре линкът да се отвори в браузъра, отколкото приложението да
+  // заведе човека на произволно място с вид на правилно.
+  if (v > kQuoteLinkVersion) return null;
+  final kindIdx = b[0] & 0x0F;
+  if (kindIdx >= QuoteSource.values.length) return null;
+  final source = QuoteSource.values[kindIdx];
+
+  final flags = b[1] >> 4;
+  final fpLen = (b[1] & 0x0F) + 1;
+  final hasFp = flags & 1 != 0;
+  final hasEnd = flags & 2 != 0;
+  final hasOcc = flags & 4 != 0;
+  final compact = flags & 8 != 0;
+
+  final pos = [2];
+  final block = _getVarint(b, pos);
+  final charStart = _getVarint(b, pos);
+  final charLength = _getVarint(b, pos);
+  var blockEnd = block, charEnd = charStart + charLength;
+  if (hasEnd) {
+    blockEnd = block + _unzigzag(_getVarint(b, pos));
+    charEnd = charStart + charLength + _unzigzag(_getVarint(b, pos));
+  }
+  var fp = '';
+  if (hasFp) {
+    if (pos[0] + 4 > b.length) return null;
+    final sb = StringBuffer();
+    for (var i = 0; i < 4; i++) {
+      sb.write(b[pos[0]++].toRadixString(16).padLeft(2, '0'));
+    }
+    fp = sb.toString();
+  }
+  var occ = 0, total = 0;
+  if (hasOcc) {
+    occ = _getVarint(b, pos);
+    total = _getVarint(b, pos);
+  }
+
+  String locator;
+  if (compact) {
+    switch (source) {
+      case QuoteSource.life:
+        if (pos[0] + 4 > b.length) return null;
+        final sb = StringBuffer(kLocatorMarker);
+        for (var i = 0; i < 4; i++) {
+          sb.write(b[pos[0]++].toRadixString(16).padLeft(2, '0'));
+        }
+        locator = sb.toString();
+      case QuoteSource.book:
+        if (pos[0] >= b.length) return null;
+        final vol = b[pos[0]++];
+        final ch = _getVarint(b, pos);
+        locator = '$kLocatorMarker${vol.toString().padLeft(2, '0')}/$ch';
+      case QuoteSource.bible:
+        return null;
+    }
+  } else {
+    final n = _getVarint(b, pos);
+    if (pos[0] + n > b.length) return null;
+    locator = utf8.decode(b.sublist(pos[0], pos[0] + n), allowMalformed: true);
+  }
+  if (locator.isEmpty) return null;
+
+  return ParsedQuoteLink(
+    anchor: QuoteAnchor(
+      source: source,
+      locator: locator,
+      block: block,
+      charStart: charStart,
+      charLength: charLength,
+      blockEnd: blockEnd,
+      charEnd: charEnd,
+      occurrence: occ,
+      occurrenceTotal: total,
+    ),
+    fingerprint: fp,
+    fingerprintLength: hasFp ? fpLen : 0,
+  );
+}
+
+/// ⚠ СГЛОБЯВАНЕТО на версии 1 и 2 е МАХНАТО, разчитането — не.
+///
+/// Вече споделени адреси трябва да продължат да се отварят, но нови такива
+/// не се правят: версия 3 е двоична и по-къса. Тестът, който пази
+/// съвместимостта, си строи стар пакет сам (`_packV1`) — нарочно препис, за
+/// да може да строи вид, който кодът вече не умее.
+
+/// Разекранира едно поле — обратното на екранирането при версии 1 и 2.
+///
+/// ⚠⚠ РАЗДЕЛИТЕЛЯТ „|" СЕ СРЕЩАШЕ В САМИТЕ ДАННИ. `locator` за книга е
+/// „път до тома|href на главата", а за Библия — „език|код|глава". Без
+/// екраниране полетата се разместваха при разчитане и линкът се отваряше в
+/// КАЛЕНДАРА. Житията работеха през цялото време, защото техният `locator` е
+/// слъг и чертичка няма. (Докладвано от потребителя, 03.09.2026, три пъти.)
 String _unescField(String v) {
   final b = StringBuffer();
   for (var i = 0; i < v.length; i++) {
@@ -444,18 +673,7 @@ String _unescField(String v) {
   return b.toString();
 }
 
-String _pack(List<String> fields) {
-  final bytes = utf8.encode(fields.map(_escField).join('|'));
-  // ⚠ Компресията се пробва, но НЕ се налага: заглавката на zlib е 11 байта
-  // и при къс низ пакетът излиза ПО-ГОЛЯМ от суровия. Затова се взима
-  // по-малкото от двете, а първият знак казва кое е.
-  final z = ZLibCodec(level: 9).encode(bytes);
-  final useZ = z.length < bytes.length;
-  final body = base64Url.encode(useZ ? z : bytes).replaceAll('=', '');
-  return (useZ ? 'z' : 'r') + body;
-}
-
-/// Обратното на [_pack]. `null` при повреден низ.
+/// Разчита ТЕКСТОВИЯ пакет на версии 1 и 2. `null` при повреден низ.
 List<String>? _unpack(String s) {
   if (s.length < 2) return null;
   final kind = s[0];
@@ -478,8 +696,10 @@ class ParsedQuoteLink {
   /// Отпечатъкът, изведен от [text] — за [locateQuote].
   final String fingerprint;
 
-  /// САМИЯТ цитат, както е бил при споделянето (отрязан до
-  /// [kLinkTextChars]).
+  /// САМИЯТ цитат, както е бил при споделянето.
+  ///
+  /// ⚠ ПРАЗЕН за адреси от версия 3 — те не носят текст. Пълни се само при
+  /// разчитане на стар адрес (версии 1 и 2).
   ///
   /// ⚠ Пътува в адреса, за да може и СТРАНИЦАТА за хора без приложението да
   /// покаже за какво иде реч. Вътре в приложението не се ползва за
@@ -488,9 +708,9 @@ class ParsedQuoteLink {
 
   /// С колко СГЪНАТИ знака е смятан [fingerprint] — виж [quoteFingerprint].
   ///
-  /// ⚠ НЕ СЕ ИЗВЕЖДА от [text]: той е отрязан до [kLinkTextChars], а сгъването
-  /// маха интервалите и пунктуацията, тъй че суровата дължина не казва нищо
-  /// за сгънатата. Затова числото пътува само.
+  /// ⚠ НЕ СЕ ИЗВЕЖДА от [text]: той е отрязан (а от версия 3 изобщо го няма),
+  /// а сгъването маха интервалите и пунктуацията, тъй че суровата дължина не
+  /// казва нищо за сгънатата. Затова числото пътува само.
   final int fingerprintLength;
 
   const ParsedQuoteLink({
@@ -514,7 +734,14 @@ ParsedQuoteLink? parseQuoteLink(Uri uri) {
     if (b != null) return b;
   }
 
+  // ⚠ ДВОИЧНИЯТ ПАКЕТ (версия 3) се разпознава по първия си знак. Без свой
+  // знак двата вида не могат да се различат: първият БАЙТ на двоичния е
+  // 0x30..0x32, тоест точно „0"/„1"/„2", с каквито започват и текстовите.
   final packed = tail;
+  if (packed.isNotEmpty && (packed[0] == 'b' || packed[0] == 'c')) {
+    return _unpackV3(packed);
+  }
+
   final f = _unpack(packed);
   if (f == null || f.length < 7) return null;
 
