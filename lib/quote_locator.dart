@@ -58,7 +58,10 @@ String? _bookLocator(String body) {
   final path = kEpubOf[parts[0]];
   final ch = int.tryParse(parts[1]);
   if (path == null || ch == null) return null;
-  return '$path|Text/index_split_${ch.toString().padLeft(3, '0')}.xhtml';
+  // ⚠ Префиксът „OEBPS/" е ЧАСТ ОТ ПЪТЯ и без него четивото не се намира —
+  // виж [compactBookLocator], където се и проверява, че всичките дванайсет
+  // тома го ползват.
+  return '$path|OEBPS/Text/index_split_${ch.toString().padLeft(3, '0')}.xhtml';
 }
 
 /// Кой слъг дава този отпечатък.

@@ -384,7 +384,17 @@ String locatorFingerprint(String locator) => _hash(locator);
   final parts = locator.split('|');
   if (parts.length != 2) return null;
   final vol = RegExp(r'-\s*(\d{2})\s*\(').firstMatch(parts[0]);
-  final ch = RegExp(r'index_split_(\d+)\.xhtml$').firstMatch(parts[1]);
+  // ⚠⚠ ЦЕЛИЯТ ПЪТ, НЕ САМО ИМЕТО. Изразът тук беше закотвен само за края
+  // (`index_split_N.xhtml$`) и свиваше href, чийто ПРЕФИКС после не можеше да
+  // се възстанови — разгъването даваше „Text/…" вместо „OEBPS/Text/…" и
+  // четивото не се намираше: „Четивото вече го няма в книгата."
+  // (Докладвано от потребителя, 06.09.2026.)
+  //
+  // ⚠ Проверено срещу ВСИЧКИТЕ дванайсет тома: 1533 записа, нито един с друг
+  // вид. Не съвпадне ли шаблонът (нов том, друг сглобяващ скрипт), локаторът
+  // влиза ЛИТЕРАЛНО — по-дълъг адрес, но работещ.
+  final ch = RegExp(r'^OEBPS/Text/index_split_(\d+)\.xhtml$')
+      .firstMatch(parts[1]);
   if (vol == null || ch == null) return null;
   return (int.parse(vol.group(1)!), int.parse(ch.group(1)!));
 }
@@ -974,21 +984,46 @@ extension _FirstOrNull<T> on Iterable<T> {
 /// span през целия диапазон би обхванал чужди затварящи тагове и flutter_html
 /// би оцветил остатъка от абзаца — същият капан като с увисналото `</a>` в
 /// конвейера за жития.
-String wrapRangeHtml(String html, int start, int length, String className) {
+String wrapRangeHtml(String html, int start, int length, String className,
+    {Set<String> skipInside = const {}}) {
   if (length <= 0 || start < 0) return html;
   final end = start + length;
   final buf = StringBuffer();
   var plainPos = 0;
+  // Вложеност в span, чийто клас е сред [skipInside].
+  var skipDepth = 0;
+  final opensSpan = RegExp(r'^<\s*span\b', caseSensitive: false);
+  final closesSpan = RegExp(r'^<\s*/\s*span\b', caseSensitive: false);
+  final classAttr = RegExp(r'class="([^"]*)"');
 
   for (final m in RegExp(r'<[^>]+>|[^<]+').allMatches(html)) {
     final piece = m.group(0)!;
     if (piece.startsWith('<')) {
       buf.write(piece);
+      if (skipInside.isNotEmpty) {
+        if (closesSpan.hasMatch(piece)) {
+          if (skipDepth > 0) skipDepth--;
+        } else if (opensSpan.hasMatch(piece)) {
+          final c = classAttr.firstMatch(piece)?.group(1) ?? '';
+          if (skipDepth > 0 ||
+              c.split(RegExp(r'\s+')).any(skipInside.contains)) {
+            skipDepth++;
+          }
+        }
+      }
       continue;
     }
     final pieceStart = plainPos;
     final pieceEnd = plainPos + piece.length;
     plainPos = pieceEnd;
+
+    // ⚠⚠ ВЕЧЕ МАРКИРАНОТО НЕ СЕ ПРЕБОЯДИСВА. Виж [skipInside] при
+    // повикващия: жълтото на търсенето трябва да остане видимо ВЪРХУ синия
+    // фон на цитата, а не под него.
+    if (skipDepth > 0) {
+      buf.write(piece);
+      continue;
+    }
 
     if (pieceEnd <= start || pieceStart >= end) {
       buf.write(piece);
@@ -1153,5 +1188,25 @@ String wrapQuoteByText(String html, String quoteText, String className,
   if (best < 0) return html;
 
   return wrapRangeHtml(
-      html, map[best], map[best + want.length - 1] + 1 - map[best], className);
+      html, map[best], map[best + want.length - 1] + 1 - map[best], className,
+      // ⚠⚠ ТЪРСЕНЕТО ПОБЕЖДАВА ЦИТАТА, а не обратното.
+      //
+      // Двата фона значат различни неща и могат да съжителстват: жълтото е
+      // „намерено сега", синьото — „това поиска да видиш". Дотук обаче в
+      // четците на жития и книги СИНЬОТО ЗАКРИВАШЕ ЖЪЛТОТО: маркирането от
+      // търсенето се слага първо, а после този обхват обгражда ВСЯКО парче
+      // гол текст поотделно — включително онова ВЪТРЕ в жълтия span. Тъй че
+      // синьото се озоваваше по-навътре и рисуваше отгоре.
+      // (Докладвано от потребителя, 06.09.2026: „при библейските текстове не
+      // е така, там върху синьото се вижда и жълтото".)
+      //
+      // ⚠ РАЗМЯНАТА НА РЕДА е привидно по-простият лек и е ОТХВЪРЛЕНА:
+      // `highlightHtml` номерира съвпаденията ПО ПАРЧЕТА между таговете (виж
+      // бележката при него), тъй че нови тагове преди него разместват
+      // номерата — стрелките за обхождане сочат едно, а оранжевото свети на
+      // друго. Затова синьото просто ПРЕСКАЧА вече маркираното.
+      //
+      // ⚠ Излезе ли човек от търсенето, жълтите span-ове изчезват и синьото
+      // покрива целия цитат както преди — без нищо да се пази.
+      skipInside: const {'hit', 'hit-current'});
 }

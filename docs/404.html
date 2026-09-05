@@ -99,7 +99,25 @@ function readableRef(tail) {
   const m = location.pathname.match(/\/q\/(.+)$/);
   const q = document.getElementById('q'), s = document.getElementById('s'),
         r = document.getElementById('r');
-  document.getElementById('open').href = location.href;
+  // ⚠⚠ ЗАЩО НЕ `location.href`.
+  //
+  // Бутонът сочеше СЪЩИЯ адрес, на който браузърът вече стои. Android не
+  // задейства App Links за връзка към страницата, която сам показва — тъй че
+  // натискането изглеждаше като нищо: Chrome започваше да зарежда и оставаше
+  // на място. (Докладвано от потребителя, 06.09.2026.)
+  //
+  // `intent://` заявява ИЗРИЧНО кое приложение да поеме адреса, а
+  // `S.browser_fallback_url` казва къде да отиде браузърът, ако то не е
+  // инсталирано — с което се решава и второто: човек без приложението вече
+  // получава страница, вместо мълчание.
+  //
+  // ⚠ Пакетът трябва да съвпада с `applicationId` в build.gradle.kts.
+  const PKG = 'isihiabg.orthodox_calendar';
+  const FALLBACK = location.origin + '/orthodox_calendar/install.html';
+  document.getElementById('open').href =
+    'intent://' + location.host + location.pathname +
+    '#Intent;scheme=https;package=' + PKG +
+    ';S.browser_fallback_url=' + encodeURIComponent(FALLBACK) + ';end';
   if (!m) { q.textContent = 'Няма цитат в този адрес.'; return; }
 
   const tail = decodeURIComponent(m[1]);
@@ -132,7 +150,8 @@ function readableRef(tail) {
     q.textContent = '';
     document.getElementById('n').textContent =
       'Самият цитат стои в съобщението, с което ви е изпратен този линк. '
-      + 'Ако приложението е инсталирано, линкът се отваря право на мястото му.';
+      + 'Ако приложението не е инсталирано, копчето води към страница с '
+      + 'указания.';
     return;
   }
 

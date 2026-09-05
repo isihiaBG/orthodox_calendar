@@ -156,7 +156,23 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
   }
 
   Future<void> _reload() async {
-    final items = await widget.load();
+    // ⚠⚠ ГРЕШКАТА НЕ БИВА ДА ИЗГЛЕЖДА КАТО „ОЩЕ СЕ ЗАРЕЖДА".
+    //
+    // `_items == null` значи спинер. Хвърли ли `load()`, грешката се губи
+    // като необработена асинхронна, полето остава `null` и екранът върти
+    // безкрайно — точно това се случи с празния списък от цитати
+    // (06.09.2026, виж [QuotesStore.load]).
+    //
+    // Същото правило вече е записано за `MiniReader`: всеки изглед, който
+    // зарежда асинхронно, е длъжен да РАЗЛИЧАВА трите състояния —
+    // зареждане / грешка / празно.
+    List<BookmarkEntry> items;
+    try {
+      items = await widget.load();
+    } catch (e, st) {
+      debugPrint('Списъкът не се зареди: $e\n$st');
+      items = const [];
+    }
     if (!mounted) return;
     setState(() => _items = items);
   }

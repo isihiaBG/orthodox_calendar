@@ -7,6 +7,7 @@
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:orthodox_calendar/quote_capture.dart';
 import 'package:orthodox_calendar/quote_link.dart';
 import 'package:orthodox_calendar/quotes.dart';
@@ -218,7 +219,7 @@ void main() {
   group('фонът под цитата', wrapTests);
   group('текстът за споделяне', shareTests);
   group('дълъг цитат', longQuoteTests);
-  group('маркиране върху истински HTML', wrapRealTests);
+  group('маркиране върху realPath HTML', wrapRealTests);
   group('координатите на wrapQuoteByText', coordinateBugTests);
   group('отрязването в линка', linkTruncationTests);
   group('разделителят в данните', separatorTests);
@@ -227,6 +228,8 @@ void main() {
   group('поредното съвпадение', occurrenceTests);
   group('двоичният пакет (версия 3)', v3Tests);
   group('надписът под цитата', citationTests);
+  group('празният списък с цитати', emptyStoreTests);
+  group('търсене върху цитат', quoteVsSearchTests);
 }
 
 // ── улавяне на селекция ──────────────────────────────────────────────────
@@ -449,7 +452,7 @@ void longQuoteTests() {
   });
 }
 
-// ── маркиране върху истински HTML ────────────────────────────────────────
+// ── маркиране върху realPath HTML ────────────────────────────────────────
 //
 // ⚠ Тези проверки хванаха бъг, който не се виждаше от нищо друго: в едни
 // абзаци фонът се появяваше, в други не, а разликата беше само наличието на
@@ -488,7 +491,7 @@ void wrapRealTests() {
 // ── координатите на wrapQuoteByText спрямо wrapRangeHtml ────────────────
 //
 // ⚠⚠ РЕАЛЕН БЪГ, докладван и диагностициран от потребителя (03.09.2026)
-// върху истинските жития на св. Кирил Философ и св. Методий Моравски:
+// върху realPathте жития на св. Кирил Философ и св. Методий Моравски:
 // маркирането излизаше отместено с точно толкова знака, колкото е
 // дължината на тага ПРЕДИ намереното. wrapQuoteByText броеше позиции в
 // СУРОВИЯ html (с таговете), а wrapRangeHtml очаква позиции в ПЛОСКИЯ
@@ -958,7 +961,7 @@ void occurrenceTests() {
     final edited = ['През оная година било тихо.', ...blocks];
     final hit = locateParsedQuote(edited, p);
     // Координатите сочат абзац 10, а той в новия текст е бившият девети;
-    // истинският е 11. Важното е, че НЕ се пада на първия и че намереното
+    // realPathят е 11. Важното е, че НЕ се пада на първия и че намереното
     // пак е „година" — по-добре съсед, отколкото начало на четивото.
     expect(hit.block, greaterThan(5));
     expect(edited[hit.block].substring(hit.start, hit.start + hit.length),
@@ -1009,12 +1012,29 @@ void v3Tests() {
     expect(short, lessThan(long), reason: 'изводимият край не заема място');
   });
 
+  test('⚠⚠ свитият локатор се разгъва до ИСТИНСКИЯ път', () {
+    // Тук префиксът „OEBPS/" беше изгубен при свиването и разгънатият адрес
+    // сочеше „Text/…" — четивото не се намираше и излизаше „Четивото вече го
+    // няма в книгата". (Докладвано 06.09.2026.)
+    const realPath = 'assets/books/Жития на светиите - 09(сеп) - Димитрий '
+        'Ростовски.epub|OEBPS/Text/index_split_397.xhtml';
+    final c = compactBookLocator(realPath);
+    expect(c, isNotNull, reason: 'realPathят път трябва да се разпознава');
+    expect(c!.$1, 9);
+    expect(c.$2, 397);
+  });
+
+  test('⚠ href БЕЗ очаквания префикс НЕ се свива (влиза литерално)', () {
+    expect(compactBookLocator('assets/books/x - 09(сеп) - y.epub|Text/index_split_397.xhtml'),
+        isNull);
+  });
+
   test('⚠ локаторът на КНИГА се свива до „том/глава"', () {
     final q = Quote(
       anchor: const QuoteAnchor(
         source: QuoteSource.book,
         locator: 'assets/books/Жития на светиите - 09(сеп) - Димитрий '
-            'Ростовски.epub|Text/index_split_397.xhtml',
+            'Ростовски.epub|OEBPS/Text/index_split_397.xhtml',
         block: 12, charStart: 430, charLength: 96,
       ),
       text: 'достатъчно дълъг цитат, за да има отпечатък',
@@ -1105,5 +1125,85 @@ void citationTests() {
   test('без заглавие не се появява празна скоба', () {
     final t = quoteShareText(make(QuoteSource.bible, ''));
     expect(t, isNot(contains('()')));
+  });
+}
+
+/// ⚠⚠ ПРАЗНИЯТ СПИСЪК — бъгът, който изглеждаше като вечен спинер.
+///
+/// При ПЪРВО влизане в „Любими цитати" (нищо записано) [QuotesStore.load]
+/// връщаше `const []`; повикващият прави `sort`, което хвърля „Cannot sort
+/// immutable List"; грешката се губи като необработена асинхронна и екранът
+/// върти спинера безкрайно. Проявяваше се САМО първия път — щом веднъж има
+/// запис, `jsonDecode` дава realPath списък.
+/// (Докладвано от потребителя, 06.09.2026.)
+void emptyStoreTests() {
+  setUp(() => SharedPreferences.setMockInitialValues({}));
+
+  test('⚠⚠ празният списък се СОРТИРА, а не гърми', () async {
+    final quotes = await QuotesStore.load();
+    expect(quotes, isEmpty);
+    // Точно това правеше `quoteEntries` и точно тук се чупеше.
+    expect(() => quotes.sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs)),
+        returnsNormally);
+  });
+
+  test('⚠ и в него може да се ДОБАВЯ', () async {
+    final quotes = await QuotesStore.load();
+    expect(
+        () => quotes.add(const Quote(
+            anchor: QuoteAnchor(
+                source: QuoteSource.life, locator: 'sv-x',
+                block: 0, charStart: 0, charLength: 1),
+            text: 'нещо', title: 'нещо', savedAtMs: 0)),
+        returnsNormally);
+  });
+
+  test('⚠ повреден запис също дава ИЗМЕНИМ празен списък', () async {
+    SharedPreferences.setMockInitialValues({'favourite_quotes': 'това не е JSON'});
+    final quotes = await QuotesStore.load();
+    expect(quotes, isEmpty);
+    expect(() => quotes.sort((a, b) => 0), returnsNormally);
+  });
+}
+
+/// ⚠⚠ ТЪРСЕНЕТО ПОБЕЖДАВА ЦИТАТА — двата фона едновременно.
+///
+/// В четците на жития и книги синьото на цитата закриваше жълтото на
+/// търсенето, защото се слагаше ПО-НАВЪТРЕ от него. В библейския четец беше
+/// правилно. (Докладвано от потребителя, 06.09.2026.)
+void quoteVsSearchTests() {
+  test('⚠ синьото НЕ се слага върху вече маркираното от търсенето', () {
+    const html = '<p>Свети Иоан <span class="hit">Рилски</span> бил роден</p>';
+    final out = wrapQuoteByText(html, 'Свети Иоан Рилски бил', 'quotehit');
+    expect(out, contains('class="hit"'), reason: 'жълтото остава');
+    expect(out, isNot(contains('<span class="hit"><span class="quotehit">')),
+        reason: 'синьото не бива да влиза ВЪТРЕ в жълтото');
+    // Извън маркираното синьото си стои.
+    expect(out, contains('class="quotehit"'));
+  });
+
+  test('⚠ същото и за ТЕКУЩОТО съвпадение (оранжевото)', () {
+    const html =
+        '<p>Свети <span class="hit-current">Иоан</span> Рилски бил роден</p>';
+    final out = wrapQuoteByText(html, 'Свети Иоан Рилски', 'quotehit');
+    expect(out, contains('class="hit-current"'));
+    expect(
+        out, isNot(contains('<span class="hit-current"><span class="quotehit">')));
+  });
+
+  test('БЕЗ търсене синьото покрива целия цитат', () {
+    const html = '<p>Свети Иоан Рилски бил роден в село Скрино.</p>';
+    final out = wrapQuoteByText(html, 'Иоан Рилски бил', 'quotehit');
+    final m = RegExp(r'<span class="quotehit">(.*?)</span>').firstMatch(out);
+    expect(m?.group(1), 'Иоан Рилски бил');
+  });
+
+  test('⚠ вложен таг вътре в маркираното не обърква броенето', () {
+    const html =
+        '<p>А <span class="hit">той <em>рече</em></span> и си отиде</p>';
+    final out = wrapQuoteByText(html, 'А той рече и си', 'quotehit');
+    expect(out, contains('class="hit"'));
+    expect(out, isNot(contains('class="hit"><span class="quotehit"')));
+    expect(out, contains('quotehit'), reason: 'частта извън жълтото се маркира');
   });
 }

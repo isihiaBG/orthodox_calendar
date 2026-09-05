@@ -23,8 +23,11 @@ import 'saint_expandable_tile.dart' show SaintLookup;
 /// чете като каша. Цитатите са малко и идват отвсякъде — група „Жития",
 /// „Книги", „Библия" би сложила по два реда под всяко заглавие.
 Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
-  final quotes = await QuotesStore.load();
-  quotes.sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs));
+  // ⚠ Сортира се КОПИЕ. Днес [QuotesStore.load] връща изменим списък, но
+  // разчитането на това е крехко: върне ли някой ден пак `const []`, бъгът
+  // се връща като ВЕЧЕН СПИНЕР, а не като видима грешка. Копието струва нула.
+  final quotes = [...await QuotesStore.load()]
+    ..sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs));
 
   return [
     for (final q in quotes)
