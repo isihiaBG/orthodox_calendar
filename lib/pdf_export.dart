@@ -535,47 +535,36 @@ List<_Block> _reorderBlocks(
   final splittable = List<bool>.filled(n, false);
   final isImg = List<bool>.filled(n, false);
   final isHead = List<bool>.filled(n, false);
-  // ⚠ Кои блокове изобщо са произвели widget. Виж защо точно по-долу.
-  final hasItem = List<bool>.filled(n, false);
   for (final it in items) {
     final b = it.blockIndex;
     if (b < 0 || b >= n) continue;
     h[b] += it.height;
-    hasItem[b] = true;
     if (it.splittable) splittable[b] = true;
     if (it.isImage) isImg[b] = true;
     if (it.isHeading) isHead[b] = true;
   }
 
-  // ⚠⚠ ЕДИНИЦАТА НА ИЛЮСТРАЦИЯТА ОБХВАЩА И ПОГЪЛНАТОТО ОТ НЕЯ.
+  // ⚠⚠ КАРТИНКАТА СЕ МЕСТИ САМО С НАДПИСА СИ — правило на потребителя
+  // (05.09.2026): „картинката трябва да се мести само с прилежащия към нея
+  // коментар, ако има такъв".
   //
-  // Дотук тук се сливаха само картинката и надписът ѝ. Но от 05.09.2026
-  // тясната картинка ВЛАЧИ И ТЕКСТ: [_addFlowImage] прибира следващите
-  // абзаци в едно `Inseparable` до нея. Тези блокове не произвеждат свои
-  // widget-и — те са ВЪТРЕ в нейния.
+  // ⚠ ОТХВЪРЛЕН ОПИТ, записан за да не се повтори. За кратко тук единицата
+  // обхващаше и текста, ПОГЪЛНАТ от обтичането (разпознат по „блок без
+  // widget"). Доводът изглеждаше добър: тези блокове се рисуват ВЪТРЕ в
+  // кутията на картинката. Но е грешен, защото при местене текстът НЕ
+  // пътува с нея — на новото си място картинката обтича онова, което се
+  // пада ТАМ, а изоставеният текст се пренарежда сам при втория проход.
+  // Слепени, двете се местеха заедно и повличаха чужд текст през целия
+  // документ.
   //
-  // Мениджърът обаче ги виждаше като отделни единици с нулева височина и ги
-  // местеше НЕЗАВИСИМО от картинката. Оттам:
-  //   • симулацията излизаше на 110 страници при 119 реални;
-  //   • преместена картинка се озоваваше до ДРУГА картинка и обтичането ѝ
-  //     умираше (`_addFlowImage` няма какво да сложи до нея и връща 0), тъй
-  //     че тя минаваше по общия път — по-широка от половин ред и без текст.
-  //
-  // ⚠ ПРИЗНАКЪТ Е „БЛОК БЕЗ WIDGET". Той е верен и за двата пътя: и при
-  // обтичане, и при цяла ширина надписът се рисува ВЪТРЕ в кутията на
-  // картинката, тъй че своя единица няма. Затова тук не се търси клас
-  // „caption", а се гледа кой блок реално е произвел нещо.
+  // ⚠ И ВИСОЧИНАТА ИЗЛИЗА ВЯРНА БЕЗ СЛИВАНЕТО: погълнатите блокове не
+  // произвеждат widget-и, тъй че тежат нула, а зоната (картинка + надпис
+  // плюс текста ДО тях) вече е измерена в кутията на самата картинка.
   final unit = <List<int>>[];
   for (var i = 0; i < n; i++) {
-    if (isImg[i]) {
-      final u = [i];
-      var j = i + 1;
-      while (j < n && !hasItem[j]) {
-        u.add(j);
-        j++;
-      }
-      unit.add(u);
-      i = j - 1;
+    if (isImg[i] && i + 1 < n && blocks[i + 1].cls.contains('caption')) {
+      unit.add([i, i + 1]);
+      i++;
     } else {
       unit.add([i]);
     }
@@ -893,10 +882,6 @@ int _addFlowImage({
   /// [_kPdfFullWidthMinAspect]: „обтичането ще се редува ту отляво, ту
   /// отдясно на картинката" (правило на потребителя, 05.09.2026).
   required bool left,
-  /// Заглавие, което трябва да остане ЗАЕДНО със зоната — виж повикващия.
-  /// Слага се ВЪТРЕ в `Inseparable`-а, над реда с картинката.
-  pw.Widget? headingAbove,
-  double headingGap = 0,
 }) {
   final b = arranged[index];
   final imgW = contentWidth * _kPdfFlowImageWidthFactor;
@@ -1178,15 +1163,7 @@ int _addFlowImage({
   // между две страници — половин зона на единия лист изглежда като дефект.
   add(
     pw.Inseparable(
-      child: pw.Column(
-        crossAxisAlignment: pw.CrossAxisAlignment.stretch,
-        mainAxisSize: pw.MainAxisSize.min,
-        children: [
-          if (headingAbove != null) ...[
-            headingAbove,
-            pw.SizedBox(height: headingGap),
-          ],
-          pw.Row(
+      child: pw.Row(
         crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
           // ⚠ Редът на децата Е страната. Текстът е `Expanded` и заема
@@ -1207,8 +1184,6 @@ int _addFlowImage({
           ),
           if (!left) pw.SizedBox(width: kIllustrationGap),
           if (!left) block,
-        ],
-      ),
         ],
       ),
     ),
@@ -2188,10 +2163,6 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
         int? pendingSkip;
         // Коя по ред е обтичащата илюстрация — за редуването на страната.
         var flowSide = 0;
-        // Заглавие, задържано за зоната на следващата картинка — виж
-        // [nextIsFlowImage].
-        pw.Widget? pendingHeading;
-        var pendingHeadingGap = 0.0;
         double? mainHeadingGap;
         for (var i = 0; i < arranged.length; i++) {
           final b = arranged[i];
@@ -2263,25 +2234,13 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                 // Броячът върви по РЕАЛНО обтичащите: картинка, минала по
                 // общия път, не бива да обръща реда на следващите.
                 left: flowSide.isEven,
-                headingAbove: pendingHeading,
-                headingGap: pendingHeadingGap,
               );
               if (consumed > 0) {
-                pendingHeading = null;
-                pendingHeadingGap = 0;
                 flowSide++;
                 i += consumed - 1;
                 continue;
               }
               // consumed == 0 → няма текст за обтичане; минава по общия път.
-              // ⚠ Тогава задържаното заглавие се изписва тук, преди
-              // картинката — инак изчезва мълчаливо.
-              if (pendingHeading != null) {
-                add(pendingHeading, isHeading: true);
-                add(pw.SizedBox(height: pendingHeadingGap));
-                pendingHeading = null;
-                pendingHeadingGap = 0;
-              }
             }
             final size = _imageBox(b.imageAspect, img, contentWidth);
             final capStyle = capBlock == null
@@ -2371,25 +2330,22 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                 !next.isImage &&
                 !nextTakesDropCap;
 
-            // ⚠⚠ ЗАГЛАВИЕ ПРЕД ОБТИЧАЩА КАРТИНКА СЕ ГРУПИРА С НЕЯ.
+            // ⚠⚠ ОТХВЪРЛЕН ОПИТ, записан за да не се повтори (05.09.2026).
             //
-            // Правилото на потребителя е „заглавие, включително Тропар и
-            // Кондак, не бива да остава самичко в края на страницата". Кодът
-            // го спазваше за „заглавие + абзац", но НЕ и когато подир него
-            // стои картинка: `canKeepWithNext` изрично я изключва, тъй че
-            // заглавието се изписваше само, а зоната отиваше на следващия
-            // лист. (Докладвано от потребителя със снимка, 05.09.2026:
-            // „Тропар, гл. 4" сам в дъното, а текстът му — на другата
-            // страница, обтичащ картинката.)
+            // Заглавие пред картинка оставаше самичко в дъното („Тропар,
+            // гл. 4", а текстът му — на другата страница). Първата поправка
+            // сложи заглавието ВЪТРЕ в `Inseparable`-а на зоната.
             //
-            // ⚠ Тук заглавието не се ИЗПИСВА, а се ЗАПАЗВА: слага се ВЪТРЕ в
-            // `Inseparable`-а на зоната, над реда с картинката. Само така
-            // двете не могат да се разделят между страници.
-            final nextIsFlowImage = next != null &&
-                next.isImage &&
-                images[next.imageAsset] != null &&
-                !_pdfWantsFullWidth(
-                    next.imageAspect, images[next.imageAsset]!, contentWidth);
+            // ⚠ ГРЕШНО, и то по причина, която личи само на готов PDF:
+            // групирането става при ПЪРВИЯ проход, а мениджърът после мести
+            // цялата зона — и повлича заглавието със себе си. Тропарът се
+            // озоваваше над картинка, до която тече РАЗКАЗЪТ, а не неговият
+            // текст. (Забелязано от потребителя веднага: „защо е грабнал с
+            // нея и заглавието".)
+            //
+            // Вярното е обратното: заглавието остава при СВОЯ текст, а
+            // картинката се мести самостоятелно — за което служи границата
+            // при песнопенията (виж [firstPrayer] в `_reorderBlocks`).
 
             if (b.isHeading) {
               // Заглавието на самото четиво (<h1> в HTML-а) трябва да
@@ -2411,11 +2367,6 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                       color: _ink),
                 ),
               );
-              if (nextIsFlowImage) {
-                pendingHeading = headingWidget;
-                pendingHeadingGap = mainHeadingGap ?? (prayerLike ? 34 : 24);
-                continue;
-              }
               // Заглавието не бива да остава само в дъното на страницата —
               // групира се (Inseparable) с първите два реда след себе си.
               if (canKeepWithNext) {
@@ -2556,13 +2507,6 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
               );
 
               final fontSize = style.fontSize ?? _bodySize;
-              if (isPrayerHead && nextIsFlowImage) {
-                // ⚠ „Тропар"/„Кондак" не са <h1>, а абзаци с клас
-                // prayerhead — но правилото важи и за тях дословно.
-                pendingHeading = paragraph;
-                pendingHeadingGap = 12;
-                continue;
-              }
               if (isPrayerHead && canKeepWithNext) {
                 // "Тропар"/"Кондак" не са <h1>, а абзаци с клас prayerhead —
                 // но също не бива да остават сами най-долу на страницата.
