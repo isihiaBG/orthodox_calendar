@@ -666,6 +666,77 @@ List<_Block> _reorderBlocks(
       }
       continue;
     }
+    // ⚠⚠ ДВЕ КАРТИНКИ ЕДНА ДО ДРУГА — първата няма какво да обтича.
+    //
+    // [_addFlowImage] спира на следваща илюстрация (две в една зона се
+    // застъпват и редът им в разказа се губи) и връща 0, тъй че първата
+    // минава по ОБЩИЯ път: по-широка от половин ред, с празно поле под себе
+    // си. Дотук мениджърът не знаеше за това и подобно решение просто
+    // оставаше.
+    //
+    // Правило на потребителя (05.09.2026): вместо да се взима такова
+    // решение, картинката се ИЗМЕСТВА ПО-НАГОРЕ В ТЕКСТА, докато между двете
+    // застане текст, който да я обтече.
+    //
+    // ⚠ Проверката е ПРЕДИ сметката за запълване нарочно: тук въпросът не е
+    // колко място остава на листа, а дали изобщо има какво да обтича. Дори
+    // картинката да се побира отлично, оставена до друга картинка тя губи
+    // обтичането си.
+    //
+    // ⚠ Връща се назад точно докато СЪБРАНИЯТ текст стигне да я обтече
+    // (`acc >= uHeight`) — по-малко значи полупразна зона, повече я откъсва
+    // без нужда от мястото ѝ в разказа. Забраните са същите като при
+    // обикновеното издърпване: не се минава пред друга картинка, нито пред
+    // заглавие.
+    if (!moved.contains(u) && pos + 1 < order.length && uImg[order[pos + 1]]) {
+      var acc = 0.0;
+      var back = 0;
+      for (var j = 1; j <= _kImageShiftLimit && pos - j >= 0; j++) {
+        final prv = order[pos - j];
+        if (uImg[prv] || uHead[prv]) break;
+        acc += uh[prv];
+        back = j;
+        if (acc >= uHeight) break;
+      }
+      if (back > 0) {
+        moved.add(u);
+        changed = true;
+        order.removeAt(pos);
+        order.insert(pos - back, u);
+        final restart = pos - back;
+        y = yBefore[restart];
+        pos = restart - 1;
+        continue;
+      }
+    }
+
+    // ⚠ ОГЛЕДАЛНИЯТ СЛУЧАЙ. Издърпването назад се блокира от заглавие или от
+    // трета картинка; тогава ВТОРАТА от двойката се избутва НАПРЕД, докато
+    // между тях застане текст. Резултатът за читателя е същият — двете вече
+    // не се допират, — а една от двете посоки почти винаги е свободна.
+    if (!moved.contains(u) && pos > 0 && uImg[order[pos - 1]]) {
+      var acc = 0.0;
+      var fwd = 0;
+      for (var k = 1; k <= _kImageShiftLimit && pos + k < order.length - 1; k++) {
+        final nxt = order[pos + k];
+        if (uImg[nxt] || blocks[unit[nxt].first].cls.contains('source')) break;
+        // ⚠ И тук не се влиза в песнопенията — виж [firstPrayer].
+        if (pos + k >= firstPrayer) break;
+        acc += uh[nxt];
+        fwd = k;
+        if (acc >= uHeight) break;
+      }
+      if (fwd > 0) {
+        moved.add(u);
+        changed = true;
+        order.removeAt(pos);
+        order.insert(pos + fwd, u);
+        y = yBefore[pos];
+        pos -= 1;
+        continue;
+      }
+    }
+
     if (uHeight + _kFitMargin <= pageHeight - y) {
       y += uHeight;
       continue;
@@ -790,6 +861,14 @@ const double _kPdfFlowImageWidthFactor = 0.5;
 /// беше взет от ЕКРАНА, където кутията е друга).
 const double _kPdfFullWidthMinAspect = 1.0;
 
+/// Дялът от ПОЛОВИНАТА страница, който взима всяка от две долепени картинки,
+/// сложени една до друга — виж [_addImagePair].
+///
+/// ⚠ 0.97 е по указание на потребителя („96–98%"). Остатъкът до пълната
+/// половина е просветът помежду им: при съдържание от 515 pt това са към
+/// 15 пункта — достатъчно, за да не се допират, и твърде малко, за да зее.
+const double _kPdfPairWidthFactor = 0.97;
+
 /// Долният праг за резолюция при цяла ширина, в точки на инч.
 ///
 /// ⚠ 150 ppi е обичайната граница за прилично изглеждаща снимка в печат (300
@@ -842,6 +921,142 @@ bool _pdfWantsFullWidth(double tagAspect, pw.MemoryImage img, double contentWidt
     w = h * ratio;
   }
   return (w, h);
+}
+
+/// ⚠⚠ ТРЕТИЯТ ИЗХОД: ДВЕ ДОЛЕПЕНИ ИЛЮСТРАЦИИ, СЛОЖЕНИ ЕДНА ДО ДРУГА.
+///
+/// Правило на потребителя (05.09.2026): „когато и двете посоки за обтичане са
+/// блокирани, нека сложи двете снимки една до друга, като ги оразмери така, че
+/// всяка да взема по половината от страницата или съвсем малко по-малко, за да
+/// се получи малка рамка между двете".
+///
+/// Редът на изходите при две долепени картинки е:
+///
+///   1. мениджърът ги РАЗДАЛЕЧАВА — издърпва първата назад или избутва
+///      втората напред, докато между тях застане текст (виж двете правила
+///      при `uImg[order[pos + 1]]` в [_reorderBlocks]);
+///   2. не може ли — ТУК: двете застават една до друга;
+///   3. чак ако и това не се получи (липсващ файл, твърде висока двойка) —
+///      по общия път, всяка на цял ред.
+///
+/// ⚠ Дотук втората стъпка я нямаше и първата картинка минаваше по общия път:
+/// свиваше се по ВИСОЧИНА до 52% от листа, излизаше по-широка от половин ред и
+/// под нея зееше празно. Точно това видя потребителят на стр. 35.
+///
+/// ⚠ ШИРИНАТА Е ИЗРИЧЕН ДЯЛ ОТ ПОЛОВИНАТА, а не остатък след някаква
+/// празнина — [_kPdfPairWidthFactor]. Правилото на потребителя е дадено точно
+/// така: „96–98% от половината страница, за да се получи малък просвет като
+/// разделител между двете картинки". Изразено като дял, то не зависи от това
+/// колко е отстоянието между колоните другаде в документа.
+///
+/// ⚠⚠ ВИСОЧИНИТЕ НЕ СЕ ИЗРАВНЯВАТ — всяка снимка взима СВОЯТА половина.
+///
+/// Първият опит свиваше по-високата до височината на другата, за да няма
+/// стъпало по долния ръб. Мерено обаче, при различни пропорции това смачква
+/// едната до 145 pt срещу 250 — двете вече не изглеждат като двойка, а като
+/// голяма и малка. Правилото на потребителя е изрично („всяка да взема по
+/// половината"), а горните им ръбове и без това са подравнени.
+///
+/// Връща колко блока е погълнала, или 0.
+int _addImagePair({
+  required void Function(pw.Widget, {bool isImage, bool isHeading, bool splittable}) add,
+  required void Function(int) setBlock,
+  required List<_Block> arranged,
+  required int index,
+  required Map<String, pw.MemoryImage> images,
+  required double contentWidth,
+  required pw.Context context,
+  required PdfFont font,
+  required double bodySize,
+  required PdfColor strongColor,
+}) {
+  final first = arranged[index];
+  final imgA = images[first.imageAsset];
+  if (imgA == null) return 0;
+
+  var cursor = index + 1;
+  _Block? capA;
+  if (cursor < arranged.length && arranged[cursor].cls.contains('caption')) {
+    capA = arranged[cursor];
+    cursor++;
+  }
+  if (cursor >= arranged.length || !arranged[cursor].isImage) return 0;
+  final second = arranged[cursor];
+  final imgB = images[second.imageAsset];
+  if (imgB == null) return 0;
+  cursor++;
+  _Block? capB;
+  if (cursor < arranged.length && arranged[cursor].cls.contains('caption')) {
+    capB = arranged[cursor];
+    cursor++;
+  }
+
+  // ⚠ Просветът между двете е ОСТАТЪКЪТ до пълната половина — по дял, не по
+  // фиксирано число: при 97% от 257 pt той излиза към 15 pt, тоест точно
+  // толкова, колкото окото приема за разделител, без да зее.
+  final half = contentWidth / 2 * _kPdfPairWidthFactor;
+  final gap = contentWidth - 2 * half;
+  if (half < 80) return 0;
+  final a = _imageBox(first.imageAspect, imgA, half);
+  final b = _imageBox(second.imageAspect, imgB, half);
+
+  final wA = a.$1, hA = a.$2;
+  final wB = b.$1, hB = b.$2;
+
+  pw.Widget side(pw.MemoryImage img, double w, double hh, _Block? cap) {
+    final st = cap == null ? null : _blockStyleOf(cap, font, bodySize);
+    return pw.SizedBox(
+      width: half,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
+        mainAxisSize: pw.MainAxisSize.min,
+        children: [
+          pw.Image(img, width: w, height: hh),
+          if (cap != null && st != null) ...[
+            pw.SizedBox(height: 5),
+            pw.RichText(
+              textAlign: pw.TextAlign.left,
+              text: pw.TextSpan(
+                style: st,
+                children: _inlineSpans(
+                  cap.inner.isEmpty ? cap.text : cap.inner, st,
+                  strongColor: strongColor,
+                  font: font,
+                  baseItalic: true,
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  final row = pw.Row(
+    crossAxisAlignment: pw.CrossAxisAlignment.start,
+    children: [
+      side(imgA, wA, hA, capA),
+      pw.SizedBox(width: gap),
+      side(imgB, wB, hB, capB),
+    ],
+  );
+
+  // ⚠ Двойката е ЕДНО ЦЯЛО и не бива да се дели между страници. Надрасне ли
+  // листа, се отказваме — по-добре по общия път, отколкото PDF, който не се
+  // сглобява (същият довод като при обтичането).
+  final wrapped = pw.Inseparable(child: row);
+  try {
+    wrapped.layout(context, pw.BoxConstraints(maxWidth: contentWidth));
+    if ((wrapped.box?.height ?? 0) > PdfPageFormat.a4.height - 80) return 0;
+  } catch (_) {
+    return 0;
+  }
+
+  setBlock(index);
+  add(pw.SizedBox(height: 8), isImage: false, isHeading: false, splittable: false);
+  add(wrapped, isImage: true, isHeading: false, splittable: false);
+  add(pw.SizedBox(height: 12), isImage: false, isHeading: false, splittable: false);
+  return cursor - index;
 }
 
 /// Слага илюстрация с ОБТИЧАЩ текст отстрани и връща колко блока е погълнала
@@ -1013,6 +1228,10 @@ int _addFlowImage({
     cursor++;
   }
 
+  // ⚠ Стига се дотук САМО когато непосредствено след картинката стои друга
+  // картинка. Мениджърът се опитва да ги раздалечи (виж двете правила при
+  // `uImg[order[pos + 1]]` в `_reorderBlocks`), но и двете посоки може да са
+  // блокирани от заглавие. Тогава първата минава по общия път.
   if (beside.isEmpty) return 0; // нищо за обтичане
 
   // ⚠⚠ ПРЕЛИВАЩИЯТ БЛОК СЕ РАЗРЯЗВА — това е ПЪРВИЯТ и най-добър изход.
@@ -2249,6 +2468,31 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
             // на пейзажна снимка с добра резолюция. Всичко останало отива на
             // половин ред с обтичане.
             if (!_pdfWantsFullWidth(b.imageAspect, img, contentWidth)) {
+              // ⚠⚠ ТРЕТИЯТ ИЗХОД, ПРОБВАН ПЪРВИ: стигне ли се дотук с ДРУГА
+              // картинка непосредствено подир тази, значи мениджърът вече е
+              // опитал да ги раздалечи и не е успял (виж [_addImagePair]).
+              // Тогава двете застават ЕДНА ДО ДРУГА, вместо първата да мине
+              // по общия път и под нея да зее празно.
+              final afterCap = capBlock == null ? i + 1 : i + 2;
+              if (afterCap < arranged.length && arranged[afterCap].isImage) {
+                final pair = _addImagePair(
+                  add: add,
+                  setBlock: (v) => curBlock = v,
+                  arranged: arranged,
+                  index: i,
+                  images: images,
+                  contentWidth: contentWidth,
+                  context: context,
+                  font: _body!.getFont(context),
+                  bodySize: _bodySize,
+                  strongColor: strongIsWine ? _wine : _ink,
+                );
+                if (pair > 0) {
+                  i += pair - 1;
+                  continue;
+                }
+              }
+
               final consumed = _addFlowImage(
                 add: add,
                 setBlock: (v) => curBlock = v,
