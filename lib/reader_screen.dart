@@ -2730,8 +2730,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         // ⚠ Дотук тук стоеше СВОЯ оценка по знаци („perLine × редове"), а
         // рисуването ползваше друга — двете вече не могат да се разминат,
         // защото минават през една и съща функция с едни и същи входове.
-        final (besideProbe, belowProbe) =
-            _splitFlow(r.flowHtml, imgHProbe, colW);
+        final (besideProbe, belowProbe) = _splitFlow(
+            r.flowHtml,
+            illustrationZoneHeight(
+                imgHeight: imgHProbe,
+                imgWidth: imgWProbe,
+                captionHtml: r.captionHtml),
+            colW);
         // ⚠ СЪЩИТЕ условия, които ползва и `_IllustrationRegion` — включително
         // това, че вече НЯМА условие за запълненост на зоната (виж бележката
         // там). Разминат ли се двете, кутията на региона се заковава по
@@ -3794,10 +3799,16 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
         // потребителят: „при една определена големина стои идеално, при
         // всички други е зле" (04.09.2026).
         //
-        // Височината на блока вдясно е [imgHProbe] плюс надписа, ако има
-        // такъв — затова се подава готова, а не се смята пак вътре.
-        final (besideHtml, belowHtml) =
-            _splitFlow(flowHtml, imgHProbe, colWidth);
+        // ⚠ Височината на блока вдясно е картинката ПЛЮС надписа — виж
+        // [illustrationZoneHeight]. Дотук тук стоеше само `imgHProbe` и
+        // ивицата срещу надписа оставаше празна.
+        final (besideHtml, belowHtml) = _splitFlow(
+            flowHtml,
+            illustrationZoneHeight(
+                imgHeight: imgHProbe,
+                imgWidth: imgWProbe,
+                captionHtml: captionHtml),
+            colWidth);
 
 
         // ⚠ ЧАСТИЧНОТО ОБТИЧАНЕ Е ПО-ДОБРО ОТ НИКАКВОТО — решено от
@@ -3945,6 +3956,46 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
         );
       },
     );
+  }
+}
+
+/// Височината на ЦЯЛОТО тяло вдясно при обтичане — картинка ПЛЮС надписа.
+///
+/// ⚠⚠ НАДПИСЪТ БЕШЕ ПРОПУСНАТ и оттам идваше празнина точно колкото него.
+/// Дясната колона е `Column`: отстъп, картинка, надпис — а зоната за обтичане
+/// се смяташе само по картинката. Тъй че текстът отляво спираше на долния ръб
+/// на изображението, а цялата ивица срещу надписа оставаше празна. При
+/// петредов надпис („Посещението на Авраам… Икона от преп. Андрей Рубльов…")
+/// това са към двеста празни пиксела насред четивото.
+/// (Докладвано от потребителя, 05.09.2026.)
+///
+/// ⚠ Коментарът на мястото на повикването твърдеше, че надписът Е включен —
+/// тоест намерението е било това, а сметката просто не го е правила. Точно
+/// видът тихо разминаване, срещу който този файл предупреждава навсякъде.
+///
+/// ⚠ ЕДНА ФУНКЦИЯ ЗА ДВЕТЕ МЕСТА — оценката на височината на региона и
+/// самото рисуване. Разминат ли се, кутията се заковава по едната сметка, а
+/// Flutter рисува по другата.
+///
+/// ⚠ Надписът се мери на ШИРИНАТА НА КАРТИНКАТА, не на колоната: той
+/// принадлежи на нея и се рисува точно толкова широк.
+double illustrationZoneHeight({
+  required double imgHeight,
+  required double imgWidth,
+  String? captionHtml,
+}) {
+  // ⚠ Същият отстъп, с който картинката слиза с половин ред, за да легне на
+  // основната линия на съседния текст (виж `imgTopNudge` при рисуването).
+  final zone = ReaderFontSize.value * kReaderLineHeight / 2 + imgHeight;
+  final cap = captionHtml?.trim();
+  if (cap == null || cap.isEmpty || imgWidth <= 0) return zone;
+
+  final (base, topMargin) = measureStyleFor(cap);
+  final loc = LineLocator.forHtml(html: cap, base: base, maxWidth: imgWidth);
+  try {
+    return zone + topMargin + loc.height;
+  } finally {
+    loc.dispose();
   }
 }
 

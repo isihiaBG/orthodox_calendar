@@ -836,7 +836,42 @@ int _addFlowImage({
   //
   // ⚠ МЕРИ СЕ с `layout()` при ШИРИНАТА НА КОЛОНАТА — същата примитива, с
   // която мери и `MultiPage` (виж [_reorderBlocks]).
-  final zoneHeight = size.$2;
+  // ⚠⚠ ЗОНАТА Е КАРТИНКАТА ПЛЮС НАДПИСА, не само картинката.
+  //
+  // Блокът вдясно е `Column`: изображение, отстъп, надпис — тъй че текстът
+  // отляво има място срещу целия този ръст. Смятана само по картинката,
+  // зоната оставяше ивицата срещу надписа празна; при петредов надпис това е
+  // към двеста празни пункта насред четивото.
+  // (Докладвано от потребителя за ЧЕТЕЦА, 05.09.2026; същата грешка се оказа
+  // и тук — виж [illustrationZoneHeight] в reader_screen.dart.)
+  //
+  // ⚠ Мери се при ШИРИНАТА НА КАРТИНКАТА, защото точно толкова широк се
+  // рисува надписът по-долу; мерен на ширината на колоната, той излиза
+  // по-нисък и зоната пак се подценява.
+  var zoneHeight = size.$2;
+  if (capBlock != null) {
+    final capStyleProbe = _blockStyleOf(capBlock, font, bodySize);
+    final capProbe = pw.RichText(
+      textAlign: pw.TextAlign.left,
+      text: pw.TextSpan(
+        style: capStyleProbe,
+        children: _inlineSpans(
+          capBlock.inner.isEmpty ? capBlock.text : capBlock.inner,
+          capStyleProbe,
+          strongColor: strongColor,
+          font: font,
+          baseItalic: true,
+        ),
+      ),
+    );
+    try {
+      capProbe.layout(context, pw.BoxConstraints(maxWidth: size.$1));
+      // 5 пункта — същият отстъп, с който надписът стои под картинката.
+      zoneHeight += 5 + (capProbe.box?.height ?? 0);
+    } catch (_) {
+      // Не се е оформил — остава само картинката, както беше досега.
+    }
+  }
   final beside = <pw.Widget>[];
   final besideBlocks = <int>[];
   var used = 0.0;
