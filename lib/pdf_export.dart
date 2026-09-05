@@ -256,9 +256,15 @@ List<_Block> _parseBlocks(String html) {
     final attrs = m.group(3) ?? '';
     final inner = m.group(4)!;
     // Почистваме интервалите около таговете за бележки още преди парсването
-    final cleanedInner = _cleanNoteSpacing(inner);
+    // ⚠ `<br>` става НОВ РЕД, а не нищо. Махнат наравно с останалите тагове,
+    // той слепваше двете страни: „Историческа справка: samokov.bg**С**нимки:
+    // Пламен Михайлов". (Видяно в готов PDF, 05.09.2026.)
+    final cleanedInner = _cleanNoteSpacing(inner)
+        .replaceAll(RegExp(r'<br\s*/?>', caseSensitive: false), '\n');
     final text = _decodeEntities(cleanedInner.replaceAll(RegExp(r'<[^>]+>'), ''))
-        .replaceAll(RegExp(r'\s+'), ' ')
+        // ⚠ Свиват се белите знаци, но НЕ и новите редове — инак горното
+        // веднага се губи обратно.
+        .replaceAll(RegExp(r'[^\S\n]+'), ' ')
         .trim();
     if (text.isEmpty) continue;
     final clsMatch =
@@ -860,10 +866,66 @@ int _addFlowImage({
 
   if (beside.isEmpty) return 0; // нищо за обтичане
 
-  // ⚠ ТРЕТИЯТ ИЗХОД (виж точка 3): преливащият последен блок слиза ЦЯЛ
-  // долу, стига горе да остава поне един друг. Без това текстовата колона
-  // надраства картинката и под НЕЯ зее — точно бъгът, платен на екрана.
-  if (used > zoneHeight && beside.length > 1) {
+  // ⚠⚠ ПРЕЛИВАЩИЯТ БЛОК СЕ РАЗРЯЗВА — това е ПЪРВИЯТ и най-добър изход.
+  //
+  // Дотук го нямаше и блокът слизаше ЦЯЛ долу. Тогава до картинката
+  // оставаше само каквото е влязло преди него — а при житието на свщмч.
+  // Симеон Самоковски това е ЕДНО ЗАГЛАВИЕ („Тропар, гл. 4", 34 pt) срещу
+  // 385 pt картинка. (Докладвано от потребителя, 05.09.2026: „сега там
+  // стои само едно заглавие".) Измереното тогава:
+  //
+  //     блок 13 (prayerhead)  h=34   zone=385
+  //     блок 14 (текстът)     h=616  → слизаше цял
+  //
+  // ⚠ Реже се със `_splitLines` — СЪЩАТА функция, с която се пълнят
+  // редовете до буквицата ([_dropCapWidgets]) и с която абзац се групира
+  // със заглавието си. Тя брои по ДУМИ при реалната ширина, тъй че
+  // разрезът пада на граница на дума, а не насред нея.
+  var tailSpans = <pw.InlineSpan>[];
+  pw.TextStyle? tailStyle;
+  if (used > zoneHeight && beside.isNotEmpty) {
+    final lastIdx = besideBlocks.last;
+    final lastBlk = arranged[lastIdx];
+    final before = used - ((beside.last.box?.height ?? 0) + 8);
+    final room = zoneHeight - before;
+    final style = _blockStyleOf(lastBlk, font, bodySize);
+    final fs = style.fontSize ?? bodySize;
+    final lineH = fs * _lineHeight;
+    final linesFit = (room / lineH).floor();
+
+    // ⚠ Под два реда до картинката застава чуканче — тогава е по-добре
+    // блокът да слезе цял (вторият изход по-долу).
+    if (linesFit >= 2 && !lastBlk.isHeading) {
+      final plain = lastBlk.text;
+      final split =
+          _splitLines(plain, colW, font, fs, linesFit);
+      if (split.rest.trim().isNotEmpty && split.head.trim().isNotEmpty) {
+        final spans = _inlineSpans(
+          lastBlk.inner.isEmpty ? lastBlk.text : lastBlk.inner,
+          style,
+          strongColor: strongColor,
+          font: font,
+          baseBold: lastBlk.cls.contains('prayerhead'),
+          baseItalic: lastBlk.isItalic,
+        );
+        // Горе — ЦЕЛИЯТ абзац с `maxLines`. ⚠ Не се подава само главата:
+        // така пренасянията са същите, каквито ще са и при рисуването.
+        beside[beside.length - 1] = pw.RichText(
+          textAlign: pw.TextAlign.justify,
+          maxLines: linesFit,
+          text: pw.TextSpan(style: style, children: spans),
+        );
+        // Долу — остатъкът, по БРОЙ ЗНАЦИ от главата.
+        tailSpans = _spansAfter(spans, split.head.length);
+        tailStyle = style;
+      }
+    }
+  }
+
+  // ⚠ ВТОРИЯТ ИЗХОД: не се ли е получил разрез, преливащият блок слиза ЦЯЛ
+  // долу — стига горе да остава поне един друг. Без него текстовата колона
+  // надраства картинката и под НЕЯ зее (бъгът, платен на екрана).
+  if (tailSpans.isEmpty && used > zoneHeight && beside.length > 1) {
     beside.removeLast();
     besideBlocks.removeLast();
     cursor--;
@@ -955,6 +1017,19 @@ int _addFlowImage({
     ),
     isImage: true,
   );
+  // ⚠ Остатъкът от разрязания абзац — веднага под зоната, на пълна ширина.
+  // `overflow: span`, за да може да се пренесе между страници.
+  if (tailSpans.isNotEmpty && tailStyle != null) {
+    add(pw.SizedBox(height: 4));
+    add(
+      pw.RichText(
+        textAlign: pw.TextAlign.justify,
+        overflow: pw.TextOverflow.span,
+        text: pw.TextSpan(style: tailStyle, children: tailSpans),
+      ),
+      splittable: true,
+    );
+  }
   add(pw.SizedBox(height: 14));
 
   return cursor - index;
@@ -972,23 +1047,30 @@ double _blockFontSizeOf(_Block b, double bodySize) {
   if (b.cls.contains('trans') ||
       b.cls.contains('memorydate') ||
       b.cls.contains('caption') ||
-      b.cls.contains('centernote')) {
+      b.cls.contains('centernote') ||
+      // ⚠ Цитатът в началото и бележката под него са с ЕДИН И СЪЩ размер —
+      // както в четеца. Дотук `epigraph` не беше в списъка и излизаше с
+      // цял пункт по-едър от бележката си, тъй че двете изглеждаха от
+      // различни нива. (05.09.2026.)
+      b.cls.contains('epigraph')) {
     return bodySize - 1;
   }
-  if (b.cls.contains('source')) return bodySize - 3;
+  if (b.cls.contains('source') || b.cls.contains('credit')) return bodySize - 3;
   return bodySize;
 }
 
 /// Стилът на един блок — огледален на четеца (виж readerStyles).
 pw.TextStyle _blockStyleOf(_Block b, PdfFont measureFont, double bodySize) {
   final isPrayerHead = b.cls.contains('prayerhead');
-  final isSourceLine = b.cls.contains('source');
+  final isSourceLine =
+      b.cls.contains('source') || b.cls.contains('credit');
   // ⚠ Курсивните по КЛАС: редът с паметта, надписът под илюстрация и
   // сведението в скоби. В четеца и трите са курсив, приглушени и с една
   // степен по-дребни (виж reader_styles.dart) — тук се повтаря същото.
   final isDimItalic = b.cls.contains('memorydate') ||
       b.cls.contains('caption') ||
-      b.cls.contains('centernote');
+      b.cls.contains('centernote') ||
+      b.cls.contains('epigraphnote');
   final size = _blockFontSizeOf(b, bodySize);
   return pw.TextStyle(
     font: isPrayerHead
@@ -1465,7 +1547,11 @@ bool _eligibleForDropCap(_Block b) {
   // инициалът кацаше върху „**П**реписка, открита в Лозенския манастир…"
   // (свщмч. Симеон Самоковски), а истинското начало на разказа оставаше
   // без буквица. Видяно в готов PDF, изпратен от потребителя (04.09.2026).
-  if (b.cls.contains('epigraph') || b.cls.contains('centernote')) return false;
+  if (b.cls.contains('epigraph') ||
+      b.cls.contains('epigraphnote') ||
+      b.cls.contains('centernote')) {
+    return false;
+  }
   // ⚠ И надписът под илюстрация — той описва картинката, не започва разказ.
   if (b.cls.contains('caption')) return false;
   // Наистина "скипващи" знаци — бележки в скоби, звездички, разделител
@@ -2200,12 +2286,17 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                   baseItalic: b.isItalic || isMemoryDate);
               final bodySpans =
                   skipInBlock > 0 ? _spansAfter(fullSpans, skipInBlock) : fullSpans;
+              // ⚠ Бележката под епиграфа е ДЯСНО подравнена — приписка към
+              // цитата над нея. Центрирана, тя се четеше като подзаглавие.
+              final isEpigraphNote = b.cls.contains('epigraphnote');
               final paragraph = pw.RichText(
                 // Редът с паметта е ЦЕНТРИРАН, както в четеца; разлятото
                 // подравняване е за същинския текст.
-                
-                textAlign:
-                    isMemoryDate ? pw.TextAlign.center : pw.TextAlign.justify,
+                textAlign: isMemoryDate
+                    ? pw.TextAlign.center
+                    : (isEpigraphNote
+                        ? pw.TextAlign.right
+                        : pw.TextAlign.justify),
                 // Без това дългите абзаци не могат да се разделят на страници.
                 
                 overflow: pw.TextOverflow.span,

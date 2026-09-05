@@ -201,6 +201,35 @@ Map<String, Style> readerStyles({
       padding: HtmlPaddings.only(left: 16),
       margin: Margins.only(top: 4, bottom: 14),
     ),
+    // БЕЛЕЖКАТА ПОД ЕПИГРАФА — откъде е цитатът, с който започва житието.
+    //
+    // ⚠ ДЯСНО подравнена, не центрирана, и с размера на САМИЯ цитат.
+    // Центрирана и с една степен по-едра, тя се четеше като ПОДЗАГЛАВИЕ на
+    // разказа, а не като приписка към цитата над нея. (Бележка на
+    // потребителя, 05.09.2026.)
+    //
+    // ⚠ Отделен клас от `.centernote` нарочно: той се ползва от
+    // `tools/lives_bg` за бележките за източник и там центрирането е
+    // вярното.
+    // БЕЛЕЖКА ЗА ИЗТОЧНИКА, дошла ОТ САМИЯ ИЗВОР („Историческа справка: …",
+    // „Снимки: …"). Изглежда като нашата атрибуция, но е ДРУГ клас:
+    // `source` е запазен за реда, който слага приложението НАКРАЯ, и
+    // PDF-ът спира на него.
+    '.credit': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 2),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      margin: Margins.only(top: 18, bottom: 4),
+    ),
+    '.epigraphnote': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 1),
+      color: dim,
+      textAlign: TextAlign.right,
+      padding: HtmlPaddings.only(right: 16),
+      margin: Margins.only(top: 2, bottom: 16),
+    ),
     '.centernote': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize - 1),
