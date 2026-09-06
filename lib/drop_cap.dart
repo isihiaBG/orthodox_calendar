@@ -370,6 +370,20 @@ class DropCapParagraph extends StatefulWidget {
   /// да се маркира!")
   final String quoteText;
   final Color quoteColor;
+
+  /// ⚠⚠ КЪДЕ ЗАПОЧВА ЦИТАТЪТ в сглобения текст на региона (без буквицата),
+  /// или -1, ако не се знае.
+  ///
+  /// Без него [quoteText] се търсеше поотделно във ВСЕКИ абзац на региона и
+  /// всеки връщаше по едно съвпадение — тъй че къс цитат („Мала Азия")
+  /// светваше на няколко места наведнъж. Регионът с буквицата съдържа първия
+  /// абзац ПЛЮС изтеглените до него, затова случаят е чест.
+  /// (Докладвано от потребителя, 06.09.2026.)
+  ///
+  /// ⚠ Знае ли се мястото, свети САМО абзацът, в който то попада, и то
+  /// съвпадението НАЙ-БЛИЗО до него — същото правило, с което цитатът се
+  /// намира навсякъде другаде в проекта.
+  final int quoteStart;
   final Color hitCurrentColor;
   final void Function(String?) onLinkTap;
 
@@ -394,6 +408,7 @@ class DropCapParagraph extends StatefulWidget {
     this.hitColor = const Color(0x00000000),
     this.quoteText = '',
     this.quoteColor = const Color(0x00000000),
+    this.quoteStart = -1,
     this.hitCurrentColor = const Color(0x00000000),
   });
 
@@ -706,11 +721,18 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // (буквицата е отрязана оттам), а тогава тя НЕ е част от него.
         var capIsInQuote = false;
 
-        List<(int, int)> quoteRangesIn(String paraText, {bool first = false}) {
+        List<(int, int)> quoteRangesIn(String paraText,
+            {bool first = false, int paraOffset = 0}) {
           if (widget.quoteText.isEmpty) return const [];
           final full = fold(widget.quoteText).text;
           if (full.isEmpty) return const [];
           final f = fold(paraText);
+
+          // ⚠ Знае ли се мястото, СВЕТИ САМО СВОЯТ АБЗАЦ — виж [quoteStart].
+          final qs = widget.quoteStart;
+          if (qs >= 0 && (qs < paraOffset || qs > paraOffset + paraText.length)) {
+            return const [];
+          }
 
           // ⚠⚠ БУКВИЦАТА СЕ ПРИЗНАВА ЗА ЧАСТ ОТ ЦИТАТА САМО АКО ОСТАТЪКЪТ
           // ЗАПОЧВА ТОЧНО В НАЧАЛОТО НА ПЪРВИЯ АБЗАЦ.
@@ -739,8 +761,21 @@ class DropCapParagraphState extends State<DropCapParagraph> {
             }
           }
 
-          final at = f.text.indexOf(full);
+          // ⚠ НАЙ-БЛИЗКОТО до посоченото място, не първото в абзаца: къс
+          // цитат се среща по няколко пъти и в един абзац.
+          var at = f.text.indexOf(full);
           if (at < 0) return const [];
+          if (qs >= 0) {
+            final want = qs - paraOffset;
+            for (var k = f.text.indexOf(full, at + 1);
+                k >= 0;
+                k = f.text.indexOf(full, k + 1)) {
+              if ((f.origIndex[k] - want).abs() <
+                  (f.origIndex[at] - want).abs()) {
+                at = k;
+              }
+            }
+          }
           return [(f.origIndex[at], f.origIndex[at + full.length - 1] + 1)];
         }
 
@@ -1013,13 +1048,19 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         var stillFitting = true;
         var matchBase = base2;
         final restTailWidgets = <Widget>[]; // сглобяват се веднага, по ред
+        // ⚠ Отместването на всеки абзац в СГЛОБЕНИЯ текст на региона —
+        // блоковете се слепват с „\n" (виж `_quoteBlocks` в двата четеца),
+        // тъй че разделителят се брои за един знак.
+        var restOffset = plain.length;
 
         for (final p in widget.restParagraphs) {
           final runsI = htmlRuns(p);
           final plainI = runsI.map((r) => r.text).join();
           final matchesI = _matchRanges(plainI, widget.searchQuery);
+          final paraOffsetI = restOffset + 1;
+          restOffset = paraOffsetI + plainI.length;
           // ⚠ СВОИТЕ диапазони — не тези на първия абзац.
-          final qRangesI = quoteRangesIn(plainI);
+          final qRangesI = quoteRangesIn(plainI, paraOffset: paraOffsetI);
           final matchBaseI = matchBase;
           matchBase += matchesI.length;
 

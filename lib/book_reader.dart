@@ -2030,6 +2030,10 @@ class _BookReaderState extends State<BookReader>
                 ? _quoteText
                 : '',
             quoteColor: palette.quote,
+            // ⚠ И МЯСТОТО — инак къс цитат свети във всеки абзац на региона.
+            quoteStart: (i >= _quoteRegion && i <= _quoteRegionEnd)
+                ? _quoteStart
+                : -1,
             onLinkTap: _onLinkTap,
           ),
         ));

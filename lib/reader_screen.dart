@@ -2911,6 +2911,12 @@ class _ReaderScreenState extends State<ReaderScreen>
                 ? _quoteText
                 : '',
             quoteColor: _p.quote,
+            // ⚠ И МЯСТОТО — виж [DropCapParagraph.quoteStart]. Същият латентен
+            // проблем го имаше и тук: къс цитат светваше във всеки изтеглен
+            // до буквицата абзац.
+            quoteStart: (i >= _quoteRegion && i <= _quoteRegionEnd)
+                ? _quoteStart
+                : -1,
           ),
           ),
         );
