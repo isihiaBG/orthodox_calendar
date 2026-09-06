@@ -1206,4 +1206,116 @@ void quoteVsSearchTests() {
     expect(out, isNot(contains('class="hit"><span class="quotehit"')));
     expect(out, contains('quotehit'), reason: 'частта извън жълтото се маркира');
   });
+
+  // ── Два еднакви надписа на съседни илюстрации ───────────────────────────
+  //
+  // ⚠ Докладвано от потребителя на 06.09.2026 върху житието на св. Кирил
+  // Философ. Два съседни надписа започват с един и същ ред; маркиран беше
+  // ПЪРВИЯТ, а линкът отвеждаше при ВТОРИЯ. Разглобяването на пакета показа
+  // „кое поред = 2 от 2" — тоест сгрешено е УЛАВЯНЕТО, не отварянето.
+  //
+  // Числата тук са истинските от житието: регион 319 носи само надписа
+  // (129 знака), регион 320 — надписа плюс 849 знака обтичащ текст.
+  group('съседни еднакви надписи (св. Кирил Философ)', () {
+    const caption = 'Свв. Методий и Кирил коленичили пред Христос и два ангела.';
+    final blockA = '$caption\nСтенопис от XI в. криптата на базиликата "Сан '
+        'Клементе" в Рим, Италия';
+    final blockB = '$caption\nВъзстановка на стенописа в криптата на '
+        'базиликата "Сан Клементе" в Рим, Италия\n${'дума ' * 170}';
+
+    test('⚠ маркираният надпис е ПЪРВИЯТ, не вторият', () {
+      // Ориентирът сочи блок 0, но със знак близо до КРАЯ му — точно каквото
+      // дава `_hintFor` при илюстрация: надписът е на знак 0 в текста, а в
+      // кутията стои най-отдолу, под картинката, тъй че делът е ~0,9.
+      final spot = captureSelection([blockA, blockB], caption,
+          hint: (0, (blockA.length * 0.9).round()));
+      expect(spot, isNotNull);
+      expect(spot!.block, 0, reason: 'блокът идва от хит-теста и е надежден');
+      expect(spot.occurrence, 1);
+      expect(spot.occurrenceTotal, 2);
+    });
+
+    test('вторият надпис си остава втори', () {
+      final spot = captureSelection([blockA, blockB], caption,
+          hint: (1, (blockB.length * 0.9).round()));
+      expect(spot, isNotNull);
+      expect(spot!.block, 1);
+      expect(spot.occurrence, 2);
+    });
+
+    test('⚠ ЦЕЛИЯТ кръг: улавяне → линк → отваряне на СЪЩОТО място', () {
+      final spot = captureSelection([blockA, blockB], caption,
+          hint: (0, (blockA.length * 0.9).round()));
+      final q = buildQuote(
+        source: QuoteSource.life,
+        locator: 'sv-kirill-konstantin-filosof',
+        title: 'Св. Кирил Философ',
+        blocks: [blockA, blockB],
+        spot: spot!,
+      );
+      final parsed = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
+      expect(parsed.anchor.occurrence, 1, reason: 'номерът пътува в линка');
+      expect(parsed.anchor.occurrenceTotal, 2);
+      final hit = locateParsedQuote([blockA, blockB], parsed);
+      expect(hit.block, 0, reason: 'отваря се при ПЪРВИЯ надпис');
+      expect(hit.kind, isNot(QuoteHitKind.byCoordinates));
+    });
+  });
+
+  // ── „Сподели четивото" ───────────────────────────────────────────────────
+  //
+  // ⚠ Линк към ЦЯЛОТО четиво — без маркиране, отваря се от началото. Минава
+  // по СЪЩИЯ път като цитатите (същият адрес, същото разчитане), а признакът
+  // е нулева дължина без отпечатък.
+  group('линк към цялото четиво', () {
+    test('житие: разчита се и се познава', () {
+      final link = buildReadingLink(
+          source: QuoteSource.life, locator: 'sv-ioan-rilski');
+      final q = parseQuoteLink(Uri.parse(link))!;
+      expect(q.isWholeReading, isTrue);
+      expect(q.anchor.source, QuoteSource.life);
+      expect(q.anchor.charLength, 0);
+      expect(q.fingerprint, isEmpty);
+    });
+
+    test('книга: локаторът оцелява с чертичката в себе си', () {
+      const loc = 'assets/books/09.epub|OEBPS/Text/index_split_397.xhtml';
+      final q = parseQuoteLink(
+          Uri.parse(buildReadingLink(source: QuoteSource.book, locator: loc)))!;
+      expect(q.isWholeReading, isTrue);
+      expect(q.anchor.locator, loc);
+    });
+
+    test('⚠ Писанието получава ЧЕТИМ адрес, без език', () {
+      final link = buildReadingLink(
+          source: QuoteSource.bible, locator: 'bg|Mt|5');
+      expect(link, endsWith('/Mt.5'));
+      expect(link, isNot(contains('@')), reason: 'преводът е на получателя');
+      final q = parseQuoteLink(Uri.parse(link))!;
+      expect(q.isWholeReading, isTrue);
+    });
+
+    test('⚠ цитат НЕ се брои за цяло четиво', () {
+      const blocks = ['Свети Иоан Рилски оставил всичко земно.'];
+      final spot = captureSelection(blocks, 'оставил всичко земно')!;
+      final q = buildQuote(
+        source: QuoteSource.life,
+        locator: 'sv-ioan-rilski',
+        title: 'Св. Иоан Рилски',
+        blocks: blocks,
+        spot: spot,
+      );
+      final parsed = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
+      expect(parsed.isWholeReading, isFalse);
+    });
+
+    test('съобщението: заглавие, после линкът на СВОЙ ред', () {
+      final text = readingShareText(
+          title: 'Св. Иоан Рилски (Житие)', link: 'https://x/q/abc');
+      expect(text, startsWith('„Св. Иоан Рилски (Житие)"'));
+      expect(text, contains('Отвори четивото:'));
+      expect(text.trimRight(), endsWith('https://x/q/abc'));
+      expect(text, isNot(contains('Чети в контекст')));
+    });
+  });
 }

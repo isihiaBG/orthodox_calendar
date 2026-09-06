@@ -1081,6 +1081,11 @@ class _BookReaderState extends State<BookReader>
   }
 
   void _goToQuote(ParsedQuoteLink q, {int tries = 0}) {
+    // ⚠⚠ ЛИНК КЪМ ЦЯЛОТО ЧЕТИВО — няма какво да се търси и да се маркира.
+    // Четивото просто се отваря от началото. Виж [buildReadingLink]: същият
+    // адрес, същият път на отваряне, само с нулева дължина и без отпечатък.
+    if (q.isWholeReading) return;
+
     final blocks = _quoteBlocks();
     // ⚠⚠ ТИХИЯТ ОТКАЗ — платен в този проект вече няколко пъти. Тук стоеше
     // голо `return`: извикването е ЕДНО, на кадъра след `initState`, а в този
@@ -1611,6 +1616,14 @@ class _BookReaderState extends State<BookReader>
       ));
     } else if (choice == kQuotesMenuItem.value) {
       openQuotesList(context, lookupBySlug);
+    } else if (choice == kShareReadingMenuItem.value) {
+      // ⚠ СЪЩИТЕ изрази, с които се храни QuotableSelectionArea — инак
+      // споделеният цитат и споделеното четиво биха сочили различно.
+      shareReading(
+        source: QuoteSource.book,
+        locator: '${widget.book.assetPath}|${_current.href}',
+        title: _readingTitle(),
+      );
     } else if (choice == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }

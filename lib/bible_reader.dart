@@ -2998,6 +2998,20 @@ class _BibleReaderState extends State<BibleReader>
     if (choice == kReaderSettingsMenuItem.value) {
       setState(() => _searchSettingsInDrawer = false);
       _scaffoldKey.currentState?.openEndDrawer();
+    } else if (choice == kShareReadingMenuItem.value) {
+      // ⚠ СЪЩИЯТ израз за локатора, с който се храни QuotableSelectionArea —
+      // инак споделеният цитат и споделената глава биха сочили различно.
+      //
+      // ⚠ Езикът влиза в локатора, но [buildReadingLink] нарочно НЕ го
+      // изписва в адреса: при цяла глава няма отрязване в знаци, тъй че
+      // единственото, което би направил, е да наложи чужд превод върху
+      // избора на получателя.
+      shareReading(
+        source: QuoteSource.bible,
+        locator:
+            '${_shownCode(_pair, null)}|${widget.bookCode}|${widget.chapter}',
+        title: _chapterLabel(),
+      );
     }
   }
 
@@ -3208,6 +3222,11 @@ class _BibleReaderState extends State<BibleReader>
   /// отпечатък, нито пореден номер, нито [locateQuote]: номерът на стиха е
   /// точният адрес и той не се мени НИКОГА.
   void _goToQuote(ParsedQuoteLink q) {
+    // ⚠⚠ ЛИНК КЪМ ЦЯЛОТО ЧЕТИВО — няма какво да се търси и да се маркира.
+    // Четивото просто се отваря от началото. Виж [buildReadingLink]: същият
+    // адрес, същият път на отваряне, само с нулева дължина и без отпечатък.
+    if (q.isWholeReading) return;
+
     if (_rows.isEmpty) return;
 
     // ⚠ Нула значи „цяла глава" — адрес като „Mt.2". Главата е отворена,

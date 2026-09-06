@@ -252,3 +252,23 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     );
   }
 }
+
+/// Споделя ЦЯЛОТО четиво — заглавието и линк към него, без маркиране.
+///
+/// ⚠ ЕДНО МЯСТО ЗА ТРИТЕ ЧЕТЕЦА. Преписано, щеше да се размине при първата
+/// промяна във вида на съобщението — точно както се случи с менюто зад
+/// трите точки, преди да стане общо (виж `kReaderMenuItems`).
+///
+/// ⚠ Викащият подава `locator` и `title` със СЪЩИТЕ изрази, с които храни
+/// [QuotableSelectionArea] — инак споделеният цитат и споделеното четиво
+/// биха сочили към различни места.
+Future<void> shareReading({
+  required QuoteSource source,
+  required String locator,
+  required String title,
+}) async {
+  await Share.share(readingShareText(
+    title: title,
+    link: buildReadingLink(source: source, locator: locator),
+  ));
+}

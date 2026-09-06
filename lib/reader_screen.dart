@@ -1560,6 +1560,11 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// къс цитат или пренаписан текст просто връща самите числа.
   /// Виж `quotes.dart` за целия довод.
   void _goToQuote(ParsedQuoteLink q) {
+    // ⚠⚠ ЛИНК КЪМ ЦЯЛОТО ЧЕТИВО — няма какво да се търси и да се маркира.
+    // Четивото просто се отваря от началото. Виж [buildReadingLink]: същият
+    // адрес, същият път на отваряне, само с нулева дължина и без отпечатък.
+    if (q.isWholeReading) return;
+
     final blocks = _quoteBlocks();
     if (blocks.isEmpty) return;
 
@@ -2565,9 +2570,28 @@ class _ReaderScreenState extends State<ReaderScreen>
       );
     } else if (selected == kQuotesMenuItem.value) {
       openQuotesList(context, widget.lookup);
+    } else if (selected == kShareReadingMenuItem.value) {
+      // ⚠ СЪЩИТЕ изрази, с които се храни QuotableSelectionArea по-долу —
+      // инак споделеният цитат и споделеното четиво биха сочили различно.
+      shareReading(
+        source: QuoteSource.life,
+        locator: widget.texts.slug,
+        title: _shareTitle(),
+      );
     } else if (selected == kSharePdfMenuItem.value) {
       _shareAsPdf();
     }
+  }
+
+  /// Заглавието за споделяне — името на светията плюс вида в скоби.
+  ///
+  /// ⚠ Изнесено, защото го искат ДВЕ места: `QuotableSelectionArea` (за
+  /// цитатите) и „Сподели четивото". Преписано, щеше да се размине.
+  String _shareTitle() {
+    final name = widget.texts.name.trim();
+    final kind = widget.lifeTitle?.trim() ?? '';
+    if (name.isEmpty) return kind;
+    return kind.isEmpty ? name : '$name ($kind)';
   }
 
 
@@ -3287,12 +3311,7 @@ class _ReaderScreenState extends State<ReaderScreen>
               // кого. (Докладвано от потребителя, 03.09.2026.)
               // Видът остава в скоби: той различава житието от службата на
               // един и същи светия.
-              title: () {
-                final name = widget.texts.name.trim();
-                final kind = widget.lifeTitle?.trim() ?? '';
-                if (name.isEmpty) return kind;
-                return kind.isEmpty ? name : '$name ($kind)';
-              },
+              title: _shareTitle,
               // Плоският текст на регионите вече е сметнат и кеширан в
               // `_prepared` — оттам, а не наново.
               blocks: _quoteBlocks,

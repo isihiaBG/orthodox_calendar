@@ -67,6 +67,17 @@ const ReaderMenuItem kQuotesMenuItem = ReaderMenuItem(
   value: 'quotes',
 );
 
+/// „Сподели четивото" — линк към САМОТО четиво, без маркиране.
+///
+/// ⚠ Иконката е СЪЩАТА, с която се споделя цитат (`Icons.share` в
+/// selection_toolbar.dart): за човека това е едно и също действие, само
+/// обхватът е друг.
+const ReaderMenuItem kShareReadingMenuItem = ReaderMenuItem(
+  icon: Icons.share,
+  label: 'Сподели четивото',
+  value: 'share_reading',
+);
+
 const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
   icon: Icons.picture_as_pdf_outlined,
   label: 'Сподели като PDF',
@@ -78,6 +89,10 @@ const List<ReaderMenuItem> kReaderMenuItems = [
   kReaderSettingsMenuItem,
   kBookmarksMenuItem,
   kQuotesMenuItem,
+  // ⚠ Двете споделяния стоят ЕДНО ДО ДРУГО, а „четивото" е преди „PDF"
+  // (изрично подредено от потребителя, 06.09.2026): линкът е по-лекият и
+  // по-често търсен изход, PDF-ът — по-тежкият.
+  kShareReadingMenuItem,
   kSharePdfMenuItem,
 ];
 

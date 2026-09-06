@@ -460,6 +460,67 @@ int _getVarint(List<int> b, List<int> pos) {
 /// ⚠ Цената: адресът е напълно НЕПРОЗРАЧЕН — не се вижда нито слъгът, нито
 /// цитатът. Другите два изхода бяха или дълъг адрес (текст в параметър), или
 /// невъзстановим цитат (само хеш); това е третият — къс адрес И пълни данни.
+/// Линк към ЦЯЛОТО ЧЕТИВО — без маркиране, отваря се от началото.
+///
+/// ⚠⚠ МИНАВА ПО СЪЩИЯ ПЪТ като цитатите — същият адрес `/q/…`, същото
+/// разчитане, същото отваряне. Отделен вид адрес би значел втори
+/// `intent-filter`, второ разчитане и втори повод двете да се разминат.
+/// Разликата е ЕДНА: нулева дължина и без отпечатък — виж
+/// [ParsedQuoteLink.isWholeReading].
+///
+/// ⚠ Писанието получава ЧЕТИМИЯ си вид без нищо подире му („Mt.5"), който
+/// [parseBibleQuoteLink] и без това вече приема като „цялата глава".
+///
+/// ⚠ ЕЗИКЪТ НЕ СЕ ПИШЕ при библейско четиво. При цитат той трябва, защото
+/// отрязването се брои в ЗНАЦИ и те са различни във всеки превод; тук
+/// отрязване няма, тъй че единственото, което езикът би направил, е да
+/// наложи чужд превод върху избора на получателя.
+String buildReadingLink({
+  required QuoteSource source,
+  required String locator,
+}) {
+  if (source == QuoteSource.bible) {
+    final parts = locator.split('|');
+    if (parts.length >= 3) {
+      final book = parts[1], chapter = int.tryParse(parts[2]);
+      if (book.isNotEmpty && chapter != null) {
+        return 'https://$kQuoteLinkHost$kQuotePath/$book.$chapter';
+      }
+    }
+  }
+  return buildQuoteLink(Quote(
+    anchor: QuoteAnchor(
+      source: source,
+      locator: locator,
+      block: 0,
+      charStart: 0,
+      charLength: 0,
+    ),
+    text: '',
+    title: '',
+    savedAtMs: 0,
+  ));
+}
+
+/// Съобщението при „Сподели четивото": заглавието, а линкът под него.
+///
+/// ⚠ Устроено като [quoteShareText] нарочно — човек, получил и двата вида,
+/// трябва да ги разпознава като едно и също нещо. Разликата е, че тук няма
+/// какво да се цитира, тъй че заглавието застава само.
+///
+/// ⚠ Линкът е на СОБСТВЕН РЕД, най-отдолу — по същия довод: чатовете го
+/// правят кликаем сам, а сложен насред изречение би се разкъсал при
+/// пренасяне.
+String readingShareText({required String title, required String link}) {
+  final b = StringBuffer();
+  final t = title.trim();
+  if (t.isNotEmpty) b..writeln('„$t"')..writeln();
+  b
+    ..writeln('Отвори четивото:')
+    ..write(link);
+  return b.toString();
+}
+
 String buildQuoteLink(Quote q) {
   // ⚠ Писанието получава ЧЕТИМ адрес — виж [buildBibleQuoteLink]. Не се ли
   // сглоби (повреден locator), пада на пакетирания вид: по-добре грозен
@@ -729,6 +790,20 @@ class ParsedQuoteLink {
     this.fingerprintLength = kFingerprintChars,
     this.text = '',
   });
+
+  /// Линк към ЦЯЛОТО четиво ли е, а не към цитат в него.
+  ///
+  /// ⚠ Признакът е НУЛЕВА ДЪЛЖИНА без отпечатък — така го строи
+  /// [buildReadingLink]. Цитат с нулева дължина не съществува: улавянето
+  /// отказва при празна селекция ([captureSelection] връща `null`).
+  ///
+  /// ⚠ При Писанието и НОМЕРЪТ НА СТИХА е нула — там „блок" значи стих, а
+  /// стиховете се броят от 1, тъй че нулата е свободна и значи „главата
+  /// цяла". Точно това връща [parseBibleQuoteLink] за адрес като „Mt.5".
+  bool get isWholeReading =>
+      anchor.charLength == 0 &&
+      fingerprint.isEmpty &&
+      (anchor.source != QuoteSource.bible || anchor.block <= 0);
 }
 
 ParsedQuoteLink? parseQuoteLink(Uri uri) {
