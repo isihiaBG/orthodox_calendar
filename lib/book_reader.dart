@@ -1061,9 +1061,41 @@ class _BookReaderState extends State<BookReader>
   }
 
   /// Отваря на мястото на цитат — същият механизъм като в четеца на жития.
-  void _goToQuote(ParsedQuoteLink q) {
+  /// Името на четивото за СПОДЕЛЕН цитат.
+  ///
+  /// ⚠⚠ НЕ Е просто `_current.title`. Денят и първото му четиво делят един и
+  /// същ файл (виж [chapterForHref]), тъй че при цитат от първото четиво за
+  /// деня заглавието излизаше „Памет на 23 август" вместо името на светията —
+  /// и то само тогава, затова изглеждаше, че се мени без правило.
+  /// (Докладвано от потребителя, 06.09.2026.)
+  ///
+  /// ⚠ Добавката „по свт. Димитрий Ростовски" е по негово искане: тя казва за
+  /// какъв ВИД четиво става дума. Разпознава се по името на тома — то е
+  /// единственото, което го знае, а всичките дванайсет го носят.
+  String _readingTitle() {
+    final e = _current;
+    final base = e.children.isEmpty ? e.title : e.children.first.title;
+    return widget.book.assetPath.contains('Димитрий Ростовски')
+        ? '$base, по свт. Димитрий Ростовски'
+        : base;
+  }
+
+  void _goToQuote(ParsedQuoteLink q, {int tries = 0}) {
     final blocks = _quoteBlocks();
-    if (blocks.isEmpty) return;
+    // ⚠⚠ ТИХИЯТ ОТКАЗ — платен в този проект вече няколко пъти. Тук стоеше
+    // голо `return`: извикването е ЕДНО, на кадъра след `initState`, а в този
+    // миг главата може още да не е разчетена. Тогава цитатът просто не се
+    // маркираше — без грешка, без следа в лога, и без втори опит.
+    // (Докладвано от потребителя, 06.09.2026: „няма маркиране в четеца след
+    // като последваш линка".)
+    if (blocks.isEmpty) {
+      if (tries < 8) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _goToQuote(q, tries: tries + 1);
+        });
+      }
+      return;
+    }
 
     // ⚠ Виж същото място в reader_screen.dart — търси се през цялото четиво.
     final hit = locateParsedQuote(blocks, q);
@@ -1984,6 +2016,20 @@ class _BookReaderState extends State<BookReader>
             currentGlobalMatch: _currentHit,
             hitColor: palette.hit,
             hitCurrentColor: palette.hitCurrent,
+            // ⚠⚠ И ЦИТАТЪТ — дотук го НЯМАШЕ тук изобщо.
+            //
+            // Регионът с буквицата се рисува РЪЧНО (`Text.rich`), не през
+            // flutter_html, тъй че `wrapQuoteByText` изобщо не го докосва.
+            // Търсенето вече се подаваше отделно (виж бележката отгоре), а
+            // цитатът — не. Резултат: цитат в НАЧАЛОТО на четивото не се
+            // маркираше, а точно там са повечето — човек маркира първите
+            // изречения. В четеца на жития това е направено отдавна.
+            // (Докладвано и потвърдено от потребителя, 06.09.2026:
+            // „по-надолу в текста маркирането работи".)
+            quoteText: (i >= _quoteRegion && i <= _quoteRegionEnd)
+                ? _quoteText
+                : '',
+            quoteColor: palette.quote,
             onLinkTap: _onLinkTap,
           ),
         ));
@@ -2406,7 +2452,7 @@ class _BookReaderState extends State<BookReader>
             // Двете заедно, защото един том носи стотици четива, а href сам
             // по себе си не казва от коя книга е.
             locator: () => '${widget.book.assetPath}|${_current.href}',
-            title: () => _current.title,
+            title: _readingTitle,
             blocks: _quoteBlocks,
             dropCapBlock: _dropCapBlockIndex,
             // ⚠ Виж същото място в reader_screen.dart.

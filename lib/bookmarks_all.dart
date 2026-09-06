@@ -50,15 +50,8 @@ Future<List<BookmarkEntry>> bookBookmarkEntries() async {
           // Томът се отваря чак сега — иначе списъкът би чакал всички.
           final book = await EpubBook.open(r.assetPath);
           if (!context.mounted) return;
-          final chapters =
-              book.toc.expand((e) => e.flattened()).where((e) => e.href.isNotEmpty);
-          EpubTocEntry? start;
-          for (final e in chapters) {
-            if (e.href == r.href) {
-              start = e;
-              break;
-            }
-          }
+          // ⚠ ЧЕТИВОТО, не дневният възел — виж [chapterForHref].
+          final start = chapterForHref(book, r.href);
           if (start == null) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Четивото вече го няма в книгата.')),

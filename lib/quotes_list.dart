@@ -122,10 +122,7 @@ Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
   final messenger = ScaffoldMessenger.maybeOf(context);
 
   final book = await EpubBook.open(parts[0]);
-  final entry = book.toc
-      .expand((e) => e.flattened())
-      .where((e) => e.href == parts[1])
-      .firstOrNull;
+  final entry = chapterForHref(book, parts[1]);
   if (entry == null) {
     messenger?.showSnackBar(
       const SnackBar(content: Text('Четивото вече го няма в книгата.')),
@@ -146,11 +143,6 @@ Future<void> openBookQuote(BuildContext context, QuoteAnchor anchor, String fp,
     nav.push(route);
   }
 }
-
-extension _FirstOrNull<T> on Iterable<T> {
-  T? get firstOrNull => isEmpty ? null : first;
-}
-
 /// Отваря цитат от Писанието.
 ///
 /// ⚠ `locator` е „език|код на книгата|глава". Езикът е този, който е бил
