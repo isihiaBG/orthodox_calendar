@@ -78,10 +78,15 @@ const ReaderMenuItem kShareReadingMenuItem = ReaderMenuItem(
   value: 'share_reading',
 );
 
+/// ⚠ Стойността е ИЗНЕСЕНА в константа, защото се ползва и за посивяване
+/// (виж `_disabledItems` в bible_reader.dart). Написана втори път като литерал,
+/// щеше да се размине мълчаливо при преименуване.
+const String kSharePdfValue = 'share_pdf';
+
 const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
   icon: Icons.picture_as_pdf_outlined,
   label: 'Сподели като PDF',
-  value: 'share_pdf',
+  value: kSharePdfValue,
 );
 
 /// Пълното меню на четеца. Ползва се и от двата.
@@ -97,9 +102,17 @@ const List<ReaderMenuItem> kReaderMenuItems = [
 ];
 
 /// Показва менюто и връща избраното (или null при затваряне).
+/// [disabled] — стойностите на точките, които се виждат, но НЕ се натискат.
+///
+/// ⚠⚠ ПОСИВЕНО, А НЕ МАХНАТО. Правилото важи в целия проект (виж лупата в
+/// „Чети в контекст"): посивеното казва „има такова нещо, но не сега", а
+/// липсващото прави менюто различно на два съседни екрана и човек се чуди
+/// дали не е сбъркал къде е. Оттам и разликата с ТИХИЯ отказ — точка, която
+/// изглежда жива и не прави нищо, е най-лошият от трите изхода.
 Future<String?> showReaderMoreMenu(
   BuildContext context, {
   required List<ReaderMenuItem> items,
+  Set<String> disabled = const {},
 }) {
   final topInset = MediaQuery.of(context).padding.top;
   return showGeneralDialog<String>(
@@ -138,28 +151,40 @@ Future<String?> showReaderMoreMenu(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         for (final item in items)
-                          InkWell(
-                            onTap: () => Navigator.of(ctx).pop(item.value),
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 16, vertical: 14),
-                              child: Row(
-                                children: [
-                                  // Пропорция икона/текст като в главното
-                                  // меню (app_drawer.dart) — това също е
-                                  // меню, не дребен списъчен ред.
-                                  Icon(item.icon,
-                                      size: 22,
-                                      color: AppColors.textSecondary),
-                                  const SizedBox(width: 12),
-                                  Text(
-                                    item.label,
-                                    style: const TextStyle(
-                                      color: AppColors.textPrimary,
-                                      fontSize: 16,
+                          // ⚠ Посивяването е с ПРОЗРАЧНОСТ, а не с друг цвят
+                          // — така мъртвото се чете като „същото, но не
+                          // сега". Същият похват като при трите копчета в
+                          // „Избери книги" (bible_scope_screen.dart).
+                          Opacity(
+                            opacity: disabled.contains(item.value) ? 0.38 : 1,
+                            child: InkWell(
+                              // ⚠ `null` вместо празна функция: така InkWell
+                              // не рисува и вълничка при натискане, тоест
+                              // редът не се преструва, че се е случило нещо.
+                              onTap: disabled.contains(item.value)
+                                  ? null
+                                  : () => Navigator.of(ctx).pop(item.value),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 14),
+                                child: Row(
+                                  children: [
+                                    // Пропорция икона/текст като в главното
+                                    // меню (app_drawer.dart) — това също е
+                                    // меню, не дребен списъчен ред.
+                                    Icon(item.icon,
+                                        size: 22,
+                                        color: AppColors.textSecondary),
+                                    const SizedBox(width: 12),
+                                    Text(
+                                      item.label,
+                                      style: const TextStyle(
+                                        color: AppColors.textPrimary,
+                                        fontSize: 16,
+                                      ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
                           ),

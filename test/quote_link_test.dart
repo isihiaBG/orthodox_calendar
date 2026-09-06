@@ -1318,4 +1318,74 @@ void quoteVsSearchTests() {
       expect(text, isNot(contains('Чети в контекст')));
     });
   });
+
+  // ── Записът на библейски цитат в любимите ────────────────────────────────
+  //
+  // ⚠⚠ Докладвано от потребителя на 06.09.2026: запазен през сърчицето цитат
+  // от Писанието се отваряше с маркиран ЦЕЛИЯТ стих, макар споделеният линк
+  // за същия откъс да работеше.
+  //
+  // Причината е в `QuoteAnchor.toJson`: `ce` се пишеше само при цитат ПРЕЗ
+  // няколко блока, защото за обикновено четиво краят се извежда като
+  // `charStart + charLength`. За Писанието обаче числата значат ДРУГО —
+  // charStart е отрязано отпред, charEnd отзад, а charLength не се ползва —
+  // тъй че изведеният край излизаше равен на charStart и диапазонът ставаше
+  // празен. Оттам маркирането падаше на резервния път: целия стих.
+  group('библейски цитат в любимите', () {
+    QuoteAnchor bibleAnchor() => const QuoteAnchor(
+          source: QuoteSource.bible,
+          locator: 'bg|Jn|1',
+          block: 1,
+          charStart: 46,
+          charLength: 0,
+          charEnd: 0,
+        );
+
+    test('⚠ отрязването ОТЗАД оцелява при запис и четене', () {
+      final back = QuoteAnchor.fromJson(bibleAnchor().toJson());
+      expect(back.charStart, 46, reason: 'отрязано отпред');
+      expect(back.charEnd, 0, reason: 'отрязано отзад — НЕ се извежда');
+      expect(back.block, 1);
+    });
+
+    test('обикновеният цитат продължава да си извежда края', () {
+      const a = QuoteAnchor(
+        source: QuoteSource.life,
+        locator: 'sv-ioan-rilski',
+        block: 3,
+        charStart: 10,
+        charLength: 20,
+      );
+      expect(a.toJson().containsKey('ce'), isFalse,
+          reason: 'изводимото не се пише — старите записи остават четими');
+      expect(QuoteAnchor.fromJson(a.toJson()).charEnd, 30);
+    });
+
+    test('цитат през няколко блока също оцелява', () {
+      const a = QuoteAnchor(
+        source: QuoteSource.life,
+        locator: 'sv-ioan-rilski',
+        block: 3,
+        charStart: 10,
+        charLength: 5,
+        blockEnd: 5,
+        charEnd: 7,
+      );
+      final back = QuoteAnchor.fromJson(a.toJson());
+      expect(back.blockEnd, 5);
+      expect(back.charEnd, 7);
+    });
+
+    test('⚠ записът и ЛИНКЪТ дават един и същ адрес', () {
+      final a = bibleAnchor();
+      final fromDisk = QuoteAnchor.fromJson(a.toJson());
+      final q = Quote(
+          anchor: a, text: 'и Бог беше Словото', title: 'Йоан. 1:1',
+          savedAtMs: 0);
+      final fromLink = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!.anchor;
+      expect(fromDisk.charStart, fromLink.charStart);
+      expect(fromDisk.charEnd, fromLink.charEnd);
+      expect(fromDisk.block, fromLink.block);
+    });
+  });
 }

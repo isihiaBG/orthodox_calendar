@@ -49,6 +49,10 @@ import 'package:flutter/services.dart';
 import 'external_link.dart';
 import 'reader_footer.dart';
 import 'reader_more_menu.dart';
+import 'bookmarks.dart';
+import 'bookmarks_all.dart';
+import 'quotes_list.dart';
+import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'reader_font_size.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
@@ -2992,12 +2996,38 @@ class _BibleReaderState extends State<BibleReader>
 
   /// СЪЩОТО меню като в другите два четеца — точките живеят в
   /// reader_more_menu.dart, за да не се разминат.
+  /// ⚠⚠ „Сподели като PDF" стои ПОСИВЕНО тук, а не липсва.
+  ///
+  /// Дотук се подаваше пълното `kReaderMenuItems`, но `_showMoreMenu`
+  /// обработваше САМО „Настройки": „Отметки", „Любими цитати" и „Сподели като
+  /// PDF" се виждаха и НЕ правеха нищо — тих отказ, най-скъпият вид в този
+  /// проект. Първите две са вече вързани (списъците и в двата случая са ОБЩИ
+  /// за приложението); PDF за библейска глава още не е правен.
+  ///
+  /// ⚠ Показва се посивен по изричен избор на потребителя (06.09.2026) —
+  /// менюто остава едно и също в трите четеца, а посивеното казва „има такова
+  /// нещо, но не сега". Заработи ли PDF-ът, се маха само този ред.
+  /// (Намерено и оправено 06.09.2026.)
+  static const Set<String> _disabledItems = {kSharePdfValue};
+
   Future<void> _showMoreMenu() async {
-    final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
+    final choice = await showReaderMoreMenu(context,
+        items: kReaderMenuItems, disabled: _disabledItems);
     if (!mounted || choice == null) return;
     if (choice == kReaderSettingsMenuItem.value) {
       setState(() => _searchSettingsInDrawer = false);
       _scaffoldKey.currentState?.openEndDrawer();
+    } else if (choice == kBookmarksMenuItem.value) {
+      // ⚠ Списъкът е ОБЩ за приложението — там са отметките от житията и от
+      // томовете. Самата Библия още не поддържа отметки, но списъкът е
+      // достъпен отвсякъде и няма причина точно оттук да е сляп.
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookmarksListScreen(
+          load: () => allBookmarkEntries(lookupBySlug),
+        ),
+      ));
+    } else if (choice == kQuotesMenuItem.value) {
+      openQuotesList(context, lookupBySlug);
     } else if (choice == kShareReadingMenuItem.value) {
       // ⚠ СЪЩИЯТ израз за локатора, с който се храни QuotableSelectionArea —
       // инак споделеният цитат и споделената глава биха сочили различно.
