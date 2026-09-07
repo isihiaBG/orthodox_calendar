@@ -19,6 +19,7 @@
 
 import 'package:flutter/material.dart';
 
+import 'app_settings.dart';
 import 'app_theme.dart';
 import 'bible_db.dart';
 import 'bible_reader.dart';
@@ -107,6 +108,32 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
               ),
               const SizedBox(height: 4),
               for (final line in groups[i].lines) _line(line),
+            ],
+            // ⚠⚠ ЧЕСТНА БЕЛЕЖКА, ДОКАТО ЧЕТИВАТА НЕ СЕ ГЕНЕРИРАТ ПО СТИЛ.
+            //
+            // Таблицата `readings` е закотвена за СТАРИЯ стил и е копирана
+            // непроменена в новостилната база. Подвижните четива са верни за
+            // двата стила (Пасха пада на една и съща гражданска дата), но
+            // четивата на светията по месецослова са с 13 дни встрани.
+            //
+            // ⚠ Проста корекция с изместване НЕ върши работа — на един и същи
+            // физически ден двата стила честват РАЗЛИЧНИ светии, тъй че
+            // изместените четива биха се озовали под чуждо име. Верният път е
+            // четивата да се генерират отделно за всеки стил и всяка година
+            // (уточнено от потребителя, 07.09.2026). Дотогава — казва се
+            // направо, вместо да се показва мълчаливо разместено.
+            if (!AppSettings.isOldStyle) ...[
+              const SizedBox(height: 14),
+              Text(
+                '⚠ Четивата на светията по месецослова още не са подредени '
+                'по нов стил. Четивата на деня са верни.',
+                style: TextStyle(
+                  color: AppColors.textMuted,
+                  fontSize: 13,
+                  height: 1.4,
+                  fontStyle: FontStyle.italic,
+                ),
+              ),
             ],
           ],
         );

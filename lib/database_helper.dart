@@ -267,18 +267,20 @@ class DatabaseHelper {
   /// стила, защото Пасха пада на една и съща гражданска дата, но четивата на
   /// светията по месецослова са закотвени за старостилната дата. Виж
   /// CLAUDE.md, „Евангелските и апостолските четива".
-  static Future<List<String>> dayReadingRows(DateTime date) async {
+  static Future<List<(String, String)>> dayReadingRows(DateTime date) async {
     final db = await database;
     final key = '${date.year.toString().padLeft(4, '0')}-'
         '${date.month.toString().padLeft(2, '0')}-'
         '${date.day.toString().padLeft(2, '0')}';
+    // ⚠ И ВИДЪТ, не само текстът: евангелието наследява етикета на апостола
+    // пред себе си, тъй че групирането има нужда да ги различава.
     final rows = await db.query('readings',
-        columns: ['reference'], where: 'date = ?', whereArgs: [key],
+        columns: ['type', 'reference'], where: 'date = ?', whereArgs: [key],
         orderBy: 'id');
     return [
       for (final r in rows)
         if ((r['reference'] as String?)?.trim().isNotEmpty ?? false)
-          (r['reference'] as String).trim()
+          ((r['type'] as String?) ?? '', (r['reference'] as String).trim())
     ];
   }
 

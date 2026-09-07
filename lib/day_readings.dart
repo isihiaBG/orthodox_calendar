@@ -217,16 +217,55 @@ List<String> _splitReadings(String s) {
   return out.where((x) => x.trim().isNotEmpty).toList();
 }
 
+/// Един ред от базата: вид („apostle" / „gospel" / „liturgy") и текст.
+typedef ReadingRow = (String type, String reference);
+
 /// Записите за един ден → групи, готови за рисуване.
 ///
-/// ⚠ Редовете БЕЗ етикет отиват под „Лит.:" — те са четивата на самия ден.
+/// ⚠⚠ ЕВАНГЕЛИЕТО НАСЛЕДЯВА ЕТИКЕТА НА АПОСТОЛА ПРЕД СЕБЕ СИ.
+///
+/// Изворът подрежда четивата в ДВОЙКИ — апостол, после евангелие, — а
+/// етикетът стои само на апостола:
+///
+///     apostle | Гал. 202 (2:11-16)          ← без етикет = на деня
+///     gospel  | Марк 21 (5:24-34)           ← на деня
+///     apostle | На ап.: Тит. 300 (…)        ← на апостола
+///     gospel  | Мат. 11 (5:14-19)           ← СЪЩО на апостола
+///
+/// Без това правило второто евангелие попадаше при четивата на деня и не се
+/// виждаше на кого е. (Докладвано от потребителя, 07.09.2026.)
+///
+/// Измерено: 576 от 657-те литургийни евангелия са непосредствено
+/// предшествани от апостол, а само 17 носят СВОЙ етикет — тъй че двойката е
+/// правилото, а не изключението.
+///
+/// ⚠ Утринното евангелие НЕ участва в двойките: то е от друга служба и
+/// винаги си носи етикет („Утр. Ев. 7").
+///
+/// ⚠ Редовете БЕЗ етикет отиват под „Лит." — те са четивата на самия ден.
 /// Редът им се пази какъвто е в базата: изворът ги е подредил богослужебно.
-List<ReadingGroup> groupReadings(List<String> rows) {
+List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
   final groups = <String, List<ReadingLine>>{};
   final order = <String>[];
-  for (final row in rows) {
-    final (label, lines) = _parseRow(row);
+  String? lastApostleLabel;
+
+  for (final (type, raw) in rows) {
+    var (label, lines) = _parseRow(raw);
     if (lines.isEmpty) continue;
+
+    final isMatins = (label ?? '').startsWith('Утр');
+    // ⚠ И видът „liturgy" задава етикета: това са апостолски четива на
+    // определена служба („Вас. лит.: Евр. 311", „На лит.: 1 Кор. 143"), тъй
+    // че евангелието подире им се отнася към ТЯХ. Пропуснат, редът наследява
+    // етикета на по-предния апостол и излиза при чужда памет.
+    if (type == 'apostle' || type == 'liturgy') {
+      lastApostleLabel = label;
+    } else if (type == 'gospel' && label == null && !isMatins) {
+      // Евангелие без свой етикет — взима този на апостола пред себе си.
+      label = lastApostleLabel;
+    }
+    if (isMatins) lastApostleLabel = null;
+
     final key = (label == null || label.isEmpty) ? 'Лит.' : label;
     if (!groups.containsKey(key)) {
       groups[key] = [];
