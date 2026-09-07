@@ -256,6 +256,32 @@ class DatabaseHelper {
   /// една конкретна църковна година, а броят на седмиците между
   /// Петдесетница и Триода се мени (отстъпката). Затова null е нормален
   /// отговор, не грешка.
+  /// Четивата за деня — редовете от таблицата `readings`, по реда им.
+  ///
+  /// ⚠ Връща СУРОВИТЕ низове. Разчитането им (етикет, книга, зачало, стихове)
+  /// е в [day_readings.dart] — тук е само заявката, за да не се смесва достъп
+  /// до базата с разбор на текст.
+  ///
+  /// ⚠⚠ НЕПОДВИЖНАТА ЧАСТ Е ПО СТАРИЯ СТИЛ. Таблицата е една и съща в двете
+  /// календарни бази (сверено с md5): подвижните четива са верни за двата
+  /// стила, защото Пасха пада на една и съща гражданска дата, но четивата на
+  /// светията по месецослова са закотвени за старостилната дата. Виж
+  /// CLAUDE.md, „Евангелските и апостолските четива".
+  static Future<List<String>> dayReadingRows(DateTime date) async {
+    final db = await database;
+    final key = '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final rows = await db.query('readings',
+        columns: ['reference'], where: 'date = ?', whereArgs: [key],
+        orderBy: 'id');
+    return [
+      for (final r in rows)
+        if ((r['reference'] as String?)?.trim().isNotEmpty ?? false)
+          (r['reference'] as String).trim()
+    ];
+  }
+
   static Future<String?> teofanThought(DateTime date) async {
     final candidates = await _teofanCandidates(date);
     if (candidates.isEmpty) return null;

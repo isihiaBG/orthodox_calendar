@@ -15,6 +15,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'day_readings_view.dart';
 import 'fast_explanation_sheet.dart';
 import 'mini_reader.dart';
 import 'models/day_model.dart';
@@ -632,10 +633,10 @@ class _DayScreenState extends State<DayScreen>
                 ExpandableSection(
                   title: '📖  ЕВАНГЕЛИЕ И АПОСТОЛ',
                   isSunday: isSunday,
-                  content: const Text(
-                    'Тук ще се показват евангелските и апостолски четива за деня.',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.6),
-                  ),
+                  // ⚠ Заявката тръгва при РАЗГЪВАНЕ, не тук —
+                  // ExpandableSection монтира съдържанието си чак тогава.
+                  // Същият ред както при Теофан и Оптинските старци.
+                  content: DayReadingsSection(date: date),
                 ),
                 ExpandableSection(
                   title: '🕯️  ТРОПАРИ И КОНДАЦИ',
