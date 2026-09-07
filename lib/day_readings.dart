@@ -34,7 +34,16 @@ class ReadingLine {
   /// изхвърлени, изчезват безследно. Рисуват се като текст, без връзка.
   final bool isNote;
 
-  const ReadingLine(this.display, this.ref, {this.isNote = false});
+  /// АПОСТОЛСКО ли е четивото.
+  ///
+  /// ⚠ Само то получава богослужебното обръщение („Братя,") при отваряне —
+  /// евангелията имат свои формули, но за тях добавка не се прави. Идва от
+  /// колоната `type` в базата, а не се гади по книгата: „liturgy" също е
+  /// апостолско четиво (на определена служба).
+  final bool isApostle;
+
+  const ReadingLine(this.display, this.ref,
+      {this.isNote = false, this.isApostle = false});
 
   bool get tappable => ref != null && ref!.passages.isNotEmpty;
 }
@@ -97,7 +106,18 @@ String _fold(String s) =>
 ///
 /// ⚠ „от полу" („от средата на зачалото") се ЗАПАЗВА в изписването, но не
 /// мени препратката: главата и стиховете в скоби вече са точни.
-ReadingLine? _lineFrom(String raw) {
+/// (книга, зачало) на един ред — за разпознаване на страстните евангелия.
+(String, int)? _bookZachalo(String raw) {
+  final m = RegExp(
+    r'^((?:[1-3]\s*)?[А-Яа-яЁёA-Za-z]+\.?)\s*(\d+)\.?\s*(?:от\s+полу)?\s*\(',
+  ).firstMatch(raw.trim());
+  if (m == null) return null;
+  final code = _kBookCode[_fold(m.group(1)!)];
+  if (code == null) return null;
+  return (code, int.parse(m.group(2)!));
+}
+
+ReadingLine? _lineFrom(String raw, {bool isApostle = false}) {
   final m = RegExp(
     // ⚠ ЛАТИНСКИ БУКВИ ВЪТРЕ В КИРИЛСКАТА ДУМА. В базата стои „Иoaн." с
     // латинско „o" и „a" — изглежда еднакво и никога не съвпада. Същият
@@ -137,14 +157,14 @@ ReadingLine? _lineFrom(String raw) {
     final parsed = parseBibleRef('$code.${verses.replaceAll(';', ',')}');
     if (parsed.passages.isNotEmpty) ref = parsed;
   }
-  return ReadingLine(b.toString(), ref);
+  return ReadingLine(b.toString(), ref, isApostle: isApostle);
 }
 
 /// Един запис от базата → етикет и четивата в него.
 ///
 /// ⚠ ЕДИН ЗАПИС МОЖЕ ДА НОСИ НЯКОЛКО ЧЕТИВА: „1 час: Деян. 33 (13:25-32)
 /// Мат. 5 (3:1-11)". Режат се по затварящата скоба, а не по интервал.
-(String?, List<ReadingLine>) _parseRow(String raw) {
+(String?, List<ReadingLine>) _parseRow(String raw, {bool isApostle = false}) {
   var s = raw.trim();
   String? label;
 
@@ -184,7 +204,7 @@ ReadingLine? _lineFrom(String raw) {
 
   final lines = <ReadingLine>[];
   for (final part in _splitReadings(s)) {
-    final l = _lineFrom(part);
+    final l = _lineFrom(part, isApostle: isApostle);
     if (l != null) lines.add(l);
   }
   // ⚠ Ред, от който не излезе НИТО ЕДНО четиво, е БЕЛЕЖКА, а не боклук —
@@ -220,6 +240,22 @@ List<String> _splitReadings(String s) {
 /// Един ред от базата: вид („apostle" / „gospel" / „liturgy") и текст.
 typedef ReadingRow = (String type, String reference);
 
+/// ⚠⚠ ДВАНАЙСЕТТЕ СТРАСТНИ ЕВАНГЕЛИЯ — по реда им, като (книга, зачало).
+///
+/// Четат се на утренята на Велики петък, която се служи в ЧЕТВЪРТЪК ВЕЧЕР —
+/// затова стоят на четвъртъка. В базата обаче са дванайсет ПОСЛЕДОВАТЕЛНИ
+/// реда БЕЗ етикет, тъй че попадаха при четивата на литургията и изглеждаха
+/// като безкраен списък под „Лит.". (Забелязано 07.09.2026 при сверка с
+/// календара на Kotyuk.)
+///
+/// Списъкът е от богослужебното Евангелие („Евангелие 12, святых страстей"),
+/// сверен дословно и с Kotyuk — и дванайсетте съвпадат.
+const List<(String, int)> kPassionGospels = [
+  ('Jn', 46), ('Jn', 58), ('Mt', 109), ('Jn', 59),
+  ('Mt', 111), ('Mk', 67), ('Mt', 113), ('Lk', 111),
+  ('Jn', 61), ('Mk', 69), ('Jn', 62), ('Mt', 114),
+];
+
 /// Записите за един ден → групи, готови за рисуване.
 ///
 /// ⚠⚠ ЕВАНГЕЛИЕТО НАСЛЕДЯВА ЕТИКЕТА НА АПОСТОЛА ПРЕД СЕБЕ СИ.
@@ -249,8 +285,16 @@ List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
   final order = <String>[];
   String? lastApostleLabel;
 
-  for (final (type, raw) in rows) {
-    var (label, lines) = _parseRow(raw);
+  // ⚠ Кои редове са част от дванайсетте страстни — определя се ПРЕДИ цикъла,
+  // защото признакът е ПОРЕДИЦАТА, а не отделният ред: Мк 67, Лк 111 и Мф 113
+  // се четат и на часовете на Велики петък, но там са с етикет.
+  final passion = _passionIndexes(rows);
+
+  for (var idx = 0; idx < rows.length; idx++) {
+    final (type, raw) = rows[idx];
+    final passionNo = passion[idx];
+    var (label, lines) =
+        _parseRow(raw, isApostle: type == 'apostle' || type == 'liturgy');
     if (lines.isEmpty) continue;
 
     final isMatins = (label ?? '').startsWith('Утр');
@@ -266,12 +310,82 @@ List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
     }
     if (isMatins) lastApostleLabel = null;
 
-    final key = (label == null || label.isEmpty) ? 'Лит.' : label;
+    // ⚠ Страстното евангелие получава СВОЙ етикет с номера си — така на
+    // екрана личи кое поред е, както е и в богослужебните книги.
+    final key = passionNo != null
+        ? 'Евангелие $passionNo, на светите Страсти'
+        : (label == null || label.isEmpty) ? 'Лит.' : label;
     if (!groups.containsKey(key)) {
       groups[key] = [];
       order.add(key);
     }
     groups[key]!.addAll(lines);
   }
-  return [for (final k in order) ReadingGroup(k, groups[k]!)];
+  // ⚠⚠ ГРУПИТЕ СЕ ПОДРЕЖДАТ ПО РЕДА НА СЛУЖБИТЕ, не по реда в базата.
+  //
+  // Изворът невинаги ги е записал хронологично: на Велики петък „Веч.:
+  // 1 Кор." стои ПЪРВИ ред, а вечернята е последната служба на деня, тъй че
+  // излизаше над часовете. (Докладвано от потребителя, 07.09.2026, със
+  // справка от календара на Kotyuk.)
+  //
+  // ⚠ Подредбата е УСТОЙЧИВА: непознат етикет пази мястото си спрямо
+  // съседите. Само познатите се местят — нищо не се преподрежда на сляпо.
+  final ordered = [for (final k in order) ReadingGroup(k, groups[k]!)];
+  ordered.sort((a, b) => _serviceRank(a.title).compareTo(_serviceRank(b.title)));
+  return ordered;
+}
+
+/// Кои редове образуват дванайсетте страстни евангелия: индекс → номер (1..12).
+///
+/// ⚠ Иска се ЦЯЛАТА поредица, и то последователна. Частично съвпадение не се
+/// приема: три от дванайсетте (Мк 67, Лк 111, Мф 113) се четат и на часовете
+/// на Велики петък, тъй че отделният ред не е признак.
+Map<int, int> _passionIndexes(List<ReadingRow> rows) {
+  final out = <int, int>{};
+  for (var start = 0; start + kPassionGospels.length <= rows.length; start++) {
+    var ok = true;
+    for (var k = 0; k < kPassionGospels.length; k++) {
+      final (type, raw) = rows[start + k];
+      if (type != 'gospel') {
+        ok = false;
+        break;
+      }
+      final bz = _bookZachalo(raw);
+      if (bz == null || bz != kPassionGospels[k]) {
+        ok = false;
+        break;
+      }
+    }
+    if (ok) {
+      for (var k = 0; k < kPassionGospels.length; k++) {
+        out[start + k] = k + 1;
+      }
+      return out;
+    }
+  }
+  return out;
+}
+
+/// Кога през деня се служи това — по-малкото е по-рано.
+///
+/// ⚠ Стойността по подразбиране (50) е В СРЕДАТА нарочно: непознат етикет
+/// остава между литургията и вечернята, вместо да отскача в единия край.
+/// Заедно с устойчивото сортиране това значи, че непознатото не се пипа.
+int _serviceRank(String title) {
+  final t = title.toLowerCase();
+  if (t.startsWith('утр')) return 10;
+  // ⚠⚠ СТРАСТНИТЕ ЕВАНГЕЛИЯ СА ПОСЛЕДНИ НА ДЕНЯ, не първи.
+  //
+  // Те са на утренята на ВЕЛИКИ ПЕТЪК, а тя се служи в ЧЕТВЪРТЪК ВЕЧЕР — след
+  // литургията, която на този ден е сутринта. Сложени при утренята (както
+  // подсказва името ѝ), излизаха ПРЕДИ литургията и денят се четеше наопаки.
+  final passion = RegExp(r'^евангелие (\d+), на светите страсти').firstMatch(t);
+  if (passion != null) return 90 + int.parse(passion.group(1)!);
+  // Часовете: 1-ви, 3-ти, 6-ти, 9-ти — по числото в етикета.
+  final hour = RegExp(r'^(\d+)\s*час').firstMatch(t);
+  if (hour != null) return 20 + int.parse(hour.group(1)!);
+  if (t.startsWith('лит') || t.startsWith('на лит')) return 40;
+  if (t.startsWith('вас. лит')) return 40;
+  if (t.startsWith('веч')) return 80;
+  return 50;
 }

@@ -62,7 +62,13 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     final book = await BibleDb.book(ref.passages.first.book);
     if (book == null || !mounted) return;
     await Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => BibleReader.forRef(ref)),
+      // ⚠ Обръщението („Братя,") се добавя САМО при апостолско четиво.
+      // Флагът е по подразбиране `false`, тъй че всяко друго отваряне на
+      // четеца — включително вече споделените линкове — остава непроменено.
+      MaterialPageRoute(
+        builder: (_) =>
+            BibleReader.forRef(ref, liturgical: line.isApostle),
+      ),
     );
   }
 

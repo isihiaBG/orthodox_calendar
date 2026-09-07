@@ -40,6 +40,7 @@ import 'quote_capture.dart';
 import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
+import 'apostol_incipits.dart';
 import 'bible_ref.dart';
 import 'bible_search_panel.dart';
 import 'bible_search_settings.dart';
@@ -187,6 +188,21 @@ class BibleReader extends StatefulWidget {
   /// търсенето".
   final String? resultsTitle;
 
+  /// ⚠⚠ БОГОСЛУЖЕБНО ОБРЪЩЕНИЕ пред АПОСТОЛСКОТО четиво — „Братя,", „Братие,".
+  ///
+  /// По подразбиране `false`, тъй че всички досегашни повиквания (и всеки вече
+  /// споделен линк) се държат както преди — това беше и условието при
+  /// въвеждането му (потребителят, 07.09.2026).
+  ///
+  /// При `true` най-отгоре, на СВОЙ ред и за ВСЕКИ показан език поотделно,
+  /// застава обръщението от [kApostolIncipit]. Кое точно — решава зачалото на
+  /// първия показан стих; няма ли такова или няма превод за този език, не се
+  /// показва нищо.
+  ///
+  /// ⚠ Само за Апостола. Евангелията имат свои формули („Во время оно"), но за
+  /// тях добавка НЕ се прави.
+  final bool liturgical;
+
   /// Един ред обяснение над резултатите — засега само че списъкът е отрязан.
   final String? resultsNote;
 
@@ -209,6 +225,7 @@ class BibleReader extends StatefulWidget {
     this.highlight,
     this.quotes,
     this.resultsTitle,
+    this.liturgical = false,
     this.resultsNote,
     this.searchQuery,
     this.totalFound,
@@ -228,15 +245,19 @@ class BibleReader extends StatefulWidget {
   /// ⚠ Цяла глава („Лк.15") НЕ минава през списъка — той би показал буквално
   /// същото, което и контекстът, и човек би тапвал бутон за нищо. Такива са
   /// 303 от 6369-те препратки в проекта.
-  static Widget forRef(BibleRef ref) {
+  static Widget forRef(BibleRef ref, {bool liturgical = false}) {
     final first = ref.passages.first;
     if (ref.isWholeChapterOnly) {
-      return BibleReader(bookCode: first.book, chapter: first.chapter);
+      return BibleReader(
+          bookCode: first.book,
+          chapter: first.chapter,
+          liturgical: liturgical);
     }
     return BibleReader(
       bookCode: first.book,
       chapter: first.chapter,
       quotes: ref,
+      liturgical: liturgical,
     );
   }
 
@@ -519,7 +540,15 @@ class _BibleReaderState extends State<BibleReader>
     final all = widget.quotes!.passages;
     final out = <_QuoteGroup>[];
     var added = 0;
-    while (_quoteCursor < all.length && added < _kQuotePage) {
+    // ⚠⚠ БОГОСЛУЖЕБНОТО ЧЕТИВО СЕ ПОКАЗВА ЦЯЛО, БЕЗ ПОРЦИИ.
+    //
+    // Разлистването по 20 стиха е за РЕЗУЛТАТИ ОТ ТЪРСЕНЕ, където намереното
+    // може да е триста откъса. Апостолското четиво обаче е ЕДИН текст, сглобен
+    // от няколко парчета, и трябва да стои цял пред очите — прекъснат с
+    // „Покажи още", той престава да е четиво. (Изрично от потребителя,
+    // 07.09.2026.)
+    final page = widget.liturgical ? all.length : _kQuotePage;
+    while (_quoteCursor < all.length && added < page) {
       final p = all[_quoteCursor];
       _quoteCursor++;
       final rows = await BibleDb.alignChapter(p.book, p.chapter, pair.both);
@@ -1363,6 +1392,54 @@ class _BibleReaderState extends State<BibleReader>
       ));
     }
 
+    // ⚠⚠ ОБРЪЩЕНИЕТО Е ЕДНО, НАЙ-ОТГОРЕ НА ЦЕЛИЯ СПИСЪК.
+    //
+    // Апостолското четиво често е СЪСТАВНО („Тит. зач. 300, гл. 1:1-4,
+    // 2:15-3:3, 12-13, 15" — четири парчета от две глави). Сложено вътре в
+    // колоната, то се повтаряше пред всяка група, а на служба се произнася
+    // веднъж, преди целия текст. (Уточнено от потребителя, 07.09.2026.)
+    //
+    // ⚠ Зачалото се взима от ПЪРВИЯ ред на ПЪРВАТА група — там започва
+    // четивото.
+    // ⚠ Показва се САМО тук, в списъка с цитираното. „Чети в контекст"
+    // строи нов четец БЕЗ флага (виж [_contextButton]) и там обръщение няма
+    // — то не е част от главата, а от богослужебното четиво.
+    final firstRows =
+        _groups.isEmpty ? const <BibleRow>[] : _groups.first.rows;
+    if (landscape) {
+      final a = _openingFor(firstRows, pair.first);
+      final b = _openingFor(firstRows, pair.second);
+      if (a != null || b != null) {
+        out.add(Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(width: _numberWidth + _kNumberGap),
+              Expanded(
+                  child: a == null
+                      ? const SizedBox.shrink()
+                      : _unselectable(_openingText(palette, a))),
+              const SizedBox(width: 25),
+              Expanded(
+                  child: b == null
+                      ? const SizedBox.shrink()
+                      : _unselectable(_openingText(palette, b))),
+            ],
+          ),
+        ));
+      }
+    } else {
+      final one = _openingFor(firstRows, _shownCode(_pair, null));
+      if (one != null) {
+        out.add(Padding(
+          padding: EdgeInsets.only(
+              left: _numberWidth + _kNumberGap, bottom: 8),
+          child: _unselectable(_openingText(palette, one)),
+        ));
+      }
+    }
+
     for (var gi = 0; gi < _groups.length; gi++) {
       final g = _groups[gi];
       if (many) out.add(_quoteHeading(palette, g));
@@ -1778,6 +1855,53 @@ class _BibleReaderState extends State<BibleReader>
       ],
     );
   }
+
+
+  /// Редът с богослужебното обръщение над четивото — „Братя," / „Бра́тие,".
+  ///
+  /// ⚠ Празен widget, ако [BibleReader.liturgical] е `false` (подразбирането),
+  /// ако зачалото не се знае, или ако за нито един от показаните езици няма
+  /// превод. Тоест поведението без флага е буквално непроменено.
+  ///
+  /// ⚠ ЗАЧАЛОТО СЕ ВЗИМА ОТ ПЪРВИЯ ПОКАЗАН СТИХ, не от главата: четивото
+  /// започва там, а зачалото е свойство на МЯСТОТО (виж [BibleDb.zachala]).
+  ///
+  /// ⚠⚠ НОМЕРЪТ НОСИ И БУКВА — „300А", „40В". [BibleDb.zachala] връща точно
+  /// каквото пише в книгата (`\d+[А-ЯA-Z]?`), защото зачало може да е
+  /// разцепено на части. Пуснат през `int.tryParse` както е, той дава `null`
+  /// и обръщението изчезва МЪЛЧАЛИВО — тъй че буквата се отрязва.
+  ///
+  /// ⚠ Частите на едно зачало споделят обръщението си (сверено: единственият
+  /// такъв случай в Апостола, Act 40 и 40В, носи една и съща формула), тъй че
+  /// отрязването не губи нищо.
+  int? _openingZachalo(List<BibleRow> list) {
+    if (!widget.liturgical || list.isEmpty) return null;
+    final raw = _zachala[list.first.verse];
+    if (raw == null) return null;
+    final digits = RegExp(r'^\d+').firstMatch(raw)?.group(0);
+    return digits == null ? null : int.tryParse(digits);
+  }
+
+  /// Обръщението за един език, или `null`.
+  String? _openingFor(List<BibleRow> list, String lang) {
+    final z = _openingZachalo(list);
+    if (z == null) return null;
+    final book = _book?.code ?? widget.bookCode;
+    return apostolIncipitText(book, z, lang);
+  }
+
+  /// ⚠ Стилът е ЕДИН И СЪЩ с този на стиха, само курсивен: обръщението е част
+  /// от четивото, а не заглавие над него. Приглушено, защото не е Писание —
+  /// богослужебна добавка е.
+  Widget _openingText(ReaderPalette palette, String text) => Text(
+        text,
+        style: TextStyle(
+          color: palette.dim,
+          fontSize: BibleFontSize.value,
+          height: 1.5,
+          fontStyle: FontStyle.italic,
+        ),
+      );
 
   /// Маркиран ли е този стих от препратката, довела човека тук.
   ///
