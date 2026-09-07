@@ -49,8 +49,20 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     if (old.date != widget.date) _future = _load();
   }
 
-  Future<List<ReadingGroup>> _load() async =>
-      groupReadings(await DatabaseHelper.dayReadingRows(widget.date));
+  /// ⚠ Чете се И ПРЕДНИЯТ ДЕН — заради дванайсетте страстни евангелия, които
+  /// в базата стоят на Велики четвъртък, а принадлежат на утренята на Велики
+  /// петък. Виж [effectiveRows]: пренасянето е симетрично, тъй че на
+  /// четвъртъка те вече не се показват.
+  ///
+  /// ⚠ Втората заявка е ЕВТИНА (един индексиран ред по дата) и се прави за
+  /// всеки ден — по-добре, отколкото правило „само при Велики четвъртък",
+  /// което би зависело от разпознаване на деня.
+  Future<List<ReadingGroup>> _load() async {
+    final today = await DatabaseHelper.dayReadingRows(widget.date);
+    final yesterday = await DatabaseHelper.dayReadingRows(
+        widget.date.subtract(const Duration(days: 1)));
+    return groupReadings(effectiveRows(today, yesterday));
+  }
 
   /// ⚠ Проверява се, че книгата НАИСТИНА я има в `bible.db`, преди да се
   /// отвори каквото и да е — същият довод като в [openBibleLink]: разчитането

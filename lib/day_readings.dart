@@ -250,6 +250,9 @@ typedef ReadingRow = (String type, String reference);
 ///
 /// Списъкът е от богослужебното Евангелие („Евангелие 12, святых страстей"),
 /// сверен дословно и с Kotyuk — и дванайсетте съвпадат.
+/// Заглавието на дела с дванайсетте.
+const String kPassionTitle = 'На утренята — 12 евангелия на светите Страсти';
+
 const List<(String, int)> kPassionGospels = [
   ('Jn', 46), ('Jn', 58), ('Mt', 109), ('Jn', 59),
   ('Mt', 111), ('Mk', 67), ('Mt', 113), ('Lk', 111),
@@ -310,10 +313,18 @@ List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
     }
     if (isMatins) lastApostleLabel = null;
 
-    // ⚠ Страстното евангелие получава СВОЙ етикет с номера си — така на
-    // екрана личи кое поред е, както е и в богослужебните книги.
+    // ⚠ Страстните евангелия са ЕДИН дял с номерирани редове, както ги дава
+    // и календарът на Kotyuk („1-е. Ин., 46 зач…"), а не дванайсет отделни
+    // заглавия. Номерът застава пред самия ред.
+    if (passionNo != null) {
+      lines = [
+        for (final l in lines)
+          ReadingLine('$passionNo. ${l.display}', l.ref,
+              isNote: l.isNote, isApostle: l.isApostle)
+      ];
+    }
     final key = passionNo != null
-        ? 'Евангелие $passionNo, на светите Страсти'
+        ? kPassionTitle
         : (label == null || label.isEmpty) ? 'Лит.' : label;
     if (!groups.containsKey(key)) {
       groups[key] = [];
@@ -333,6 +344,40 @@ List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
   final ordered = [for (final k in order) ReadingGroup(k, groups[k]!)];
   ordered.sort((a, b) => _serviceRank(a.title).compareTo(_serviceRank(b.title)));
   return ordered;
+}
+
+/// Четивата, които РЕАЛНО се падат на този ден.
+///
+/// ⚠⚠ ДВАНАЙСЕТТЕ СТРАСТНИ СЕ ПРЕНАСЯТ ЗА СЛЕДВАЩИЯ ДЕН.
+///
+/// В базата те стоят на ВЕЛИКИ ЧЕТВЪРТЪК, защото там често се четат физически
+/// — когато се прави бдение и петъчната утреня се служи предварително. Но
+/// принадлежат на утренята на ВЕЛИКИ ПЕТЪК, а тя е първата служба на деня.
+/// (Уточнено от потребителя, 07.09.2026.)
+///
+/// Затова: махат се от деня, в който са записани, и се долепят НАЙ-ОТПРЕД към
+/// следващия. Правилото е симетрично, тъй че не може да ги покаже два пъти,
+/// нито да ги изгуби.
+///
+/// ⚠ Това е кръпка върху ЗАВАРЕНИ данни. При генерирането четивата ще се
+/// поставят направо на верния ден и функцията ще стане излишна.
+List<ReadingRow> effectiveRows(
+    List<ReadingRow> today, List<ReadingRow> yesterday) {
+  final out = <ReadingRow>[];
+
+  final fromYesterday = _passionIndexes(yesterday);
+  if (fromYesterday.isNotEmpty) {
+    final keys = fromYesterday.keys.toList()..sort();
+    for (final i in keys) {
+      out.add(yesterday[i]);
+    }
+  }
+
+  final todayPassion = _passionIndexes(today);
+  for (var i = 0; i < today.length; i++) {
+    if (!todayPassion.containsKey(i)) out.add(today[i]);
+  }
+  return out;
 }
 
 /// Кои редове образуват дванайсетте страстни евангелия: индекс → номер (1..12).
@@ -374,13 +419,12 @@ Map<int, int> _passionIndexes(List<ReadingRow> rows) {
 int _serviceRank(String title) {
   final t = title.toLowerCase();
   if (t.startsWith('утр')) return 10;
-  // ⚠⚠ СТРАСТНИТЕ ЕВАНГЕЛИЯ СА ПОСЛЕДНИ НА ДЕНЯ, не първи.
+  // ⚠⚠ СТРАСТНИТЕ ЕВАНГЕЛИЯ СА НА УТРЕНЯТА НА ВЕЛИКИ ПЕТЪК И СА ПЪРВИ.
   //
-  // Те са на утренята на ВЕЛИКИ ПЕТЪК, а тя се служи в ЧЕТВЪРТЪК ВЕЧЕР — след
-  // литургията, която на този ден е сутринта. Сложени при утренята (както
-  // подсказва името ѝ), излизаха ПРЕДИ литургията и денят се четеше наопаки.
-  final passion = RegExp(r'^евангелие (\d+), на светите страсти').firstMatch(t);
-  if (passion != null) return 90 + int.parse(passion.group(1)!);
+  // Физически често се четат в ЧЕТВЪРТЪК ВЕЧЕР — когато се прави бдение и
+  // петъчната утреня се служи предварително. Но принадлежат на ПЕТЪКА, а
+  // утренята е преди часовете. (Уточнено от потребителя, 07.09.2026.)
+  if (t == kPassionTitle.toLowerCase()) return 5;
   // Часовете: 1-ви, 3-ти, 6-ти, 9-ти — по числото в етикета.
   final hour = RegExp(r'^(\d+)\s*час').firstMatch(t);
   if (hour != null) return 20 + int.parse(hour.group(1)!);
