@@ -1419,23 +1419,23 @@ class _BibleReaderState extends State<BibleReader>
               Expanded(
                   child: a == null
                       ? const SizedBox.shrink()
-                      : _unselectable(_openingText(palette, a))),
+                      : _unselectable(_openingText(palette, a, pair.first))),
               const SizedBox(width: 25),
               Expanded(
                   child: b == null
                       ? const SizedBox.shrink()
-                      : _unselectable(_openingText(palette, b))),
+                      : _unselectable(_openingText(palette, b, pair.second))),
             ],
           ),
         ));
       }
     } else {
-      final one = _openingFor(firstRows, _shownCode(_pair, null));
-      if (one != null) {
+      final sliding = _slidingOpening(palette, pair, _textWidth, firstRows);
+      if (sliding != null) {
         out.add(Padding(
           padding: EdgeInsets.only(
               left: _numberWidth + _kNumberGap, bottom: 8),
-          child: _unselectable(_openingText(palette, one)),
+          child: sliding,
         ));
       }
     }
@@ -1890,18 +1890,87 @@ class _BibleReaderState extends State<BibleReader>
     return apostolIncipitText(book, z, lang);
   }
 
-  /// ⚠ Стилът е ЕДИН И СЪЩ с този на стиха, само курсивен: обръщението е част
-  /// от четивото, а не заглавие над него. Приглушено, защото не е Писание —
+  /// ⚠⚠ ОБРЪЩЕНИЕТО СЕ ПЛЪЗГА ЗАЕДНО С ТЕКСТА — по същия образец като
+  /// [_slidingPair].
+  ///
+  /// Първата версия го рисуваше веднъж, на езика от МОМЕНТА НА ПОСТРОЯВАНЕ:
+  /// плъзнеш ли към църковнославянския, стиховете се сменяха, а отгоре
+  /// продължаваше да стои „Братя,". Причината е, че `_slide` е
+  /// `AnimationController` и главният build НЕ се повтаря при движението му —
+  /// същият капан, вече платен веднъж при лентата с избора на превод.
+  /// (Докладвано от потребителя, 07.09.2026.)
+  ///
+  /// ⚠ Клетките се строят ВЪТРЕ в builder-а, не отвън — инак остават със
+  /// състоянието отпреди плъзгането.
+  /// ⚠ Връща `null`, а не празен widget: викащият решава дали изобщо да
+  /// добави отстъп около него. Проверка по вида („is SizedBox") би се счупила
+  /// тихо при първата промяна вътре.
+  Widget? _slidingOpening(ReaderPalette palette, BibleLanguagePair pair,
+      double w, List<BibleRow> list) {
+    final a = _openingFor(list, pair.first);
+    final b = _openingFor(list, pair.second);
+    if (a == null && b == null) return null;
+
+    // ⚠ Езикът се подава ИЗРИЧНО, а не се извежда от текста: двата превода
+    // може да дадат ЕДНАКВО обръщение (например руското и българското на
+    // някои формули), а тогава извеждането „по текст" би дало на втория
+    // шрифта на първия.
+    Widget cell(String lang, String? text) => SizedBox(
+          width: w,
+          // ⚠ Език БЕЗ обръщение дава ПРАЗНА клетка, не липсваща: инак
+          // другата половина би се разместила при плъзгане.
+          child: text == null
+              ? const SizedBox.shrink()
+              : _unselectable(_openingText(palette, text, lang)),
+        );
+
+    return ClipRect(
+      child: AnimatedBuilder(
+        animation: _slide,
+        builder: (context, _) {
+          final t = _slide.value;
+          return Stack(
+            alignment: AlignmentDirectional.topStart,
+            children: [
+              Transform.translate(
+                  offset: Offset(-t * w, 0), child: cell(pair.first, a)),
+              Transform.translate(
+                  offset: Offset((1 - t) * w, 0), child: cell(pair.second, b)),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  /// ⚠⚠ ШРИФТЪТ Е НА СЪОТВЕТНИЯ ЕЗИК, не подразбиращият се.
+  ///
+  /// „Бра́тие," на църковнославянски иска цс графиката; изписано със системния
+  /// шрифт, то стои като чуждо тяло над текста, който е с друг. Затова минава
+  /// през същите [_fontFamiliesFor] и `sizeDelta`, с които се рисува и самият
+  /// стих. (Докладвано от потребителя, 07.09.2026.)
+  ///
+  /// ⚠ Междуредието също е по превод — цс глифовете носят надредни знаци и
+  /// при общо междуредие се застъпват.
+  ///
+  /// ⚠ Стилът иначе е този на стиха, само курсивен и приглушен: обръщението е
+  /// част от четивото, а не заглавие над него, но не е и Писание —
   /// богослужебна добавка е.
-  Widget _openingText(ReaderPalette palette, String text) => Text(
-        text,
-        style: TextStyle(
-          color: palette.dim,
-          fontSize: BibleFontSize.value,
-          height: 1.5,
-          fontStyle: FontStyle.italic,
-        ),
-      );
+  Widget _openingText(ReaderPalette palette, String text, String lang) {
+    final language = _languageOf(lang);
+    final font = _fontFamiliesFor(language);
+    return Text(
+      text,
+      style: TextStyle(
+        fontFamily: font.$1,
+        fontFamilyFallback: font.$2,
+        color: palette.dim,
+        fontSize: BibleFontSize.value + (language?.sizeDelta ?? 0),
+        height: _kLineHeight + (language?.lineDelta ?? 0),
+        fontStyle: FontStyle.italic,
+      ),
+    );
+  }
 
   /// Маркиран ли е този стих от препратката, довела човека тук.
   ///
