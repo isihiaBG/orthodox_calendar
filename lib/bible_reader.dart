@@ -41,6 +41,7 @@ import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
 import 'apostol_incipits.dart';
+import 'bible_packs.dart';
 import 'bible_ref.dart';
 import 'bible_search_panel.dart';
 import 'bible_search_settings.dart';
@@ -483,18 +484,74 @@ class _BibleReaderState extends State<BibleReader>
   BibleLanguagePair get _pair {
     final f = _loadedFirst;
     final s = _loadedSecond;
-    if (f == null || s == null) return BibleLanguages.value;
+    if (f == null || s == null) return _settingsPair;
     return BibleLanguagePair(
       first: f,
       second: s,
       // Коя от двете половини се гледа е въпрос на РИСУВАНЕ, не на зареждане
       // — плъзгането го мени, без да пипа базата.
-      active: BibleLanguages.value.active,
+      active: _settingsPair.active,
     );
+  }
+
+  /// ⚠⚠ РЕЖИМ „ПРЕГЛЕД НА ЦИТАТ" — двойката е МЕСТНА и НЕ се записва.
+  ///
+  /// Човек, дошъл по външен линк към цитат на църковнославянски, трябва да
+  /// види ЦИТАТА, а не онова, което му е в настройките. Затова езикът на
+  /// цитата застава ВЛЯВО и погледът е върху него; отдясно стои българският
+  /// (а при български цитат — църковнославянският), достъпен с плъзгане.
+  ///
+  /// ⚠⚠ НИЩО ОТ ТОВА НЕ СТИГА ДО НАСТРОЙКИТЕ — нито началната наредба, нито
+  /// смяна на език, направена докато сме в режима. Инак едно отваряне на чужд
+  /// линк би пренаредило приложението на човека зад гърба му.
+  /// (Поискано от потребителя, 07.09.2026.)
+  BibleLanguagePair? _localPair;
+
+  bool get _quoteMode => widget.openAtQuote != null;
+
+  /// Езикът на цитата, който още НЕ Е СВАЛЕН — или `null`.
+  ///
+  /// ⚠ Човек, дошъл по линк към цитат на език, който няма, не бива да вижда
+  /// празна колона и да гадае. Показва се вежливо обяснение и предложение да
+  /// го свали НА МЯСТО — без разходка до настройките, защото е безплатно и
+  /// отнема секунди. (Поискано от потребителя, 07.09.2026.)
+  String? _quoteLangMissing;
+
+  /// Докъде е стигнало тегленето (0..1), или `null`, ако не тече.
+  double? _packProgress;
+  String? _packError;
+
+  /// Двойката, от която тръгва всичко: местната в режим цитат, инак
+  /// запазената. ⚠ ВСЯКО четене минава оттук — оставено ли е някъде голо
+  /// `BibleLanguages.value`, режимът изтича в настройките точно там.
+  BibleLanguagePair get _settingsPair => _localPair ?? BibleLanguages.value;
+
+  /// Прилага двойка: местно в режим цитат, инак в настройките.
+  void _applyPair(BibleLanguagePair pair) {
+    if (_quoteMode) {
+      if (_localPair == pair) return;
+      setState(() => _localPair = pair);
+      _onLanguageChanged();
+      return;
+    }
+    BibleLanguages.set(pair);
   }
 
   /// Дошли ли сме тук по препратка от четиво, а не от съдържанието.
   bool get _fromLink => widget.quotes != null || widget.highlight != null;
+
+  /// Наредбата, наложена от цитата, или `null` извън режима.
+  ///
+  /// ⚠ Езикът на цитата идва от локатора му („bg|Mt|5"). Няма ли такъв —
+  /// повреден адрес или стара версия — не се налага нищо и всичко върви
+  /// както преди.
+  /// ⚠ Самото решение е в [quoteViewPair] — чиста функция, за да се
+  /// проверява без екран. Тук се вади само езикът от локатора на цитата.
+  BibleLanguagePair? _forcedQuotePair() {
+    final q = widget.openAtQuote;
+    if (q == null) return null;
+    return quoteViewPair(q.anchor.locator.split('|').first);
+  }
 
   /// По колко СТИХА се отварят наведнъж в списъка с намереното.
   ///
@@ -595,8 +652,30 @@ class _BibleReaderState extends State<BibleReader>
       final book = await BibleDb.book(widget.bookCode);
       if (book == null) throw StateError('Няма книга „${widget.bookCode}"');
 
-      var pair = BibleLanguages.value;
+      var pair = _settingsPair;
       var fellBack = false;
+
+      // ⚠⚠ В РЕЖИМ „ПРЕГЛЕД НА ЦИТАТ" ДВОЙКАТА СЕ НАЛАГА, не се чете.
+      //
+      //     цитат на друг език  →  ляво: езикът му,  дясно: български
+      //     цитат на български  →  ляво: български,  дясно: църковнославянски
+      //
+      // И в двата случая погледът е ВЛЯВО (`active: 0`), тъй че човек вижда
+      // цитата веднага, а не след плъзгане. (Поискано от потребителя,
+      // 07.09.2026: „важното е потребителят да вижда цитата на избрания
+      // език".)
+      //
+      // ⚠ Наложената двойка живее в [_localPair] и НЕ стига до настройките.
+      final forced = _forcedQuotePair();
+      if (forced != null) {
+        pair = forced;
+        _localPair = forced;
+        // ⚠ Езикът на цитата НЕ Е СВАЛЕН, ако го няма измежду наличните.
+        // Проверява се срещу `langs` (основните плюс инсталираните пакети),
+        // а не срещу списъка с всички възможни.
+        final have = {for (final l in langs) l.code};
+        if (!have.contains(forced.first)) _quoteLangMissing = forced.first;
+      }
 
       // ⚠ Падането важи САМО когато сме дошли по ПРЕПРАТКА. Виж [_pair]:
       // при избор от съдържанието човек сам е избрал превода и празният
@@ -672,7 +751,7 @@ class _BibleReaderState extends State<BibleReader>
   /// приблизително.
   Future<void> _onLanguageChanged() async {
     if (!mounted || _book == null) return;
-    final pair = BibleLanguages.value;
+    final pair = _settingsPair;
 
     // ⚠ САМО СМЯНА НА ПОКАЗВАНИЯ — базата не се пипа.
     //
@@ -1341,9 +1420,9 @@ class _BibleReaderState extends State<BibleReader>
           // отпреди двойка връщаше стария избор върху новия и отвън изглеждаше
           // като „менюто не сработи". Тук ни трябва само `active`; кои са двата
           // превода в този миг решава единствено текущото състояние.
-          final now = BibleLanguages.value;
+          final now = _settingsPair;
           if (now.active == wanted) return;
-          BibleLanguages.set(now.copyWith(active: wanted));
+          _applyPair(now.copyWith(active: wanted));
 
           // ⚠ Намереното се преброява НАНОВО САМО КОГАТО КОЛОНАТА НАИСТИНА СЕ
           // Е СМЕНИЛА — затова е след проверката, а не преди нея.
@@ -1378,6 +1457,8 @@ class _BibleReaderState extends State<BibleReader>
       ReaderPalette palette, BibleLanguagePair pair, bool landscape) {
     final many = _groups.length > 1;
     final out = <Widget>[];
+
+    if (_quoteLangMissing != null) out.add(_missingPackPanel(palette));
 
     // ⚠ Бележката стои НАД първия резултат, не под последния: тя казва, че
     // списъкът е отрязан, а това трябва да се знае, преди човек да е решил,
@@ -1594,6 +1675,106 @@ class _BibleReaderState extends State<BibleReader>
         ),
       ),
     );
+  }
+
+  /// Вежливо обяснение и предложение да се свали езикът на цитата.
+  ///
+  /// ⚠ Стои НАД цитата, а българският текст ОСТАВА отдолу: човек вижда
+  /// откъса веднага, а предложението е допълнение, не преграда.
+  Widget _missingPackPanel(ReaderPalette palette) {
+    final code = _quoteLangMissing!;
+    final pack = availablePacks().where((p) => p.code == code).firstOrNull;
+    final name = pack?.short ?? code;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: palette.sheet,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Цитатът е на „$name", а този превод още не е свален.',
+            style: TextStyle(
+                color: palette.ink, fontSize: 14, height: 1.4),
+          ),
+          if (_packError != null) ...[
+            const SizedBox(height: 6),
+            Text(_packError!,
+                style: TextStyle(color: palette.dim, fontSize: 13)),
+          ],
+          const SizedBox(height: 8),
+          if (_packProgress != null)
+            Row(children: [
+              SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, value: _packProgress),
+              ),
+              const SizedBox(width: 10),
+              Text('Сваля се… ${(_packProgress! * 100).round()}%',
+                  style: TextStyle(color: palette.dim, fontSize: 13)),
+            ])
+          else if (pack != null)
+            TextButton.icon(
+              style: TextButton.styleFrom(
+                foregroundColor: palette.ink,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                visualDensity: VisualDensity.compact,
+              ),
+              onPressed: _downloadQuoteLang,
+              icon: const Icon(Icons.download_outlined, size: 18),
+              label: Text('Свали (${pack.sizeLabel})',
+                  style: const TextStyle(fontSize: 14)),
+            )
+          else
+            Text('Този превод не се предлага за сваляне.',
+                style: TextStyle(color: palette.dim, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+
+  /// Сваля липсващия език и презарежда — без излизане от четивото.
+  Future<void> _downloadQuoteLang() async {
+    final code = _quoteLangMissing;
+    if (code == null) return;
+    setState(() {
+      _packProgress = 0;
+      _packError = null;
+    });
+    final err = await BiblePacks.download(
+      code,
+      onProgress: (p, _, _) {
+        if (!mounted) return;
+        final old = _packProgress ?? 0;
+        // ⚠ Прерисува се само при забележима промяна — потокът известява
+        // стотици пъти в секунда, а лентата не показва разлика под процент.
+        if (p - old >= 0.01 || p >= 1) setState(() => _packProgress = p);
+      },
+    );
+    if (!mounted) return;
+    if (err != null) {
+      setState(() {
+        _packProgress = null;
+        _packError = err;
+      });
+      return;
+    }
+    // ⚠ Кешът със списъка се чисти, инак новият език не се появява до
+    // рестарт (същият ред както в bible_packs_screen.dart).
+    BibleDb.forgetLanguages();
+    setState(() {
+      _packProgress = null;
+      _quoteLangMissing = null;
+      _loading = true;
+    });
+    await _load();
   }
 
   /// Тиха бележка, когато показваме друг превод от избрания.
@@ -3114,7 +3295,9 @@ class _BibleReaderState extends State<BibleReader>
   String? _azbykaUrl() {
     final book = _book;
     if (book == null) return null;
-    final langs = BibleLanguages.value.both.join('~');
+    // ⚠ ПОКАЗАНАТА двойка, не запазената: в режим „преглед на цитат" те се
+    // различават, а адресът трябва да отваря същото, което човек чете.
+    final langs = _pair.both.join('~');
     return 'https://azbyka.ru/biblia/?${book.code}.${widget.chapter}&$langs';
   }
 
@@ -3271,19 +3454,19 @@ class _BibleReaderState extends State<BibleReader>
   /// РАЗМЕНЯТ вместо да станат еднакви — инак плъзгането не води наникъде.
   /// Човекът пак остава в своята колона и вижда точно избраното.
   void _pickLanguage(String code, int? column) {
-    final pair = BibleLanguages.value;
+    final pair = _settingsPair;
     final slot = _focusedSlot(column);
     final shown = slot == 0 ? pair.first : pair.second;
     final other = slot == 0 ? pair.second : pair.first;
     if (code == shown) return;
 
     if (code == other) {
-      BibleLanguages.set(
+      _applyPair(
         BibleLanguagePair(first: pair.second, second: pair.first, active: slot),
       );
       return;
     }
-    BibleLanguages.set(
+    _applyPair(
       slot == 0
           ? pair.copyWith(first: code, active: slot)
           : pair.copyWith(second: code, active: slot),
