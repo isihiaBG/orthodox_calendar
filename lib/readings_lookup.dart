@@ -233,6 +233,47 @@ int gospelWeekFor(DateTime date, int apostleWeek, {required bool oldStyle}) {
   return kMatthewWeekdayWeeks - extra + step;
 }
 
+/// Празниците, около които има ЗАКОТВЕНИ съботи и недели, с църковната им
+/// дата.
+///
+/// ⚠ Църковна, не гражданска: тя е обща за двата стила, а гражданската се
+/// смята от нея по стила (виж [civilDateOfChurch]).
+const kAnchorFeasts = ['09-14', '12-25', '01-06'];
+
+/// Закотвените четива за този ден, ако е събота или неделя до празник.
+///
+/// ⚠⚠ ТЕ НЕ СЛЕДВАТ СЕДМИЧНИЯ КРЪГ. „Събота по Въздвижение" се мести с деня
+/// от седмицата на празника — тази година е 3 октомври, догодина друга дата.
+/// (Посочено от потребителя, 11.09.2026: на 3.X.2026 евангелието е на
+/// съботата подир Въздвижение, а не от седмичния кръг.)
+///
+/// ⚠ „Преди" и „след" са СТРОГИ: падне ли празникът в неделя, неделята подир
+/// него е СЛЕДВАЩАТА — същото правило като при [sundayAfterExaltation].
+List<R> anchoredFor(DateTime date, {required bool oldStyle}) {
+  final d = DateTime.utc(date.year, date.month, date.day);
+  if (d.weekday != DateTime.saturday && d.weekday != DateTime.sunday) {
+    return const [];
+  }
+  final out = <R>[];
+  for (final feast in kAnchorFeasts) {
+    final m = int.parse(feast.substring(0, 2));
+    final day = int.parse(feast.substring(3));
+    // ⚠ Празникът може да е в СЪСЕДНАТА гражданска година: Рождество по
+    // стар стил пада на 7 януари, тъй че за декемврийски ден трябва и
+    // следващата, а за януарски — и предишната.
+    for (final y in [d.year - 1, d.year, d.year + 1]) {
+      final feastDate = civilDateOfChurch(y, m, day, oldStyle: oldStyle);
+      final diff = d.difference(feastDate).inDays;
+      // Търси се само в тясна околност — най-много седмица от двете страни.
+      if (diff.abs() > 7 || diff == 0) continue;
+      final dir = diff < 0 ? 'before' : 'after';
+      final rows = kReadingsAnchored['$feast|${d.weekday}|$dir'];
+      if (rows != null) out.addAll(rows);
+    }
+  }
+  return out;
+}
+
 /// Четивата за деня: подвижните плюс тези на паметта.
 ///
 /// [churchMonthDay] е ЦЪРКОВНАТА дата „ММ-ДД" — тя се смята от гражданската
@@ -271,5 +312,6 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
 
   final fixed = kReadingsFixed[churchMonthDay];
   if (fixed != null) out.addAll(fixed);
+  out.addAll(anchoredFor(date, oldStyle: oldStyle));
   return out;
 }
