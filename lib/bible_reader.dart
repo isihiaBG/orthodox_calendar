@@ -522,6 +522,20 @@ class _BibleReaderState extends State<BibleReader>
   /// пак и пак, включително докато сам е избрал да остане.
   bool _askedForPack = false;
 
+  /// Маршрутът на отвореното прозорче за липсващ превод.
+  ///
+  /// ⚠⚠ ПРЕДПАЗНА МРЕЖА. Пази се, за да може [_load] да махне ЗАСТОЯЛО
+  /// прозорче: докладвано беше, че след успешно сваляне четивото вече се
+  /// вижда на своя език, а отгоре продължава да стои предложение да го
+  /// свалиш. Причината не се възпроизведе на маса, тъй че освен поправките
+  /// по същество стои и това правило: **виждаме ли езика, предложение да
+  /// го сваляш не може да остане на екрана.**
+  ///
+  /// ⚠ Пази се МАРШРУТЪТ, не само флаг: `Navigator.pop()` маха НАЙ-ГОРНИЯ
+  /// маршрут, какъвто прозорчето може и да не е — `removeRoute` маха точно
+  /// него.
+  ModalRoute<Object?>? _packDialogRoute;
+
   /// Кодът на език, какъвто приложението изобщо НЕ ПОЗНАВА — от ръчно сглобен
   /// адрес. ⚠ Различава се от [_quoteLangMissing]: там пакетът съществува и
   /// може да се свали, тук няма какво да се предложи.
@@ -795,6 +809,28 @@ class _BibleReaderState extends State<BibleReader>
 
       // ⚠ Прозорчето за липсващия превод — СЛЕД зареждането, за да не стои
       // върху въртележката, и само веднъж (виж [_askedForPack]).
+      // ⚠⚠ ЗАСТОЯЛО ПРОЗОРЧЕ — виж [_packDialogRoute]. Щом езикът е налице,
+      // предложение да го сваляш няма работа на екрана.
+      //
+      // ⚠⚠ НО НЕ ДОКАТО ТЕЧЕ ТЕГЛЕНЕ (`_packProgress == null`). Мрежата не
+      // бива да гаси прозорче, в което в момента върви лента на напредъка:
+      // човек би видял как свалянето изчезва пред очите му, а недовършеният
+      // файл остава. (Бележка на потребителя, 11.09.2026.)
+      //
+      // ⚠ Самото ТЕГЛЕНЕ не може да заблуди проверката: недовършеното се
+      // пише в `bible-<код>.db.part` и се преименува чак накрая, тъй че
+      // нито `isInstalled`, нито `installed()` го виждат. Не „опростявай"
+      // `.part` — той е и защитата срещу половин файл, който изглежда като
+      // инсталиран език.
+      final stale = _packDialogRoute;
+      if (_packProgress == null &&
+          _quoteLangMissing == null &&
+          stale != null &&
+          stale.isActive) {
+        _packDialogRoute = null;
+        Navigator.of(context).removeRoute(stale);
+      }
+
       if (_quoteLangMissing != null && !_askedForPack) {
         _askedForPack = true;
         unawaited(_askDownloadMissing());
@@ -1789,8 +1825,20 @@ class _BibleReaderState extends State<BibleReader>
     final pack = availablePacks().where((p) => p.code == code).firstOrNull;
     final name = pack?.short ?? code;
 
+    // ⚠⚠ МЕРОДАВЕН Е ФАЙЛЪТ НА ДИСКА, не състоянието отпреди малко.
+    // `_quoteLangMissing` е изчислено при зареждането; между него и този
+    // ред пакетът може вече да е дошъл (второ зареждане, сваляне от
+    // настройките, второ известие за същия линк). Прозорче, което предлага
+    // да свалиш ВЕЧЕ свален превод, е точно оплакването от 11.09.2026.
+    if (await BiblePacks.isInstalled(code)) {
+      if (!mounted) return;
+      await _packArrived();
+      return;
+    }
+    if (!mounted) return;
+
     final nav = Navigator.of(context);
-    final downloaded = await showDialog<bool>(
+    await showDialog<bool>(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => StatefulBuilder(
@@ -1807,7 +1855,9 @@ class _BibleReaderState extends State<BibleReader>
           // същото, без втория pop. (Докладвано от потребителя,
           // 11.09.2026.)
           canPop: _packProgress == null,
-          child: AlertDialog(
+          child: Builder(builder: (rctx) {
+            _packDialogRoute = ModalRoute.of(rctx);
+            return AlertDialog(
             backgroundColor: AppColors.backgroundCard,
             title: const Text('Преводът не е свален',
                 style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
@@ -1867,15 +1917,22 @@ class _BibleReaderState extends State<BibleReader>
                     if (pack != null)
                       TextButton(
                         onPressed: () async {
+                          // ⚠⚠ НАВИГАТОРЪТ СЕ ВЗИМА ПРЕДИ `await`-а.
+                          // Тегленето трае секунди, а `BuildContext` през
+                          // `await` е капан, платен вече три пъти в този
+                          // проект: проверката `ctx.mounted` подир него
+                          // може да е невярна и прозорчето остава отворено
+                          // МЪЛЧАЛИВО — точно докладваният симптом.
+                          final dnav = Navigator.of(ctx);
                           setLocal(() {
                             _packProgress = 0;
                             _packError = null;
                           });
                           final err = await _fetchPack(code, setLocal);
-                          if (!ctx.mounted) return;
                           if (err == null) {
-                            Navigator.of(ctx).pop(true);
-                          } else {
+                            _packProgress = null;
+                            dnav.pop(true);
+                          } else if (ctx.mounted) {
                             setLocal(() {
                               _packProgress = null;
                               _packError = err;
@@ -1886,22 +1943,20 @@ class _BibleReaderState extends State<BibleReader>
                             style: TextStyle(color: AppColors.sectionTitle)),
                       ),
                   ],
-          ),
+            );
+          }),
         ),
       ),
     );
+    _packDialogRoute = null;
     if (!mounted) return;
-    if (downloaded == true) {
-      // ⚠ Кешът със списъка се чисти, инак новият език не се появява до
-      // рестарт (същият ред както в bible_packs_screen.dart).
-      BibleDb.forgetLanguages();
-      setState(() {
-        _packProgress = null;
-        _quoteLangMissing = null;
-        _localPair = null;
-        _loading = true;
-      });
-      await _load();
+    // ⚠⚠ РЕШАВА СЕ ПО ФАЙЛА, а не по върнатата от прозорчето стойност.
+    // Двете бяха две състояния на едно и също нещо и можеха да се разминат
+    // (виж бележката по-горе). Изведено от едното, разминаване е невъзможно
+    // по устройство, а не по дисциплина — същото правило като при `_pair`.
+    if (await BiblePacks.isInstalled(code)) {
+      if (!mounted) return;
+      await _packArrived();
     } else {
       // ⚠⚠ Излиза се от ЧЕТЕЦА, не само от прозорчето — виж докстринга.
       //
@@ -1916,6 +1971,24 @@ class _BibleReaderState extends State<BibleReader>
         await SystemNavigator.pop();
       }
     }
+  }
+
+  /// Пакетът вече е на диска — оттук нататък пътят е един и същ, независимо
+  /// дали го свалихме ние, или е дошъл междувременно.
+  Future<void> _packArrived() async {
+    // ⚠ Кешът със списъка се чисти, инак новият език не се появява до
+    // рестарт (същият ред както в bible_packs_screen.dart).
+    BibleDb.forgetLanguages();
+    setState(() {
+      _packProgress = null;
+      _packError = null;
+      _quoteLangMissing = null;
+      // ⚠ Нулира се, за да може `_load()` да наложи наново наредбата на
+      // цитата — вече с `active: 0`, тоест с езика му пред очите.
+      _localPair = null;
+      _loading = true;
+    });
+    await _load();
   }
 
   /// Самото тегление; известява прозорчето през неговия `setState`.
