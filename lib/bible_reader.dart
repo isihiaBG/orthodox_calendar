@@ -517,6 +517,15 @@ class _BibleReaderState extends State<BibleReader>
   /// отнема секунди. (Поискано от потребителя, 07.09.2026.)
   String? _quoteLangMissing;
 
+  /// Кодът на език, какъвто приложението изобщо НЕ ПОЗНАВА — от ръчно сглобен
+  /// адрес. ⚠ Различава се от [_quoteLangMissing]: там пакетът съществува и
+  /// може да се свали, тук няма какво да се предложи.
+  String? _unknownQuoteLang;
+
+  /// Адресът е повреден (несъществуваща книга или глава), а не „несвален".
+  /// ⚠ Тогава НЕ се предлага сваляне — няма какво да се свали.
+  bool _badLink = false;
+
   /// Докъде е стигнало тегленето (0..1), или `null`, ако не тече.
   double? _packProgress;
   String? _packError;
@@ -650,7 +659,34 @@ class _BibleReaderState extends State<BibleReader>
 
       final allBooks = await BibleDb.books();
       final book = await BibleDb.book(widget.bookCode);
-      if (book == null) throw StateError('Няма книга „${widget.bookCode}"');
+
+      // ⚠⚠ АДРЕСЪТ МОЖЕ ДА Е СГЛОБЕН НА РЪКА И СГРЕШЕН — „Mt.1500", „Xyz.1:1".
+      // Линковете към приложението са ЧЕТИМИ (виж buildBibleQuoteLink), тъй
+      // че всеки може да напише свой. Затова книгата и главата се проверяват
+      // ПРЕДИ каквото и да е четене, и се казва КАКВО не е наред — а не
+      // „Тази глава още не е свалена", което насочва към сваляне и подвежда.
+      // (Поискано от потребителя, 11.09.2026.)
+      if (book == null) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _badLink = true;
+          _error = 'Адресът сочи книга „${widget.bookCode}", каквато няма в '
+              'Писанието.';
+        });
+        return;
+      }
+      if (widget.chapter < 1 || widget.chapter > book.chapters) {
+        if (!mounted) return;
+        setState(() {
+          _loading = false;
+          _badLink = true;
+          _error = '${book.short} има ${book.chapters} '
+              '${book.chapters == 1 ? "глава" : "глави"}, а адресът сочи '
+              'глава ${widget.chapter}.';
+        });
+        return;
+      }
 
       var pair = _settingsPair;
       var fellBack = false;
@@ -674,7 +710,23 @@ class _BibleReaderState extends State<BibleReader>
         // Проверява се срещу `langs` (основните плюс инсталираните пакети),
         // а не срещу списъка с всички възможни.
         final have = {for (final l in langs) l.code};
-        if (!have.contains(forced.first)) _quoteLangMissing = forced.first;
+        if (!have.contains(forced.first)) {
+          // ⚠⚠ ДВА РАЗЛИЧНИ СЛУЧАЯ, и смесването им подвежда:
+          //
+          //   • ЗНАЕН превод, който не е свален → предлага се сваляне;
+          //   • НЕПОЗНАТ код („@xyz") → такъв пакет изобщо няма, тъй че
+          //     предложение за сваляне би било лъжа. Казва се направо, а
+          //     наредбата НЕ се налага: инак лявата колона остава празна
+          //     завинаги. Остава „назад".
+          final known = availablePacks().any((x) => x.code == forced.first);
+          if (known) {
+            _quoteLangMissing = forced.first;
+          } else {
+            _unknownQuoteLang = forced.first;
+            pair = _settingsPair;
+            _localPair = null;
+          }
+        }
       }
 
       // ⚠ Падането важи САМО когато сме дошли по ПРЕПРАТКА. Виж [_pair]:
@@ -1211,10 +1263,27 @@ class _BibleReaderState extends State<BibleReader>
       return Center(
         child: Padding(
           padding: const EdgeInsets.all(24),
-          child: Text(
-            _error!,
-            textAlign: TextAlign.center,
-            style: TextStyle(color: palette.dim, fontSize: 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                _error!,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: palette.dim, fontSize: 16),
+              ),
+              // ⚠ При ПОВРЕДЕН адрес няма какво да се свали и няма къде да се
+              // отиде — единственото смислено е връщане. Казва се, вместо
+              // човек да гледа съобщение и да се чуди какво се иска от него.
+              if (_badLink) ...[
+                const SizedBox(height: 10),
+                Text(
+                  'Проверете адреса или се върнете назад.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                      color: palette.dim, fontSize: 14, height: 1.4),
+                ),
+              ],
+            ],
           ),
         ),
       );
@@ -1459,6 +1528,7 @@ class _BibleReaderState extends State<BibleReader>
     final out = <Widget>[];
 
     if (_quoteLangMissing != null) out.add(_missingPackPanel(palette));
+    if (_unknownQuoteLang != null) out.add(_unknownLangPanel(palette));
 
     // ⚠ Бележката стои НАД първия резултат, не под последния: тя казва, че
     // списъкът е отрязан, а това трябва да се знае, преди човек да е решил,
@@ -1739,6 +1809,27 @@ class _BibleReaderState extends State<BibleReader>
       ),
     );
   }
+
+  /// Адресът назовава превод, какъвто приложението изобщо не познава.
+  ///
+  /// ⚠⚠ ТУК НЕ СЕ ПРЕДЛАГА СВАЛЯНЕ. Пакет с такъв код няма, тъй че копче
+  /// „Свали" би било лъжа и би завело човека доникъде. Казва се направо какво
+  /// е положението; цитатът се показва в НЕГОВАТА наредба, за да има какво да
+  /// прочете. (Поискано от потребителя, 11.09.2026 — такива адреси се
+  /// получават, когато линкът е сглобен на ръка с грешен код на език.)
+  Widget _unknownLangPanel(ReaderPalette palette) => Container(
+        margin: const EdgeInsets.only(bottom: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: palette.sheet,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          'Адресът сочи превод „$_unknownQuoteLang", какъвто приложението не '
+          'познава. Показан е вашият избор на преводи.',
+          style: TextStyle(color: palette.ink, fontSize: 14, height: 1.4),
+        ),
+      );
 
   /// Сваля липсващия език и презарежда — без излизане от четивото.
   Future<void> _downloadQuoteLang() async {

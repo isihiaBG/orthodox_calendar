@@ -153,10 +153,20 @@ Future<void> openBibleQuote(
     {String text = '',
     bool replaceStack = false,
     NavigatorState? navigator}) async {
+  // ⚠⚠ ТИХ ОТКАЗ НЕ СЕ ДОПУСКА. Локаторът е „език|книга|глава"; повреден ли
+  // е (ръчно сглобен адрес, стар запис), дотук се излизаше МЪЛЧАЛИВО и
+  // приложението просто не правеше нищо — най-скъпият вид отказ в този
+  // проект. (Поискано от потребителя, 11.09.2026.)
   final parts = anchor.locator.split('|');
-  if (parts.length < 3) return;
-  final chapter = int.tryParse(parts[2]);
-  if (chapter == null) return;
+  final chapter = parts.length >= 3 ? int.tryParse(parts[2]) : null;
+  if (chapter == null) {
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Този цитат сочи невалидно място в Писанието.'),
+      ));
+    }
+    return;
+  }
   final route = MaterialPageRoute<void>(
     builder: (_) => BibleReader(
       bookCode: parts[1],
