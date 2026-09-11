@@ -798,6 +798,9 @@ class _BibleReaderState extends State<BibleReader>
       if (_quoteLangMissing != null && !_askedForPack) {
         _askedForPack = true;
         unawaited(_askDownloadMissing());
+      } else if (_unknownQuoteLang != null && !_askedForPack) {
+        _askedForPack = true;
+        unawaited(_warnUnknownLang());
       }
 
       if (widget.initialVerse != null) {
@@ -1438,13 +1441,6 @@ class _BibleReaderState extends State<BibleReader>
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        // ⚠ Липсващият превод се съобщава с ПРОЗОРЧЕ, не
-                        // с панел в тялото — виж [_askDownloadMissing].
-                        // Панел тук значи, че човек все пак ЗАВАРВА екрана
-                        // с празни редове и сам трябва да разбере какво
-                        // гледа. (Бележка на потребителя, 11.09.2026.)
-                        if (_unknownQuoteLang != null)
-                          _unknownLangPanel(palette),
                         if (_pairFellBack) _fallbackNote(palette),
                         ...(_groups.isNotEmpty
                             ? _quoteBodies(palette, pair, landscape)
@@ -1801,10 +1797,16 @@ class _BibleReaderState extends State<BibleReader>
         builder: (ctx, setLocal) => PopScope(
           // ⚠ Докато тегли — нито „назад", нито копчета: прекъснатото
           // тегление оставя половин файл и обърква следващия опит.
+          //
+          // ⚠⚠ БЕЗ `onPopInvokedWithResult`. Там стоеше
+          // `if (didPop) Navigator.of(ctx).pop(false)` — ВТОРИ pop върху
+          // вече затворено прозорче, тъй че след успешно сваляне се
+          // затваряше и ЧЕТЕЦЪТ: човек сваляше езика и вместо цитата
+          // виждаше екрана отзад. Прозорчето и без това връща `null` при
+          // системния „назад", а `null` не е `true` — тоест поведението е
+          // същото, без втория pop. (Докладвано от потребителя,
+          // 11.09.2026.)
           canPop: _packProgress == null,
-          onPopInvokedWithResult: (didPop, _) {
-            if (didPop) Navigator.of(ctx).pop(false);
-          },
           child: AlertDialog(
             backgroundColor: AppColors.backgroundCard,
             title: const Text('Преводът не е свален',
@@ -1836,7 +1838,17 @@ class _BibleReaderState extends State<BibleReader>
                 ],
                 if (_packProgress != null) ...[
                   const SizedBox(height: 14),
-                  LinearProgressIndicator(value: _packProgress),
+                  // ⚠ ЦВЕТНОТО Е СВАЛЕНОТО, сивото — оставащото. По
+                  // подразбиране Material оцветява ПИСТАТА и оставя
+                  // свършеното сиво, тъй че лентата се четеше наопаки.
+                  // Цветът е акцентният на приложението.
+                  LinearProgressIndicator(
+                    value: _packProgress,
+                    minHeight: 6,
+                    borderRadius: BorderRadius.circular(3),
+                    color: AppColors.sectionTitle,
+                    backgroundColor: AppColors.sectionDivider,
+                  ),
                   const SizedBox(height: 8),
                   Text('Сваля се… ${(_packProgress! * 100).round()}%',
                       style: const TextStyle(
@@ -1927,19 +1939,45 @@ class _BibleReaderState extends State<BibleReader>
   /// е положението; цитатът се показва в НЕГОВАТА наредба, за да има какво да
   /// прочете. (Поискано от потребителя, 11.09.2026 — такива адреси се
   /// получават, когато линкът е сглобен на ръка с грешен код на език.)
-  Widget _unknownLangPanel(ReaderPalette palette) => Container(
-        margin: const EdgeInsets.only(bottom: 14),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: palette.sheet,
-          borderRadius: BorderRadius.circular(10),
+  /// Адресът назовава превод, какъвто приложението изобщо не познава.
+  ///
+  /// ⚠⚠ ТУК НЕ СЕ ПРЕДЛАГА СВАЛЯНЕ. Пакет с такъв код няма, тъй че копче
+  /// „Свали" би било лъжа и би завело човека доникъде.
+  ///
+  /// ⚠ ЕДНО копче и четивото ОСТАВА достъпно — за разлика от липсващия
+  /// превод. Там екранът отзад е празен и е безсмислен; тук главата се
+  /// показва на СОБСТВЕНИТЕ преводи на човека и се чете нормално, тъй че
+  /// прозорчето само съобщава какво е станало, вместо да прегражда.
+  ///
+  /// ⚠ Такива адреси се получават при ръчно сглобен линк с грешен код
+  /// („@xyz") и при линк от по-нова версия, която познава превод, какъвто
+  /// тази още няма.
+  Future<void> _warnUnknownLang() async {
+    final code = _unknownQuoteLang;
+    if (code == null || !mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppColors.backgroundCard,
+        title: const Text('Непознат превод',
+            style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
+        content: Text(
+          'Адресът сочи превод „$code", какъвто приложението не познава. '
+          'Показан е вашият избор на преводи.',
+          style: const TextStyle(
+              color: AppColors.textPrimary, fontSize: 15, height: 1.4),
         ),
-        child: Text(
-          'Адресът сочи превод „$_unknownQuoteLang", какъвто приложението не '
-          'познава. Показан е вашият избор на преводи.',
-          style: TextStyle(color: palette.ink, fontSize: 14, height: 1.4),
-        ),
-      );
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: const Text('Разбрах',
+                style: TextStyle(color: AppColors.sectionTitle)),
+          ),
+        ],
+      ),
+    );
+  }
+
 
   /// Сваля липсващия език и презарежда — без излизане от четивото.
 
