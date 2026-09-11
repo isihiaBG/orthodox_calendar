@@ -82,7 +82,7 @@ const List<String> kBuiltInLangs = ['bg', 'utfcs'];
 const List<BiblePack> kBiblePacks = [
   BiblePack(code: 'cs', title: 'Църковнославянски (гражданска)', short: 'Църковнослав. (гражд.)', abbr: 'цг', bytes: 8581120),
   BiblePack(code: 'r', title: 'Руски (синодален)', short: 'Руски', abbr: 'ру', bytes: 13688832),
-  BiblePack(code: 'el', title: 'Гръцки (Старият завет по Септуагинта)', short: 'Гръцки', abbr: 'гр', bytes: 10498048),
+  BiblePack(code: 'el', title: 'Гръцки (Нов и Стар завет, като Старият завет е по Септуагинта)', short: 'Гръцки', abbr: 'гр', bytes: 10498048),
   BiblePack(code: 'l', title: 'Латински (Nova Vulgata)', short: 'Латински', abbr: 'лт', bytes: 5910528),
   BiblePack(code: 'en-kjv', title: 'Английски (KJV)', short: 'Английски', abbr: 'ан', bytes: 8486912),
   BiblePack(code: 'sb', title: 'Сръбски (синодален)', short: 'Сръбски', abbr: 'ср', bytes: 8966144),
