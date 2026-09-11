@@ -724,17 +724,15 @@ class _BibleReaderState extends State<BibleReader>
       var forced = _forcedQuotePair();
       // ⚠⚠ СТАР КОД НА ГРЪЦКИЯ В АДРЕСА. Споделени линкове носят `@g` или
       // `@el-r` — двата пакета отпреди сливането. Приравняват се към `el`,
-      // за да не съобщаваме „непознат превод" за нещо, което човекът
-      // всъщност има. ⚠ Само когато `el` е налице: инак онзи, който още
-      // държи стария пакет, би получил предложение да сваля вече четеното.
+      // освен ако човекът още държи стария файл на диска (тогава има какво
+      // да прочете веднага). Виж [greekCanonical] — правилото е там, за да
+      // е на едно място.
       if (forced != null && kGreekLegacy.contains(forced.first)) {
-        final installed = await BiblePacks.installed();
-        final canon = greekCanonical(forced.first, installed);
         final was = forced;
-        if (canon != was.first) {
-          forced = BibleLanguagePair(
-              first: canon, second: was.second, active: was.active);
-        }
+        forced = BibleLanguagePair(
+            first: greekCanonical(was.first),
+            second: was.second,
+            active: was.active);
       }
       final f = forced;
       if (f != null) {
