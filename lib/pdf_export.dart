@@ -1477,15 +1477,20 @@ double _blockFontSizeOf(_Block b, double bodySize) {
       b.cls.contains('epigraph')) {
     return bodySize - 1;
   }
-  if (b.cls.contains('source') || b.cls.contains('credit')) return bodySize - 3;
+  if (b.cls.contains('source') ||
+      b.cls.contains('credit') ||
+      b.cls.contains('bookcredit')) {
+    return bodySize - 3;
+  }
   return bodySize;
 }
 
 /// Стилът на един блок — огледален на четеца (виж readerStyles).
 pw.TextStyle _blockStyleOf(_Block b, PdfFont measureFont, double bodySize) {
   final isPrayerHead = b.cls.contains('prayerhead');
-  final isSourceLine =
-      b.cls.contains('source') || b.cls.contains('credit');
+  final isSourceLine = b.cls.contains('source') ||
+      b.cls.contains('credit') ||
+      b.cls.contains('bookcredit');
   // ⚠ Курсивните по КЛАС: редът с паметта, надписът под илюстрация и
   // сведението в скоби. В четеца и трите са курсив, приглушени и с една
   // степен по-дребни (виж reader_styles.dart) — тук се повтаря същото.
@@ -1969,8 +1974,13 @@ bool _eligibleForDropCap(_Block b) {
   // инициалът кацаше върху „**П**реписка, открита в Лозенския манастир…"
   // (свщмч. Симеон Самоковски), а истинското начало на разказа оставаше
   // без буквица. Видяно в готов PDF, изпратен от потребителя (04.09.2026).
+  // ⚠ И бележките за източника, дошли от самия извор — те стоят и в
+  // НАЧАЛОТО на някои четива (редът с автора и датата), тъй че без тях
+  // буквицата кацаше върху „**о**т · Православие Бг · 29/09/2021".
   if (b.cls.contains('epigraph') ||
+      b.cls.contains('bookcredit') ||
       b.cls.contains('epigraphnote') ||
+      b.cls.contains('credit') ||
       b.cls.contains('centernote')) {
     return false;
   }
@@ -2760,11 +2770,21 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                   skipInBlock > 0 ? _spansAfter(fullSpans, skipInBlock) : fullSpans;
               // ⚠ Бележката под епиграфа е ДЯСНО подравнена — приписка към
               // цитата над нея. Центрирана, тя се четеше като подзаглавие.
-              final isEpigraphNote = b.cls.contains('epigraphnote');
+              // ⚠⚠ `centernote` НЕ СЕ ЦЕНТРИРАШЕ В PDF-А — в четеца е
+              // центриран, тук минаваше по общия `justify`. Двата
+              // двигателя трябва да рисуват класа еднакво; разминаването
+              // личи само на готов PDF. (Намерено 11.09.2026 покрай реда
+              // с автора в сказанието за Зографската икона.)
+              final isCenterNote = b.cls.contains('centernote');
+              // ⚠ И `bookcredit` е ДЯСНО подравнена — подпис под текста над
+              // нея, както `epigraphnote`. ⚠ НЕ и `credit`: там попада и
+              // „Източници:" — заглавие над списък (виж reader_styles.dart).
+              final isEpigraphNote = b.cls.contains('epigraphnote') ||
+                  b.cls.contains('bookcredit');
               final paragraph = pw.RichText(
                 // Редът с паметта е ЦЕНТРИРАН, както в четеца; разлятото
                 // подравняване е за същинския текст.
-                textAlign: isMemoryDate
+                textAlign: (isMemoryDate || isCenterNote)
                     ? pw.TextAlign.center
                     : (isEpigraphNote
                         ? pw.TextAlign.right

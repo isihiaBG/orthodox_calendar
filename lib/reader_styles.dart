@@ -222,6 +222,28 @@ Map<String, Style> readerStyles({
       color: dim,
       margin: Margins.only(top: 18, bottom: 4),
     ),
+    // АТРИБУЦИЯ КЪМ КНИГА, с която свършва четивото („Из книгата „100
+    // Чудотворни икони на Пресвета Богородица…", изд. „Витезда"").
+    //
+    // ⚠ ДЯСНО подравнена, по същия довод като `.epigraphnote`: тя е подпис
+    // под текста НАД нея, не начало на нещо ново. Оставена вляво и получер
+    // (както идваше от извора), се четеше като ПОДЗАГЛАВИЕ на молитвата
+    // над себе си. (Бележка на потребителя, 11.09.2026.)
+    //
+    // ⚠ ОТДЕЛНА от `.credit` нарочно, а не негово преподравняване: там
+    // попада и „Източници:" — ЗАГЛАВИЕ над номериран списък (Баташките
+    // новомъченици), а дясно подравнено заглавие над ляво подравнен списък
+    // изглежда като сбъркано. Измерено на заварените три четива, преди да
+    // се пипа.
+    '.bookcredit': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 2),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      textAlign: TextAlign.right,
+      padding: HtmlPaddings.only(right: 16),
+      margin: Margins.only(top: 18, bottom: 4),
+    ),
     '.epigraphnote': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize - 1),
