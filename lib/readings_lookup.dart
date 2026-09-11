@@ -233,6 +233,73 @@ int gospelWeekFor(DateTime date, int apostleWeek, {required bool oldStyle}) {
   return kMatthewWeekdayWeeks - extra + step;
 }
 
+/// Последната седмица от редовия кръг.
+const int kLastCycleWeek = 33;
+
+/// Последната НЕДЕЛЯ от редовия кръг — Закхей (Лк. зач. 94).
+///
+/// ⚠ Уставът е изричен: „при чтении во время отступки зачала располагают
+/// таким образом, чтобы пред Неделей о мытаре и фарисее читалось непременно
+/// Евангелие о Закхее (Лк. зач. 94), рядовое чтение Недели 32-й".
+const int kZacchaeusSunday = 32;
+
+/// Неделята, от която се брои зимната отстъпка, или `null` ако денят не е в
+/// нейния прозорец.
+///
+/// ⚠⚠ ТРИ СЛУЧАЯ според деня, в който пада Богоявление (Устав, §1.7). И в
+/// трите отправната точка е НЕДЕЛЯ, а редът тръгва от понеделника подир нея
+/// (при случай 2 — от вторник, защото понеделникът Е Богоявление и редовите
+/// зачала се отменят):
+///
+///   Богоявление вт–сб  → Неделята ПО Богоявление
+///   Богоявление пон.   → Неделята ПРЕД Богоявление
+///   Богоявление нед.   → самото Богоявление
+DateTime? winterReferenceSunday(int year, {required bool oldStyle}) {
+  final feast = civilDateOfChurch(year, 1, 6, oldStyle: oldStyle);
+  if (feast.weekday == DateTime.sunday) return feast;
+  if (feast.weekday == DateTime.monday) {
+    return feast.subtract(const Duration(days: 1));
+  }
+  final ahead = (7 - feast.weekday) % 7;
+  return feast.add(Duration(days: ahead == 0 ? 7 : ahead));
+}
+
+/// Неделята на митаря и фарисея — началото на Триода.
+DateTime publicanSunday(int year) =>
+    paschaOf(year).subtract(const Duration(days: 70));
+
+/// Номерът на седмицата при ЗИМНАТА (кръщенска) отстъпка, или `null` ако
+/// денят е извън нейния прозорец.
+///
+/// ⚠⚠ РЕДОВИТЕ ЗАЧАЛА СВЪРШВАТ ПРЕДИ НЕДЕЛЯ ПО БОГОЯВЛЕНИЕ. Кръгът дава 33
+/// седмици, а между Богоявление и Неделя на митаря остават до пет. Уставът
+/// (Типикон, 7 януари, 6-е „зри") предписва да се брои НАЗАД от 33-та
+/// според разстоянието: при прозорец от четири седмици се взимат 30, 31, 32
+/// и 33.
+///
+/// ⚠⚠ ВГРАДЕНО ПО УСТАВА, НО ОЩЕ НЕ СВЕРЕНО С КАЛЕНДАРЧЕ. Данните ни свършват
+/// на 13.I.2027, тоест ПРЕДИ Богоявление, тъй че този прозорец не се пада
+/// в покрития цикъл и тестът не може да го провери. Проверява се лесно:
+/// 2024 дава прозорец от ПЕТ седмици (максимумът), 2025 — случай „неделя",
+/// 2026 — случай „понеделник".
+int? winterWeekFor(DateTime date, {required bool oldStyle}) {
+  final d = DateTime.utc(date.year, date.month, date.day);
+  final ref = winterReferenceSunday(d.year, oldStyle: oldStyle);
+  if (ref == null) return null;
+  final end = publicanSunday(d.year);
+  if (!d.isAfter(ref) || !d.isBefore(end)) return null;
+  final weeks = end.difference(ref).inDays ~/ 7;
+  if (weeks <= 0) return null;
+  final step = (d.difference(ref).inDays - 1) ~/ 7 + 1;
+  if (step < 1 || step > weeks) return null;
+  // ⚠ Неделите свършват на Закхей (32), делниците — на 33. Уставът казва, че
+  // в неделите отстъпка НЯМА: там се четат пропуснатите недели, подредени
+  // тъй, че последната преди митаря да е непременно Закхей. Броенето назад
+  // от 32 удовлетворява точно това условие.
+  final last = d.weekday == DateTime.sunday ? kZacchaeusSunday : kLastCycleWeek;
+  return last - weeks + step;
+}
+
 /// Празниците, около които има ЗАКОТВЕНИ съботи и недели, с църковната им
 /// дата.
 ///
@@ -291,23 +358,32 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
   // своя, който след Неделята по Въздвижение скача на 18 (виж
   // [gospelWeekFor]). Ключирани на един адрес, те вкаменяват съвпадението
   // на една година като правило за всички.
-  final gospelWeek = addr.cycle == ReadingCycle.afterPentecost
-      ? gospelWeekFor(date, addr.week, oldStyle: oldStyle)
-      : addr.week;
+  // ⚠ ЗИМНАТА ОТСТЪПКА има превес: там редовият кръг е изчерпан и се брои
+  // назад от 33-та (виж [winterWeekFor]).
+  final winter = addr.cycle == ReadingCycle.afterPentecost
+      ? winterWeekFor(date, oldStyle: oldStyle)
+      : null;
+  final apostleWeek = winter ?? addr.week;
+  final gospelWeek = winter ??
+      (addr.cycle == ReadingCycle.afterPentecost
+          ? gospelWeekFor(date, addr.week, oldStyle: oldStyle)
+          : addr.week);
+  final apostleKey =
+      ReadingAddress(addr.cycle, apostleWeek, addr.weekday).key;
   final gospelKey = ReadingAddress(addr.cycle, gospelWeek, addr.weekday).key;
 
   void take(Map<String, List<R>> index, String key, String kind) {
     final rows = index[key];
     if (rows != null) out.addAll(rows);
     if (addr.cycle != ReadingCycle.afterPentecost) return;
-    final week = kind == 'gospel' ? gospelWeek : addr.week;
+    final week = kind == 'gospel' ? gospelWeek : apostleWeek;
     if (week > kStableWeeks && allowUnstable) {
       final tail = kReadingsUnstable['$kind:$key'];
       if (tail != null) out.addAll(tail);
     }
   }
 
-  take(kReadingsApostle, addr.key, 'apostle');
+  take(kReadingsApostle, apostleKey, 'apostle');
   take(kReadingsGospel, gospelKey, 'gospel');
 
   final fixed = kReadingsFixed[churchMonthDay];
