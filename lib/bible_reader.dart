@@ -517,6 +517,11 @@ class _BibleReaderState extends State<BibleReader>
   /// отнема секунди. (Поискано от потребителя, 07.09.2026.)
   String? _quoteLangMissing;
 
+  /// ⚠ Прозорчето се вдига ВЕДНЪЖ. `_load()` се вика наново при смяна на
+  /// превод, при завъртане и след сваляне — без пазач човек би го виждал
+  /// пак и пак, включително докато сам е избрал да остане.
+  bool _askedForPack = false;
+
   /// Кодът на език, какъвто приложението изобщо НЕ ПОЗНАВА — от ръчно сглобен
   /// адрес. ⚠ Различава се от [_quoteLangMissing]: там пакетът съществува и
   /// може да се свали, тук няма какво да се предложи.
@@ -721,6 +726,16 @@ class _BibleReaderState extends State<BibleReader>
           final known = availablePacks().any((x) => x.code == forced.first);
           if (known) {
             _quoteLangMissing = forced.first;
+            // ⚠⚠ ПОГЛЕДЪТ ОТИВА ВЪРХУ ДРУГАТА ПОЛОВИНА, докато преводът го
+            // няма. Наредбата остава същата (езикът на цитата вляво), тъй
+            // че след сваляне човек е точно където трябва — но в ИЗПРАВЕНО
+            // се вижда само една колона, а тя беше празната: отвън това е
+            // екран с голи номера на стихове. Българският отсреща дава
+            // какво да се чете, а панелът отгоре предлага свалянето.
+            // (Докладвано от потребителя, 11.09.2026.)
+            pair = BibleLanguagePair(
+                first: forced.first, second: forced.second, active: 1);
+            _localPair = pair;
           } else {
             _unknownQuoteLang = forced.first;
             pair = _settingsPair;
@@ -777,6 +792,13 @@ class _BibleReaderState extends State<BibleReader>
       // ⚠ След като редовете са в състоянието — тогава цитатът има какво да
       // намери. Преди това `_rows` е празен и всичко пропада мълчаливо.
       _maybeOpenQuote();
+
+      // ⚠ Прозорчето за липсващия превод — СЛЕД зареждането, за да не стои
+      // върху въртележката, и само веднъж (виж [_askedForPack]).
+      if (_quoteLangMissing != null && !_askedForPack) {
+        _askedForPack = true;
+        unawaited(_askDownloadMissing());
+      }
 
       if (widget.initialVerse != null) {
         _pendingAnchor = widget.initialVerse;
@@ -1416,6 +1438,13 @@ class _BibleReaderState extends State<BibleReader>
                     return Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // ⚠ Липсващият превод се съобщава с ПРОЗОРЧЕ, не
+                        // с панел в тялото — виж [_askDownloadMissing].
+                        // Панел тук значи, че човек все пак ЗАВАРВА екрана
+                        // с празни редове и сам трябва да разбере какво
+                        // гледа. (Бележка на потребителя, 11.09.2026.)
+                        if (_unknownQuoteLang != null)
+                          _unknownLangPanel(palette),
                         if (_pairFellBack) _fallbackNote(palette),
                         ...(_groups.isNotEmpty
                             ? _quoteBodies(palette, pair, landscape)
@@ -1526,9 +1555,6 @@ class _BibleReaderState extends State<BibleReader>
       ReaderPalette palette, BibleLanguagePair pair, bool landscape) {
     final many = _groups.length > 1;
     final out = <Widget>[];
-
-    if (_quoteLangMissing != null) out.add(_missingPackPanel(palette));
-    if (_unknownQuoteLang != null) out.add(_unknownLangPanel(palette));
 
     // ⚠ Бележката стои НАД първия резултат, не под последния: тя казва, че
     // списъкът е отрязан, а това трябва да се знае, преди човек да е решил,
@@ -1751,62 +1777,146 @@ class _BibleReaderState extends State<BibleReader>
   ///
   /// ⚠ Стои НАД цитата, а българският текст ОСТАВА отдолу: човек вижда
   /// откъса веднага, а предложението е допълнение, не преграда.
-  Widget _missingPackPanel(ReaderPalette palette) {
-    final code = _quoteLangMissing!;
+  /// Липсващият превод — ПРОЗОРЧЕ с два изхода: свали или се върни.
+  ///
+  /// ⚠⚠ ПРОЗОРЧЕ, А НЕ ПАНЕЛ В ТЯЛОТО. Панелът беше първият опит и е грешен:
+  /// човек все пак ЗАВАРВА екрана на четеца с празни редове — само номера на
+  /// стихове — и сам трябва да разбере какво гледа. До такъв екран изобщо не
+  /// бива да се стига. (Бележка на потребителя, 11.09.2026.)
+  ///
+  /// ⚠ Не се затваря с тап встрани (`barrierDismissible: false`) и системният
+  /// „назад" прави същото като копчето „Назад": затваря и четеца. Затворено
+  /// наужким, прозорчето би оставило точно екрана, който се мъчим да избегнем.
+  Future<void> _askDownloadMissing() async {
+    final code = _quoteLangMissing;
+    if (code == null || !mounted) return;
     final pack = availablePacks().where((p) => p.code == code).firstOrNull;
     final name = pack?.short ?? code;
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 14),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-      decoration: BoxDecoration(
-        color: palette.sheet,
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Цитатът е на „$name", а този превод още не е свален.',
-            style: TextStyle(
-                color: palette.ink, fontSize: 14, height: 1.4),
+    final nav = Navigator.of(context);
+    final downloaded = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => PopScope(
+          // ⚠ Докато тегли — нито „назад", нито копчета: прекъснатото
+          // тегление оставя половин файл и обърква следващия опит.
+          canPop: _packProgress == null,
+          onPopInvokedWithResult: (didPop, _) {
+            if (didPop) Navigator.of(ctx).pop(false);
+          },
+          child: AlertDialog(
+            backgroundColor: AppColors.backgroundCard,
+            title: const Text('Преводът не е свален',
+                style: TextStyle(color: AppColors.textPrimary, fontSize: 18)),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Цитатът е на „$name", а този превод го няма на '
+                  'устройството.',
+                  style: const TextStyle(
+                      color: AppColors.textPrimary, fontSize: 15, height: 1.4),
+                ),
+                if (pack != null && _packProgress == null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Свалянето е безплатно и отнема секунди '
+                    '(${pack.sizeLabel}).',
+                    style: const TextStyle(
+                        color: AppColors.textSecondary, fontSize: 13),
+                  ),
+                ],
+                if (_packError != null) ...[
+                  const SizedBox(height: 8),
+                  Text(_packError!,
+                      style: const TextStyle(
+                          color: AppColors.textSecondary, fontSize: 13)),
+                ],
+                if (_packProgress != null) ...[
+                  const SizedBox(height: 14),
+                  LinearProgressIndicator(value: _packProgress),
+                  const SizedBox(height: 8),
+                  Text('Сваля се… ${(_packProgress! * 100).round()}%',
+                      style: const TextStyle(
+                          color: AppColors.textSecondary, fontSize: 13)),
+                ],
+              ],
+            ),
+            actions: _packProgress != null
+                ? const []
+                : [
+                    TextButton(
+                      onPressed: () => Navigator.of(ctx).pop(false),
+                      child: const Text('Назад',
+                          style: TextStyle(color: AppColors.textSecondary)),
+                    ),
+                    if (pack != null)
+                      TextButton(
+                        onPressed: () async {
+                          setLocal(() {
+                            _packProgress = 0;
+                            _packError = null;
+                          });
+                          final err = await _fetchPack(code, setLocal);
+                          if (!ctx.mounted) return;
+                          if (err == null) {
+                            Navigator.of(ctx).pop(true);
+                          } else {
+                            setLocal(() {
+                              _packProgress = null;
+                              _packError = err;
+                            });
+                          }
+                        },
+                        child: const Text('Свали',
+                            style: TextStyle(color: AppColors.sectionTitle)),
+                      ),
+                  ],
           ),
-          if (_packError != null) ...[
-            const SizedBox(height: 6),
-            Text(_packError!,
-                style: TextStyle(color: palette.dim, fontSize: 13)),
-          ],
-          const SizedBox(height: 8),
-          if (_packProgress != null)
-            Row(children: [
-              SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, value: _packProgress),
-              ),
-              const SizedBox(width: 10),
-              Text('Сваля се… ${(_packProgress! * 100).round()}%',
-                  style: TextStyle(color: palette.dim, fontSize: 13)),
-            ])
-          else if (pack != null)
-            TextButton.icon(
-              style: TextButton.styleFrom(
-                foregroundColor: palette.ink,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                visualDensity: VisualDensity.compact,
-              ),
-              onPressed: _downloadQuoteLang,
-              icon: const Icon(Icons.download_outlined, size: 18),
-              label: Text('Свали (${pack.sizeLabel})',
-                  style: const TextStyle(fontSize: 14)),
-            )
-          else
-            Text('Този превод не се предлага за сваляне.',
-                style: TextStyle(color: palette.dim, fontSize: 13)),
-        ],
+        ),
       ),
+    );
+    if (!mounted) return;
+    if (downloaded == true) {
+      // ⚠ Кешът със списъка се чисти, инак новият език не се появява до
+      // рестарт (същият ред както в bible_packs_screen.dart).
+      BibleDb.forgetLanguages();
+      setState(() {
+        _packProgress = null;
+        _quoteLangMissing = null;
+        _localPair = null;
+        _loading = true;
+      });
+      await _load();
+    } else {
+      // ⚠⚠ Излиза се от ЧЕТЕЦА, не само от прозорчето — виж докстринга.
+      //
+      // ⚠ А при идване по ВЪНШЕН ЛИНК четецът е ЕДИНСТВЕНИЯТ маршрут
+      // (`pushAndRemoveUntil`), тъй че `pop()` там не прави нищо и човекът
+      // би останал точно на празния екран, който се мъчим да избегнем.
+      // Тогава се излиза от приложението — както прави и [readerBackButton]
+      // по същата причина.
+      if (nav.canPop()) {
+        nav.pop();
+      } else {
+        await SystemNavigator.pop();
+      }
+    }
+  }
+
+  /// Самото тегление; известява прозорчето през неговия `setState`.
+  Future<String?> _fetchPack(
+      String code, void Function(void Function()) setLocal) {
+    return BiblePacks.download(
+      code,
+      onProgress: (p, _, _) {
+        // ⚠ Прерисува се само при забележима промяна — потокът известява
+        // стотици пъти в секунда, а лентата не показва разлика под процент.
+        final old = _packProgress ?? 0;
+        if (p - old >= 0.01 || p >= 1) setLocal(() => _packProgress = p);
+      },
     );
   }
 
@@ -1832,41 +1942,6 @@ class _BibleReaderState extends State<BibleReader>
       );
 
   /// Сваля липсващия език и презарежда — без излизане от четивото.
-  Future<void> _downloadQuoteLang() async {
-    final code = _quoteLangMissing;
-    if (code == null) return;
-    setState(() {
-      _packProgress = 0;
-      _packError = null;
-    });
-    final err = await BiblePacks.download(
-      code,
-      onProgress: (p, _, _) {
-        if (!mounted) return;
-        final old = _packProgress ?? 0;
-        // ⚠ Прерисува се само при забележима промяна — потокът известява
-        // стотици пъти в секунда, а лентата не показва разлика под процент.
-        if (p - old >= 0.01 || p >= 1) setState(() => _packProgress = p);
-      },
-    );
-    if (!mounted) return;
-    if (err != null) {
-      setState(() {
-        _packProgress = null;
-        _packError = err;
-      });
-      return;
-    }
-    // ⚠ Кешът със списъка се чисти, инак новият език не се появява до
-    // рестарт (същият ред както в bible_packs_screen.dart).
-    BibleDb.forgetLanguages();
-    setState(() {
-      _packProgress = null;
-      _quoteLangMissing = null;
-      _loading = true;
-    });
-    await _load();
-  }
 
   /// Тиха бележка, когато показваме друг превод от избрания.
   ///
@@ -2755,6 +2830,21 @@ class _BibleReaderState extends State<BibleReader>
       if (l.code == code) return l;
     }
     return null;
+  }
+
+  /// Съкращението за лентата — и за НЕсвален превод.
+  ///
+  /// ⚠ [_languageOf] знае само за наличните, тъй че при изтрит език връщаше
+  /// `null` и в лентата стоеше ЧЕРТА — човекът виждаше празни стихове и не
+  /// разбираше кой превод му липсва. Пада се към зашитото в [kBiblePacks].
+  /// (Докладвано от потребителя, 11.09.2026.)
+  String _abbrOf(String code) {
+    final l = _languageOf(code);
+    if (l != null) return l.abbr;
+    for (final p in availablePacks()) {
+      if (p.code == code) return p.abbr;
+    }
+    return '—';
   }
 
   // ── Търсене: логика ────────────────────────────────────────────────────
@@ -3857,7 +3947,6 @@ class _BibleReaderState extends State<BibleReader>
   /// Мени превода, който е в полето — виж [_shownCode].
   Widget _languageButton(BibleLanguagePair pair, int? column) {
     final shown = _shownCode(pair, column);
-    final current = _languageOf(shown);
     return PopupMenuButton<String>(
       tooltip: 'Превод',
       color: AppColors.toolbar,
@@ -3908,7 +3997,7 @@ class _BibleReaderState extends State<BibleReader>
             // Стрелчицата остава по-тиха: тя е указател към менюто, не
             // самото сведение.
             Text(
-              current?.abbr ?? '—',
+              _abbrOf(shown),
               style: const TextStyle(color: Colors.white, fontSize: 15),
             ),
             const Icon(Icons.arrow_drop_down, color: Colors.white70, size: 18),

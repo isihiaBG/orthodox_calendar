@@ -34,6 +34,15 @@ class BiblePack {
   final String title;
   final String short;
 
+  /// Двубуквеното съкращение за полето в лентата („гд", „ив").
+  ///
+  /// ⚠ ЗАШИТО ТУК, а не четено от пакета: точно когато трябва — при
+  /// НЕсвален превод — пакетът го няма на диска, тъй че `languages()` не
+  /// може да го каже. Без него лентата показваше ЧЕРТА и човекът не
+  /// разбираше кой език му липсва. Стойностите са същите като в
+  /// `languages.bg_abbr`. (11.09.2026.)
+  final String abbr;
+
   /// Големина на файла в байтове — показва се ПРЕДИ тегленето, за да знае
   /// човек какво почва, особено на мобилни данни.
   final int bytes;
@@ -42,6 +51,7 @@ class BiblePack {
     required this.code,
     required this.title,
     required this.short,
+    required this.abbr,
     required this.bytes,
   });
 
@@ -70,16 +80,16 @@ const List<String> kBuiltInLangs = ['bg', 'utfcs'];
 
 /// Големините са МЕРЕНИ от готовите файлове (05_build_packs.py), не гадани.
 const List<BiblePack> kBiblePacks = [
-  BiblePack(code: 'cs', title: 'Църковнославянски (гражданска)', short: 'Църковнослав. (гражд.)', bytes: 8581120),
-  BiblePack(code: 'r', title: 'Руски (синодален)', short: 'Руски', bytes: 13688832),
-  BiblePack(code: 'el-r', title: 'Гръцки (Септуагинта)', short: 'Гръцки (LXX)', bytes: 8523776),
-  BiblePack(code: 'g', title: 'Гръцки (Нов завет)', short: 'Гръцки (НЗ)', bytes: 2113536),
-  BiblePack(code: 'l', title: 'Латински (Nova Vulgata)', short: 'Латински', bytes: 5910528),
-  BiblePack(code: 'en-kjv', title: 'Английски (KJV)', short: 'Английски', bytes: 8486912),
-  BiblePack(code: 'sb', title: 'Сръбски (синодален)', short: 'Сръбски', bytes: 8966144),
-  BiblePack(code: 'i', title: 'Иврит', short: 'Иврит', bytes: 7536640),
-  BiblePack(code: 'u', title: 'Грузински', short: 'Грузински', bytes: 11608064),
-  BiblePack(code: 'y', title: 'Грузински (древен)', short: 'Грузински (др.)', bytes: 2752512),
+  BiblePack(code: 'cs', title: 'Църковнославянски (гражданска)', short: 'Църковнослав. (гражд.)', abbr: 'цг', bytes: 8581120),
+  BiblePack(code: 'r', title: 'Руски (синодален)', short: 'Руски', abbr: 'ру', bytes: 13688832),
+  BiblePack(code: 'el-r', title: 'Гръцки (Септуагинта)', short: 'Гръцки (LXX)', abbr: 'гр', bytes: 8523776),
+  BiblePack(code: 'g', title: 'Гръцки (Нов завет)', short: 'Гръцки (НЗ)', abbr: 'гн', bytes: 2113536),
+  BiblePack(code: 'l', title: 'Латински (Nova Vulgata)', short: 'Латински', abbr: 'лт', bytes: 5910528),
+  BiblePack(code: 'en-kjv', title: 'Английски (KJV)', short: 'Английски', abbr: 'ан', bytes: 8486912),
+  BiblePack(code: 'sb', title: 'Сръбски (синодален)', short: 'Сръбски', abbr: 'ср', bytes: 8966144),
+  BiblePack(code: 'i', title: 'Иврит', short: 'Иврит', abbr: 'ив', bytes: 7536640),
+  BiblePack(code: 'u', title: 'Грузински', short: 'Грузински', abbr: 'гз', bytes: 11608064),
+  BiblePack(code: 'y', title: 'Грузински (древен)', short: 'Грузински (др.)', abbr: 'гд', bytes: 2752512),
 ];
 
 /// ⚠ ЕДИНСТВЕНАТА точка, през която се разбира какво може да се свали.
