@@ -11,12 +11,13 @@
 // двата четеца (в книгите още няма изнасяне към PDF).
 
 import 'package:flutter/material.dart';
-
+import 'package:flutter_svg/flutter_svg.dart';
 import 'app_theme.dart';
 
 /// Една точка от менюто.
 class ReaderMenuItem {
-  final IconData icon;
+  //final IconData icon;
+  final Widget icon; 
   final String label;
 
   /// Какво връща менюто, ако човек избере тази точка.
@@ -47,13 +48,15 @@ class ReaderMenuItem {
 /// „Настройки" същите кратки имена са уместни и стоят като заглавия на
 /// категории: там човекът вече знае къде е.
 const ReaderMenuItem kReaderSettingsMenuItem = ReaderMenuItem(
-  icon: Icons.settings_outlined,
+  //icon: Icons.settings_outlined,
+  icon: Icon(Icons.settings_outlined, size:24, color: AppColors.textSecondary),
   label: 'Настройки',
   value: 'reader_settings',
 );
 
 const ReaderMenuItem kBookmarksMenuItem = ReaderMenuItem(
-  icon: Icons.bookmarks_outlined,
+  //icon: Icons.bookmarks_outlined,
+  icon: Icon(Icons.bookmarks_outlined, size:24, color: AppColors.textSecondary),
   label: 'Списък с отметки',
   value: 'bookmarks',
 );
@@ -61,9 +64,19 @@ const ReaderMenuItem kBookmarksMenuItem = ReaderMenuItem(
 /// ⚠ Стои ДО отметките, не вместо тях. Двата списъка са различни по смисъл:
 /// отметката е „докъде съм стигнал" (една на четиво, мести се), цитатът е
 /// „това ми хареса" (много на четиво, стои завинаги).
-const ReaderMenuItem kQuotesMenuItem = ReaderMenuItem(
-  icon: Icons.format_quote_outlined,
-  label: 'Любими цитати',
+final ReaderMenuItem kQuotesMenuItem = ReaderMenuItem(
+  //icon: Icons.format_quote_outlined, //тук сменям иконата с svg
+  icon: SvgPicture.asset(
+    'assets/icons/icon_FavoriteQuotes.svg',
+    width:  24, 
+    height: 24,
+    //fit: BoxFit.contain,
+    colorFilter: const ColorFilter.mode(
+      AppColors.textSecondary,
+      BlendMode.srcIn,
+    ),
+  ),
+  label: 'Любими цитати', 
   value: 'quotes',
 );
 
@@ -73,7 +86,8 @@ const ReaderMenuItem kQuotesMenuItem = ReaderMenuItem(
 /// selection_toolbar.dart): за човека това е едно и също действие, само
 /// обхватът е друг.
 const ReaderMenuItem kShareReadingMenuItem = ReaderMenuItem(
-  icon: Icons.share,
+  //icon: Icons.share,
+  icon: Icon(Icons.share, size:24+1, color: AppColors.textSecondary),
   label: 'Сподели четивото',
   value: 'share_reading',
 );
@@ -84,13 +98,14 @@ const ReaderMenuItem kShareReadingMenuItem = ReaderMenuItem(
 const String kSharePdfValue = 'share_pdf';
 
 const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
-  icon: Icons.picture_as_pdf_outlined,
+  //icon: Icons.picture_as_pdf_outlined,
+  icon: Icon(Icons.picture_as_pdf_outlined, size:24, color: AppColors.textSecondary),
   label: 'Сподели като PDF',
   value: kSharePdfValue,
 );
 
 /// Пълното меню на четеца. Ползва се и от двата.
-const List<ReaderMenuItem> kReaderMenuItems = [
+final List<ReaderMenuItem> kReaderMenuItems = [
   kReaderSettingsMenuItem,
   kBookmarksMenuItem,
   kQuotesMenuItem,
@@ -172,9 +187,16 @@ Future<String?> showReaderMoreMenu(
                                     // Пропорция икона/текст като в главното
                                     // меню (app_drawer.dart) — това също е
                                     // меню, не дребен списъчен ред.
-                                    Icon(item.icon,
-                                        size: 22,
-                                        color: AppColors.textSecondary),
+                                    SizedBox(
+                                      width: 25,
+                                      height: 25,
+                                      //alignment: Alignment.center,
+                                      child: item.icon,
+                                    ),
+                                    
+                                    // Icon(item.icon,
+                                    //     size: 22,
+                                    //     color: AppColors.textSecondary),
                                     const SizedBox(width: 12),
                                     Text(
                                       item.label,
