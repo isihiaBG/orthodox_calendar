@@ -144,8 +144,65 @@ class _BiblePacksScreenState extends State<BiblePacksScreen> {
                 const Divider(
                     height: 17, color: AppColors.sectionDivider, thickness: 1),
                 for (final p in packs) _row(p),
+                ..._legacySection(),
               ],
             ),
+    );
+  }
+
+  /// Старите гръцки пакети, ако човекът още ги има на диска.
+  ///
+  /// ⚠⚠ БЕЗ ТОЗИ ДЯЛ ТЕ ОСТАВАТ ЗАСЕДНАЛИ ЗАВИНАГИ. От [availablePacks] са
+  /// махнати, а [BibleDb.languages] ги скрива, щом новият „Гръцки" е налице
+  /// — тоест никъде другаде не се показват и десетте мегабайта няма как да
+  /// се освободят. (11.09.2026, при сливането на двата гръцки.)
+  ///
+  /// ⚠ НЕ се трият сами. Това са свалени по желание файлове и решението
+  /// чий е дискът е на човека; тук само се казва, че са заменени.
+  List<Widget> _legacySection() {
+    final stale = kGreekLegacy.where(_installed.contains).toList();
+    if (stale.isEmpty) return const [];
+    return [
+      const Divider(
+          height: 17, color: AppColors.sectionDivider, thickness: 1),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: Text(
+          'ЗАМЕНЕНИ',
+          style: TextStyle(
+              color: AppColors.sectionTitle,
+              fontSize: 12,
+              fontWeight: FontWeight.w700,
+              letterSpacing: 0.6),
+        ),
+      ),
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+        child: Text(
+          'Двата гръцки превода вече са един — „Гръцки" носи и Стария завет '
+          'по Септуагинта, и Новия. Старите може да се махнат.',
+          style: TextStyle(
+              color: AppColors.textSecondary, fontSize: 13, height: 1.35),
+        ),
+      ),
+      for (final code in stale) _legacyRow(code),
+    ];
+  }
+
+  Widget _legacyRow(String code) {
+    final name = code == 'g' ? 'Гръцки (Нов завет)' : 'Гръцки (Септуагинта)';
+    final pack = BiblePack(
+        code: code, title: name, short: name, abbr: '', bytes: 0);
+    return ListTile(
+      title: Text(name,
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 15)),
+      subtitle: const Text('заменен от „Гръцки"',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+      trailing: IconButton(
+        icon: const Icon(Icons.delete_outline, color: AppColors.textSecondary),
+        tooltip: 'Изтрий',
+        onPressed: () => _remove(pack),
+      ),
     );
   }
 

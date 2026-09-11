@@ -721,15 +721,30 @@ class _BibleReaderState extends State<BibleReader>
       // език".)
       //
       // ⚠ Наложената двойка живее в [_localPair] и НЕ стига до настройките.
-      final forced = _forcedQuotePair();
-      if (forced != null) {
-        pair = forced;
-        _localPair = forced;
+      var forced = _forcedQuotePair();
+      // ⚠⚠ СТАР КОД НА ГРЪЦКИЯ В АДРЕСА. Споделени линкове носят `@g` или
+      // `@el-r` — двата пакета отпреди сливането. Приравняват се към `el`,
+      // за да не съобщаваме „непознат превод" за нещо, което човекът
+      // всъщност има. ⚠ Само когато `el` е налице: инак онзи, който още
+      // държи стария пакет, би получил предложение да сваля вече четеното.
+      if (forced != null && kGreekLegacy.contains(forced.first)) {
+        final installed = await BiblePacks.installed();
+        final canon = greekCanonical(forced.first, installed);
+        final was = forced;
+        if (canon != was.first) {
+          forced = BibleLanguagePair(
+              first: canon, second: was.second, active: was.active);
+        }
+      }
+      final f = forced;
+      if (f != null) {
+        pair = f;
+        _localPair = f;
         // ⚠ Езикът на цитата НЕ Е СВАЛЕН, ако го няма измежду наличните.
         // Проверява се срещу `langs` (основните плюс инсталираните пакети),
         // а не срещу списъка с всички възможни.
         final have = {for (final l in langs) l.code};
-        if (!have.contains(forced.first)) {
+        if (!have.contains(f.first)) {
           // ⚠⚠ ДВА РАЗЛИЧНИ СЛУЧАЯ, и смесването им подвежда:
           //
           //   • ЗНАЕН превод, който не е свален → предлага се сваляне;
@@ -737,9 +752,9 @@ class _BibleReaderState extends State<BibleReader>
           //     предложение за сваляне би било лъжа. Казва се направо, а
           //     наредбата НЕ се налага: инак лявата колона остава празна
           //     завинаги. Остава „назад".
-          final known = availablePacks().any((x) => x.code == forced.first);
+          final known = availablePacks().any((x) => x.code == f.first);
           if (known) {
-            _quoteLangMissing = forced.first;
+            _quoteLangMissing = f.first;
             // ⚠⚠ ПОГЛЕДЪТ ОТИВА ВЪРХУ ДРУГАТА ПОЛОВИНА, докато преводът го
             // няма. Наредбата остава същата (езикът на цитата вляво), тъй
             // че след сваляне човек е точно където трябва — но в ИЗПРАВЕНО
@@ -748,10 +763,10 @@ class _BibleReaderState extends State<BibleReader>
             // какво да се чете, а панелът отгоре предлага свалянето.
             // (Докладвано от потребителя, 11.09.2026.)
             pair = BibleLanguagePair(
-                first: forced.first, second: forced.second, active: 1);
+                first: f.first, second: f.second, active: 1);
             _localPair = pair;
           } else {
-            _unknownQuoteLang = forced.first;
+            _unknownQuoteLang = f.first;
             pair = _settingsPair;
             _localPair = null;
           }

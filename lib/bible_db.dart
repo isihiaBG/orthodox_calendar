@@ -344,7 +344,13 @@ class BibleDb {
     ''');
     final out = rows.map(BibleLanguage.fromRow).toList();
 
-    for (final code in await BiblePacks.installed()) {
+    final installed = await BiblePacks.installed();
+    for (final code in installed) {
+      // ⚠⚠ СТАРИТЕ ДВА ГРЪЦКИ СЕ СКРИВАТ, щом новият е налице — инак в
+      // менюто застават ТРИ гръцки реда, два от които непълни. Файловете
+      // НЕ се трият тук: махат се от екрана с преводите, където човекът
+      // ги вижда и решава сам (виж kGreekLegacy).
+      if (kGreekLegacy.contains(code) && installed.contains('el')) continue;
       final pack = await _dbFor(code);
       if (identical(pack, await database)) continue; // не се е отворил
       final r = await pack.query('languages', where: 'code = ?',
