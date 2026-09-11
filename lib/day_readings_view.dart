@@ -25,10 +25,19 @@ import 'bible_db.dart';
 import 'bible_reader.dart';
 import 'database_helper.dart';
 import 'day_readings.dart';
+import 'prokimen_lookup.dart';
 
 class DayReadingsSection extends StatefulWidget {
   final DateTime date;
-  const DayReadingsSection({super.key, required this.date});
+
+  /// Гласът на седмицата (0 = няма).
+  ///
+  /// ⚠ Нужен е за ПРОКИМЕНА: в неделя се чете възкресният по глас. Подава
+  /// се отвън, защото дневният изглед и без това го е прочел — втора
+  /// заявка за същото число би била излишна.
+  final int tone;
+
+  const DayReadingsSection({super.key, required this.date, this.tone = 0});
 
   @override
   State<DayReadingsSection> createState() => _DayReadingsSectionState();
@@ -73,14 +82,39 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     if (ref == null || ref.passages.isEmpty) return;
     final book = await BibleDb.book(ref.passages.first.book);
     if (book == null || !mounted) return;
+    // ⚠ ПРОКИМЕНЪТ се разрешава ТУК, а не в четеца: тук се знае денят, гласът
+    // и зачалото, а четецът вижда само препратката. Той получава наготово
+    // онова, което трябва да нарисува.
+    final prok = line.isApostle ? _prokimenFor(line) : null;
     await Navigator.of(context).push(
-      // ⚠ Обръщението („Братя,") се добавя САМО при апостолско четиво.
-      // Флагът е по подразбиране `false`, тъй че всяко друго отваряне на
-      // четеца — включително вече споделените линкове — остава непроменено.
+      // ⚠ Обръщението („Братя,") и прокименът се добавят САМО при апостолско
+      // четиво. Флагът е по подразбиране `false`, тъй че всяко друго отваряне
+      // на четеца — включително вече споделените линкове — остава непроменено.
       MaterialPageRoute(
-        builder: (_) =>
-            BibleReader.forRef(ref, liturgical: line.isApostle),
+        builder: (_) => BibleReader.forRef(ref,
+            liturgical: line.isApostle, prokimen: prok?.prokimen),
       ),
+    );
+  }
+
+  /// Кой прокимен се пада на това четиво — виж [prokimenFor].
+  ///
+  /// ⚠ ЦЪРКОВНАТА ДАТА, не гражданската. При СТАР стил тя е гражданската
+  /// минус 13 дни; при нов двете съвпадат — същото правило, което
+  /// `SaintTexts.churchDateOf` пази на едно място.
+  ProkimenHit? _prokimenFor(ReadingLine line) {
+    final d = widget.date;
+    final church = AppSettings.isOldStyle
+        ? d.subtract(const Duration(days: 13))
+        : d;
+    final pascha = DatabaseHelper.paschaOf(d.year);
+    return prokimenFor(
+      churchMonthDay: '${church.month.toString().padLeft(2, '0')}-'
+          '${church.day.toString().padLeft(2, '0')}',
+      weekday: d.weekday,
+      tone: widget.tone > 0 ? widget.tone : null,
+      zachalo: line.zachalo,
+      daysFromPascha: d.difference(pascha).inDays,
     );
   }
 

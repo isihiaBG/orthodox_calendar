@@ -42,8 +42,16 @@ class ReadingLine {
   /// апостолско четиво (на определена служба).
   final bool isApostle;
 
+  /// Номерът на зачалото, ако четивото има такова.
+  ///
+  /// ⚠ Пази се, защото ПРОКИМЕНЪТ се сверява по него: съвпадне ли зачалото
+  /// с онова, което месецословът дава за тази памет, четивото Е на нея, а
+  /// не редовото за деня. Мерено: при 204 от 323 дни с памет четивото все
+  /// пак е редовото. Старозаветните паримии нямат зачало и тук е `null`.
+  final int? zachalo;
+
   const ReadingLine(this.display, this.ref,
-      {this.isNote = false, this.isApostle = false});
+      {this.isNote = false, this.isApostle = false, this.zachalo});
 
   bool get tappable => ref != null && ref!.passages.isNotEmpty;
 }
@@ -157,7 +165,9 @@ ReadingLine? _lineFrom(String raw, {bool isApostle = false}) {
     final parsed = parseBibleRef('$code.${verses.replaceAll(';', ',')}');
     if (parsed.passages.isNotEmpty) ref = parsed;
   }
-  return ReadingLine(b.toString(), ref, isApostle: isApostle);
+  return ReadingLine(b.toString(), ref,
+      isApostle: isApostle,
+      zachalo: zach != null ? int.tryParse(zach) : null);
 }
 
 /// Един запис от базата → етикет и четивата в него.
@@ -326,6 +336,7 @@ List<ReadingGroup> groupReadings(List<ReadingRow> rows) {
       lines = [
         for (final l in lines)
           ReadingLine('$passionNo. ${l.display}', l.ref,
+              zachalo: l.zachalo,
               isNote: l.isNote, isApostle: l.isApostle)
       ];
     }

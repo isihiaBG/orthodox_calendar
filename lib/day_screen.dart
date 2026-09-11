@@ -636,7 +636,7 @@ class _DayScreenState extends State<DayScreen>
                   // ⚠ Заявката тръгва при РАЗГЪВАНЕ, не тук —
                   // ExpandableSection монтира съдържанието си чак тогава.
                   // Същият ред както при Теофан и Оптинските старци.
-                  content: DayReadingsSection(date: date),
+                  content: DayReadingsSection(date: date, tone: _day?.tone ?? 0),
                 ),
                 ExpandableSection(
                   title: '🕯️  ТРОПАРИ И КОНДАЦИ',

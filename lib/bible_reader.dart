@@ -42,6 +42,7 @@ import 'quote_menu.dart';
 import 'quotes.dart';
 import 'apostol_incipits.dart';
 import 'bible_packs.dart';
+import 'prokimen.dart';
 import 'bible_ref.dart';
 import 'bible_search_panel.dart';
 import 'bible_search_settings.dart';
@@ -227,6 +228,7 @@ class BibleReader extends StatefulWidget {
     this.quotes,
     this.resultsTitle,
     this.liturgical = false,
+    this.prokimen,
     this.resultsNote,
     this.searchQuery,
     this.totalFound,
@@ -246,19 +248,33 @@ class BibleReader extends StatefulWidget {
   /// ⚠ Цяла глава („Лк.15") НЕ минава през списъка — той би показал буквално
   /// същото, което и контекстът, и човек би тапвал бутон за нищо. Такива са
   /// 303 от 6369-те препратки в проекта.
-  static Widget forRef(BibleRef ref, {bool liturgical = false}) {
+  /// Прокименът пред апостолското четиво, ако има такъв.
+  ///
+  /// ⚠ Разрешава се в ДНЕВНИЯ ИЗГЛЕД (виж [prokimenFor]): там се знае денят,
+  /// гласът и зачалото, а четецът вижда само препратката. Той получава
+  /// наготово какво да нарисува.
+  ///
+  /// ⚠⚠ Идва САМО оттам. „Чети в контекст" и избор от съдържанието строят
+  /// четеца без него — прокименът не е част от главата, а от богослужебното
+  /// четиво. Същото правило като при обръщението „Братя,".
+  final K? prokimen;
+
+  static Widget forRef(BibleRef ref,
+      {bool liturgical = false, K? prokimen}) {
     final first = ref.passages.first;
     if (ref.isWholeChapterOnly) {
       return BibleReader(
           bookCode: first.book,
           chapter: first.chapter,
-          liturgical: liturgical);
+          liturgical: liturgical,
+          prokimen: prokimen);
     }
     return BibleReader(
       bookCode: first.book,
       chapter: first.chapter,
       quotes: ref,
       liturgical: liturgical,
+      prokimen: prokimen,
     );
   }
 
@@ -515,6 +531,13 @@ class _BibleReaderState extends State<BibleReader>
   /// празна колона и да гадае. Показва се вежливо обяснение и предложение да
   /// го свали НА МЯСТО — без разходка до настройките, защото е безплатно и
   /// отнема секунди. (Поискано от потребителя, 07.09.2026.)
+  /// Текстът на прокимена и стиховете му, по език.
+  ///
+  /// ⚠ Взима се от `bible.db` НА ЖИВО, а не се пази в кода: прокименът е
+  /// препратка към Писанието и трябва да излиза на всеки превод, който
+  /// човекът е свалил (виж prokimen.dart).
+  Map<String, (String, List<String>)> _prokimenText = const {};
+
   String? _quoteLangMissing;
 
   /// ⚠ Прозорчето се вдига ВЕДНЪЖ. `_load()` се вика наново при смяна на
@@ -856,6 +879,12 @@ class _BibleReaderState extends State<BibleReader>
         _pendingAnchor = widget.initialVerse;
         _restorePending();
       }
+
+      // ⚠ НАКРАЯ, след работата с `context`: прокименът иска няколко заявки
+      // към базата, а `await` преди `Navigator.of(context)` по-горе значи
+      // ползване на контекст през асинхронна пауза — капанът, платен вече
+      // три пъти в този проект.
+      await _loadProkimen(pair);
     } catch (e) {
       // ⚠ Грешката се РАЗЛИЧАВА от празния резултат. Изгледите тук минаха
       // веднъж през този капан: FutureBuilder без клон за hasError показваше
@@ -1628,6 +1657,38 @@ class _BibleReaderState extends State<BibleReader>
     // — то не е част от главата, а от богослужебното четиво.
     final firstRows =
         _groups.isEmpty ? const <BibleRow>[] : _groups.first.rows;
+
+    // ⚠ ПРОКИМЕНЪТ СТОИ НАД ОБРЪЩЕНИЕТО и над целия списък — той се пее
+    // ВЕДНЪЖ, преди четивото, също като „Братя,". При съставно четиво
+    // („Тит. зач. 300, гл. 1:1-4, 2:15-3:3…") не се повтаря пред всяко
+    // парче.
+    if (_prokimenText.isNotEmpty) {
+      final pa = _prokimenBlock(palette, pair.first);
+      final pb = _prokimenBlock(palette, pair.second);
+      if (pa != null || pb != null) {
+        out.add(Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: landscape
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: _numberWidth + _kNumberGap),
+                    Expanded(child: pa ?? const SizedBox.shrink()),
+                    const SizedBox(width: 25),
+                    Expanded(child: pb ?? const SizedBox.shrink()),
+                  ],
+                )
+              : Padding(
+                  padding:
+                      EdgeInsets.only(left: _numberWidth + _kNumberGap),
+                  // ⚠ В ИЗПРАВЕНО се показва онзи превод, който е под
+                  // погледа — същото, което прави и [_slidingOpening].
+                  child: _slidingProkimen(palette, pair),
+                ),
+        ));
+      }
+    }
+
     if (landscape) {
       final a = _openingFor(firstRows, pair.first);
       final b = _openingFor(firstRows, pair.second);
@@ -1984,6 +2045,61 @@ class _BibleReaderState extends State<BibleReader>
         await SystemNavigator.pop();
       }
     }
+  }
+
+  /// Текстът на едно място от Писанието, отрязан за този език.
+  ///
+  /// ⚠ ОТРЯЗВАНЕ ИМА САМО за църковнославянския и българския. За останалите
+  /// преводи се показва ЦЕЛИЯТ стих — по правилото при цитатите: по-добре
+  /// малко повече, отколкото откъс, срязан насред дума.
+  Future<String?> _pieceText(P piece, String lang) async {
+    // ⚠ При българския номерът понякога е ДРУГ — виж „Номерацията на
+    // псалмите" в README-то на конвейера.
+    final ref = (lang == 'bg' && piece.bgRef != null) ? piece.bgRef! : piece.ref;
+    final parsed = parseBibleRef(ref);
+    if (parsed.passages.isEmpty) return null;
+    final buf = StringBuffer();
+    for (final pass in parsed.passages) {
+      final rows = await BibleDb.alignChapter(pass.book, pass.chapter, [lang]);
+      for (final r in rows) {
+        // ⚠ `marks` работи с НОМЕРА на стиха; при цяла глава няма какво да
+        // се реже и всичко влиза.
+        final n = int.tryParse(r.verse);
+        if (!pass.isWholeChapter && (n == null || !pass.marks(n))) continue;
+        final t = r[lang]?.text;
+        if (t == null || t.isEmpty) continue;
+        if (buf.isNotEmpty) buf.write(' ');
+        buf.write(t);
+      }
+    }
+    var text = buf.toString();
+    if (text.isEmpty) return null;
+    final tr = piece.trim[lang];
+    // ⚠ Отрязването важи само при ЕДИН стих: измерено е върху него, а при
+    // диапазон началото и краят са в различни стихове.
+    if (tr != null && parsed.passages.length == 1) {
+      final a = tr[0], b = tr[1];
+      if (a + b < text.length) text = text.substring(a, text.length - b);
+    }
+    return text.trim();
+  }
+
+  Future<void> _loadProkimen(BibleLanguagePair pair) async {
+    final k = widget.prokimen;
+    if (k == null || !widget.liturgical) return;
+    final out = <String, (String, List<String>)>{};
+    for (final lang in pair.both) {
+      final t = await _pieceText(k.text, lang);
+      if (t == null) continue;
+      final vs = <String>[];
+      for (final v in k.verses) {
+        final x = await _pieceText(v, lang);
+        if (x != null) vs.add(x);
+      }
+      out[lang] = (t, vs);
+    }
+    if (!mounted) return;
+    setState(() => _prokimenText = out);
   }
 
   /// Пакетът вече е на диска — оттук нататък пътят е един и същ, независимо
@@ -2376,6 +2492,23 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Връща `null`, а не празен widget: викащият решава дали изобщо да
   /// добави отстъп около него. Проверка по вида („is SizedBox") би се счупила
   /// тихо при първата промяна вътре.
+  /// Прокименът в ИЗПРАВЕНО — следва плъзгането между двата превода.
+  ///
+  /// ⚠ `AnimatedBuilder` върху `_slide`, а клетките се строят ВЪТРЕ в него:
+  /// главният build НЕ се повтаря при движението на плъзгача, тъй че
+  /// уловени отвън те биха останали със състоянието отпреди плъзгането.
+  /// Същият капан вече е платен при лентата с избора на превод и при
+  /// обръщението.
+  Widget _slidingProkimen(ReaderPalette palette, BibleLanguagePair pair) {
+    return AnimatedBuilder(
+      animation: _slide,
+      builder: (_, _) {
+        final lang = _slide.value >= 0.5 ? pair.second : pair.first;
+        return _prokimenBlock(palette, lang) ?? const SizedBox.shrink();
+      },
+    );
+  }
+
   Widget? _slidingOpening(ReaderPalette palette, BibleLanguagePair pair,
       double w, List<BibleRow> list) {
     final a = _openingFor(list, pair.first);
@@ -2440,6 +2573,52 @@ class _BibleReaderState extends State<BibleReader>
         height: _kLineHeight + (language?.lineDelta ?? 0),
         fontStyle: FontStyle.italic,
       ),
+    );
+  }
+
+  /// Прокименът за един език: гласът, самият той и стиховете му.
+  ///
+  /// ⚠ ЗАГЛАВИЕТО („Прокимен, глас 7") е на БЪЛГАРСКИ и в двете колони — то
+  /// е указание за служещия, не част от четивото. Същият довод, по който
+  /// заглавието на песнопение остава църковнославянско: всяко от двете
+  /// принадлежи на своя пласт.
+  ///
+  /// ⚠ Самият текст носи шрифта и мерките на СВОЯ език — цс глифовете имат
+  /// надредни знаци и при общо междуредие се застъпват. Същото като при
+  /// обръщението „Братя,".
+  Widget? _prokimenBlock(ReaderPalette palette, String lang) {
+    final rec = _prokimenText[lang];
+    if (rec == null) return null;
+    final language = _languageOf(lang);
+    final font = _fontFamiliesFor(language);
+    final size = BibleFontSize.value + (language?.sizeDelta ?? 0);
+    final body = TextStyle(
+      fontFamily: font.$1,
+      fontFamilyFallback: font.$2,
+      color: palette.ink,
+      fontSize: size,
+      height: _kLineHeight + (language?.lineDelta ?? 0),
+    );
+    final label = TextStyle(
+      color: palette.dim,
+      fontSize: size - 2,
+      height: 1.3,
+      fontWeight: FontWeight.w600,
+    );
+    final glas = widget.prokimen?.glas;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(glas != null ? 'Прокимен, глас $glas' : 'Прокимен', style: label),
+        const SizedBox(height: 2),
+        Text(rec.$1, style: body),
+        for (final v in rec.$2) ...[
+          const SizedBox(height: 6),
+          Text('Стих', style: label),
+          const SizedBox(height: 2),
+          Text(v, style: body),
+        ],
+      ],
     );
   }
 
