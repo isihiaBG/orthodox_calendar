@@ -2599,9 +2599,22 @@ class _BibleReaderState extends State<BibleReader>
       fontSize: size,
       height: _kLineHeight + (language?.lineDelta ?? 0),
     );
+    // ⚠⚠ ЕТИКЕТЪТ Е С ЕДИН И СЪЩ РЪСТ В ДВЕТЕ КОЛОНИ. Дотук се смяташе от
+    // `size`, а той носи добавката на ЕЗИКА (цс е с +4 pt), тъй че „Прокимен,
+    // глас 7" излизаше видимо по-едро отдясно, отколкото отляво. Етикетът
+    // обаче не е част от четивото — той е едно и също указание и в двете
+    // колони. Взима се цс мярката, както поиска потребителят (12.09.2026).
+    //
+    // ⚠ Добавката се чете от самия превод, а не се пише като число: смени ли
+    // се утре в базата, етикетът я поема сам.
+    final labelSize = BibleFontSize.value +
+        (_languageOf('utfcs')?.sizeDelta ?? 4) - 2;
+    // ⚠ ЧЕРВЕНОТО Е `palette.wine` — същото, с което се рисуват зачалата и
+    // заглавията на песнопенията. Дотук етикетът беше приглушено сиво и не
+    // се четеше като богослужебно указание.
     final label = TextStyle(
-      color: palette.dim,
-      fontSize: size - 2,
+      color: palette.wine,
+      fontSize: labelSize,
       height: 1.3,
       fontWeight: FontWeight.w600,
     );
@@ -2614,7 +2627,7 @@ class _BibleReaderState extends State<BibleReader>
         Text(rec.$1, style: body),
         for (final v in rec.$2) ...[
           const SizedBox(height: 6),
-          Text('Стих', style: label),
+          Text('Стих:', style: label),
           const SizedBox(height: 2),
           Text(v, style: body),
         ],
