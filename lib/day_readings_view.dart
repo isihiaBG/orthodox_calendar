@@ -25,6 +25,8 @@ import 'bible_db.dart';
 import 'bible_reader.dart';
 import 'database_helper.dart';
 import 'day_readings.dart';
+import 'readings_lookup.dart';
+import 'saint_expandable_tile.dart';
 import 'prokimen_lookup.dart';
 
 class DayReadingsSection extends StatefulWidget {
@@ -66,10 +68,35 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
   /// ⚠ Втората заявка е ЕВТИНА (един индексиран ред по дата) и се прави за
   /// всеки ден — по-добре, отколкото правило „само при Велики четвъртък",
   /// което би зависело от разпознаване на деня.
+  /// ⚠⚠ ЧЕТИВАТА СЕ СМЯТАТ, НЕ СЕ ЧЕТАТ ОТ БАЗАТА.
+  ///
+  /// Таблицата `readings` е парсната за ЕДНА църковна година и е ключирана
+  /// по ГРАЖДАНСКА дата, тъй че не важи за друга година; а в новостилната
+  /// база е копирана непроменена и неподвижните четива излизаха с 13 дни
+  /// встрани. Сега [readingsFor] ги извежда от два пласта, независими от
+  /// годината И от стила — виж `readings_lookup.dart`.
+  ///
+  /// ⚠ Старата таблица НЕ Е трита: тя е парсната от източник и служи за
+  /// сверка на генерираното (правило на потребителя). Тестът
+  /// `test/readings_cycle_test.dart` я ползва точно за това.
+  List<ReadingRow> _rowsFor(DateTime d) {
+    final church = SaintTexts.churchDateOf(
+        d.toIso8601String().substring(0, 10), 0);
+    if (church == null) return const [];
+    final key = '${church.month.toString().padLeft(2, '0')}-'
+        '${church.day.toString().padLeft(2, '0')}';
+    return [
+      for (final r in readingsFor(d, key, oldStyle: AppSettings.isOldStyle))
+        (r.type, r.ref),
+    ];
+  }
+
   Future<List<ReadingGroup>> _load() async {
-    final today = await DatabaseHelper.dayReadingRows(widget.date);
-    final yesterday = await DatabaseHelper.dayReadingRows(
-        widget.date.subtract(const Duration(days: 1)));
+    // ⚠ И вчерашният ден — заради дванайсетте страстни евангелия, които се
+    // пишат на Велики четвъртък, а принадлежат на утренята на Велики петък
+    // (виж [effectiveRows]).
+    final today = _rowsFor(widget.date);
+    final yesterday = _rowsFor(widget.date.subtract(const Duration(days: 1)));
     return groupReadings(effectiveRows(today, yesterday));
   }
 
@@ -168,25 +195,6 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
             // двата стила (Пасха пада на една и съща гражданска дата), но
             // четивата на светията по месецослова са с 13 дни встрани.
             //
-            // ⚠ Проста корекция с изместване НЕ върши работа — на един и същи
-            // физически ден двата стила честват РАЗЛИЧНИ светии, тъй че
-            // изместените четива биха се озовали под чуждо име. Верният път е
-            // четивата да се генерират отделно за всеки стил и всяка година
-            // (уточнено от потребителя, 07.09.2026). Дотогава — казва се
-            // направо, вместо да се показва мълчаливо разместено.
-            if (!AppSettings.isOldStyle) ...[
-              const SizedBox(height: 14),
-              Text(
-                '⚠ Четивата на светията по месецослова още не са подредени '
-                'по нов стил. Четивата на деня са верни.',
-                style: TextStyle(
-                  color: AppColors.textMuted,
-                  fontSize: 13,
-                  height: 1.4,
-                  fontStyle: FontStyle.italic,
-                ),
-              ),
-            ],
           ],
         );
       },
