@@ -17,6 +17,8 @@
 
 import 'package:meta/meta.dart';
 
+import 'bible_chapter_verses.dart';
+
 bool _sameRanges(List<VerseRange> a, List<VerseRange> b) {
   if (a.length != b.length) return false;
   for (var i = 0; i < a.length; i++) {
@@ -41,7 +43,13 @@ class VerseRange {
   bool get isSingle => from == to;
 
   /// „3" или „3-12" — както се пише в съкратената препратка.
-  String get label => isSingle ? '$from' : '$from-$to';
+  /// „3" или „3-12"; при неизвестен край — „3-край".
+  ///
+  /// ⚠ Запушалката НЕ се изписва като число. Дотук тук излизаше „4:17-999" —
+  /// видимо на екрана (надписът над пасажа, заглавието в лентата, подписът
+  /// при споделяне) и подвеждащо: изглежда като стих 999.
+  String get label =>
+      isSingle ? '$from' : '$from-${to == kToEndOfChapter ? 'край' : to}';
 
   @override
   bool operator ==(Object other) =>
@@ -252,6 +260,32 @@ BibleRef parseBibleRef(String raw) {
 /// ⚠ Разпознава се по това, че СЛЕД тирето пак има двоеточие. Само 5
 /// срещания в целия проект, но без тази проверка „13:4-14:28" се чете като
 /// „глава 13, стихове 4 до 14" — тихо и правдоподобно грешно.
+
+/// Запушалка за „до края на главата", когато истинският брой стихове не се
+/// знае.
+///
+/// ⚠ Знае се за 1091 от 1361-те глави — [kChapterLastVerse]. Останалите 270
+/// се разминават между преводите (Септуагинта срещу масоретски текст) и там
+/// число не бива да се налага: надписът би обещал стих, какъвто в показвания
+/// превод няма. Мерено: измежду главите, които проектът РЕАЛНО ползва в
+/// препратка през няколко глави, разногласни са НУЛА.
+///
+/// ⚠ Стойността трябва да остава таван над всяка възможна номерация —
+/// [BiblePassage.marks] пита „в диапазона ли е този стих".
+const int kToEndOfChapter = 999;
+
+/// Последният стих на глава, или `null`, ако не се знае.
+///
+/// ⚠ Списъкът свършва на последната СЪГЛАСНА глава, тъй че книга с
+/// разногласие накрая (Мк. 16 — дългият и краткият завършек) е по-къса от
+/// броя си глави. Затова се проверява и дължината, не само нулата.
+int? lastVerseOf(String book, int chapter) {
+  final book0 = kChapterLastVerse[book];
+  if (book0 == null || chapter < 1 || chapter > book0.length) return null;
+  final last = book0[chapter - 1];
+  return last > 0 ? last : null;
+}
+
 List<BiblePassage>? _parseCrossChapter(String book, String part) {
   final dash = part.indexOf('-');
   if (dash < 0) return null;
@@ -269,12 +303,7 @@ List<BiblePassage>? _parseCrossChapter(String book, String part) {
   if (ch2 < ch1) return null;
 
   // Първата глава — от стиха до края; средните — цели; последната — до стиха.
-  //
-  // ⚠ „До края" се пише като голямо число, а не като истинския брой стихове:
-  // той зависи от превода (Септуагинтата и Масоретският текст се разминават),
-  // а тук няма достъп до базата. Маркирането и без това пита „в диапазона ли
-  // е този стих", тъй че таван над всяка възможна номерация върши работа.
-  const toEnd = 999;
+  final toEnd = lastVerseOf(book, ch1) ?? kToEndOfChapter;
   final out = <BiblePassage>[];
   if (ch1 == ch2) {
     out.add(BiblePassage(
