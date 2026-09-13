@@ -643,7 +643,12 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Спира по БРОЙ СТИХОВЕ, не по брой групи. Групите са неравни: една
   /// глава може да даде един стих, друга — двайсет, тъй че „пет групи" е ту
   /// шепа редове, ту цял екран. Броят стихове е това, което човек вижда.
-  Future<List<_QuoteGroup>> _loadQuoteGroups(BibleLanguagePair pair) async {
+  ///
+  /// ⚠ `groups` иска ТОЧНО толкова групи, независимо от порциите — ползва се
+  /// при смяна на превод, за да се презаредят колкото вече са показани.
+  /// Инак „Покажи още", натиснато три пъти, се губи при смяната.
+  Future<List<_QuoteGroup>> _loadQuoteGroups(BibleLanguagePair pair,
+      {int? groups}) async {
     final all = widget.quotes!.passages;
     final out = <_QuoteGroup>[];
     var added = 0;
@@ -663,7 +668,8 @@ class _BibleReaderState extends State<BibleReader>
     // ⚠ Сега при богослужебно четиво няма таван изобщо — `null`, а не голямо
     // число: „достатъчно голямо" е покана за същия бъг наново.
     final int? page = widget.liturgical ? null : _kQuotePage;
-    while (_quoteCursor < all.length && (page == null || added < page)) {
+    while (_quoteCursor < all.length &&
+        (groups != null ? out.length < groups : (page == null || added < page))) {
       final p = all[_quoteCursor];
       _quoteCursor++;
       final rows = await BibleDb.alignChapter(p.book, p.chapter, pair.both);
@@ -934,6 +940,49 @@ class _BibleReaderState extends State<BibleReader>
       return;
     }
 
+    // ⚠⚠ В РЕЖИМ „ЦИТАТИ" ТЕКСТЪТ НЕ Е В `_rows`, А В `_groups`.
+    //
+    // Всяка група носи СВОИ редове, донесени от [alignChapter] за двойката,
+    // която е била в сила при зареждането ѝ. Долният път чете само
+    // `widget.chapter` — единствената глава на обикновеното четене, — тъй
+    // че в този режим той не докосваше показаното: групите оставаха на
+    // СТАРАТА двойка и новата колона излизаше ПРАЗНА.
+    //
+    // ⚠ Личеше само при идване по ПРЕПРАТКА от „Евангелие и Апостол", защото
+    // само там четецът се отваря в този режим. Смениш ли езика ПРЕДИ това,
+    // линкът се отваря наред — двойката е вярна още при първото зареждане.
+    // (Докладвано от потребителя, 13.09.2026.)
+    if (widget.quotes != null) {
+      _pendingAnchor ??= _topmostVerse();
+      // ⚠ Празен списък значи, че първото зареждане не е стигнало доникъде
+      // (напр. грешка) — тогава НЕ се иска „точно нула групи", а се минава по
+      // обичайния път. Инак четецът остава празен завинаги.
+      final want = _groups.isEmpty ? null : _groups.length;
+      _quoteCursor = 0;
+      final groups = await _loadQuoteGroups(pair, groups: want);
+      final titles = await _titlesForBoth(_book!.code, pair);
+      if (!mounted) return;
+      setState(() {
+        _groups = groups;
+        _titles = titles;
+        _loadedFirst = pair.first;
+        _loadedSecond = pair.second;
+        _missingLangs =
+            _missingFrom([for (final g in groups) ...g.rows], pair);
+        // ⚠ И грешката се ПРЕСМЯТА, не се пази: стигне ли се до превод, който
+        // има тези стихове, надписът „още не са свалени" трябва да си отиде.
+        _error = groups.every((g) => g.rows.isEmpty)
+            ? 'Тези стихове още не са свалени.'
+            : null;
+      });
+      _slide.value = pair.active.toDouble();
+      _restorePending();
+      // ⚠ И прокименът се чете ПО ЕЗИК (`_prokimenText` е карта по код), тъй
+      // че без това той просто изчезваше в новата колона.
+      await _loadProkimen(pair);
+      return;
+    }
+
     // Сменена е самата ДВОЙКА (от падащото меню) — това вече иска четене.
     _pendingAnchor ??= _topmostVerse();
     final rows = await BibleDb.alignChapter(
@@ -954,6 +1003,7 @@ class _BibleReaderState extends State<BibleReader>
     });
     _slide.value = pair.active.toDouble();
     _restorePending();
+    await _loadProkimen(pair);
   }
 
   /// Подзаглавията за ДВАТА превода наведнъж.
