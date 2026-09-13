@@ -173,6 +173,17 @@ class LivesPlusDb {
     return out;
   }
 
+  /// Всички слъгове — за разгъването на отпечатъка в споделен цитат.
+  ///
+  /// ⚠ Отпечатъкът в адреса е 4 байта и НЕ е обратим; единственият начин да
+  /// се намери слъгът е да се обходят познатите. Виж `_slugForFingerprint`
+  /// в `quote_locator.dart`.
+  static Future<List<String>> allSlugs() async {
+    final db = await database;
+    final rows = await db.rawQuery('SELECT id FROM slova');
+    return [for (final r in rows) '$kSlovoSlugPrefix${r['id']}'];
+  }
+
   /// Тялото на едно слово — вади се при ОТВАРЯНЕ.
   static Future<SaintTexts?> load(String slug) async {
     if (!isSlovoSlug(slug)) return null;

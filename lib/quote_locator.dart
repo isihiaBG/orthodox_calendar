@@ -14,6 +14,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'database_helper.dart';
+import 'lives_plus.dart';
 import 'library_screen.dart' show kEpubOf;
 import 'quote_link.dart';
 import 'quotes.dart';
@@ -98,6 +99,25 @@ Future<String?> _slugForFingerprint(String fp) async {
     }
   } on DatabaseException {
     // Справочната база я няма или е повредена — житията вече са проверени.
+  }
+
+  // ⚠⚠ И СЛОВАТА („Слова за деня") — ТРЕТА отделна база, `lives_plus.db`.
+  //
+  // Без този обход споделен цитат от слово стигаше до отсрещния телефон,
+  // разчиташе се и после умираше с „Това четиво го няма в календара":
+  // отпечатъкът е необратим и се разгъва само чрез обхождане на всички
+  // познати слъгове, а тази база не беше между тях. (Докладвано от
+  // потребителя, 13.09.2026.)
+  //
+  // ⚠ Всяка база, която дава четиво на четеца, трябва да се появи И ТУК —
+  // инак цитатите от нея се запазват и споделят, но не се отварят. Същото
+  // важеше и за справочните статии по-горе.
+  try {
+    for (final s in await LivesPlusDb.allSlugs()) {
+      if (locatorFingerprint(s) == want) return s;
+    }
+  } on DatabaseException {
+    // Базата я няма в стар билд — останалите извори вече са проверени.
   }
   return null;
 }
