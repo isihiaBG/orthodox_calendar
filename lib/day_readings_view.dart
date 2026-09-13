@@ -46,18 +46,51 @@ class DayReadingsSection extends StatefulWidget {
 }
 
 class _DayReadingsSectionState extends State<DayReadingsSection> {
-  late Future<List<ReadingGroup>> _future;
+  /// ⚠⚠ СМЯТА СЕ СИНХРОННО, И ТОВА Е ЧАСТ ОТ ВИДА, НЕ ОПТИМИЗАЦИЯ.
+  ///
+  /// Дотук тук стоеше `Future` с въртележка, макар четенето отдавна да е само
+  /// сметка по `const` карти ([readingsFor]) — остатък от времето, когато
+  /// четивата идваха от базата. Цената беше видима: **секцията се разгъваше
+  /// МИГНОВЕНО**, докато всички останали се разгъват плавно.
+  ///
+  /// Причината е в `AnimatedSize`. При разгъване първият кадър показваше
+  /// въртележката (~42 px) и анимацията тръгваше 0 → 42; още на СЛЕДВАЩИЯ
+  /// кадър микрозадачата връщаше готовите групи и височината скачаше на
+  /// пълната. Промяна на размера НАСРЕД тичаща анимация вкарва
+  /// `RenderAnimatedSize` в нестабилно състояние и той спира да анимира —
+  /// просто скача. При събиране промяната е ЕДНА (H → 0) и излиза плавно;
+  /// оттам и асиметрията, с която потребителят го забеляза (13.09.2026).
+  ///
+  /// ⚠ Теофан и Оптинските старци не страдат от същото, макар устройството
+  /// да е еднакво: при тях четенето е ИСТИНСКО и трае много кадри, тъй че
+  /// втората промяна идва, след като първата анимация вече е свършила.
+  ///
+  /// ⚠ Състоянието „зарежда се" го НЯМА, защото такова състояние няма — това
+  /// не е нарушение на правилото „различавай трите състояния" (виж
+  /// `MiniReader`), а негово следствие: остават грешка и празно.
+  late List<ReadingGroup> _groups;
+  Object? _error;
 
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _compute();
   }
 
   @override
   void didUpdateWidget(covariant DayReadingsSection old) {
     super.didUpdateWidget(old);
-    if (old.date != widget.date) _future = _load();
+    if (old.date != widget.date) _compute();
+  }
+
+  void _compute() {
+    try {
+      _groups = _load();
+      _error = null;
+    } catch (e) {
+      _groups = const [];
+      _error = e;
+    }
   }
 
   /// ⚠ Чете се И ПРЕДНИЯТ ДЕН — заради дванайсетте страстни евангелия, които
@@ -91,7 +124,7 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     ];
   }
 
-  Future<List<ReadingGroup>> _load() async {
+  List<ReadingGroup> _load() {
     // ⚠ И вчерашният ден — заради дванайсетте страстни евангелия, които се
     // пишат на Велики четвъртък, а принадлежат на утренята на Велики петък
     // (виж [effectiveRows]).
@@ -147,57 +180,33 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<List<ReadingGroup>>(
-      future: _future,
-      builder: (context, snap) {
-        // ⚠ ТРИТЕ СЪСТОЯНИЯ СЕ РАЗЛИЧАВАТ. Без клон за грешка тя изглежда
-        // като „няма данни" и се търси с часове — записано е за MiniReader
-        // и важи навсякъде.
-        if (snap.connectionState != ConnectionState.done) {
-          return const Padding(
-            padding: EdgeInsets.symmetric(vertical: 12),
-            child: Center(
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
+    // ⚠ ГРЕШКАТА СЕ РАЗЛИЧАВА ОТ ПРАЗНОТО. Слети, грешката изглежда като
+    // „няма данни" и се търси с часове — записано е за MiniReader и важи
+    // навсякъде.
+    if (_error != null) {
+      return _plain('Четивата не можаха да се заредят.');
+    }
+    final groups = _groups;
+    if (groups.isEmpty) {
+      return _plain('За този ден няма записани четива.');
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        for (var i = 0; i < groups.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          Text(
+            groups[i].title,
+            style: const TextStyle(
+              color: AppColors.sectionTitle,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
             ),
-          );
-        }
-        if (snap.hasError) {
-          return _plain('Четивата не можаха да се заредят.');
-        }
-        final groups = snap.data ?? const <ReadingGroup>[];
-        if (groups.isEmpty) {
-          return _plain('За този ден няма записани четива.');
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            for (var i = 0; i < groups.length; i++) ...[
-              if (i > 0) const SizedBox(height: 12),
-              Text(
-                groups[i].title,
-                style: const TextStyle(
-                  color: AppColors.sectionTitle,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 4),
-              for (final line in groups[i].lines) _line(line),
-            ],
-            // ⚠⚠ ЧЕСТНА БЕЛЕЖКА, ДОКАТО ЧЕТИВАТА НЕ СЕ ГЕНЕРИРАТ ПО СТИЛ.
-            //
-            // Таблицата `readings` е закотвена за СТАРИЯ стил и е копирана
-            // непроменена в новостилната база. Подвижните четива са верни за
-            // двата стила (Пасха пада на една и съща гражданска дата), но
-            // четивата на светията по месецослова са с 13 дни встрани.
-            //
-          ],
-        );
-      },
+          ),
+          const SizedBox(height: 4),
+          for (final line in groups[i].lines) _line(line),
+        ],
+      ],
     );
   }
 
