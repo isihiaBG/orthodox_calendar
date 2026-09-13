@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 
 import 'app_settings.dart';
 import 'app_theme.dart';
+import 'lives_plus.dart';
 import 'database_helper.dart';
 import 'dmitry_life.dart';
 import 'lives_index.dart';
@@ -167,6 +168,10 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
   // Бележките на свт. Теофан — също своя база (teofan.db), по същата
   // причина: слъгът трябва да се разрешава и от списъка с отметки.
   if (isTeofanNoteSlug(slug)) return loadTeofanNote(slug);
+  // Словата на свт. Димитрий Ростовски — трета отделна база (lives_plus.db).
+  // ⚠ Без този ред отметка или цитат към слово СЕ ЗАПАЗВА, но не се отваря —
+  // капанът, платен веднъж при справочните четива.
+  if (isSlovoSlug(slug)) return LivesPlusDb.load(slug);
 
   final db = await DatabaseHelper.database;
   final r = await db.rawQuery('''

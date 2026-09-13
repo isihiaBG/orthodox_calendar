@@ -16,6 +16,8 @@ import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'day_readings_view.dart';
+import 'lives_plus.dart';
+import 'lives_plus_section.dart';
 import 'fast_explanation_sheet.dart';
 import 'mini_reader.dart';
 import 'models/day_model.dart';
@@ -183,6 +185,11 @@ class _DayScreenState extends State<DayScreen>
     _flashController.forward(from: 0);
   }
 
+  /// Словата за деня — БЕЗ телата. Празен списък значи, че секцията „СЛОВА
+  /// ЗА ДЕНЯ" изобщо не се строи: тя е изключителна и се явява само там,
+  /// където има поне едно (изрично искане на потребителя, 13.09.2026).
+  List<Slovo> _slova = const [];
+
   Future<void> _loadDay() async {
     final db = await DatabaseHelper.database;
     final dateStr = widget.date.toIso8601String().substring(0, 10);
@@ -243,6 +250,27 @@ class _DayScreenState extends State<DayScreen>
         sg.id ASC, s.rank ASC, s.id ASC
     ''', [dateStr]);
 
+    // ⚠ Словата се четат ТУК, не при разгъване: от списъка зависи дали
+    // секцията изобщо да се покаже, а това се решава при строенето. Заявката
+    // е евтина — индексирана по адрес и без телата.
+    //
+    // ⚠ Гърми ли (липсваща база в стар билд), се минава без секцията, а не
+    // се отнася целият ден.
+    List<Slovo> slova = const [];
+    try {
+      final church = SaintTexts.churchDateOf(dateStr, 0);
+      if (church != null) {
+        slova = await LivesPlusDb.forDate(
+          widget.date,
+          '${church.month.toString().padLeft(2, '0')}-'
+              '${church.day.toString().padLeft(2, '0')}',
+          oldStyle: AppSettings.isOldStyle,
+        );
+      }
+    } catch (_) {
+      slova = const [];
+    }
+
     // Двете заявки по-горе са асинхронни — при бързо прелистване екранът
     // може да е напуснат, докато траят. Без тази проверка setState гърми
     // върху унищожен state ("setState() called after dispose()").
@@ -251,6 +279,7 @@ class _DayScreenState extends State<DayScreen>
     setState(() {
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();
+      _slova = slova;
       _loading = false;
     });
 
@@ -630,6 +659,13 @@ class _DayScreenState extends State<DayScreen>
               children: [
                 _buildSaintsList(),
                 const SizedBox(height: 8),
+                // ⚠ ПЪРВА в групата и само когато има какво да покаже.
+                if (_slova.isNotEmpty)
+                  ExpandableSection(
+                    title: '📕  СЛОВА ЗА ДЕНЯ',
+                    isSunday: isSunday,
+                    content: LivesPlusSection(slova: _slova),
+                  ),
                 ExpandableSection(
                   title: '📖  ЕВАНГЕЛИЕ И АПОСТОЛ',
                   isSunday: isSunday,

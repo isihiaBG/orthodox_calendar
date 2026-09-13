@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
+import 'package:sqflite/sqflite.dart';
+
 import 'app_settings.dart';
+import 'lives_plus.dart';
 
 /// Филтри по група, изписвани с # в полето за търсене.
 /// Ключът е това, което потребителят пише след #; стойността е group_code.
@@ -64,10 +67,58 @@ const Map<String, String> _contentAliases = {
   'под': 'movable', 'подв': 'movable', 'подвижен': 'movable',
   'подвижни': 'movable', 'преходен': 'movable', 'преходни': 'movable',
   'mov': 'movable', 'move': 'movable', 'movable': 'movable',
+  // ⚠⚠ СЛОВО ЗА ДЕНЯ — условие за ДЕНЯ, не за светията.
+  //
+  // „Има ли слово" не е свойство на паметта, а на ДАТАТА: словата на свт.
+  // Димитрий Ростовски са адресирани към дни (неделя по Петдесетница,
+  // църковна дата), не към светии. Затова филтърът се свързва с останалите
+  // като „този светия/празник пада в ден, който ИМА и слово" — виж
+  // `_slovoDatesCondition`.
+  //
+  // ⚠ `сл` и `sl` НЕ са тук — те открай време значат „служба" и
+  // преназначаването им би сменило тихо смисъла на заучен хаштаг.
+  'сло': 'slovo', 'слов': 'slovo', 'слово': 'slovo', 'слова': 'slovo',
+  'slo': 'slovo', 'slov': 'slovo', 'slovo': 'slovo',
   // служба (по същата логика — махни реда, ако не я искаш)
   'сл': 'sluzhba', 'слу': 'sluzhba', 'служ': 'sluzhba', 'служба': 'sluzhba',
   'sl': 'sluzhba', 'slu': 'sluzhba', 'sluj': 'sluzhba', 'slujb': 'sluzhba', 'slujba': 'sluzhba', 'sluzhba': 'sluzhba',
 };
+
+/// Гражданските дати, за които има слово — за филтъра `#слово`.
+///
+/// ⚠ Обхватът се взима от САМАТА календарна база (min/max на
+/// `calendar_days.date`), а не се гадае по текущата година: базата носи по
+/// няколко години наведнъж и търсенето може да ги обхожда с хаштаг.
+///
+/// ⚠ Кешира се за сесията: множеството зависи само от стила и от
+/// съдържанието на `lives_plus.db`, а обхождането на ~хиляда дни при всяко
+/// натискане на клавиш би се усещало.
+Set<String>? _slovoDatesCache;
+bool? _slovoDatesStyle;
+
+Future<List<String>> _slovoDates(Database db) async {
+  final oldStyle = AppSettings.isOldStyle;
+  if (_slovoDatesCache != null && _slovoDatesStyle == oldStyle) {
+    return _slovoDatesCache!.toList();
+  }
+  final r = await db.rawQuery(
+      'SELECT MIN(date) AS a, MAX(date) AS b FROM calendar_days');
+  final a = DateTime.tryParse((r.first['a'] ?? '') as String);
+  final b = DateTime.tryParse((r.first['b'] ?? '') as String);
+  if (a == null || b == null) return const [];
+  Set<String> out;
+  try {
+    out = await LivesPlusDb.datesWithSlova(
+        from: a, to: b, oldStyle: oldStyle);
+  } catch (_) {
+    // ⚠ Липсваща база в стар билд — филтърът просто не намира нищо, вместо
+    // да отнесе цялото търсене.
+    out = const {};
+  }
+  _slovoDatesCache = out;
+  _slovoDatesStyle = oldStyle;
+  return out.toList();
+}
 
 /// Условие „светията има житие в томовете на св. Димитрий Ростовски".
 ///
@@ -369,6 +420,28 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		for (final c in parsed.excludeContent) {
 		  final sql = _contentSql[c];
 		  if (sql != null) saintConds.add('NOT $sql');
+		}
+		// ⚠⚠ „СЛОВО ЗА ДЕНЯ" Е УСЛОВИЕ ЗА ДАТАТА, не за светията, и не може
+		// да е ред в `_contentSql`: `lives_plus.db` НЕ се ATTACH-ва, тъй че
+		// подзаявка към нея е невъзможна. Затова датите се смятат отвън и
+		// влизат като списък — така филтърът се свързва с всички останали
+		// по обичайното И: „този светия пада в ден, който има и слово".
+		final wantsSlovo = parsed.content.contains('slovo');
+		final notSlovo = parsed.excludeContent.contains('slovo');
+		if (wantsSlovo || notSlovo) {
+		  final dates = await _slovoDates(db);
+		  if (dates.isEmpty) {
+		    // ⚠ Празно множество: при #слово няма какво да се върне, а при
+		    // #!слово няма какво да се извади. Празен `IN ()` е синтактична
+		    // грешка в SQLite, затова се пише условието направо.
+		    saintConds.add(wantsSlovo ? '0' : '1');
+		  } else {
+		    final ph = List.filled(dates.length, '?').join(',');
+		    saintConds.add(wantsSlovo
+		        ? 's.date IN ($ph)'
+		        : 's.date NOT IN ($ph)');
+		    saintArgs.addAll(dates);
+		  }
 		}
 		// Периодът — НАКРАЯ, за да лягат новите аргументи след досегашните
 		// (sqflite ги свързва по ред на появяване в текста на заявката).
@@ -800,6 +873,9 @@ const Map<String, String> _contentTitles = {
   'life2': 'житие по св. Димитрий Ростовски',
   'movable': 'подвижен празник',
   'sluzhba': 'служба',
+  // ⚠ Формулировката казва изрично, че условието е за ДЕНЯ — инак човек
+  // очаква слово ЗА СВЕТИЯТА и празният резултат го обърква.
+  'slovo': 'слово за деня (в същия ден)',
 };
 
 /// ⚠ Женски род — съгласуват се с „църква“ от заглавието на раздела
