@@ -62,7 +62,6 @@ import 'reader_toolbar.dart';
 import 'search_match.dart';
 import 'round_icon_button.dart';
 import 'settings_screen.dart';
-import 'selection_toolbar.dart';
 
 /// Разстоянието между номера на стиха и текста му.
 ///
@@ -655,8 +654,16 @@ class _BibleReaderState extends State<BibleReader>
     // от няколко парчета, и трябва да стои цял пред очите — прекъснат с
     // „Покажи още", той престава да е четиво. (Изрично от потребителя,
     // 07.09.2026.)
-    final page = widget.liturgical ? all.length : _kQuotePage;
-    while (_quoteCursor < all.length && added < page) {
+    // ⚠⚠ `page` БРОИ СТИХОВЕ, не пасажи. Дотук при богослужебно четиво тук
+    // стоеше `all.length` — броят ЧАСТИ, — а `added` брои СТИХОВЕ. Тъй че
+    // четиво от четири части, първата с десет стиха, спираше СЛЕД ПЪРВАТА:
+    // на екрана излизаше една част и копче „Покажи още". Точно обратното на
+    // замисъла. (Докладвано от потребителя, 13.09.2026.)
+    //
+    // ⚠ Сега при богослужебно четиво няма таван изобщо — `null`, а не голямо
+    // число: „достатъчно голямо" е покана за същия бъг наново.
+    final int? page = widget.liturgical ? null : _kQuotePage;
+    while (_quoteCursor < all.length && (page == null || added < page)) {
       final p = all[_quoteCursor];
       _quoteCursor++;
       final rows = await BibleDb.alignChapter(p.book, p.chapter, pair.both);
