@@ -111,7 +111,27 @@ assets/bible_covers/
 # ⚠ Затова пък README.md е ЕДИНСТВЕНИЯТ запис на находките: четирите различни
 # шаблона на източника, двете кодировки, прагът за Псалтира. Изтрие ли се
 # папката, това знание си отива с нея — при нужда се пази отделно.
-tools/bible_bg/
+# ⚠⚠ ОТКЛЮЧЕНИ СА САМО `scripts/` И `README.md` (14.09.2026).
+#
+# Решение на потребителя: АЛГОРИТМИТЕ влизат в git, ДАННИТЕ — не. Причината
+# е приемственост: без скриптовете нито една от базите не може да се
+# произведе наново и цялата работа по конвейерите би живяла само на един
+# диск. Данните (input/, output/, work/, cache/, days/, db/) остават извън:
+# те са тежки, производни и с чужди права.
+#
+# ⚠ ИЗКЛЮЧВА СЕ СЪДЪРЖАНИЕТО (`папка/*`), НЕ САМАТА ПАПКА. От изцяло
+# игнорирана папка git не позволява да се върне подпапка — негацията просто
+# не сработва и изглежда, че правилото е сгрешено.
+#
+# ⚠⚠ ПРЕДИ ДА ОТКЛЮЧИШ ОЩЕ НЕЩО: хранилището е ПУБЛИЧНО. Сверено на
+# 14.09.2026, че в 126-те скрипта няма НИТО ЕДИН вписан ключ — всички четат
+# `DEEPSEEK_API_KEY` от `.env` или от средата, а `**/.env` е заключен
+# глобално по-долу. Всяко ново отключване иска същата проверка.
+
+tools/bible_bg/*
+!tools/bible_bg/scripts/
+!tools/bible_bg/README.md
+tools/bible_bg/scripts/__pycache__/
 
 # Конвейерът за житията на българските светии (pravoslavieto.com).
 #
@@ -127,7 +147,10 @@ tools/bible_bg/
 # име не стига. Изтрие ли се папката, те се правят наново на ръка — затова
 # README.md и input/ трябва да се пазят отделно, преди да се чисти каквото и
 # да е тук.
-tools/lives_bg/
+tools/lives_bg/*
+!tools/lives_bg/scripts/
+!tools/lives_bg/README.md
+tools/lives_bg/scripts/__pycache__/
 
 # Произведената база се прави наново от tools/calendar_gen — не се пази.
 tools/calendar_gen/out/
@@ -194,14 +217,20 @@ tools/translate_Optina/work/
 # страници, работни файлове и ключът към DeepSeek. Пренесена в проекта на
 # 16.08.2026, за да е на едно място с останалите инструменти, но НЕ влиза в
 # git: тежка е, съдържа чуждо съдържание и е производна.
-tools/azbyka.ru/
+tools/azbyka.ru/*
+!tools/azbyka.ru/scripts/
+!tools/azbyka.ru/README.md
+tools/azbyka.ru/scripts/__pycache__/
 
 # Свързване на житията по Димитрий Ростовски със saints по (дата + прилика
 # на име) — нов инструмент, все още в начален етап. Цялата папка е извън
 # git засега, по изрична молба на потребителя, докато работата се
 # стабилизира (тогава ще се прецени дали скриптовете да влязат, по
 # образеца на останалите конвейери в tools/).
-tools/match_dmitry_lives/
+tools/match_dmitry_lives/*
+!tools/match_dmitry_lives/scripts/
+!tools/match_dmitry_lives/README.md
+tools/match_dmitry_lives/scripts/__pycache__/
 
 # Свещеното Писание за секцията „Библия" — в git остават САМО скриптовете и
 # картите в input/ (книги, глави, езици — леки CSV-та, от които всичко се
@@ -232,12 +261,18 @@ tools/dissertation/
 # Втори извор след tools/lives_bg/ — там го няма Тервел, Райко Шуменски и
 # още десетина. Извън git по същите съображения: свалени чужди страници и
 # производни от тях.
-tools/lives_mitropolia/
+tools/lives_mitropolia/*
+!tools/lives_mitropolia/scripts/
+!tools/lives_mitropolia/README.md
+tools/lives_mitropolia/scripts/__pycache__/
 
 # Единични находки от разни сайтове — жития и възпоменания, каквито няма нито
 # в pravoslavieto.com, нито при митрополията. Всеки извор е СВОЙ сайт, тъй че
 # тук няма указател: работи се по ръчен списък адреси (input/sources.csv).
-tools/lives_extra/
+tools/lives_extra/*
+!tools/lives_extra/scripts/
+!tools/lives_extra/README.md
+tools/lives_extra/scripts/__pycache__/
 
 # Тестовете.
 #
@@ -294,7 +329,10 @@ android/key.properties
 # Конвейерът за богослужебните Евангелие и Апостол (06.09.2026). Изворите са
 # два .epub-а с чужди права, а изделията се пресъздават от тях — както при
 # другите конвейери за жития. Описанието живее в CLAUDE.md.
-tools/evangelie_slujebno/
+tools/evangelie_slujebno/*
+!tools/evangelie_slujebno/scripts/
+!tools/evangelie_slujebno/README.md
+tools/evangelie_slujebno/scripts/__pycache__/
 
 # ── tools/lives_plus/ ───────────────────────────────────────────────────
 # Трети извор по свт. Димитрий Ростовски: СЛОВА и ПОУЧЕНИЯ (не жития) —
@@ -303,4 +341,7 @@ tools/evangelie_slujebno/
 # ⚠ Изключена по същия довод като lives_bg/ и lives_extra/: чужди книги и
 # машинни преводи, тежки и с чужди права. Находките се пазят в README-то на
 # папката — то е ЕДИНСТВЕНИЯТ им запис, щом папката не е в git.
-tools/lives_plus/
+tools/lives_plus/*
+!tools/lives_plus/scripts/
+!tools/lives_plus/README.md
+tools/lives_plus/scripts/__pycache__/
