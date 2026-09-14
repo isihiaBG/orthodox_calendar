@@ -24,6 +24,36 @@
 под 20%. Затова писмата се пресяват по-строго, но НЕ се изхвърлят: сред тях
 са и най-хубавите сентенции.
 
+
+## Аргументите на скриптовете
+
+```bash
+python3 01_extract.py --topic МОЛИТВА            # само една тема
+
+python3 02_select.py --total 400                 # колко да подбере
+python3 02_select.py --max-len 900 --show        # таван по дължина; показва
+
+python3 02b_expand.py --limit 200                # разширява РЕЗЕРВА
+
+python3 03_translate_deepseek.py --limit 5       # ⚠ пилот преди наедро
+python3 03_translate_deepseek.py --only v1-268-02
+python3 03_translate_deepseek.py --workers 4 --batch 8
+python3 03_translate_deepseek.py --min-balance 0.50   # спира при остатък
+python3 03_translate_deepseek.py --redo          # превежда наново
+python3 03_translate_deepseek.py --show-prompt   # само показва промпта
+
+python3 04_build_db.py --out ../../../assets/db/optina.db
+
+python3 05_verify.py --day 03-15                 # един ден
+python3 05_verify.py --online                    # ⚠ мрежа
+```
+
+⚠⚠ **`--min-balance` има ИНЕРЦИЯ.** Балансът по `/user/balance` закъснява с
+няколко минути, тъй че спирачката пропуска още няколко порции: при таван
+0,02 $ сметката веднъж излезе на −0,07 $. Искаш ли точно спиране — остави
+по-широк резерв.
+
+
 ## Работен цикъл
 
 ```bash

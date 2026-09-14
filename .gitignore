@@ -173,6 +173,7 @@ tools/calendar_gen/input/db/
 # игнорирана папка git не позволява да се върне подпапка.
 tools/Translate_lives/*
 !tools/Translate_lives/scripts/
+!tools/Translate_lives/README.md
 tools/Translate_lives/scripts/__pycache__/
 
 # Ключовете за платените API-та — НИКЪДЕ и под никаква форма. Правилото е
@@ -254,7 +255,8 @@ tools/corrections/backups/
 # Дисертация (PDF, 2,5 MB) — чужд научен труд, оставен тук за справка при
 # издирване на български светии, които календарът още няма. Не е част от
 # приложението и не бива да пътува в хранилището: правата са на автора.
-tools/dissertation/
+tools/dissertation/*
+!tools/dissertation/README.md
 
 # Жития на български светии от сайта на Софийска света митрополия
 # (mitropolia-sofia.org, поредицата „Кръстният подвиг на българските светии").
