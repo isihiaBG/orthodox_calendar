@@ -12,28 +12,12 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'lives_plus.dart';
-import 'reader_screen.dart';
-import 'saint_expandable_tile.dart';
+import 'slovo_open.dart';
 
 class LivesPlusSection extends StatelessWidget {
   final List<Slovo> slova;
 
   const LivesPlusSection({super.key, required this.slova});
-
-  Future<void> _open(BuildContext context, Slovo s) async {
-    final texts = await LivesPlusDb.load(s.slug);
-    if (texts == null || !context.mounted) return;
-    await Navigator.of(context).push(MaterialPageRoute(
-      // ⚠ Режимът е `life`, не `sluzhba`: словата са свързан разказ и
-      // получават буквица, както житията.
-      builder: (_) => ReaderScreen.life(
-        texts: texts,
-        lookup: lookupBySlug,
-        lifeTitle: s.title,
-        typeLabel: 'Слово',
-      ),
-    ));
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +26,7 @@ class LivesPlusSection extends StatelessWidget {
       children: [
         for (final s in slova)
           InkWell(
-            onTap: () => _open(context, s),
+            onTap: () => openSlovo(context, s),
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 8),
               child: Row(

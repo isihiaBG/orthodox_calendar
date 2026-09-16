@@ -15,6 +15,8 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
 import 'dual_date_text.dart';
+import 'app_settings.dart';
+import 'lives_plus.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
 import 'saint_expandable_tile.dart'
@@ -134,6 +136,10 @@ class _FeastResult {
   final bool hasLife;
   final bool hasSluzhba;
   final List<DmitryRef> dmitryRefs;
+
+  /// Словата, които се падат на ДЕНЯ на празника — виж `lives_plus.dart`.
+  /// ⚠ Не зависят от слъга: адресирани са към деня, не към паметта.
+  final List<Slovo> slova;
   const _FeastResult(
     this.spec,
     this.civilDate, {
@@ -144,6 +150,7 @@ class _FeastResult {
     this.hasLife = false,
     this.hasSluzhba = false,
     this.dmitryRefs = const [],
+    this.slova = const [],
   });
 }
 
@@ -240,6 +247,51 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         LIMIT 1
       """, ['${spec.namePrefix}%']);
 
+      // ⚠⚠ СЛОВАТА СЕ ТЪРСЯТ ПО ДЕНЯ, не по слъга. Гражданската дата вече е
+      // сметната по-горе; от нея се вади църковната по правилото на СТИЛА и
+      // се питат литургичните адреси (виж [LivesPlusDb.forDate]).
+      //
+      // ⚠ Гръмне ли (липсваща база в стар билд), празникът се показва без
+      // слова, вместо да отнесе целия екран.
+      List<Slovo> slova = const [];
+      try {
+        final church = SaintTexts.churchDateOf(
+            civilDate.toIso8601String().substring(0, 10), 0);
+        if (church != null) {
+          slova = await LivesPlusDb.forDate(
+            civilDate,
+            '${church.month.toString().padLeft(2, '0')}-'
+                '${church.day.toString().padLeft(2, '0')}',
+            oldStyle: AppSettings.isOldStyle,
+          );
+        }
+      } catch (_) {
+        slova = const [];
+      }
+
+      // ⚠⚠ СЛОВАТА СЕ ТЪРСЯТ ПО ДЕНЯ, не по слъга. Гражданската дата вече е
+      // сметната по-горе (подвижните от Пасха, неподвижните от църковната
+      // си дата), тъй че оттук нататък е същото, което прави и дневният
+      // изглед — виж [LivesPlusDb.forDate].
+      //
+      // ⚠ Гръмне ли (липсваща база в стар билд), празникът излиза без слова,
+      // вместо да отнесе целия екран.
+      List<Slovo> feastSlova = const [];
+      try {
+        final church = SaintTexts.churchDateOf(
+            civilDate.toIso8601String().substring(0, 10), 0);
+        if (church != null) {
+          feastSlova = await LivesPlusDb.forDate(
+            civilDate,
+            '${church.month.toString().padLeft(2, '0')}-'
+                '${church.day.toString().padLeft(2, '0')}',
+            oldStyle: AppSettings.isOldStyle,
+          );
+        }
+      } catch (_) {
+        feastSlova = const [];
+      }
+
       final row = rows.isEmpty ? null : rows.first;
       results.add(_FeastResult(
         spec,
@@ -251,6 +303,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         hasLife: (row?['has_life'] as int? ?? 0) == 1,
         hasSluzhba: (row?['has_sluzhba'] as int? ?? 0) == 1,
         dmitryRefs: parseDmitryRefs(row?['dmitry_refs'] as String?),
+        slova: slova,
       ));
     }
     if (!mounted) return;
@@ -288,6 +341,9 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       hasLife: r.hasLife,
       hasSluzhba: r.hasSluzhba,
       dmitryRefs: r.dmitryRefs,
+      slova: r.slova,
+      // ⚠ Всеки запис тук Е празник, не обикновен ден.
+      slovaTitle: 'СЛОВА ЗА ПРАЗНИКА',
       lifeLabel: lifeLabelFor(rank: r.rank, name: r.spec.displayName),
       // По id на КОНКРЕТНИЯ ред, не по slug: предпразненство/попразненство
       // споделят slug-а на самия празник, така че търсене по slug връща

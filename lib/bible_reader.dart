@@ -34,6 +34,7 @@ import 'package:flutter/rendering.dart';
 
 import 'app_theme.dart';
 import 'bible_bg_source.dart';
+import 'bible_book_names.dart';
 import 'bible_db.dart';
 import 'bible_language_pair.dart';
 import 'quote_capture.dart';
@@ -228,6 +229,7 @@ class BibleReader extends StatefulWidget {
     this.resultsTitle,
     this.liturgical = false,
     this.prokimen,
+    this.zachalo,
     this.resultsNote,
     this.searchQuery,
     this.totalFound,
@@ -258,15 +260,24 @@ class BibleReader extends StatefulWidget {
   /// четиво. Същото правило като при обръщението „Братя,".
   final K? prokimen;
 
+  /// Номерът на зачалото — САМО когато четивото е дошло от богослужебна
+  /// препратка („Гал. 214 (6:2-10)" в дневния изглед).
+  ///
+  /// ⚠ Влиза единствено в заглавието най-отгоре („Галатяни зач.214,
+  /// гл.6:2-10"). Отваряне от съдържанието или „чети в контекст" го няма —
+  /// там зачало не се показва, защото се чете глава, не четиво.
+  final int? zachalo;
+
   static Widget forRef(BibleRef ref,
-      {bool liturgical = false, K? prokimen}) {
+      {bool liturgical = false, K? prokimen, int? zachalo}) {
     final first = ref.passages.first;
     if (ref.isWholeChapterOnly) {
       return BibleReader(
           bookCode: first.book,
           chapter: first.chapter,
           liturgical: liturgical,
-          prokimen: prokimen);
+          prokimen: prokimen,
+          zachalo: zachalo);
     }
     return BibleReader(
       bookCode: first.book,
@@ -274,6 +285,7 @@ class BibleReader extends StatefulWidget {
       quotes: ref,
       liturgical: liturgical,
       prokimen: prokimen,
+      zachalo: zachalo,
     );
   }
 
@@ -1580,6 +1592,11 @@ class _BibleReaderState extends State<BibleReader>
                         ...(_groups.isNotEmpty
                             ? _quoteBodies(palette, pair, landscape)
                             : [
+                                // ⚠ И при ЦЯЛА ГЛАВА — дотук заглавие имаше
+                                // само при съставните цитати, тъй че при
+                                // отваряне от съдържанието нищо в текста не
+                                // казваше коя глава е.
+                                ?_readingHeading(palette),
                                 landscape
                                     ? _parallelColumns(palette, pair)
                                     : _slidingColumn(
@@ -1686,6 +1703,17 @@ class _BibleReaderState extends State<BibleReader>
       ReaderPalette palette, BibleLanguagePair pair, bool landscape) {
     final many = _groups.length > 1;
     final out = <Widget>[];
+
+    // ⚠⚠ ЗАГЛАВИЕ САМО КОГАТО ПАСАЖЪТ Е ЕДИН. При няколко всеки си има свое
+    // (`_quoteHeading` по-долу) и второ, общо отгоре би било повторение.
+    // Съставните НЕ се пипат — изрично искане на потребителя (16.09.2026).
+    //
+    // ⚠ Стои НАД прокимена и над обръщението: то казва КОЕ Е четивото, а те
+    // са част от самото четене.
+    if (!many) {
+      final h = _readingHeading(palette);
+      if (h != null) out.add(h);
+    }
 
     // ⚠ Бележката стои НАД първия резултат, не под последния: тя казва, че
     // списъкът е отрязан, а това трябва да се знае, преди човек да е решил,
@@ -2269,6 +2297,51 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Проперкейс, не главни. Дяловете в съдържанието са с главни, защото са
   /// имена на цели раздели; тук стои конкретно място („Мат. 5:3-12"), а
   /// главните биха превърнали указателя в надслов.
+  /// Заглавието НАЙ-ОТГОРЕ на четивото — „Матей гл.5", „Йоан 3:12-15",
+  /// „Галатяни зач.214, гл.6:2-10".
+  ///
+  /// ⚠⚠ ИМЕТО Е ПЪЛНО, не съкратено (виж [bibleFullName]): в лентата стои
+  /// „Мат. 5", а тук — „Матей гл.5". Лентата е `floating` и се крие при
+  /// скрол, тъй че „кое място чета" изчезва точно докато човек чете; това
+  /// заглавие е ВЪТРЕ в текста и остава. (Идея на потребителя, 16.09.2026.)
+  ///
+  /// ⚠ Явява се САМО когато другаде няма такова: при ЦЯЛА ГЛАВА и при
+  /// ЕДИНСТВЕН пасаж. Съставните цитати вече си имат заглавие над всеки
+  /// пасаж (`_quoteHeading`) и там нищо не се пипа — изрично искане на
+  /// потребителя.
+  Widget? _readingHeading(ReaderPalette palette) {
+    final book = _book;
+    if (book == null) return null;
+    final name = bibleFullName(book.code, book.short);
+
+    final String where;
+    final q = widget.quotes;
+    if (q != null && q.passages.length == 1 && !q.passages.first.isWholeChapter) {
+      where = q.passages.first.whereLabel;          // „3:12-15"
+    } else {
+      where = 'гл.${widget.chapter}';               // цяла глава
+    }
+
+    // ⚠ Зачалото стои ПРЕДИ главата и стиховете, както е и в секцията
+    // „Евангелие и Апостол": „Галатяни зач.214, гл.6:2-10".
+    final z = widget.zachalo;
+    final label = z == null
+        ? '$name $where'
+        : '$name зач.$z, ${where.startsWith('гл.') ? where : 'гл.$where'}';
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: BibleFontSize.value * 1.04,
+          fontWeight: FontWeight.w700,
+          color: palette.heading,
+        ),
+      ),
+    );
+  }
+
   Widget _quoteHeading(ReaderPalette palette, _QuoteGroup g) => Padding(
         padding: const EdgeInsets.only(bottom: 8),
         child: Text(

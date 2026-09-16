@@ -41,6 +41,23 @@ CREATE TABLE slova (
     why       TEXT                -- как е стигнал до този адрес
 );
 CREATE INDEX idx_slova_address ON slova(address);
+
+-- ⚠⚠ ЕДНО СЛОВО МОЖЕ ДА СЕ ПАДА НА НЯКОЛКО ДНИ.
+--
+-- „Поучение през светите пости" върви на НАЧАЛОТО НА ВСЕКИ от четирите
+-- поста (искане на потребителя, 16.09.2026) — а те са четири различни
+-- литургични адреса. Затова дните са в отделна таблица; `slova.address`
+-- остава ПЪРВИЯТ, само за подредба и за отчета.
+--
+-- ⚠ Адресите са литургични, тъй че важат за ВСЯКА година и по двата стила
+-- сами по себе си — никъде не се вписва конкретна година.
+DROP TABLE IF EXISTS slovo_days;
+CREATE TABLE slovo_days (
+    id      TEXT NOT NULL,
+    address TEXT NOT NULL,
+    PRIMARY KEY (id, address)
+);
+CREATE INDEX idx_slovo_days_address ON slovo_days(address);
 """
 
 
@@ -109,6 +126,9 @@ def main() -> int:
             без_заглавие.append(x['id'])
             bg = x['title_ru']
         тяло_ = тяло(x['blocks_bg'])
+        # ⚠ „;" дели няколко адреса; първият е главният.
+        адреси = [a.strip() for a in x['address'].split(';') if a.strip()]
+        x['address'] = адреси[0]
         src = (връзки.get(x['id']) or {}).get('url', '')
         if not src:
             без_връзка.append(x['id'])
@@ -117,9 +137,16 @@ def main() -> int:
             ' chars, why, source) VALUES (?,?,?,?,?,?,?,?,?)',
             (x['id'], x['book'], x['address'], bg, x['title_ru'], тяло_,
              len(тяло_), x.get('why', ''), src))
+        for a in адреси:
+            db.execute('INSERT OR IGNORE INTO slovo_days (id, address) '
+                       'VALUES (?,?)', (x['id'], a))
     db.commit()
 
     n = db.execute('SELECT COUNT(*) FROM slova').fetchone()[0]
+    дни = db.execute('SELECT COUNT(*) FROM slovo_days').fetchone()[0]
+    много_дни = db.execute(
+        'SELECT id, COUNT(*) c FROM slovo_days GROUP BY id HAVING c > 1'
+    ).fetchall()
     по_вид = db.execute("""
         SELECT CASE
             WHEN address IN ('fast','memorial') THEN 'повод'
@@ -131,6 +158,9 @@ def main() -> int:
           f'  ({ЦЕЛ.stat().st_size / 1024:.0f} KB)')
     for вид, брой in по_вид:
         print(f'  {вид:12} {брой:>4}')
+    print(f'  адреси общо  {дни:>4}')
+    for i, c in много_дни:
+        print(f'    ⚠ {i} се пада на {c} дни')
     if без_връзка:
         print(f'⚠ БЕЗ ВРЪЗКА КЪМ ИЗТОЧНИКА: {len(без_връзка)} '
               f'— пусни 04_source_links.py')

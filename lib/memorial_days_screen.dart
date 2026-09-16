@@ -19,6 +19,12 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'dual_date_text.dart';
+import 'saint_expandable_tile.dart';
+import 'lives_plus_section.dart';
+import 'lives_plus.dart';
+import 'expandable_section.dart';
+import 'app_settings.dart';
+import 'dart:async';
 import 'paschalion.dart';
 import 'section_header.dart';
 
@@ -89,6 +95,54 @@ class MemorialDaysSection extends StatefulWidget {
 
 class _MemorialDaysSectionState extends State<MemorialDaysSection> {
   double _fs(double delta) => widget.baseFont + delta;
+
+  /// Словата на свт. Димитрий Ростовски, които се падат на КОЙТО И ДА Е от
+  /// изброените тук дни.
+  ///
+  /// ⚠⚠ Събират се от ВСИЧКИТЕ дни на екрана, а не от един избран. Днес
+  /// това дава двете слова за Месопустната задушница, но утре слово,
+  /// адресирано към друга родителска събота, ще се появи само̀ — без
+  /// промяна в кода.
+  List<Slovo> _slova = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadSlova());
+  }
+
+  @override
+  void didUpdateWidget(covariant MemorialDaysSection old) {
+    super.didUpdateWidget(old);
+    // ⚠ Датите зависят от ГОДИНАТА (задушниците се местят с Пасхата), тъй
+    // че при смяна на годината списъкът се чете наново.
+    if (old.year != widget.year) unawaited(_loadSlova());
+  }
+
+  Future<void> _loadSlova() async {
+    final out = <String, Slovo>{};
+    try {
+      for (final spec in [..._soulSaturdays, ..._lentSaturdays]) {
+        final d = _resolve(spec);
+        final church = SaintTexts.churchDateOf(
+            d.toIso8601String().substring(0, 10), 0);
+        if (church == null) continue;
+        final found = await LivesPlusDb.forDate(
+          d,
+          '${church.month.toString().padLeft(2, '0')}-'
+              '${church.day.toString().padLeft(2, '0')}',
+          oldStyle: AppSettings.isOldStyle,
+        );
+        // ⚠ По id, за да не се удвои слово, паднало на два от дните.
+        for (final s in found) {
+          out[s.id] = s;
+        }
+      }
+    } catch (_) {
+      // Липсваща база в стар билд — екранът работи и без секцията.
+    }
+    if (mounted) setState(() => _slova = out.values.toList());
+  }
 
   /// Съботата непосредствено ПРЕДИ дадена дата. Ако самата дата е събота,
   /// се връща предходната — задушницата предхожда празника.
@@ -165,6 +219,17 @@ class _MemorialDaysSectionState extends State<MemorialDaysSection> {
                 for (final s in _soulSaturdays) _row(s),
                 _h2('Родителски съботи през Великия пост'),
                 for (final s in _lentSaturdays) _row(s),
+                // ⚠ НАЙ-ОТДОЛУ и само когато има какво — същата секция като
+                // в дневния изглед, но с име по мястото си („СЛОВА ЗА
+                // ПОМЕНИТЕ", искане на потребителя, 16.09.2026).
+                if (_slova.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: ExpandableSection(
+                      title: '📕  СЛОВА ЗА ПОМЕНИТЕ',
+                      content: LivesPlusSection(slova: _slova),
+                    ),
+                  ),
               ],
             ),
           ),

@@ -16,6 +16,8 @@ import 'package:flutter/material.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'lives_plus.dart';
+import 'lives_plus_section.dart';
+import 'expandable_section.dart';
 import 'database_helper.dart';
 import 'dmitry_life.dart';
 import 'lives_index.dart';
@@ -357,6 +359,9 @@ String lifeLabelFor({required int rank, required String name}) {
   const keywords = ['икона', 
                     'празненство', 'предпразн', 'попразн', 'отдание', 
                     'събор', 'памет', 'възпомен',
+                    // ⚠ „Начало на Индикта" е църковната нова година, не
+                    // човек — четивото за нея е сказание, не житие.
+                    'индикт',
                     'открива', 'намира'];
   if (keywords.any(n.contains)) return 'Сказание';
   return 'Житие';
@@ -376,6 +381,24 @@ class SaintExpandableTile extends StatefulWidget {
 
   /// "Житие" или "Сказание" — виж lifeLabelFor().
   final String lifeLabel;
+
+  /// Словата на свт. Димитрий Ростовски, които се падат на ТОЗИ ДЕН.
+  ///
+  /// ⚠⚠ УСЛОВИЕТО Е ЗА ДЕНЯ, не за светията. Словата са адресирани към дни
+  /// (неделя по Петдесетница, църковна дата), не към памети — виж
+  /// `lives_plus.dart`. Затова се подават ГОТОВИ отвън: само повикващият
+  /// знае коя гражданска дата разглежда.
+  ///
+  /// ⚠ Празен списък = няма ред. Дневният изглед НЕ ги подава тук — там
+  /// словата са своя секция („СЛОВА ЗА ДЕНЯ"), най-отгоре.
+  final List<Slovo> slova;
+
+  /// Заглавието на секцията със словата.
+  ///
+  /// ⚠ Подава се отвън, защото зависи от ЕКРАНА: в „Празници" всеки запис е
+  /// празник, тъй че там е „СЛОВА ЗА ПРАЗНИКА" (искане на потребителя,
+  /// 16.09.2026). Заковано в плочката, то би нарекло празника „ден".
+  final String slovaTitle;
 
   /// Четивата по Димитрий Ростовски за този светия — 0 или повече (виж
   /// DmitryRef). Идват готови от заявката, не се зареждат лениво —
@@ -402,6 +425,8 @@ class SaintExpandableTile extends StatefulWidget {
     required this.hasSluzhba,
     this.hymnCounts = const {},
     this.lifeLabel = 'Житие',
+    this.slova = const [],
+    this.slovaTitle = 'СЛОВА ЗА ДЕНЯ',
     this.dmitryRefs = const [],
     required this.loadTexts,
     required this.lookup,
@@ -417,11 +442,16 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
 
   String get _prayersLabel => prayersLabel(widget.hymnCounts);
 
+  /// ⚠⚠ И СЛОВАТА БРОЯТ. Без тях плочката не се разгъваше изобщо при
+  /// празник без житие и песнопения — а точно такъв е ПАСХА: тя има две
+  /// слова и нито едно от останалите. Отвън изглеждаше, че за Великден
+  /// просто няма нищо. (Забелязано от потребителя, 16.09.2026.)
   bool get _hasAnything =>
       _prayersLabel.isNotEmpty ||
       widget.hasLife ||
       widget.hasSluzhba ||
-      widget.dmitryRefs.isNotEmpty;
+      widget.dmitryRefs.isNotEmpty ||
+      widget.slova.isNotEmpty;
 
   void _toggle() {
     if (!_hasAnything) return;
@@ -525,6 +555,27 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                           ref: entry.value,
                           mainLabel: widget.lifeLabel,
                           isFirst: entry.key == 0,
+                        ),
+                      // ⚠⚠ СЛОВАТА СА ВЛОЖЕНА СЕКЦИЯ, не редове — същата
+                      // `ExpandableSection` и същото съдържание като в
+                      // дневния изглед (изрично искане на потребителя,
+                      // 16.09.2026). Така едно и също нещо изглежда еднакво
+                      // на двата екрана.
+                      //
+                      // ⚠ НАКРАЯ, след житието и сказанията: те са за
+                      // СВЕТИЯТА, а словата — за ДЕНЯ, тъй че не бива да ги
+                      // изпреварват.
+                      //
+                      // ⚠ Заглавието е БЕЗ емотиконата от дневния изглед:
+                      // там секциите са четири една под друга и знакът ги
+                      // различава, а тук е една, вътре в друга.
+                      if (widget.slova.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(right: 4),
+                          child: ExpandableSection(
+                            title: '📕  ${widget.slovaTitle}',
+                            content: LivesPlusSection(slova: widget.slova),
+                          ),
                         ),
                     ],
                   ),

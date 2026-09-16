@@ -55,7 +55,13 @@ class SectionHeader extends StatelessWidget {
             style: TextStyle(
               fontFamily: _titleFamily,
               fontSize: _fs(23),
-              height: 1.25,
+              // ⚠ Сбито междуредие (1.25 → 1.05). Заглавията тук са къси и
+              // при пренасяне на два реда („Дни за помен на починалите")
+              // редовете зейваха — при 23 пункта всяка десета от
+              // множителя е над два пиксела. TamburinModern е с високи
+              // букви и носи достатъчно въздух сам.
+              // (Поправка по молба на потребителя, 16.09.2026.)
+              height: 1.05,
               color: AppColors.textPrimary,
             ),
           ),

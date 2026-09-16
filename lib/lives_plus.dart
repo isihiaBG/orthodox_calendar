@@ -119,13 +119,16 @@ class LivesPlusDb {
       {required bool oldStyle}) async {
     final addrs = addressesFor(date, churchMonthDay, oldStyle: oldStyle);
     final db = await database;
-    final rows = await db.query(
-      'slova',
-      columns: ['id', 'title_bg', 'address'],
-      where: 'address IN (${List.filled(addrs.length, '?').join(',')})',
-      whereArgs: addrs,
-      orderBy: 'id',
-    );
+    // ⚠⚠ ПИТА СЕ `slovo_days`, НЕ `slova.address`. Едно слово може да се
+    // пада на НЯКОЛКО дни — „Поучение през светите пости" върви на началото
+    // на всеки от четирите поста. `slova.address` пази само първия и
+    // търсене по него би показало словото само в един от тях.
+    final rows = await db.rawQuery('''
+      SELECT s.id, s.title_bg, d.address
+      FROM slovo_days d JOIN slova s ON s.id = d.id
+      WHERE d.address IN (${List.filled(addrs.length, '?').join(',')})
+      ORDER BY s.id
+    ''', addrs);
     return [
       for (final r in rows)
         Slovo(
@@ -154,7 +157,7 @@ class LivesPlusDb {
     required bool oldStyle,
   }) async {
     final db = await database;
-    final rows = await db.rawQuery('SELECT DISTINCT address FROM slova');
+    final rows = await db.rawQuery('SELECT DISTINCT address FROM slovo_days');
     final known = {for (final r in rows) r['address'] as String};
     if (known.isEmpty) return const {};
     final out = <String>{};

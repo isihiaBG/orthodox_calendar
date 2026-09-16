@@ -151,8 +151,13 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
       // четиво. Флагът е по подразбиране `false`, тъй че всяко друго отваряне
       // на четеца — включително вече споделените линкове — остава непроменено.
       MaterialPageRoute(
+        // ⚠ Зачалото влиза САМО в заглавието най-отгоре („Галатяни зач.214,
+        // гл.6:2-10") — по същия запис като реда тук, но с пълно име. При
+        // евангелията също: там четивото пак е зачало.
         builder: (_) => BibleReader.forRef(ref,
-            liturgical: line.isApostle, prokimen: prok?.prokimen),
+            liturgical: line.isApostle,
+            prokimen: prok?.prokimen,
+            zachalo: line.zachalo),
       ),
     );
   }

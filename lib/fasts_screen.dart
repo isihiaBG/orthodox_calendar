@@ -28,6 +28,12 @@ import 'database_helper.dart';
 import 'dual_date_text.dart';
 import 'paschalion.dart';
 import 'section_header.dart';
+import 'saint_expandable_tile.dart';
+import 'lives_plus_section.dart';
+import 'lives_plus.dart';
+import 'expandable_section.dart';
+import 'app_settings.dart';
+import 'dart:async';
 import 'saint_expandable_tile.dart'
     show DmitryRef, SaintExpandableTile, SaintLookup, parseDmitryRefs, parseHymnCounts;
 
@@ -166,10 +172,64 @@ class _FastsSectionState extends State<FastsSection> {
   // със slug (засега няма такива).
   final Map<String, _TextFlags> _flags = {};
 
+  /// Словата за постите.
+  ///
+  /// ⚠⚠ САМО ОТ НАЧАЛАТА НА ЧЕТИРИТЕ ПОСТА, не от целите периоди и НЕ от
+  /// еднодневните. Взети от целия период, тук биха влезли всички великопостни
+  /// неделни поучения; взети от еднодневните — словата за Въздвижение и за
+  /// Отсичането, които са ПРАЗНИЧНИ, не постни. (Проверено: 08-29 дава едно
+  /// слово, 09-14 — три.)
+  List<Slovo> _slova = const [];
+
   @override
   void initState() {
     super.initState();
     _loadFlags();
+    unawaited(_loadSlova());
+  }
+
+  @override
+  void didUpdateWidget(covariant FastsSection old) {
+    super.didUpdateWidget(old);
+    // ⚠ Великият и Петровият пост се местят с Пасхата.
+    if (old.year != widget.year) unawaited(_loadSlova());
+  }
+
+  Future<void> _loadSlova() async {
+    final out = <String, Slovo>{};
+    try {
+      final pascha = paschaCivil(_selectedYear);
+      final starts = <DateTime>[];
+      for (final f in _multiDayFasts) {
+        if (f.name == 'Петров пост') {
+          final r = _petrovRange(_selectedYear);
+          if (r != null) starts.add(r.start);
+        } else if (f.fromPascha != null) {
+          starts.add(pascha.add(Duration(days: f.fromPascha!)));
+        } else if (f.fixedFrom != null) {
+          final d = _resolveFixed(f.fixedFrom, _selectedYear,
+              prevYear: f.startsPrevYear);
+          if (d != null) starts.add(d);
+        }
+      }
+      for (final d in starts) {
+        final church = SaintTexts.churchDateOf(
+            d.toIso8601String().substring(0, 10), 0);
+        if (church == null) continue;
+        final found = await LivesPlusDb.forDate(
+          d,
+          '${church.month.toString().padLeft(2, '0')}-'
+              '${church.day.toString().padLeft(2, '0')}',
+          oldStyle: AppSettings.isOldStyle,
+        );
+        for (final s in found) {
+          out[s.id] = s;
+        }
+      }
+    } catch (_) {
+      // Липсваща база в стар билд — екранът работи и без секцията.
+    }
+    if (mounted) setState(() => _slova = out.values.toList());
   }
 
   /// Проверява за кои слъгове ИМА текстове в lives.db. Докато слъгове не
@@ -361,6 +421,15 @@ class _FastsSectionState extends State<FastsSection> {
                     'седмиците, освободени от пост.'),
                 _h2('Седмици, освободени от пост'),
                 for (final f in _fastFreeWeeks) _periodRow(f),
+                // ⚠ НАЙ-ОТДОЛУ и само когато има какво.
+                if (_slova.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: ExpandableSection(
+                      title: '📕  СЛОВА ЗА ПОСТИТЕ',
+                      content: LivesPlusSection(slova: _slova),
+                    ),
+                  ),
               ],
             ),
           ),
