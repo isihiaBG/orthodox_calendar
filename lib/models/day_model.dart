@@ -74,6 +74,13 @@ class Saint {
   /// "num:kind,num:kind". Разчита се с parseDmitryRefs().
   final String? dmitryRefs;
 
+  /// Слъгът на светията — ключът към всичко в `lives.db` и `lives_plus.db`.
+  ///
+  /// ⚠ Нужен е, защото `lives_plus.db` НЕ се ATTACH-ва: словата, прикрепени
+  /// към светията, не могат да дойдат с подзаявка и се четат отделно,
+  /// по слъг.
+  final String? slug;
+
 
   Saint({
     required this.id,
@@ -87,6 +94,7 @@ class Saint {
     this.hasLife    = false,
     this.hasSluzhba = false,
     this.dmitryRefs,
+    this.slug,
   });
 
   factory Saint.fromMap(Map<String, dynamic> map) {
@@ -102,6 +110,7 @@ class Saint {
       hasLife:    (map['has_life']    ?? 0) == 1,
       hasSluzhba: (map['has_sluzhba'] ?? 0) == 1,
       dmitryRefs: map['dmitry_refs'] as String?,
+      slug: map['slug'] as String?,
     );
   }
 }

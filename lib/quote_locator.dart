@@ -14,6 +14,7 @@
 import 'package:sqflite/sqflite.dart';
 
 import 'database_helper.dart';
+import 'azbyka_article.dart';
 import 'lives_plus.dart';
 import 'library_screen.dart' show kEpubOf;
 import 'quote_link.dart';
@@ -118,6 +119,13 @@ Future<String?> _slugForFingerprint(String fp) async {
     }
   } on DatabaseException {
     // Базата я няма в стар билд — останалите извори вече са проверени.
+  }
+
+  // ⚠⚠ И СТАТИИТЕ от azbyka.ru — ЧЕТВЪРТИЯТ извор. Същият довод като при
+  // словата: без този обход цитат от статия се споделя, но отсреща не се
+  // отваря.
+  for (final s in await articleSlugs()) {
+    if (locatorFingerprint(s) == want) return s;
   }
   return null;
 }

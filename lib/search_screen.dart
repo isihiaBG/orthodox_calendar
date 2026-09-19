@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
+import 'saint_expandable_tile.dart';
 import 'package:sqflite/sqflite.dart';
 
 import 'app_settings.dart';
@@ -43,6 +45,20 @@ const Map<String, String> _contentAliases = {
   'акатист': 'akatist',
   'ak': 'akatist', 'aka': 'akatist', 'akat': 'akatist',
   'akatist': 'akatist',
+  // стихира, ипакои, задостойник, канон — видовете от пасхалната служба
+  'сти': 'stihira', 'стих': 'stihira', 'стихира': 'stihira',
+  'стихири': 'stihira',
+  'sti': 'stihira', 'stih': 'stihira', 'stihira': 'stihira',
+  'ипа': 'ipakoi', 'ипак': 'ipakoi', 'ипакои': 'ipakoi',
+  'ipa': 'ipakoi', 'ipak': 'ipakoi', 'ipakoi': 'ipakoi',
+  'зад': 'zadostoynik', 'задо': 'zadostoynik',
+  'задостойник': 'zadostoynik',
+  'zad': 'zadostoynik', 'zado': 'zadostoynik',
+  // ⚠ „кан" НЕ бива да е 'канон' — „Кандидий", „Кандид" и пр. няма как да
+  // се сбъркат, но „кан" е твърде къс и човек го пише за друго. Оттам
+  // най-късата форма е четирибуквена.
+  'кано': 'kanon', 'канон': 'kanon',
+  'kano': 'kanon', 'kanon': 'kanon',
   // величание
   'вел': 'velichanie', 'вели': 'velichanie', 'велич': 'velichanie',
   'величание': 'velichanie',
@@ -141,11 +157,11 @@ String _hymnKindSql(String kind) =>
 /// остават колони на lives.texts (виж DatabaseHelper._initDatabase), тъй
 /// че сочат към l.*, а не към s.*.
 final Map<String, String> _contentSql = {
-  'tropar': _hymnKindSql('tropar'),
-  'kondak': _hymnKindSql('kondak'),
-  'molitva': _hymnKindSql('molitva'),
-  'velichanie': _hymnKindSql('velichanie'),
-  'other': _hymnKindSql('other'),
+  // ⚠⚠ ВСИЧКИТЕ видове идват от [kHymnKinds], не се изброяват тук. Изброени,
+  // те се разминаваха: акатистът имаше хаштаг, но нямаше ред в тази карта, и
+  // филтърът се пропускаше мълчаливо (`if (sql != null)` по-долу), тъй че
+  // `#ак` връщаше ВСИЧКО, а `#!ак` — същото.
+  for (final k in kHymnKinds) k: _hymnKindSql(k),
   // ⚠ „Има ли четиво" значи И ДВЕТЕ. Дотук `#жит` гледаше само колоната
   // `life` и премълчаваше 541 светии, за които приложението показва житие
   // по св. Димитрий Ростовски — човек виждаше празно и заключаваше, че
@@ -514,7 +530,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
   /// работят вградените изчисления за ден от седмицата и пр.
   /// Старият стил е нов минус 13 дни (валидно за XX–XXI век).
   DateTime _toOldStyle(DateTime newStyle) =>
-      newStyle.subtract(const Duration(days: 13));
+      toChurchDate(newStyle);
 
   /// Клетката с датата вдясно.
   ///
@@ -867,6 +883,10 @@ const Map<String, String> _contentTitles = {
   'molitva': 'молитва',
   'velichanie': 'величание',
   'akatist': 'акатист',
+  'stihira': 'стихира',
+  'ipakoi': 'ипакои',
+  'zadostoynik': 'задостойник',
+  'kanon': 'канон',
   'other': 'друго песнопение',
   'life': 'житие (което и да е)',
   'life1': 'кратко житие',

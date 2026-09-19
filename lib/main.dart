@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
 import 'quote_incoming.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'app_settings.dart';
+import 'open_day.dart';
 import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
 import 'app_drawer.dart';
@@ -124,6 +126,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 
   @override
   void initState() {
+    // Връзка „day://…" в четиво отваря календара на този ден (open_day.dart).
+    openCalendarAtDate = (d) => _navigateToDate(d, flash: true);
     super.initState();
     final today = DateTime.now();
 
@@ -252,6 +256,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
 
   @override
   void dispose() {
+    if (openCalendarAtDate != null) openCalendarAtDate = null;
     _pageController.dispose();
     super.dispose();
   }
@@ -276,10 +281,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       int targetPage;
       if (AppSettings.isOldStyle) {
         // Преминахме КЪМ стар стил → -13 дни
-        targetPage = _pageForDate(date.subtract(const Duration(days: 13)));
+        targetPage = _pageForDate(toChurchDate(date));
       } else {
         // Преминахме КЪМ нов стил → +13 дни
-        targetPage = _pageForDate(date.add(const Duration(days: 13)));
+        targetPage = _pageForDate(toCivilDate(date));
       }
       targetPage = targetPage.clamp(0, _totalDays - 1);
       setState(() {});

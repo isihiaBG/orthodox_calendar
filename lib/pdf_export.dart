@@ -60,9 +60,26 @@ const PdfColor _linkBlue = PdfColor.fromInt(0xFF4673AA); //(0xFF8A9BB0);
 /// недекодиран, azbyka.ru вижда параметър `amp;bg~utfcs` вместо
 /// `bg~utfcs` и препратката се отваря само на църковнославянски —
 /// открито от потребителя 24.08.2026.
-String _absoluteHref(String href) => decodeHref(href.startsWith('saint://')
-    ? 'https://azbyka.ru/days/${href.substring('saint://'.length)}'
-    : href);
+String _absoluteHref(String href) {
+  // ⚠⚠ ВЪТРЕШНИТЕ СХЕМИ НЕ СА АДРЕСИ. В PDF те трябва или да станат
+  // истински адрес към извора, или да изчезнат — инак текстът излиза син
+  // (тоест изглежда кликаем) и не води НИКЪДЕ.
+  //
+  //   saint://azb-grex   статия от azbyka.ru  → истинската ѝ страница
+  //   saint://<слъг>     светия               → страницата му в azbyka
+  //   day://2027-05-09   ден от НАШИЯ календар → няма външно съответствие
+  //   sec://3            котва в същото четиво → в PDF-а няма накъде
+  //   note://1           бележка под линия     → остава, разпознава се
+  if (href.startsWith('saint://azb-')) {
+    return 'https://azbyka.ru/${href.substring('saint://azb-'.length)}';
+  }
+  if (href.startsWith('saint://')) {
+    return decodeHref(
+        'https://azbyka.ru/days/${href.substring('saint://'.length)}');
+  }
+  if (href.startsWith('day://') || href.startsWith('sec://')) return '';
+  return decodeHref(href);
+}
 
 const double _bodySize = 20.0;
 const double _lineHeight = 1.45;
@@ -227,7 +244,18 @@ String _cleanNoteSpacing(String html) {
 /// Разделя HTML-а на абзаци/заглавия и маха таговете. Оформлението тук е
 /// нарочно просто — PDF-ът е за четене и печат, не за пресъздаване на
 /// всяка подробност от екрана.
-List<_Block> _parseBlocks(String html) {
+List<_Block> _parseBlocks(String rawHtml) {
+  // ⚠⚠ ЦЪРКВИЦАТА СТАВА ДУМА В PDF-А.
+  //
+  // На екрана живата дата бележи църковната половина с `Icons.church`
+  // (виж church_dates.dart). В PDF-а иконка от шрифта на Material е
+  // опасна: Flutter ОКАСТРЯ `MaterialIcons-Regular.otf` до знаците,
+  // ползвани от widget-и, и ако някой ден църквицата отпадне оттам,
+  // в готовия документ ще застане празно квадратче — мълчаливо и само
+  // в релийз билда. Думата „църк." казва същото и не може да се счупи.
+  final html = rawHtml.replaceAll(
+      RegExp(r'<hram\s*>\s*</hram\s*>|<hram\s*/?>', caseSensitive: false),
+      'църк. ');
   final blocks = <_Block>[];
   // ⚠ И `<img>` — самозатварящ се таг, тъй че влиза в СЪЩИЯ израз като
   // отделно разклонение, а не като втори обход: редът на блоковете има
@@ -271,18 +299,39 @@ List<_Block> _parseBlocks(String html) {
         RegExp(r'class="([^"]*)"', caseSensitive: false).firstMatch(attrs);
     final cls = clsMatch?.group(1) ?? ''; // <- беше пропуснато
     
-    blocks.add(_Block(
-      text,
-      isHeading: tag != 'p',
-      isItalic: attrs.contains('italic-center') ||
-          attrs.contains('trans') ||
-          attrs.contains('source') ||
-          cls.contains('memorydate'), //My Bugfix #1
-      startsItalic:
-          RegExp(r'^\s*<(?:em|i)\b', caseSensitive: false).hasMatch(inner),
-      cls: clsMatch?.group(1) ?? '',
-      inner: cleanedInner, // <- използваме почистения inner
-    ));
+    // ⚠⚠ АБЗАЦ С НОВИ РЕДОВЕ СЕ РАЗДЕЛЯ НА ОТДЕЛНИ БЛОКОВЕ.
+    //
+    // `<br>` е станал „\n" по-горе. Пасхалният канон и стихирите го ползват,
+    // за да е всеки тропар на свой ред — както в четеца. В PDF-а обаче
+    // вграден „\n" вътре в подравнен абзац (`TextOverflow.span`) се държи
+    // непредвидимо: при опит да се запази ИЗЧЕЗНА цяла фраза от ирмоса
+    // („Госпо́дня Па́сха: от"), без никаква грешка. Затова редовете стават
+    // ИСТИНСКИ блокове — по един на ред, с класа на родителя.
+    //
+    // ⚠ Дели се само когато всяко парче остава с БАЛАНСИРАНИ тагове. Ако
+    // някой `<span>` или `<em>` пресича нов ред, деленето би го скъсало и
+    // оформлението оттам нататък би изтекло — тогава блокът остава цял.
+    final lines = cleanedInner.split('\n');
+    final balanced = lines.every(_tagsBalanced);
+    final pieces = (lines.length > 1 && balanced) ? lines : [cleanedInner];
+    for (final piece in pieces) {
+      final t = _decodeEntities(piece.replaceAll(RegExp(r'<[^>]+>'), ''))
+          .replaceAll(RegExp(r'\s+'), ' ')
+          .trim();
+      if (t.isEmpty) continue;
+      blocks.add(_Block(
+        t,
+        isHeading: tag != 'p',
+        isItalic: attrs.contains('italic-center') ||
+            attrs.contains('trans') ||
+            attrs.contains('source') ||
+            cls.contains('memorydate'), //My Bugfix #1
+        startsItalic: RegExp(r'^\s*<(?:em|i)\b', caseSensitive: false)
+            .hasMatch(piece),
+        cls: cls,
+        inner: piece,
+      ));
+    }
   }
   // Ако HTML-ът няма нито един <p> (рядко, но възможно), пускаме всичко
   // като един абзац, вместо да върнем празен документ.
@@ -1121,8 +1170,9 @@ int _addFlowImage({
       style,
       strongColor: strongColor,
       font: font,
-      baseBold: blk.cls.contains('prayerhead'),
-      baseItalic: blk.isItalic || blk.cls.contains('memorydate'),
+      baseBold: blk.cls.contains('prayerhead') ||
+              blk.cls.contains('grouphead'),
+      baseItalic: _italicBlock(blk),
     );
     return pw.RichText(
       textAlign:
@@ -1297,8 +1347,9 @@ int _addFlowImage({
           style,
           strongColor: strongColor,
           font: font,
-          baseBold: lastBlk.cls.contains('prayerhead'),
-          baseItalic: lastBlk.isItalic,
+          baseBold: lastBlk.cls.contains('prayerhead') ||
+                  lastBlk.cls.contains('grouphead'),
+          baseItalic: _italicBlock(lastBlk),
         );
         // Горе — ЦЕЛИЯТ абзац с `maxLines`. ⚠ Не се подава само главата:
         // така пренасянията са същите, каквито ще са и при рисуването.
@@ -1497,6 +1548,7 @@ pw.TextStyle _blockStyleOf(_Block b, PdfFont measureFont, double bodySize) {
   final isDimItalic = b.cls.contains('memorydate') ||
       b.cls.contains('caption') ||
       b.cls.contains('centernote') ||
+      b.cls.contains('intro') ||
       b.cls.contains('epigraphnote');
   final size = _blockFontSizeOf(b, bodySize);
   return pw.TextStyle(
@@ -1555,6 +1607,7 @@ List<pw.InlineSpan> _inlineSpans(
   // fontSize, letterSpacing, lineSpacing, height), тъй че повдигането се
   // прави на ръка, с намален размер и вдигната основна линия.
   var sup = 0;
+  var rubric = 0;
   // Стек с адресите на отворените <a> — вложени връзки няма, но стекът
   // пази реда и при неточно затворени тагове.
   final hrefs = <String>[];
@@ -1593,14 +1646,35 @@ List<pw.InlineSpan> _inlineSpans(
       } else if (t.contains('translabel')) {
         label++;
         stack.add('label');
+      } else if (t.contains('rubric')) {
+        // ⚠ Богослужебното указание („Ирмос:", „Припев:", „(Трижды)") е
+        // ЧЕРВЕНО и в четеца. Без този клон PDF-ът го изписваше като
+        // обикновен текст и указанието не се различаваше от песнопението.
+        rubric++;
+        stack.add('rubric');
       } else if (t.startsWith('</span')) {
         if (stack.isNotEmpty && stack.last == 'label') {
           stack.removeLast();
           if (label > 0) label--;
+        } else if (stack.isNotEmpty && stack.last == 'rubric') {
+          stack.removeLast();
+          if (rubric > 0) rubric--;
         }
       }
       continue;
     }
+    // ⚠⚠ НОВИТЕ РЕДОВЕ СЕ СВИВАТ ТУК — И ТОВА Е НАРОЧНО, ЗАСЕГА.
+    //
+    // Опитът да се запазят (за да се пренесе деленето на редове от четеца)
+    // ИЗЯЖДАШЕ ТЕКСТ: в пасхалния канон изчезна „Госпо́дня Па́сха: от" —
+    // цяла фраза, без никаква грешка. Причината е по-надолу в пакета:
+    // вграден „\n" в justify-нат абзац с `TextOverflow.span` се държи
+    // непредвидимо.
+    //
+    // ⚠ Верният път е ДРУГ и е по-голям: абзац с нови редове да се раздели
+    // на ОТДЕЛНИ блокове още при разчитането, вместо да се разчита на
+    // вграден знак. Дотогава канонът в PDF-а е слят абзац — по-лошо от
+    // четеца, но пълно. (19.09.2026.)
     final text = _decodeEntities(piece).replaceAll(RegExp(r'\s+'), ' ');
     if (text.isEmpty) continue;
     final isBold = strong > 0 || label > 0 || baseBold;
@@ -1663,9 +1737,14 @@ List<pw.InlineSpan> _inlineSpans(
         fontNormal: isItalic ? _bodyItalic : (isBold ? _bodyBold : _body),
         fontBold: _bodyBold,
         fontWeight: isBold ? pw.FontWeight.bold : pw.FontWeight.normal,
+        // ⚠ Редът на превес е: връзка → указание → получер → основен.
+        // Указанието е червено и когато НЕ е получер — то се различава по
+        // цвят, не по тегло.
         color: link > 0
             ? _linkBlue
-            : (strong > 0 ? strongColor : base.color),
+            : (rubric > 0
+                ? _wine
+                : (strong > 0 ? strongColor : base.color)),
       );
     final spanAnnotation = noteNum != null
         ? pw.AnnotationLink(_noteAnchor(noteNum))
@@ -1817,8 +1896,39 @@ String _noteAnchor(String num) => 'note-$num';
 String _refAnchor(String num) => 'ref-$num';
 
 /// Връзка към бележка ли е това? В .epub-ите те сочат към note<NNNN>.xhtml.
+/// Курсивен ли е ЦЕЛИЯТ блок — по тага или по класа си.
+///
+/// ⚠⚠ ЕДНО МЯСТО ЗА ПЕТ. Дотук всяко от петте места, които строят парчета,
+/// смяташе това само („`b.isItalic || isMemoryDate`") и списъците се бяха
+/// разминали: `TextStyle` казваше курсив, а шрифтът на самото парче се
+/// избираше по друг признак и оставаше прав. Оттам уводът излизаше
+/// некурсивен в PDF-а, макар стилът му да е верен.
+bool _italicBlock(_Block b) =>
+    b.isItalic ||
+    b.cls.contains('memorydate') ||
+    b.cls.contains('centernote') ||
+    b.cls.contains('caption') ||
+    b.cls.contains('intro') ||
+    b.cls.contains('epigraphnote');
+
+/// Балансирани ли са инлайн таговете в парчето.
+///
+/// ⚠ Груба, но достатъчна проверка: брои отварянията и затварянията на
+/// трите тага, които носят оформление. Пресече ли някой нов ред, парчето
+/// не бива да се дели — инак курсивът или червеното изтичат надолу.
+bool _tagsBalanced(String s) {
+  for (final t in ['span', 'em', 'a', 'strong', 'i', 'b']) {
+    final open = RegExp('<$t\\b', caseSensitive: false).allMatches(s).length;
+    final close = RegExp('</$t\\b', caseSensitive: false).allMatches(s).length;
+    if (open != close) return false;
+  }
+  return true;
+}
+
 bool _isNoteHref(String href) =>
-    RegExp(r'note\d+', caseSensitive: false).hasMatch(href);
+    // ⚠ И новата схема „note://N" — словата и статиите я ползват вместо
+    // файл от .epub. Без нея номерът им излиза като празна връзка.
+    RegExp(r'note\d+|note://', caseSensitive: false).hasMatch(href);
 
 /// Една бележка под линия: номерът, както стои в текста, и текстът ѝ.
 class _Note {
@@ -1977,10 +2087,16 @@ bool _eligibleForDropCap(_Block b) {
   // ⚠ И бележките за източника, дошли от самия извор — те стоят и в
   // НАЧАЛОТО на някои четива (редът с автора и датата), тъй че без тях
   // буквицата кацаше върху „**о**т · Православие Бг · 29/09/2021".
+  // ⚠ И ПОДЗАГЛАВИЕТО НА ГРУПА (`grouphead`) — „В това Боговдъхновено слово
+  // ще намерите:" пред резюмето, а в статиите и имената на групите в
+  // списъка с литература. Без него буквицата кацаше върху него, вместо
+  // върху началото на разказа. (Видяно в готов PDF, 19.09.2026.)
   if (b.cls.contains('epigraph') ||
       b.cls.contains('bookcredit') ||
       b.cls.contains('epigraphnote') ||
       b.cls.contains('credit') ||
+      b.cls.contains('grouphead') ||
+      b.cls.contains('intro') ||
       b.cls.contains('centernote')) {
     return false;
   }
@@ -2668,7 +2784,7 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                     strongColor: strongIsWine ? _wine : _ink,
                     font: _body!.getFont(context),
                     baseBold: next.cls.contains('prayerhead'),
-                    baseItalic: next.isItalic ||
+                    baseItalic: _italicBlock(next) ||
                         next.cls.contains('memorydate') ||
                         next.cls.contains('caption') ||
                         next.cls.contains('centernote'));
@@ -2713,7 +2829,14 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
               //     курсив, приглушен, центриран, −1. Той е указание кога
               //     се чете житието, не част от разказа — виж стила му в
               //     reader_styles.dart, който тук се повтаря едно към едно.
-              final isMemoryDate = b.cls.contains('memorydate');
+              // ⚠⚠ ЦЕНТРИРАНИТЕ БЛОКОВЕ СА ТРИ, не един. В четеца
+              // `memorydate`, `centernote` и `italic-center` са центрирани;
+              // тук дотук се центрираше само първият, тъй че приписката под
+              // заглавието („(св. Йоан Златоуст. Похвални слова…)") излизаше
+              // лява и се четеше като начало на текста.
+              final isMemoryDate = b.cls.contains('memorydate') ||
+                  b.cls.contains('centernote') ||
+                  b.cls.contains('italic-center');
               // ⚠ Стилът и размерът идват от ОБЩИТЕ функции — същите, с
               // които се строи и групирането на абзац със заглавието му.
               final style = _blockStyleOf(b, _body!.getFont(context), _bodySize);
@@ -2721,12 +2844,23 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
               // 🔥 НОВ КОД ЗА MEMORYDATE: центриран с pw.Center + pw.Text
               // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
               if (isMemoryDate) {
-                // Центриран текст - без RichText
+                // ⚠⚠ ЦЕНТРИРАНО, НО С RichText — не с гол `pw.Text`.
+                // Голият текст изхвърля ВСИЧКО вътрешно: номера на
+                // бележката, връзките, курсива. Приписката под заглавието
+                // („…светиите"¹) излизаше с номер като обикновена цифра,
+                // без да води никъде. (Видяно в готов PDF, 19.09.2026.)
+                // ⚠ Спановете се строят от `inner` (с таговете), не от
+                // `text`: точно те носят номера на бележката и връзките.
+                final cSpans = _inlineSpans(
+                    b.inner.isEmpty ? b.text : b.inner,
+                    style,
+                    strongColor: strongIsWine ? _wine : _ink,
+                    font: _body!.getFont(context),
+                    baseItalic: _italicBlock(b));
                 add(pw.Center(
-                  child: pw.Text(
-                    skipInBlock > 0 ? b.text.substring(skipInBlock).trim() : b.text,
-                    style: style,
+                  child: pw.RichText(
                     textAlign: pw.TextAlign.center,
+                    text: pw.TextSpan(style: style, children: cSpans),
                   ),
                 ));
                 // След memorydate добавяме стандартно отстояние
@@ -2765,7 +2899,7 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                   // ⚠ И memorydate: без него _inlineSpans строи спановете
                   // с прав шрифт и презаписва курсива, зададен в `style`
                   // по-горе — стилът на блока се губи мълчаливо.
-                  baseItalic: b.isItalic || isMemoryDate);
+                  baseItalic: _italicBlock(b));
               final bodySpans =
                   skipInBlock > 0 ? _spansAfter(fullSpans, skipInBlock) : fullSpans;
               // ⚠ Бележката под епиграфа е ДЯСНО подравнена — приписка към
@@ -2812,7 +2946,7 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                     next.inner.isEmpty ? next.text : next.inner, nStyle,
                     strongColor: strongIsWine ? _wine : _ink,
                     font: _body!.getFont(context),
-                    baseItalic: next.isItalic);
+                    baseItalic: _italicBlock(next));
                 final nPlain = nSpans.map(_spanPlainText).join();
                 final split = _splitLines(
                     nPlain, contentWidth, _body!.getFont(context), nSize, 2);

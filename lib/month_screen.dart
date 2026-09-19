@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'database_helper.dart';
 import 'app_theme.dart';
@@ -87,8 +88,7 @@ class MonthScreenState extends State<MonthScreen> {
 	  // При водещ стар стил — конвертираме към нов стил за датепикъра
 	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  if (AppSettings.isOldStyle && oldIsLeading) {
-		return DateTime(monthDate.year, monthDate.month, 1)
-			.add(const Duration(days: 13));
+		return toCivilDate(DateTime(monthDate.year, monthDate.month, 1));
 	  }
 	  return DateTime(monthDate.year, monthDate.month, 1);
 	}
@@ -116,7 +116,7 @@ class MonthScreenState extends State<MonthScreen> {
 	  // При водещ стар стил — навигираме до месеца по стар стил
 	  final bool oldIsLeading = AppSettings.oldStyleFirst;
 	  final DateTime leadingDate = (AppSettings.isOldStyle && oldIsLeading)
-		  ? date.subtract(const Duration(days: 13))  // конвертираме към стар стил
+		  ? toChurchDate(date)  // конвертираме към стар стил
 		  : date;
 
 	  // Ограничено до истинския обхват — дата извън него (напр. ръбов
@@ -271,9 +271,9 @@ class _MonthPageState extends State<_MonthPage>
   }
 
   static DateTime _toNewStyle(DateTime d) => 
-		DateTime.utc(d.year, d.month, d.day).add(const Duration(days: 13));
+		toCivilDate(d);
 	static DateTime _toOldStyle(DateTime d) => 
-		DateTime.utc(d.year, d.month, d.day).subtract(const Duration(days: 13));
+		toChurchDate(d);
 
   // Връща цвят според семантичния маркер от базата данни.
   // Базата казва 'red' или '#CC0000' — темата решава точния цвят.
@@ -470,8 +470,8 @@ class _MonthPageState extends State<_MonthPage>
     }
     final db = await DatabaseHelper.database;
 
-    final rangeStart = DateTime(widget.year, widget.month, 1)
-        .subtract(const Duration(days: 13));
+    final rangeStart =
+        toChurchDate(DateTime(widget.year, widget.month, 1));
     final rangeEnd = DateTime(widget.year, widget.month + 1, 0)
         .add(const Duration(days: 14)); // 13 + (1 ден за буфер) 
 

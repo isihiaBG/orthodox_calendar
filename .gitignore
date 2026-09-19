@@ -347,3 +347,14 @@ tools/lives_plus/*
 !tools/lives_plus/scripts/
 !tools/lives_plus/README.md
 tools/lives_plus/scripts/__pycache__/
+
+# ── tools/paskha/ ───────────────────────────────────────────────────────
+# Материалът за Пасха от azbyka.ru — страницата е книжка със съдържание,
+# подзаглавия, картинка и 91 връзки в 14 групи, тъй че не влиза в нито един
+# от наличните конвейери.
+#
+# ⚠ Скриптовете и README влизат в git, данните — не (както при останалите).
+tools/paskha/*
+!tools/paskha/scripts/
+!tools/paskha/README.md
+tools/paskha/scripts/__pycache__/

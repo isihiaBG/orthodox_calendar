@@ -45,6 +45,7 @@ import 'drop_cap_scale.dart';
 import 'settings_screen.dart';
 import 'bible_link.dart';
 import 'external_link.dart';
+import 'open_day.dart';
 import 'text_line_locator.dart';
 import 'reader_font_size.dart';
 import 'reader_match_ticks.dart';
@@ -55,6 +56,9 @@ import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
 import 'reader_regions.dart';
+import 'lives_plus.dart';
+import 'church_dates.dart';
+import 'pascha_dates.dart';
 import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'floating_illustration.dart';
@@ -377,13 +381,16 @@ String _sourceHtml(String source) {
 
 String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
   final src = _sourceHtml(texts.source);
+  // ⚠⚠ ЖИВИТЕ ДАТИ се разгъват ТУК, на ЕДНО място — инак сказанието,
+  // отворено от отметка или от споделен цитат, показва самата запушалка.
+  // Същият довод като при `⟦пост⟧` в справочника.
 
   if (mode == _ReaderMode.sluzhba) {
     return '${texts.sluzhba}$src';
   }
 
   if (mode == _ReaderMode.life) {
-    return '${texts.lifeHtml}$src';
+    return '${expandChurchDates(expandPaschaDates(texts.lifeHtml))}$src';
   }
 
   return '${_prayersBlocksHtml(texts)}$src';
@@ -413,9 +420,26 @@ String _prayersBlocksHtml(SaintTexts texts, {String firstClassExtra = ''}) {
     }
     if (h.csl.isNotEmpty) b.write('<p class="csl">${h.csl}</p>');
     if (h.bg.isNotEmpty) {
-      b.write(
-        '<p class="trans"><span class="translabel">Превод:</span> ${h.bg}</p>',
-      );
+      // ⚠⚠ „Превод:" СЕ ПИШЕ САМО КОГАТО ИМА КАКВО ДА СЕ ПРЕВЕЖДА.
+      //
+      // 33 песнопения нямат църковнославянски оригинал — изворът им дава
+      // само български и той Е оригиналът (виж „Осем превода нямат
+      // църковнославянски оригинал" в CLAUDE.md; днес са 33). При тях
+      // етикетът твърдеше нещо невярно: акатистът пред Монреалската икона
+      // започваше с „Акатист / Превод: …", макар нищо да не е превеждано.
+      //
+      // ⚠ Признакът е НАЛИЧИЕТО НА ОРИГИНАЛ, не видът на песнопението:
+      // утре нов извор може да даде още такива и правилото ги поема само.
+      if (h.csl.isEmpty) {
+        // ⚠ Класът е на ОСНОВНИЯ текст, не на превода: при тези песнопения
+        // българският Е основният. Името `csl` идва от обичайния случай, но
+        // стилът значи „текстът на песнопението", а не „църковнославянски".
+        b.write('<p class="csl">${h.bg}</p>');
+      } else {
+        b.write(
+          '<p class="trans"><span class="translabel">Превод:</span> ${h.bg}</p>',
+        );
+      }
     }
   }
 
@@ -434,7 +458,8 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
   if (mode != _ReaderMode.life) return _buildHtmlFor(mode, texts);
 
   final prayers = _prayersBlocksHtml(texts, firstClassExtra: 'pdfgap');
-  return '${texts.lifeHtml}$prayers${_sourceHtml(texts.source)}';
+  return '${expandChurchDates(expandPaschaDates(texts.lifeHtml))}$prayers'
+      '${_sourceHtml(texts.source)}';
 }
 
 
@@ -1322,7 +1347,13 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// при връщане към отметка, за да изглежда екранът както е оставен), а
   /// по-голяма стойност го сваля надолу (виж [_quoteAlignment]).
   void _jumpToBookmarkRegion(int regionIndex,
-      [int charInRegion = 0, double alignment = 0.0]) {
+      [int charInRegion = 0,
+      double alignment = 0.0,
+      // ⚠ Продължителността е ПАРАМЕТЪР: при връщане към отметка 350 ms са
+      // достатъчни (човек знае къде отива), а при котва от съдържанието
+      // толкова изглеждат като премигване — движението е самото указание
+      // накъде се отива.
+      Duration duration = const Duration(milliseconds: 350)]) {
     if (regionIndex < 0 || regionIndex >= _regionKeys.length) return;
     final key = _regionKeys[regionIndex];
 
@@ -1347,7 +1378,7 @@ class _ReaderScreenState extends State<ReaderScreen>
         final position = _scrollController.position;
         _scrollController.animateTo(
           target.clamp(position.minScrollExtent, position.maxScrollExtent),
-          duration: const Duration(milliseconds: 350),
+          duration: duration,
           curve: Curves.easeInOut,
         );
         return;
@@ -1355,7 +1386,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       Scrollable.ensureVisible(
         ctx,
         alignment: 0.05,
-        duration: const Duration(milliseconds: 350),
+        duration: duration,
         curve: Curves.easeInOut,
       );
     }
@@ -2477,6 +2508,71 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _onLinkTap(String? url) async {
     if (url == null) return;
 
+    // Връзка към ден от календара („day://2027-05-09") — идва от
+    // пасхалната таблица в сказанието за Великден.
+    if (openDayLink(context, url)) return;
+
+    // ⚠ КОТВА ВЪТРЕ В СЪЩОТО ЧЕТИВО („sec://3") — съдържанието най-отгоре
+    // на дълго четиво препраща към подзаглавията му. Търси се блокът,
+    // който носи `id="s3"`, и се плъзга до него.
+    //
+    // ⚠ ПЛЪЗГА СЕ ВИДИМО, не се скача: `_jumpToBookmarkRegion` анимира
+    // (350 ms), а самото движение показва накъде се отива. Същото правило
+    // вече важи за съдържанието в „Месецослов".
+    // ⚠ БЕЛЕЖКА ПОД ЛИНИЯ („note://3"). Показва се в изскачащ панел отдолу,
+    // а не на нов екран: бележките са кратки и четенето не бива да се
+    // прекъсва със страница за всяка. Същото прави и четецът на книги.
+    if (url.startsWith('note://')) {
+      final n = url.substring('note://'.length);
+      final noteText = await LivesPlusDb.noteOf(widget.texts.slug ?? '', n);
+      if (!mounted || noteText == null || noteText.isEmpty) return;
+      final palette = ReaderTheme.palette;
+      await showModalBottomSheet<void>(
+        context: context,
+        backgroundColor: palette.sheet,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 26),
+          child: SingleChildScrollView(
+            child: Text(
+              '$n. $noteText',
+              style: TextStyle(
+                fontFamily: kBodyFamily,
+                fontSize: ReaderFontSize.value - 1,
+                height: 1.45,
+                color: palette.ink,
+              ),
+            ),
+          ),
+        ),
+      );
+      return;
+    }
+
+    if (url.startsWith('sec://')) {
+      final n = url.substring('sec://'.length);
+      final regions = _prepared?.regions;
+      if (regions != null) {
+        final marker = 'id="s$n"';
+        for (var i = 0; i < regions.length; i++) {
+          final at = regions[i].content.indexOf(marker);
+          if (at < 0) continue;
+          // ⚠⚠ ОТМЕСТВАНЕ ВЪТРЕ В РЕГИОНА, не начало на региона. Първото
+          // заглавие попада в СЪЩИЯ регион като картинката и съдържанието
+          // (буквицата почва след него, тъй че всичко дотам е един блок) —
+          // скокът „до региона" отвеждаше най-горе и изглеждаше, че нищо не
+          // се случва.
+          final charInRegion =
+              _plainTextOf(regions[i].content.substring(0, at)).length;
+          _jumpToBookmarkRegion(i, charInRegion, 0.02,
+              const Duration(milliseconds: 900));
+          return;
+        }
+      }
+      return;
+    }
+
     if (url.startsWith('saint://')) {
       final slug = url.substring('saint://'.length);
       final target = await widget.lookup(slug);
@@ -3478,7 +3574,30 @@ class _ReaderScreenState extends State<ReaderScreen>
             );
           },
         ),
+        _hramExtension,
       ];
+
+  /// Църквицата пред църковната дата — тагът `<hram></hram>`, който
+  /// [churchDateHtml] слага в живите дати (виж church_dates.dart).
+  ///
+  /// ⚠ Същата иконка, с която календарът бележи църковната дата
+  /// (`Icons.church` в месечния изглед и в търсенето) — не втора, „за
+  /// четивата". Телевизорът нарочно го няма: насред изречение двете
+  /// иконки задръстват реда.
+  ///
+  /// ⚠ Цветът е на ОСНОВНИЯ текст, не виненото на знаците от Типикона —
+  /// тя е част от изречението, а не богослужебно указание.
+  HtmlExtension get _hramExtension => TagExtension(
+        tagsToExtend: const {'hram'},
+        builder: (ctx) => Padding(
+          padding: EdgeInsets.only(right: ReaderFontSize.value * 0.12),
+          child: Transform.translate(
+            offset: Offset(0, -ReaderFontSize.value * 0.12),
+            child: Icon(Icons.church,
+                size: ReaderFontSize.value + 2, color: _ink),
+          ),
+        ),
+      );
 
   /// Стиловете живеят в reader_styles.dart — общи с четеца на книги.
   /// Класовете (.csl, .trans, .prayerhead, .source, .dropcap…) идват от

@@ -18,6 +18,7 @@
 // с `flutter test` върху истинските 1500 записа). Тук е само рисуването.
 
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 
 import 'app_settings.dart';
 import 'app_theme.dart';
@@ -170,7 +171,7 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
   ProkimenHit? _prokimenFor(ReadingLine line) {
     final d = widget.date;
     final church = AppSettings.isOldStyle
-        ? d.subtract(const Duration(days: 13))
+        ? toChurchDate(d)
         : d;
     final pascha = DatabaseHelper.paschaOf(d.year);
     return prokimenFor(

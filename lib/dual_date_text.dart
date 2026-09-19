@@ -7,6 +7,7 @@
 // корекция.
 
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 
 import 'app_settings.dart';
 
@@ -53,7 +54,7 @@ List<InlineSpan> dualDateSpans(
     return [TextSpan(text: fmtDate(civilDate), style: leadStyle)];
   }
 
-  final oldStyleDate = civilDate.subtract(const Duration(days: 13));
+  final oldStyleDate = toChurchDate(civilDate);
   final oldIsLeading = AppSettings.oldStyleFirst;
 
   WidgetSpan iconSpan(IconData icon, Color color) => WidgetSpan(
@@ -118,8 +119,8 @@ List<InlineSpan> dualDateRangeSpans(
     return [TextSpan(text: range(civilStart, civilEnd), style: leadStyle)];
   }
 
-  final oldStart = civilStart.subtract(const Duration(days: 13));
-  final oldEnd = civilEnd.subtract(const Duration(days: 13));
+  final oldStart = toChurchDate(civilStart);
+  final oldEnd = toChurchDate(civilEnd);
   final oldIsLeading = AppSettings.oldStyleFirst;
 
   WidgetSpan iconSpan(IconData icon, Color color) => WidgetSpan(

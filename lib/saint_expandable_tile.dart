@@ -12,10 +12,13 @@
 //  - Разгънато: до две секции с chevron — "Тропар и кондак" и "Житие".
 
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'lives_plus.dart';
+import 'azbyka_article.dart';
+import 'slovo_open.dart';
 import 'lives_plus_section.dart';
 import 'expandable_section.dart';
 import 'database_helper.dart';
@@ -133,7 +136,7 @@ class SaintTexts {
     final d = DateTime.tryParse(civilDate.toString());
     if (d == null) return null;
     return AppSettings.isOldStyle
-        ? d.subtract(const Duration(days: 13))
+        ? toChurchDate(d)
         : d;
   }
 
@@ -174,6 +177,9 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
   // ⚠ Без този ред отметка или цитат към слово СЕ ЗАПАЗВА, но не се отваря —
   // капанът, платен веднъж при справочните четива.
   if (isSlovoSlug(slug)) return LivesPlusDb.load(slug);
+  // Статиите от azbyka.ru — ЧЕТВЪРТА отделна таблица. Виж предупреждението
+  // в azbyka_article.dart: разпознава се и в `_slugForFingerprint`.
+  if (isArticleSlug(slug)) return loadArticle(slug);
 
   final db = await DatabaseHelper.database;
   final r = await db.rawQuery('''
@@ -252,6 +258,15 @@ const Map<String, (String, String)> _kindNames = {
   'kondak': ('кондак', 'кондаци'),
   'molitva': ('молитва', 'молитви'),
   'velichanie': ('величание', 'величания'),
+  // ⚠ Видовете от пасхалната служба. Без тях етикетът ги брои като
+  // „песнопения" — вярно, но безлично за празника на празниците.
+  'stihira': ('стихира', 'стихири'),
+  'ipakoi': ('ипакои', 'ипакои'),
+  'zadostoynik': ('задостойник', 'задостойници'),
+  // ⚠ Канонът е ЕДНО произведение от девет песни (втората по устав не се
+  // пее), а не девет песнопения — същият довод като при акатиста, и затова
+  // в базата е ЕДИН ред.
+  'kanon': ('канон', 'канони'),
   // ⚠ Акатистът е ЕДНО произведение от 25 части (13 кондака и 12 икоса), а
   // не сбор от песнопения. Затова влиза в таблицата като ЕДИН ред и
   // етикетът го назовава поименно — инак излизаше „26 кондака".
@@ -259,13 +274,28 @@ const Map<String, (String, String)> _kindNames = {
   'other': ('песнопение', 'песнопения'),
 };
 
+/// ВСИЧКИ видове песнопения, познати на приложението — ЕДИН списък.
+///
+/// ⚠⚠ Изведен от [_kindNames], за да не може вид да съществува тук, а да
+/// липсва другаде. Точно това се беше случило с акатиста: хаштагът `#ак` се
+/// разпознаваше, но `_contentSql` в search_screen.dart нямаше ред за него,
+/// тъй че условието се пропускаше МЪЛЧАЛИВО — `#ак` и `#!ак` връщаха едно и
+/// също, при това всичко. (Забелязано от потребителя, 18.09.2026.)
+final List<String> kHymnKinds = _kindNames.keys.toList(growable: false);
+
 /// Редът на изброяване — както стоят на страницата и в книгите:
 /// тропар, кондак, молитва, величание. Вид извън списъка отива накрая.
 const List<String> _kindOrder = [
   'tropar',
   'kondak',
+  'stihira',
+  'ipakoi',
+  'zadostoynik',
   'molitva',
   'velichanie',
+  // ⚠ Канонът е преди акатиста и след кратките: той е обширен, но не
+  // колкото него.
+  'kanon',
   // ⚠ Акатистът е НАКРАЯ: той е най-обширният и в книгите стои подир
   // кратките песнопения.
   'akatist',
@@ -406,6 +436,13 @@ class SaintExpandableTile extends StatefulWidget {
   /// LivesIndex чак при рисуване на разгънатата секция.
   final List<DmitryRef> dmitryRefs;
 
+  /// Словата, ПРИКРЕПЕНИ КЪМ ТОЗИ СВЕТИЯ — по едно на ред, след сказанията.
+  ///
+  /// ⚠ Различно от [slova]: те се падат на ДЕНЯ и стоят във вложената
+  /// секция най-отдолу; тези принадлежат на самия светия и са негови
+  /// четива, наравно с житието.
+  final List<SaintSlovo> saintSlova;
+
   /// Зарежда пълните текстове от базата — вика се чак при тап.
   final Future<SaintTexts?> Function() loadTexts;
 
@@ -428,6 +465,7 @@ class SaintExpandableTile extends StatefulWidget {
     this.slova = const [],
     this.slovaTitle = 'СЛОВА ЗА ДЕНЯ',
     this.dmitryRefs = const [],
+    this.saintSlova = const [],
     required this.loadTexts,
     required this.lookup,
     this.arrowSlotWidth,
@@ -451,6 +489,7 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
       widget.hasLife ||
       widget.hasSluzhba ||
       widget.dmitryRefs.isNotEmpty ||
+      widget.saintSlova.isNotEmpty ||
       widget.slova.isNotEmpty;
 
   void _toggle() {
@@ -556,7 +595,16 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                           mainLabel: widget.lifeLabel,
                           isFirst: entry.key == 0,
                         ),
-                      // ⚠⚠ СЛОВАТА СА ВЛОЖЕНА СЕКЦИЯ, не редове — същата
+                      // ⚠ Словата, прикрепени към САМИЯ светия — редове,
+                      // не секция: те са негови четива, както житието и
+                      // сказанията, а не „каквото се пада на деня".
+                      for (final s in widget.saintSlova)
+                        _SectionRow(
+                          icon: Icons.auto_stories_outlined,
+                          label: s.label,
+                          onTap: () => openSlovo(context, s.slovo),
+                        ),
+                      // ⚠⚠ СЛОВАТА ЗА ДЕНЯ СА ВЛОЖЕНА СЕКЦИЯ, не редове — същата
                       // `ExpandableSection` и същото съдържание като в
                       // дневния изглед (изрично искане на потребителя,
                       // 16.09.2026). Така едно и също нещо изглежда еднакво

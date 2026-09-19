@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'style_dates.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
@@ -331,7 +332,7 @@ class DatabaseHelper {
     // с 13 дни (предпразненството на Рождество е 20.XII църковно = 2.I
     // гражданско в calendar_old.db).
     final church = AppSettings.isOldStyle
-        ? date.subtract(const Duration(days: 13))
+        ? toChurchDate(date)
         : date;
     final mmdd = '${church.month.toString().padLeft(2, '0')}-'
         '${church.day.toString().padLeft(2, '0')}';

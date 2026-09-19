@@ -157,6 +157,33 @@ Map<String, Style> readerStyles({
       color: dim,
       margin: Margins.only(bottom: 16),
     ),
+    // ⚠ УКАЗАНИЕ в богослужебен текст („Ирмос:", „Припев:", „Слава:",
+    // „(Трижды)", „Песнь 1, глас 1-й"). То не се пее — казва КАК се пее, —
+    // тъй че стои в същото червено, с което са зачалата и заглавията на
+    // песнопенията. Инлайн е нарочно: в един ред има и указание, и текст.
+    '.rubric': Style(color: wine),
+    // ⚠ УВОДНОТО РЕЗЮМЕ на слово или статия — какво ще намери читателят.
+    // Курсив и приглушено, за да се отличи от изложението, но БЕЗ отстъп
+    // отляво: то не е цитат, а част от самото начало. (`epigraph` има
+    // отстъп и там е верен — с него резюмето изглеждаше избутано с табулация.)
+    '.intro': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 0.5),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      margin: Margins.only(top: 4, bottom: 14),
+    ),
+    // ⚠ ПОДЗАГЛАВИЕ НА ГРУПА в списък („Богословие на Възкресението" в
+    // литературата към Пасха). Получер като заглавие, но с цвета на
+    // ОСНОВНИЯ текст — червеното е запазено за богослужебни указания и
+    // заглавия на песнопения, а тук би раздробило списъка на цветни ивици.
+    '.grouphead': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      fontWeight: FontWeight.w700,
+      color: ink,
+      margin: Margins.only(top: 16, bottom: 4),
+    ),
     '.translabel': Style(
       fontWeight: FontWeight.w600,
       fontStyle: FontStyle.normal,

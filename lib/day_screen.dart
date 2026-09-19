@@ -10,6 +10,7 @@
 // дневен и месечен изглед (CalendarPageView).
 
 import 'package:flutter/material.dart';
+import 'style_dates.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 
 import 'app_settings.dart';
@@ -102,6 +103,10 @@ class _DayScreenState extends State<DayScreen>
   /// където има поне едно (изрично искане на потребителя, 13.09.2026).
   List<Slovo> _slova = const [];
 
+  /// Словата, прикрепени към СВЕТИИТЕ на деня — слъг → редове.
+  /// ⚠ Различно от [_slova]: те се падат на деня, тези са на светията.
+  Map<String, List<SaintSlovo>> _saintSlova = const {};
+
   Future<void> _loadDay() async {
     final db = await DatabaseHelper.database;
     final dateStr = widget.date.toIso8601String().substring(0, 10);
@@ -123,7 +128,7 @@ class _DayScreenState extends State<DayScreen>
     // работа в дневната заявка. Пълните текстове се четат при тап.
     // Ред без slug няма партньор → LEFT JOIN дава NULL → флаговете са 0.
     final saintsResult = await db.rawQuery('''
-    SELECT s.id, s.date, s.name, s.rank, s.group_code,
+    SELECT s.id, s.date, s.name, s.rank, s.group_code, s.slug,
           r.sign, r.sign_color,
           -- Видовете песнопения с броя им, кодирани в едно поле:
           -- "tropar:3,kondak:5". Едно поле, а не колона за всеки вид —
@@ -183,6 +188,18 @@ class _DayScreenState extends State<DayScreen>
       slova = const [];
     }
 
+    // Словата, прикрепени към самите светии на деня. Евтина заявка по слъг
+    // и без телата — както горната.
+    //
+    // ⚠ Гърми ли, се минава без тези редове, а не се отнася целият ден.
+    Map<String, List<SaintSlovo>> saintSlova = const {};
+    try {
+      saintSlova = await LivesPlusDb.forSaints(
+          saintsResult.map((s) => (s['slug'] as String?) ?? ''));
+    } catch (_) {
+      saintSlova = const {};
+    }
+
     // Двете заявки по-горе са асинхронни — при бързо прелистване екранът
     // може да е напуснат, докато траят. Без тази проверка setState гърми
     // върху унищожен state ("setState() called after dispose()").
@@ -192,6 +209,7 @@ class _DayScreenState extends State<DayScreen>
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();
       _slova = slova;
+      _saintSlova = saintSlova;
       _loading = false;
     });
 
@@ -256,7 +274,8 @@ class _DayScreenState extends State<DayScreen>
     return AppColors.signWhite;
   }
 
-  DateTime _toOldStyle(DateTime date) => date.subtract(const Duration(days: 13));
+  // ⚠ Календарно, не с Duration — виж `style_dates.dart`.
+  DateTime _toOldStyle(DateTime date) => toChurchDate(date);
 
   String _dayMonth(DateTime date) {
     const months = ['', 'яну', 'фев', 'март', 'апр', 'май', 'юни',
@@ -541,6 +560,7 @@ class _DayScreenState extends State<DayScreen>
           hasLife: saint.hasLife,
           hasSluzhba: saint.hasSluzhba,
           dmitryRefs: parseDmitryRefs(saint.dmitryRefs),
+          saintSlova: _saintSlova[saint.slug ?? ''] ?? const [],
           lifeLabel: lifeLabelFor(rank: saint.rank, name: saint.name),
           loadTexts: () => _loadSaintTexts(saint.id),
           lookup: lookupBySlug,

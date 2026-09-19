@@ -61,6 +61,25 @@ ProkimenHit? prokimenFor({
         }
       }
     }
+    // ⚠⚠ ПЪРВО ПО ТОЧЕН АДРЕС спрямо Пасха. Ключът по зачало слива два
+    // различни дни с едно и също зачало — Деяния зач. 1 се чете И на Пасха,
+    // И на Възнесение, — тъй че и двата стават „няколко кандидата" и се
+    // пропускат. Оттам ПАСХА оставаше съвсем без прокимен: глас на този ден
+    // няма (той почва от Антипасха), а делничната карта няма неделя.
+    // Засягаше 8 зачала. (Открито 19.09.2026.)
+    //
+    // ⚠ Зачалото пак е ПОТВЪРЖДЕНИЕТО, както при неподвижните памети: адрес
+    // без съвпадащо зачало значи, че четивото е друго, не на този ден.
+    if (daysFromPascha != null) {
+      final at = kProkimenPaschaAt['$daysFromPascha'];
+      if (at != null) {
+        for (final k in at) {
+          if (k.zachala.contains(zachalo)) {
+            return ProkimenHit(k, ProkimenSource.movable);
+          }
+        }
+      }
+    }
     if (daysFromPascha != null &&
         daysFromPascha >= kPaschaWindowBefore &&
         daysFromPascha <= kPaschaWindowAfter) {

@@ -21,6 +21,7 @@
 // ⚠ Базата е ОТДЕЛНА и не се ATTACH-ва — както `teofan.db` и `optina.db`.
 
 import 'dart:io';
+import 'style_dates.dart';
 
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -56,6 +57,21 @@ class Slovo {
   });
 
   String get slug => '$kSlovoSlugPrefix$id';
+}
+
+/// Слово, ПРИКРЕПЕНО КЪМ СВЕТИЯ — ред в разгънатата му плочка, редом с
+/// житието и сказанията по свт. Димитрий Ростовски.
+///
+/// ⚠ Етикетът НЕ е заглавието на словото. Заглавието е дълго и не казва
+/// чие е словото („Похвала за света великомъченица Дросида, и относно
+/// паметта за смъртта"), а редът трябва да се чете от пръв поглед — затова
+/// в базата стои отделно поле („Похвално слово от свт. Йоан Златоуст").
+/// Заглавието си остава в четеца.
+class SaintSlovo {
+  final Slovo slovo;
+  final String label;
+
+  const SaintSlovo({required this.slovo, required this.label});
 }
 
 class LivesPlusDb {
@@ -165,7 +181,7 @@ class LivesPlusDb {
         !d.isAfter(to);
         d = d.add(const Duration(days: 1))) {
       final church =
-          oldStyle ? d.subtract(const Duration(days: 13)) : d;
+          oldStyle ? toChurchDate(d) : d;
       final key = '${church.month.toString().padLeft(2, '0')}-'
           '${church.day.toString().padLeft(2, '0')}';
       final addrs = addressesFor(d, key, oldStyle: oldStyle);
@@ -185,6 +201,76 @@ class LivesPlusDb {
     final db = await database;
     final rows = await db.rawQuery('SELECT id FROM slova');
     return [for (final r in rows) '$kSlovoSlugPrefix${r['id']}'];
+  }
+
+  /// Словата, прикрепени към тези светии — слъг → редове.
+  ///
+  /// ⚠⚠ ТОВА Е ДРУГО ОТ [forDate]. Там словото се пада на ДЕНЯ и излиза в
+  /// секцията „СЛОВА ЗА ДЕНЯ"; тук е прикрепено към САМИЯ СВЕТИЯ и става
+  /// ред в плочката му. Двете таблици са независими нарочно — впише ли се
+  /// едно слово и в `slovo_days`, то ще излезе на двете места наведнъж.
+  /// (Изрично искане на потребителя, 18.09.2026.)
+  ///
+  /// ⚠ Заявката е по СЛЪГ, а не JOIN откъм календарната база: `lives_plus.db`
+  /// не се ATTACH-ва (както `teofan.db` и `optina.db`).
+  static Future<Map<String, List<SaintSlovo>>> forSaints(
+      Iterable<String> slugs) async {
+    final list = slugs.where((s) => s.isNotEmpty).toSet().toList();
+    if (list.isEmpty) return const {};
+    final db = await database;
+    // ⚠ Таблицата може да я няма: `tools/lives_plus/scripts/03_build_db.py`
+    // сглобява базата наново и нашата стъпка се пуска СЛЕД него. Пропусне
+    // ли се, липсващата таблица би гръмнала целия ден — затова се проверява
+    // веднъж и при липса се връща празно.
+    _hasSaintLinks ??= (await db.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+                " AND name='slovo_saints'"))
+            .isNotEmpty;
+    if (_hasSaintLinks != true) return const {};
+    final rows = await db.rawQuery('''
+      SELECT ss.slug AS saint, s.id, s.title_bg, ss.label
+      FROM slovo_saints ss JOIN slova s ON s.id = ss.id
+      WHERE ss.slug IN (${List.filled(list.length, '?').join(',')})
+      ORDER BY ss.ord, s.id
+    ''', list);
+    final out = <String, List<SaintSlovo>>{};
+    for (final r in rows) {
+      out.putIfAbsent(r['saint'] as String, () => <SaintSlovo>[]).add(
+            SaintSlovo(
+              slovo: Slovo(
+                id: r['id'] as String,
+                title: r['title_bg'] as String,
+                address: '',
+              ),
+              label: r['label'] as String,
+            ),
+          );
+    }
+    return out;
+  }
+
+  static bool? _hasSaintLinks;
+
+  /// Текстът на бележка под линия — по слъга на словото и номера ѝ.
+  ///
+  /// ⚠ Бележките са СВОИ записи, не опашка в четивото: изписани най-долу,
+  /// същият текст стоеше два пъти и прекъсваше четенето. Номерът в текста е
+  /// връзка „note://N", а четецът показва това в изскачащ панел отдолу —
+  /// както в четеца на книги.
+  static Future<String?> noteOf(String slug, String n) async {
+    if (!isSlovoSlug(slug)) return null;
+    final db = await database;
+    try {
+      final r = await db.query('slovo_notes',
+          columns: ['text'],
+          where: 'id = ? AND n = ?',
+          whereArgs: [slug.substring(kSlovoSlugPrefix.length), n],
+          limit: 1);
+      return r.isEmpty ? null : r.first['text'] as String?;
+    } on DatabaseException {
+      // Стар билд без тази таблица — по-добре нищо, отколкото срив.
+      return null;
+    }
   }
 
   /// Тялото на едно слово — вади се при ОТВАРЯНЕ.
