@@ -69,6 +69,7 @@ String _absoluteHref(String href) {
   //   saint://<слъг>     светия               → страницата му в azbyka
   //   day://2027-05-09   ден от НАШИЯ календар → няма външно съответствие
   //   sec://3            котва в същото четиво → в PDF-а няма накъде
+  //   hymns://<слъг>     секцията „Тропар и кондак" → няма външно съответствие
   //   note://1           бележка под линия     → остава, разпознава се
   if (href.startsWith('saint://azb-')) {
     return 'https://azbyka.ru/${href.substring('saint://azb-'.length)}';
@@ -77,7 +78,11 @@ String _absoluteHref(String href) {
     return decodeHref(
         'https://azbyka.ru/days/${href.substring('saint://'.length)}');
   }
-  if (href.startsWith('day://') || href.startsWith('sec://')) return '';
+  if (href.startsWith('day://') ||
+      href.startsWith('sec://') ||
+      href.startsWith('hymns://')) {
+    return '';
+  }
   return decodeHref(href);
 }
 

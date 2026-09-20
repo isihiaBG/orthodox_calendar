@@ -277,6 +277,28 @@ def допълнителни_раздели():
         return bg.get(s, s)
 
     out = []
+    # ⚠ Пази СЛИВАНЕТО: двата реда към песнопенията стават един, на мястото
+    # на първия от тях.
+    сложено_песнопение = [False]
+
+    def ред_за(x):
+        """Готовият ред за една връзка, или None ако трябва да отпадне."""
+        if песнопение_ли(x['url']):
+            if сложено_песнопение[0]:
+                return None
+            сложено_песнопение[0] = True
+            # ⚠ БЕЗ „<span class=translabel>" за автор — това е НАШАТА
+            # секция, не чуждо съчинение.
+            return '<a href="hymns://%s">%s</a>' % (
+                html.escape(ПЕСНОПЕНИЯ_СЛЪГ, quote=True),
+                html.escape(ПЕСНОПЕНИЯ_НАСЛОВ))
+        ред = '<a href="%s">%s</a>' % (
+            html.escape(вътрешен(x['url']), quote=True),
+            html.escape(пр(x['title_ru'])))
+        if x.get('by_ru'):
+            ред += ' <span class="translabel">%s</span>' % html.escape(пр(x['by_ru']))
+        return ред
+
     if d.get('literature'):
         out.append('<h3>Литература по темата</h3>')
         for г in d['literature']:
@@ -287,18 +309,13 @@ def допълнителни_раздели():
                 # тук би направило списъка на цветни ивици.
                 out.append('<p class="grouphead">%s</p>' % html.escape(пр(г['title_ru'])))
             for x in г['items']:
-                ред = '<a href="%s">%s</a>' % (
-                    html.escape(вътрешен(x['url']), quote=True),
-                    html.escape(пр(x['title_ru'])))
-                if x['by_ru']:
-                    ред += ' <span class="translabel">%s</span>' % html.escape(пр(x['by_ru']))
-                out.append('<p class="credit">%s</p>' % ред)
+                ред = ред_за(x)
+                if ред:
+                    out.append('<p class="credit">%s</p>' % ред)
     if d.get('related'):
         out.append('<h3>Близки понятия</h3>')
-        out.append('<p class="credit">%s</p>' % ' · '.join(
-            '<a href="%s">%s</a>' % (html.escape(вътрешен(x['url']), quote=True),
-                                     html.escape(пр(x['title_ru'])))
-            for x in d['related']))
+        редове = [r for r in (ред_за(x) for x in d['related']) if r]
+        out.append('<p class="credit">%s</p>' % ' · '.join(редове))
     return out
 
 
@@ -346,6 +363,26 @@ def статии():
     return _СТАТИИ
 
 
+# ⚠⚠ ДВАТА ЛИНКА КЪМ ПЕСНОПЕНИЯТА СОЧАТ НАШАТА СЕКЦИЯ И СЕ СЛИВАТ В ЕДИН.
+#
+# „Тропар, кондак, стихири на Пасха" и „Пасхален канон с тълкувание" водеха
+# към статии от azbyka.ru, минали през машинен превод. Приложението обаче
+# носи същото наготово и по-добре: секцията „Тропар и кондак" за Пасха има
+# СЕДЕМ песнопения с истински църковнославянски текст и превод, между тях и
+# целия пасхален канон (19 749 знака цсл.). Затова двата реда стават ЕДИН,
+# сочещ „hymns://<слъг>". (Решение на потребителя, 20.09.2026.)
+ПЕСНОПЕНИЯ_СЛЪГ = 'prazdnik-pasha-svetloe-hristovo-voskresenie'
+ПЕСНОПЕНИЯ_НАСЛОВ = 'Тропар, кондак, стихири и пасхален канон'
+КЪМ_ПЕСНОПЕНИЯТА = (
+    'pashalnye-pesnopeniya',
+    'pasxalnyj-kanon-tvorenie-ioanna-damaskina',
+)
+
+
+def песнопение_ли(url: str) -> bool:
+    return any(к in url for к in КЪМ_ПЕСНОПЕНИЯТА)
+
+
 def вътрешен(url: str) -> str:
     """Адрес към чужд календар → наш вътрешен, ако можем.
 
@@ -354,6 +391,10 @@ def вътрешен(url: str) -> str:
     нейните числа; закована, тя щеше да лъже всяка следваща година.
     Приложението смята Пасха само и разгъва „day://+7" в истинската дата.
     """
+    # ⚠ ПРЕДИ всичко останало: инак `статии()` би го хванала като
+    # преведена статия и линкът пак щеше да води към машинния превод.
+    if песнопение_ли(url):
+        return 'hymns://' + ПЕСНОПЕНИЯ_СЛЪГ
     m = RE_ДЕН.search(url)
     if m:
         try:

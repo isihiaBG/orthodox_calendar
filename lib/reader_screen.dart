@@ -2600,6 +2600,33 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
 
+    // ⚠⚠ „hymns://<слъг>" отваря ПЕСНОПЕНИЯТА, не житието.
+    //
+    // `saint://` дава житието, щом има такова — а при Пасха има сказание,
+    // тъй че оттам няма как да се стигне до „Тропар и кондак". Тази
+    // секция обаче носи истинския църковнославянски текст с превод (при
+    // Пасха: седем песнопения, включително целия пасхален канон), докато
+    // едноименните статии в azbyka.ru са минали през машинен превод.
+    // Затова линковете към тях в сказанието сочат насам.
+    // (Решение на потребителя, 20.09.2026.)
+    if (url.startsWith('hymns://')) {
+      final slug = url.substring('hymns://'.length);
+      final target = await widget.lookup(slug);
+      if (!mounted) return;
+      if (target == null || !target.hasPrayers) {
+        // ⚠ Мълчаливото нищо е най-скъпият отказ в този проект — казва се.
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Няма записани песнопения за този ден.')),
+        );
+        return;
+      }
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => ReaderScreen.prayers(
+            texts: target, lookup: widget.lookup),
+      ));
+      return;
+    }
+
     if (url.startsWith('saint://')) {
       final slug = url.substring('saint://'.length);
       final target = await widget.lookup(slug);
