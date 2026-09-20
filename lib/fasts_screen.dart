@@ -290,6 +290,7 @@ class _FastsSectionState extends State<FastsSection> {
       lifeLabel: 'Сказание',
       loadTexts: () async => widget.lookup(spec.slug!),
       lookup: widget.lookup,
+      slug: spec.slug,
       arrowSlotWidth: 6,
     );
   }

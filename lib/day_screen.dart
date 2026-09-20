@@ -564,6 +564,7 @@ class _DayScreenState extends State<DayScreen>
           lifeLabel: lifeLabelFor(rank: saint.rank, name: saint.name),
           loadTexts: () => _loadSaintTexts(saint.id),
           lookup: lookupBySlug,
+          slug: saint.slug,
         );
       }).toList(),
     );

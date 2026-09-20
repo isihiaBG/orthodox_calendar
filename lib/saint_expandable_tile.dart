@@ -247,6 +247,25 @@ List<DmitryRef> parseDmitryRefs(String? packed) {
 /// Кой раздел се отваря при тап върху секция.
 enum _Section { prayers, life, sluzhba }
 
+/// Едно допълнително четиво, закачено за КОНКРЕТЕН ден.
+typedef ExtraReading = ({String slug, String label, IconData icon});
+
+/// ⚠⚠ ЧЕТИВА, КОИТО НЕ СА НА СВЕТИЯТА, А НА ДЕНЯ.
+///
+/// Пасхалните часове се четат през цялата Светла седмица вместо утринните
+/// и вечерните молитви — тоест принадлежат на празника, но не са нито
+/// негово житие, нито песнопение, тъй че нямат свой ред по устройство.
+/// (Искане на потребителя, 20.09.2026.)
+///
+/// ⚠ Стои СЛЕД „Тропари и кондаци" и е ОТДЕЛЕН ред, не част от тях.
+const Map<String, ExtraReading> kExtraReadings = {
+  'prazdnik-pasha-svetloe-hristovo-voskresenie': (
+    slug: 'azb-chasy-pasxalnye',
+    label: 'Пасхални часове',
+    icon: Icons.schedule,
+  ),
+};
+
 /// Имената на видовете за етикета: (единствено число, множествено).
 ///
 /// Непознат вид пада към последния ред. Така утрешна добавка в данните
@@ -443,6 +462,11 @@ class SaintExpandableTile extends StatefulWidget {
   /// четива, наравно с житието.
   final List<SaintSlovo> saintSlova;
 
+  /// Слъгът на светията/празника — трябва САМО за допълнителните редове
+  /// (виж [kExtraReadings]). Не се ползва за нищо друго и затова е по
+  /// избор: плочката и без него си работи.
+  final String? slug;
+
   /// Зарежда пълните текстове от базата — вика се чак при тап.
   final Future<SaintTexts?> Function() loadTexts;
 
@@ -468,6 +492,7 @@ class SaintExpandableTile extends StatefulWidget {
     this.saintSlova = const [],
     required this.loadTexts,
     required this.lookup,
+    this.slug,
     this.arrowSlotWidth,
   });
 
@@ -510,6 +535,24 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
         return ReaderScreen.life(
             texts: texts, lookup: widget.lookup, lifeTitle: widget.lifeLabel);
       },
+    ));
+  }
+
+  /// Отваря четиво по СЛЪГ — за допълнителните редове.
+  ///
+  /// ⚠ Минава през същия `lookup`, с който работят и вътрешните връзки,
+  /// тъй че статиите и житията се отварят по един и същи път.
+  Future<void> _openSlug(ExtraReading r) async {
+    final t = await widget.lookup(r.slug);
+    if (!mounted) return;
+    if (t == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Това четиво го няма в календара.')),
+      );
+      return;
+    }
+    Navigator.of(context).push(MaterialPageRoute(
+      builder: (_) => ReaderScreen.life(texts: t, lookup: widget.lookup),
     ));
   }
 
@@ -577,6 +620,17 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                           label: _prayersLabel,
                           onTap: () => _open(_Section.prayers),
                         ),
+                      // ⚠ СЛЕД песнопенията и ПРЕДИ житието — четиво на
+                      // деня, не на светията (виж kExtraReadings).
+                      if (kExtraReadings[widget.slug ?? ''] != null)
+                        Builder(builder: (_) {
+                          final r = kExtraReadings[widget.slug]!;
+                          return _SectionRow(
+                            icon: r.icon,
+                            label: r.label,
+                            onTap: () => _openSlug(r),
+                          );
+                        }),
                       if (widget.hasLife)
                         _SectionRow(
                           icon: Icons.menu_book_outlined,

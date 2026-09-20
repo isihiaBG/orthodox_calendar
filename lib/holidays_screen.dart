@@ -353,6 +353,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       // промени в базата.
       loadTexts: () => _loadTextsById(r.id),
       lookup: widget.lookup,
+      slug: r.slug,
       // По-тесен слот за стрелката — редовете тук са по-дълги (дата + име)
       // и при естествената ѝ широчина често се пренасяха на трети ред.
       arrowSlotWidth: 6,
