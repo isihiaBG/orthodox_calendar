@@ -3587,16 +3587,46 @@ class _ReaderScreenState extends State<ReaderScreen>
   ///
   /// ⚠ Цветът е на ОСНОВНИЯ текст, не виненото на знаците от Типикона —
   /// тя е част от изречението, а не богослужебно указание.
+  /// Колко се вдига църквицата — в дялове от кегела.
+  ///
+  /// ⚠ Повдигането е ЧИСТО РИСУВАНЕ (`Transform.translate`) и не влияе на
+  /// подредбата; редът остава на мястото си.
+  static const double _hramRaise = 0.22;
+
+  /// Кутията на знака е ПО-НИСКА от реда, а рисунката излиза извън нея.
+  ///
+  /// ⚠⚠ ТОВА Е ЦЯЛАТА ПРИЧИНА ЗА `OverflowBox`. Иконка, по-висока от реда,
+  /// разпъва самия ред — и тогава редовете СЪС знак стават по-високи от
+  /// останалите, тоест междуредието в абзаца става неравно. Същият похват
+  /// пази и знаците на Типикона (виж `_tipikonSignBox`).
+  static const double _hramBox = 0.9;
+
   HtmlExtension get _hramExtension => TagExtension(
         tagsToExtend: const {'hram'},
-        builder: (ctx) => Padding(
-          padding: EdgeInsets.only(right: ReaderFontSize.value * 0.12),
-          child: Transform.translate(
-            offset: Offset(0, -ReaderFontSize.value * 0.12),
-            child: Icon(Icons.church,
-                size: ReaderFontSize.value + 2, color: _ink),
-          ),
-        ),
+        builder: (ctx) {
+          final f = ReaderFontSize.value;
+          final draw = f + 2;
+          // ⚠ Цветът се наследява от обкръжението, а не е закован: вътре
+          // във връзка (живите дати в сказанието за Великден са линкове
+          // към календара) църквицата трябва да е в цвета на връзката,
+          // инак стои като чуждо тяло насред нея.
+          final color = ctx.styledElement?.style.color ?? _ink;
+          return Padding(
+            padding: EdgeInsets.only(right: f * 0.12),
+            child: SizedBox(
+              width: draw,
+              height: f * _hramBox,
+              child: OverflowBox(
+                maxWidth: draw,
+                maxHeight: draw * 2,
+                child: Transform.translate(
+                  offset: Offset(0, -f * _hramRaise),
+                  child: Icon(Icons.church, size: draw, color: color),
+                ),
+              ),
+            ),
+          );
+        },
       );
 
   /// Стиловете живеят в reader_styles.dart — общи с четеца на книги.

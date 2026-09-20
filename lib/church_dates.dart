@@ -39,6 +39,7 @@ library;
 
 import 'app_settings.dart';
 import 'paschalion_offset.dart';
+import 'style_dates.dart';
 
 const List<String> _months = [
   'януари', 'февруари', 'март', 'април', 'май', 'юни',
@@ -65,22 +66,44 @@ int _offset() => julianOffset(DateTime.now().year);
 ///
 /// ⚠ Тагът се ЗАТВАРЯ изрично. Самозатварящият се `<hram/>` поглъща
 /// остатъка от абзаца — същият капан, документиран при `<znak>`.
+String _full(int m, int d) => '$d ${_months[m - 1]}';
+String _short(int m, int d) => '$d ${_monthsShort[m - 1]}';
+
+/// Двойката „гражданска / църковна" в реда, избран от човека.
+///
+/// ⚠ ЕДНО МЯСТО за двата вида дати — неподвижната (по църковно ММ-ДД) и
+/// подвижната (спрямо Пасха). Разминат ли се, едно и също изречение се
+/// изписва по два начина в две съседни четива.
+String _pairHtml(DateTime civil, DateTime church) {
+  // ⚠ Имената са на латиница — кирилско име в Dart гърми с „Illegal
+  // character" (платено седем пъти в един ден).
+  final cerk = _short(church.month, church.day);
+  final grazh = _short(civil.month, civil.day);
+  return AppSettings.oldStyleFirst
+      ? '<hram></hram>$cerk / $grazh'
+      : '$grazh / <hram></hram>$cerk';
+}
+
 String churchDateHtml(int month, int day) {
-  String full(int m, int d) => '$d ${_months[m - 1]}';
-  String short(int m, int d) => '$d ${_monthsShort[m - 1]}';
-
-  if (!AppSettings.isOldStyle) return full(month, day);
-
+  if (!AppSettings.isOldStyle) return _full(month, day);
   // Гражданската дата на същия ден. ⚠ Не се смята с `Duration` — виж
   // style_dates.dart защо; тук и без това няма истинска дата, а само
   // (месец, ден), тъй че годината служи само за преливането през месец.
   final civil = DateTime(DateTime.now().year, month, day + _offset());
-  final church = short(month, day);
-  final grazhd = short(civil.month, civil.day);
+  return _pairHtml(civil, DateTime(civil.year, month, day));
+}
 
-  return AppSettings.oldStyleFirst
-      ? '<hram></hram>$church / $grazhd'
-      : '$grazhd / <hram></hram>$church';
+/// Същото, но за дата, която е ГРАЖДАНСКА по произход — подвижните
+/// празници спрямо Пасха („⟦пасха+7⟧" в сказанието за Великден).
+///
+/// ⚠⚠ ДВАТА ВИДА СЕ РАЗЛИЧАВАТ САМО ПРИ НОВ СТИЛ, и това не е дребно.
+/// При неподвижния празник записаното ММ-ДД Е новостилната дата (виж
+/// „ПРИ НОВ СТИЛ ГРАЖДАНСКАТА ДАТА Е ЦЪРКОВНАТА" в CLAUDE.md). Пасха
+/// обаче пада на един и същи ФИЗИЧЕСКИ ден в двата стила, тъй че там
+/// меродавна е гражданската дата, а църковната се смята от нея.
+String civilDateHtml(DateTime civil) {
+  if (!AppSettings.isOldStyle) return _full(civil.month, civil.day);
+  return _pairHtml(civil, toChurchDate(civil));
 }
 
 /// Заменя всички запушалки за дати в готовото HTML.

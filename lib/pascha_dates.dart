@@ -15,6 +15,7 @@
 // да не може надписът и адресът да се разминат.
 library;
 
+import 'church_dates.dart';
 import 'readings_lookup.dart';
 
 const List<String> _months = [
@@ -48,10 +49,13 @@ DateTime dateForOffset(int days, [int? year]) =>
 /// Заменя запушалките и относителните адреси в готовото HTML.
 String expandPaschaDates(String html, {int? year}) {
   final y = year ?? _year();
-  var s = html.replaceAllMapped(_placeholder, (m) {
-    final d = dateForOffset(int.parse(m.group(1)!), y);
-    return '${d.day} ${_months[d.month - 1]}';
-  });
+  // ⚠⚠ ИЗПИСВАТ СЕ ПО ОБЩИЯ СТАНДАРТ (church_dates.dart), а не като гола
+  // гражданска дата. Дотук сказанието казваше „19 април", а календарът на
+  // човека, ако е по стар стил, показваше онзи ден като 6 април — тоест
+  // четивото сочеше ден, който в неговия календар изглежда друг.
+  // (Докладвано от потребителя, 20.09.2026.)
+  var s = html.replaceAllMapped(
+      _placeholder, (m) => civilDateHtml(dateForOffset(int.parse(m.group(1)!), y)));
   s = s.replaceAllMapped(_relLink, (m) {
     final d = dateForOffset(int.parse(m.group(1)!), y);
     final mm = d.month.toString().padLeft(2, '0');
