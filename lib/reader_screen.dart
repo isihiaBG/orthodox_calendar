@@ -57,6 +57,7 @@ import 'quote_menu.dart';
 import 'quotes.dart';
 import 'reader_regions.dart';
 import 'lives_plus.dart';
+import 'app_settings.dart';
 import 'church_dates.dart';
 import 'pascha_dates.dart';
 import 'reader_search.dart';
@@ -379,7 +380,8 @@ String _sourceHtml(String source) {
   return '<p class="source">$label: $links</p>';
 }
 
-String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
+String _buildHtmlFor(_ReaderMode mode, SaintTexts texts,
+    {bool? oldStyle, bool? oldFirst}) {
   final src = _sourceHtml(texts.source);
   // ⚠⚠ ЖИВИТЕ ДАТИ се разгъват ТУК, на ЕДНО място — инак сказанието,
   // отворено от отметка или от споделен цитат, показва самата запушалка.
@@ -390,7 +392,11 @@ String _buildHtmlFor(_ReaderMode mode, SaintTexts texts) {
   }
 
   if (mode == _ReaderMode.life) {
-    return '${expandChurchDates(expandPaschaDates(texts.lifeHtml))}$src';
+    return '${expandChurchDates(
+      expandPaschaDates(texts.lifeHtml, oldStyle: oldStyle, oldFirst: oldFirst),
+      oldStyle: oldStyle,
+      oldFirst: oldFirst,
+    )}$src';
   }
 
   return '${_prayersBlocksHtml(texts)}$src';
@@ -469,9 +475,22 @@ String _buildPdfHtmlFor(_ReaderMode mode, SaintTexts texts) {
 /// Аргументи за _prepareReaderContent — трябва да са "sendable" (само данни,
 /// без closures), за да минат през границата на isolate-а с compute().
 class _PrepareArgs {
+  /// ⚠⚠ СТИЛЪТ ПЪТУВА ПРЕЗ ГРАНИЦАТА НА ИЗОЛАТА.
+  ///
+  /// `compute()` вдига нов изолат със СВОЯ памет: статичните полета на
+  /// `AppSettings` там са каквито ги заварва обявлението им, а не каквото
+  /// човекът е избрал. Четени вътре, те винаги даваха „стар стил, водеща
+  /// гражданска" — и живите дати изглеждаха заковани.
+  final bool oldStyle;
+  final bool oldFirst;
   final _ReaderMode mode;
   final SaintTexts texts;
-  const _PrepareArgs({required this.mode, required this.texts});
+  const _PrepareArgs({
+    required this.mode,
+    required this.texts,
+    required this.oldStyle,
+    required this.oldFirst,
+  });
 }
 
 /// Резултатът от еднократната тежка подготовка — кешира се в State
@@ -503,7 +522,8 @@ class _PreparedContent {
 /// през compute() в отделен isolate, затова е ЧИСТА функция: никакви
 /// референции към BuildContext/State/widget.
 _PreparedContent _prepareReaderContent(_PrepareArgs args) {
-  final html = _buildHtmlFor(args.mode, args.texts);
+  final html = _buildHtmlFor(args.mode, args.texts,
+      oldStyle: args.oldStyle, oldFirst: args.oldFirst);
   final isLife = args.mode == _ReaderMode.life;
   final (beforeHtml, _, dropCap, firstP, afterHtml) = isLife
       ? splitDropCap(html)
@@ -876,7 +896,13 @@ class _ReaderScreenState extends State<ReaderScreen>
     // build() по-долу), push-ът вече не засича/блокира анимацията на тапа.
     compute(
       _prepareReaderContent,
-      _PrepareArgs(mode: widget._mode, texts: widget.texts),
+      _PrepareArgs(
+        mode: widget._mode,
+        texts: widget.texts,
+        // ⚠ Четат се ТУК, в главния изолат — вътре са недостъпни.
+        oldStyle: AppSettings.isOldStyle,
+        oldFirst: AppSettings.oldStyleFirst,
+      ),
     ).then((result) async {
       if (!mounted) return;
       setState(() => _prepared = result);

@@ -35,6 +35,16 @@
 // ⚠ Единичната дата е с ПЪЛНОТО име на месеца, двойната — със съкратеното.
 // Едната е част от изречението и се чете като дума; другата е справка и
 // трябва да се побере, без да разкъсва реда.
+// ⚠⚠ ЗАЩО ФУНКЦИИТЕ ПРИЕМАТ СТИЛА КАТО ПАРАМЕТЪР, вместо да го четат сами
+// от `AppSettings`: четивото се подготвя във ФОНОВ ИЗОЛАТ (`compute()` в
+// reader_screen.dart), а изолатът тръгва със СВОЯ памет — статичните полета
+// там са каквито ги заварва обявлението им, не каквото човекът е избрал.
+// Тъй че прочетени вътре, те ВИНАГИ даваха „стар стил, водеща гражданска"
+// и датите изглеждаха заковани: смениш календара, а четивото не мръдва.
+// (Докладвано от потребителя, 20.09.2026.)
+//
+// ⚠ Празен параметър значи „питай AppSettings" — за повикванията от
+// главния изолат (PDF-ът, тестовете), където полетата са истинските.
 library;
 
 import 'app_settings.dart';
@@ -74,23 +84,25 @@ String _short(int m, int d) => '$d ${_monthsShort[m - 1]}';
 /// ⚠ ЕДНО МЯСТО за двата вида дати — неподвижната (по църковно ММ-ДД) и
 /// подвижната (спрямо Пасха). Разминат ли се, едно и също изречение се
 /// изписва по два начина в две съседни четива.
-String _pairHtml(DateTime civil, DateTime church) {
+String _pairHtml(DateTime civil, DateTime church, bool oldFirst) {
   // ⚠ Имената са на латиница — кирилско име в Dart гърми с „Illegal
   // character" (платено седем пъти в един ден).
   final cerk = _short(church.month, church.day);
   final grazh = _short(civil.month, civil.day);
-  return AppSettings.oldStyleFirst
+  return oldFirst
       ? '<hram></hram>$cerk / $grazh'
       : '$grazh / <hram></hram>$cerk';
 }
 
-String churchDateHtml(int month, int day) {
-  if (!AppSettings.isOldStyle) return _full(month, day);
+String churchDateHtml(int month, int day, {bool? oldStyle, bool? oldFirst}) {
+  final old = oldStyle ?? AppSettings.isOldStyle;
+  if (!old) return _full(month, day);
   // Гражданската дата на същия ден. ⚠ Не се смята с `Duration` — виж
   // style_dates.dart защо; тук и без това няма истинска дата, а само
   // (месец, ден), тъй че годината служи само за преливането през месец.
   final civil = DateTime(DateTime.now().year, month, day + _offset());
-  return _pairHtml(civil, DateTime(civil.year, month, day));
+  return _pairHtml(civil, DateTime(civil.year, month, day),
+      oldFirst ?? AppSettings.oldStyleFirst);
 }
 
 /// Същото, но за дата, която е ГРАЖДАНСКА по произход — подвижните
@@ -101,15 +113,20 @@ String churchDateHtml(int month, int day) {
 /// „ПРИ НОВ СТИЛ ГРАЖДАНСКАТА ДАТА Е ЦЪРКОВНАТА" в CLAUDE.md). Пасха
 /// обаче пада на един и същи ФИЗИЧЕСКИ ден в двата стила, тъй че там
 /// меродавна е гражданската дата, а църковната се смята от нея.
-String civilDateHtml(DateTime civil) {
-  if (!AppSettings.isOldStyle) return _full(civil.month, civil.day);
-  return _pairHtml(civil, toChurchDate(civil));
+String civilDateHtml(DateTime civil, {bool? oldStyle, bool? oldFirst}) {
+  if (!(oldStyle ?? AppSettings.isOldStyle)) {
+    return _full(civil.month, civil.day);
+  }
+  return _pairHtml(civil, toChurchDate(civil),
+      oldFirst ?? AppSettings.oldStyleFirst);
 }
 
 /// Заменя всички запушалки за дати в готовото HTML.
-String expandChurchDates(String html) =>
-    html.replaceAllMapped(_placeholder, (m) =>
-        churchDateHtml(int.parse(m.group(1)!), int.parse(m.group(2)!)));
+String expandChurchDates(String html, {bool? oldStyle, bool? oldFirst}) =>
+    html.replaceAllMapped(
+        _placeholder,
+        (m) => churchDateHtml(int.parse(m.group(1)!), int.parse(m.group(2)!),
+            oldStyle: oldStyle, oldFirst: oldFirst));
 
 /// Същото, но за гол текст (заглавия, надписи) — там таг не може да влезе,
 /// тъй че църквицата се подменя с думата. Ползва се от PDF-а и от всяко
