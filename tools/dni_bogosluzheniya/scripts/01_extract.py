@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""„Дни богослужения" (Дебольски, т. 2) → work/units/*.json + отчет.
+
+    python3 01_extract.py
+
+⚠ НИЩО НЕ ПИШЕ В БАЗИ и нищо не струва пари. Пуска се колкото пъти трябва.
+
+⚠⚠ ЗАЩО Е ОТДЕЛЕН КОНВЕЙЕР, а не четвърта книга в `tools/lives_plus/`.
+Тамошният `01_extract.py` е скроен по ТРИТЕ книги на свт. Димитрий:
+списък от три ключа, изхвърляния по заглавие, израз за руските месеци,
+адресиране по име на светия. Тази книга е с друго устройство — 964 дяла в
+две нива, части и глави — и вмъкната там, щеше да чупи мълчаливо чуждото
+разчитане.
+
+⚠⚠ КНИГАТА СЕ ПАЗИ КАТО КНИГА. Всеки дял носи мястото си (`order`,
+`depth`, пътя от частта надолу), защото същият превод ще се ползва ДВА
+пъти: като четиво за деня в „Слова за деня" И като цял том в „Читалня".
+Решим ли го после, ще трябва да превеждаме наново.
+
+⚠ АДРЕСИРАНЕТО НЕ Е ТУК. То е отделна стъпка и иска СВЕРКА срещу истинска
+Пасха — седмицата в литургичния адрес върви неделя→събота и извеждането
+„наум" вече е грешало два пъти (виж CLAUDE.md).
+"""
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+КОРЕН = Path(__file__).resolve().parents[1]
+ВХОД = КОРЕН / 'input'
+РАБОТА = КОРЕН / 'work'
+
+# ⚠⚠ ЕДНО ОПРЕДЕЛЕНИЕ, НЕ ПРЕПИС. Книгата е сглобена със същия calibre
+# като томовете по свт. Димитрий, тъй че разчитането е буквално същото.
+# Преписано тук, щеше да се размине с тамошното при първата поправка.
+_ОБЩО = КОРЕН.parent / 'lives_plus' / 'scripts'
+if not (_ОБЩО / 'common.py').exists():
+    sys.exit('иска tools/lives_plus/scripts/common.py — той носи разчитането')
+sys.path.insert(0, str(_ОБЩО))
+from common import plain, blocks_of          # noqa: E402
+
+RE_H = re.compile(r'<h[1-6][^>]*>(.*?)</h[1-6]>', re.S | re.I)
+
+# Заглавия, които са УСТРОЙСТВО на книгата, не четиво.
+RE_СТРУКТУРА = re.compile(r'^(часть\s+[ivx\d]+|дни богослужения)', re.I)
+
+
+def том():
+    п = sorted(ВХОД.glob('*.epub'))
+    if not п:
+        sys.exit('няма .epub в input/')
+    return п[0]
+
+
+def съдържание(път):
+    """(заглавие, файл, дълбочина, пореден номер) по реда в книгата.
+
+    ⚠ Дълбочината идва от ВЛОЖЕНОСТТА на navPoint-ите: първото ниво са
+    частите и главите, второто — самите дялове. Тя решава кое е четиво и
+    кое е рамка, тъй че не се гади по заглавието.
+    """
+    import zipfile
+    z = zipfile.ZipFile(път)
+    ncx = [n for n in z.namelist() if n.endswith('.ncx')][0]
+    x = z.read(ncx).decode('utf-8', 'replace')
+    out, ниво, n = [], 0, 0
+    for m in re.finditer(r'<navPoint|</navPoint>|<navLabel>\s*<text>(.*?)</text>'
+                         r'\s*</navLabel>\s*<content[^>]*src="([^"]+)"', x, re.S):
+        парче = m.group(0)
+        if парче.startswith('<navPoint'):
+            ниво += 1
+            continue
+        if парче.startswith('</navPoint'):
+            ниво -= 1
+            continue
+        заг = re.sub(r'\s+', ' ', plain(m.group(1))).strip()
+        if not заг or re.fullmatch(r'\d+', заг):
+            continue
+        out.append((заг, m.group(2).split('#')[0], ниво, n))
+        n += 1
+    return out, z
+
+
+def дялове_във_файла(html):
+    """Файлът → [(заглавие, абзаци)] — по ЗАГЛАВИЯТА вътре в него.
+
+    ⚠⚠ ЕДИН ФАЙЛ НОСИ ПО НЯКОЛКО ДЯЛА (18 такива в тома). Прочетен цял за
+    всеки от тях, текстът излиза УДВОЕН, без нищо да гръмне — познатият
+    капан от `toc_items`. Затова се реже по самите заглавия.
+    """
+    части = RE_H.split(html)
+    out = []
+    # части[0] е каквото стои ПРЕДИ първото заглавие — рамка на страницата.
+    for i in range(1, len(части), 2):
+        заг = re.sub(r'\s+', ' ', plain(части[i])).strip()
+        тяло = части[i + 1] if i + 1 < len(части) else ''
+        out.append((заг, blocks_of(тяло)))
+    return out
+
+
+def main() -> int:
+    път = том()
+    редове, z = съдържание(път)
+    (РАБОТА / 'units').mkdir(parents=True, exist_ok=True)
+
+    # заглавие → (дълбочина, пореден номер) от съдържанието
+    от_toc = {}
+    for заг, файл, ниво, n in редове:
+        от_toc.setdefault(заг, (ниво, n, файл))
+
+    видени, units = set(), []
+    пътека = []                      # текущата верига части/глави
+    for заг, файл, ниво, n in редове:
+        if файл in видени:
+            continue
+        видени.add(файл)
+        html = z.read(файл).decode('utf-8', 'replace')
+        for подзаг, блокове in дялове_във_файла(html):
+            ако = от_toc.get(подзаг)
+            дълбочина = ако[0] if ако else ниво
+            ред = ако[1] if ако else n
+            # ⚠ Рамката („Часть III…") няма свой текст, но ЗАДАВА пътеката
+            # за дяловете под себе си — затова не се изхвърля, а се помни.
+            рамка = RE_СТРУКТУРА.match(подзаг) or not блокове
+            пътека[:] = пътека[:max(0, дълбочина - 1)]
+            if рамка:
+                пътека.append(подзаг)
+                continue
+            units.append({
+                'id': 'dni-%04d' % ред,
+                'order': ред,
+                'depth': дълбочина,
+                'path': list(пътека),
+                'title_ru': подзаг,
+                'file': файл,
+                # ⚠ Името е `blocks_ru`, защото ТОЧНО това чака общият
+                # преводач (`lives_plus/scripts/02_translate_deepseek.py`).
+                'blocks_ru': блокове,
+                'chars': sum(len(b) for b in блокове),
+            })
+
+    units.sort(key=lambda u: u['order'])
+    for u in units:
+        (РАБОТА / 'units' / (u['id'] + '.json')).write_text(
+            json.dumps(u, ensure_ascii=False, indent=1), encoding='utf-8')
+
+    зн = sum(u['chars'] for u in units)
+    print('дялове в съдържанието: %d' % len(редове))
+    print('четива: %d | знаци: %d' % (len(units), зн))
+    print('най-дългото: %d | най-късото: %d'
+          % (max(u['chars'] for u in units), min(u['chars'] for u in units)))
+    (РАБОТА / 'report.md').write_text(
+        '\n'.join('%-9s d%d %6d  %s' % (u['id'], u['depth'], u['chars'],
+                                        ' › '.join(u['path'] + [u['title_ru']])[:100])
+                  for u in units), encoding='utf-8')
+    print('отчет: work/report.md')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())

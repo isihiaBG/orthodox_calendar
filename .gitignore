@@ -348,6 +348,15 @@ tools/lives_plus/*
 !tools/lives_plus/README.md
 tools/lives_plus/scripts/__pycache__/
 
+# ── tools/dni_bogosluzheniya/ ───────────────────────────────────────────
+# „Дни богослужения" на прот. Григорий Дебольски (1808–1872) — томът и
+# преводът му. Както при останалите конвейери: в git влизат САМО
+# скриптовете и README-то.
+tools/dni_bogosluzheniya/*
+!tools/dni_bogosluzheniya/scripts/
+!tools/dni_bogosluzheniya/README.md
+tools/dni_bogosluzheniya/scripts/__pycache__/
+
 # ── tools/paskha/ ───────────────────────────────────────────────────────
 # Материалът за Пасха от azbyka.ru — страницата е книжка със съдържание,
 # подзаглавия, картинка и 91 връзки в 14 групи, тъй че не влиза в нито един

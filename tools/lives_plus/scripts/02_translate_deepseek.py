@@ -28,6 +28,16 @@ import requests
 
 КОРЕН = Path(__file__).resolve().parents[1]
 РАБОТА = КОРЕН / 'work'
+
+# ⚠⚠ `--root` ПОЗВОЛЯВА ДРУГ КОНВЕЙЕР ДА ПОЛЗВА ТОЗИ ПРЕВОДАЧ.
+#
+# „Дни богослужения" (tools/dni_bogosluzheniya/) е книга с друго
+# устройство и има свое разчитане, но САМИЯТ превод е същият — промпт,
+# парчета, отчет на разхода, възобновимост. Преписан втори път, той щеше
+# да се размине при първата поправка в промпта.
+#
+# ⚠ Чуждата папка трябва да носи `work/units/*.json` с полетата `id`,
+# `title_ru` и `blocks_ru` — това е целият договор.
 ENV = [КОРЕН.parent / 'azbyka.ru' / '.env', КОРЕН / '.env']
 
 API = 'https://api.deepseek.com/chat/completions'
@@ -172,6 +182,7 @@ def main() -> int:
     ap.add_argument('--chunk', type=int, help='знаци на повикване')
     ap.add_argument('--model')
     ap.add_argument('--workers', type=int, default=4)
+    ap.add_argument('--root', help='друга папка на конвейер (със своя work/)')
     a = ap.parse_args()
 
     if a.chunk:
@@ -179,6 +190,12 @@ def main() -> int:
     if a.model:
         globals()['МОДЕЛ'] = a.model
     k = ключ()
+    global РАБОТА
+    if a.root:
+        РАБОТА = Path(a.root).resolve() / 'work'
+        if not (РАБОТА / 'units').is_dir():
+            sys.exit('няма %s' % (РАБОТА / 'units'))
+        print('работи върху: %s' % РАБОТА)
     (РАБОТА / 'translated').mkdir(parents=True, exist_ok=True)
     дялове = sorted((РАБОТА / 'units').glob('*.json'))
     todo = []
