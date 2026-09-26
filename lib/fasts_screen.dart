@@ -180,6 +180,7 @@ class _FastsSectionState extends State<FastsSection> {
   /// Отсичането, които са ПРАЗНИЧНИ, не постни. (Проверено: 08-29 дава едно
   /// слово, 09-14 — три.)
   List<Slovo> _slova = const [];
+  List<Slovo> _dni = const [];
 
   @override
   void initState() {
@@ -197,6 +198,7 @@ class _FastsSectionState extends State<FastsSection> {
 
   Future<void> _loadSlova() async {
     final out = <String, Slovo>{};
+    final outDni = <String, Slovo>{};
     try {
       final pascha = paschaCivil(_selectedYear);
       final starts = <DateTime>[];
@@ -225,11 +227,23 @@ class _FastsSectionState extends State<FastsSection> {
         for (final s in found) {
           out[s.id] = s;
         }
+        for (final s in await LivesPlusDb.dniForDate(
+            d,
+            '${church.month.toString().padLeft(2, '0')}-'
+                '${church.day.toString().padLeft(2, '0')}',
+            oldStyle: AppSettings.isOldStyle)) {
+          outDni[s.id] = s;
+        }
       }
     } catch (_) {
       // Липсваща база в стар билд — екранът работи и без секцията.
     }
-    if (mounted) setState(() => _slova = out.values.toList());
+    if (mounted) {
+      setState(() {
+        _slova = out.values.toList();
+        _dni = outDni.values.toList();
+      });
+    }
   }
 
   /// Проверява за кои слъгове ИМА текстове в lives.db. Докато слъгове не
@@ -423,12 +437,12 @@ class _FastsSectionState extends State<FastsSection> {
                 _h2('Седмици, освободени от пост'),
                 for (final f in _fastFreeWeeks) _periodRow(f),
                 // ⚠ НАЙ-ОТДОЛУ и само когато има какво.
-                if (_slova.isNotEmpty)
+                if (_slova.isNotEmpty || _dni.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: ExpandableSection(
                       title: '📕  СЛОВА ЗА ПОСТИТЕ',
-                      content: LivesPlusSection(slova: _slova),
+                      content: LivesPlusSection(slova: _slova, dni: _dni),
                     ),
                   ),
               ],

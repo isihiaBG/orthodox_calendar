@@ -15,7 +15,8 @@ import 'reader_screen.dart';
 import 'saint_expandable_tile.dart';
 
 /// Отваря словото; при липсващо четиво не прави нищо.
-Future<void> openSlovo(BuildContext context, Slovo s) async {
+Future<void> openSlovo(BuildContext context, Slovo s,
+    {String typeLabel = 'Слово'}) async {
   final nav = Navigator.of(context);
   final texts = await LivesPlusDb.load(s.slug);
   if (texts == null) return;
@@ -26,7 +27,7 @@ Future<void> openSlovo(BuildContext context, Slovo s) async {
       texts: texts,
       lookup: lookupBySlug,
       lifeTitle: s.title,
-      typeLabel: 'Слово',
+      typeLabel: typeLabel,
     ),
   ));
 }

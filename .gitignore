@@ -367,3 +367,16 @@ tools/paskha/*
 !tools/paskha/scripts/
 !tools/paskha/README.md
 tools/paskha/scripts/__pycache__/
+
+# Тропарите и кондаците за деня (възкресни и седмични) — извор и работни файлове
+tools/Troparion/
+
+# ── tools/tipikon/ ──────────────────────────────────────────────────────
+# Указанията на Типикона за всеки ден (глави 48–50) → lives_plus.db.
+# Изворът (.epub) стои в tools/Troparion/input/. В git — скриптът, ръчната
+# карта на дяловете от Триода и README-то.
+tools/tipikon/*
+!tools/tipikon/scripts/
+!tools/tipikon/input/
+!tools/tipikon/README.md
+tools/tipikon/scripts/__pycache__/

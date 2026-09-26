@@ -177,6 +177,11 @@ Future<SaintTexts?> lookupBySlug(String slug) async {
   // ⚠ Без този ред отметка или цитат към слово СЕ ЗАПАЗВА, но не се отваря —
   // капанът, платен веднъж при справочните четива.
   if (isSlovoSlug(slug)) return LivesPlusDb.load(slug);
+  // Главите от „Дни богослужения" — същата база, свои таблици. ⚠ Слъгът се
+  // разпознава и в `_slugForFingerprint` (през `LivesPlusDb.allSlugs`).
+  if (isDniSlug(slug)) return LivesPlusDb.load(slug);
+  // Указанията на Типикона — пак lives_plus.db, свои таблици.
+  if (isTipikonSlug(slug)) return LivesPlusDb.load(slug);
   // Статиите от azbyka.ru — ЧЕТВЪРТА отделна таблица. Виж предупреждението
   // в azbyka_article.dart: разпознава се и в `_slugForFingerprint`.
   if (isArticleSlug(slug)) return loadArticle(slug);
@@ -442,6 +447,9 @@ class SaintExpandableTile extends StatefulWidget {
   /// словата са своя секция („СЛОВА ЗА ДЕНЯ"), най-отгоре.
   final List<Slovo> slova;
 
+  /// Поясненията за деня (прот. Григорий Дебольски) — в СЪЩАТА секция.
+  final List<Slovo> dni;
+
   /// Заглавието на секцията със словата.
   ///
   /// ⚠ Подава се отвън, защото зависи от ЕКРАНА: в „Празници" всеки запис е
@@ -487,6 +495,7 @@ class SaintExpandableTile extends StatefulWidget {
     this.hymnCounts = const {},
     this.lifeLabel = 'Житие',
     this.slova = const [],
+    this.dni = const [],
     this.slovaTitle = 'СЛОВА ЗА ДЕНЯ',
     this.dmitryRefs = const [],
     this.saintSlova = const [],
@@ -515,7 +524,8 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
       widget.hasSluzhba ||
       widget.dmitryRefs.isNotEmpty ||
       widget.saintSlova.isNotEmpty ||
-      widget.slova.isNotEmpty;
+      widget.slova.isNotEmpty ||
+      widget.dni.isNotEmpty;
 
   void _toggle() {
     if (!_hasAnything) return;
@@ -671,12 +681,13 @@ class _SaintExpandableTileState extends State<SaintExpandableTile> {
                       // ⚠ Заглавието е БЕЗ емотиконата от дневния изглед:
                       // там секциите са четири една под друга и знакът ги
                       // различава, а тук е една, вътре в друга.
-                      if (widget.slova.isNotEmpty)
+                      if (widget.slova.isNotEmpty || widget.dni.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.only(right: 4),
                           child: ExpandableSection(
                             title: '📕  ${widget.slovaTitle}',
-                            content: LivesPlusSection(slova: widget.slova),
+                            content: LivesPlusSection(
+                                slova: widget.slova, dni: widget.dni),
                           ),
                         ),
                     ],

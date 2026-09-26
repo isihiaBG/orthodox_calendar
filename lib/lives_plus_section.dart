@@ -15,53 +15,78 @@ import 'lives_plus.dart';
 import 'slovo_open.dart';
 
 class LivesPlusSection extends StatelessWidget {
+  /// Словата на свт. Димитрий Ростовски.
   final List<Slovo> slova;
 
-  const LivesPlusSection({super.key, required this.slova});
+  /// Поясненията за деня от прот. Григорий Дебольски.
+  final List<Slovo> dni;
+
+  const LivesPlusSection({super.key, required this.slova, this.dni = const []});
+
+  // ⚠⚠ РАЗДЕЛЕНИЕТО Е ПО АВТОР (решение на потребителя, 25.09.2026). Двата
+  // вида четиво са в ЕДНА секция, за да не се множат секциите, но не бива да
+  // се представят като едно и също: словата са проповеди, поясненията — не.
+  static const _kSlovaHeading = 'Слова от свт. Димитрий Ростовски';
+  static const _kDniHeading = 'Пояснения за деня от прот. Григорий Дебольски';
 
   @override
   Widget build(BuildContext context) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final s in slova)
-          InkWell(
-            onTap: () => openSlovo(context, s),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.only(top: 3, right: 8),
-                    child: Icon(Icons.menu_book_outlined,
-                        size: 16, color: AppColors.sectionTitle),
-                  ),
-                  Expanded(
-                    child: Text(
-                      s.title,
-                      style: const TextStyle(
-                        color: AppColors.sectionTitle,
-                        fontSize: 15,
-                        height: 1.5,
-                        decoration: TextDecoration.underline,
-                        decorationStyle: TextDecorationStyle.dotted,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        const Padding(
-          padding: EdgeInsets.only(top: 6),
-          child: Text(
-            'По свт. Димитрий Ростовски',
-            style: TextStyle(
-                color: AppColors.textSecondary, fontSize: 13, height: 1.4),
-          ),
-        ),
+        if (slova.isNotEmpty) ..._group(context, _kSlovaHeading, slova, 'Слово'),
+        if (slova.isNotEmpty && dni.isNotEmpty) const SizedBox(height: 10),
+        if (dni.isNotEmpty)
+          ..._group(context, _kDniHeading, dni, 'Пояснение за деня'),
       ],
     );
+  }
+
+  List<Widget> _group(
+      BuildContext context, String heading, List<Slovo> items, String type) {
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 4, bottom: 2),
+        child: Text(
+          heading,
+          style: const TextStyle(
+            color: AppColors.sectionTitle,
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            height: 1.4,
+          ),
+        ),
+      ),
+      for (final s in items)
+        InkWell(
+          onTap: () => openSlovo(context, s, typeLabel: type),
+          child: Padding(
+            // ⚠ Отстъпът групира четивата ПОД автора си.
+            padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Padding(
+                  padding: EdgeInsets.only(top: 3, right: 8),
+                  child: Icon(Icons.menu_book_outlined,
+                      size: 16, color: AppColors.sectionTitle),
+                ),
+                Expanded(
+                  child: Text(
+                    s.title,
+                    style: const TextStyle(
+                      color: AppColors.sectionTitle,
+                      fontSize: 15,
+                      height: 1.5,
+                      decoration: TextDecoration.underline,
+                      decorationStyle: TextDecorationStyle.dotted,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+    ];
   }
 }

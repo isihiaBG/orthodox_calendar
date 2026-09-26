@@ -40,6 +40,34 @@ const String kSlovoSlugPrefix = 'slovo-';
 
 bool isSlovoSlug(String slug) => slug.startsWith(kSlovoSlugPrefix);
 
+/// Главите от „Дни богослужения" на прот. Григорий Дебольски.
+///
+/// ⚠ Слъгът Е самият id в таблицата `dni` („dni-0061") — без добавен
+/// префикс. Живеят в СЪЩАТА база като словата, но в свои таблици
+/// (`dni`, `dni_days`), тъй че `lives_plus/03_build_db.py` не ги трие.
+const String kDniSlugPrefix = 'dni-';
+
+bool isDniSlug(String slug) => slug.startsWith(kDniSlugPrefix);
+
+/// Указанията на Типикона за един ден (`tools/tipikon/`).
+///
+/// ⚠ Слъгът Е id-то в таблицата `tipikon` — „tip-09-14" за Месецослова,
+/// „tip-pascha-m48" / „tip-pascha-p13" за Триода и Пентикостара. Живеят в
+/// СЪЩАТА база като словата, в свои таблици (`tipikon`, `tipikon_days`).
+const String kTipikonSlugPrefix = 'tip-';
+
+bool isTipikonSlug(String slug) => slug.startsWith(kTipikonSlugPrefix);
+
+/// Един ден от Типикона — БЕЗ тялото (то се вади при отваряне).
+class TipikonDay {
+  final String id;
+  final String title;
+
+  /// `menaion`, `triodion` или `pentecostarion`.
+  final String part;
+  const TipikonDay(this.id, this.title, this.part);
+}
+
 /// Едно слово — БЕЗ тялото.
 ///
 /// ⚠ Тялото е десетки хиляди знака, а списъкът се чете за ВСЕКИ отворен ден,
@@ -56,7 +84,9 @@ class Slovo {
     required this.address,
   });
 
-  String get slug => '$kSlovoSlugPrefix$id';
+  // ⚠ Главите на Дебольски носят слъга си в самия id („dni-0061"); словата —
+  // не („vosk-001"), затова им се долепя префиксът.
+  String get slug => isDniSlug(id) ? id : '$kSlovoSlugPrefix$id';
 }
 
 /// Слово, ПРИКРЕПЕНО КЪМ СВЕТИЯ — ред в разгънатата му плочка, редом с
@@ -155,6 +185,66 @@ class LivesPlusDb {
     ];
   }
 
+  /// Главите от „Дни богослужения" за деня, или празен списък.
+  ///
+  /// ⚠ Същите литургични адреси като при словата ([addressesFor]), тъй че
+  /// излизат верни за всяка година и по двата стила.
+  ///
+  /// ⚠ Стар билд без таблицата `dni` връща празно, не гърми — инак би
+  /// отнесъл целия ден.
+  static Future<List<Slovo>> dniForDate(DateTime date, String churchMonthDay,
+      {required bool oldStyle}) async {
+    final addrs = addressesFor(date, churchMonthDay, oldStyle: oldStyle);
+    final db = await database;
+    try {
+      final rows = await db.rawQuery('''
+        SELECT n.id, n.title_bg, d.address
+        FROM dni_days d JOIN dni n ON n.id = d.id
+        WHERE d.address IN (${List.filled(addrs.length, '?').join(',')})
+        ORDER BY n.ord
+      ''', addrs);
+      return [
+        for (final r in rows)
+          Slovo(
+            id: r['id'] as String,
+            title: r['title_bg'] as String,
+            address: r['address'] as String,
+          ),
+      ];
+    } on DatabaseException {
+      return const [];
+    }
+  }
+
+  /// Указанията на Типикона за деня — празно, ако няма.
+  ///
+  /// ⚠ Същите литургични адреси като при словата ([addressesFor]). В деня,
+  /// в който се падат и Месецословът, и Триодът, записите са ДВА —
+  /// подвижният върви пръв, защото в поста и в Пентикостара той води.
+  ///
+  /// ⚠ Стар билд без таблицата връща празно, не гърми.
+  static Future<List<TipikonDay>> tipikonForDate(
+      DateTime date, String churchMonthDay,
+      {required bool oldStyle}) async {
+    final addrs = addressesFor(date, churchMonthDay, oldStyle: oldStyle);
+    final db = await database;
+    try {
+      final rows = await db.rawQuery('''
+        SELECT t.id, t.title, t.part
+        FROM tipikon_days d JOIN tipikon t ON t.id = d.id
+        WHERE d.address IN (${List.filled(addrs.length, '?').join(',')})
+        ORDER BY CASE t.part WHEN 'menaion' THEN 1 ELSE 0 END, t.ord
+      ''', addrs);
+      return [
+        for (final r in rows)
+          TipikonDay(r['id'] as String, r['title'] as String,
+              r['part'] as String),
+      ];
+    } on DatabaseException {
+      return const [];
+    }
+  }
+
   /// Гражданските дати в обхвата, които knownт поне едно слово.
   ///
   /// ⚠⚠ ЗАЩО НЕ Е EXISTS В SQL. `lives_plus.db` НЕ се ATTACH-ва към
@@ -200,7 +290,23 @@ class LivesPlusDb {
   static Future<List<String>> allSlugs() async {
     final db = await database;
     final rows = await db.rawQuery('SELECT id FROM slova');
-    return [for (final r in rows) '$kSlovoSlugPrefix${r['id']}'];
+    final out = [for (final r in rows) '$kSlovoSlugPrefix${r['id']}'];
+    // ⚠ И главите на Дебольски — инак споделен цитат от тях се разчита, но
+    // отсреща умира с „Това четиво го няма" (виж `_slugForFingerprint`).
+    try {
+      final dni = await db.rawQuery('SELECT id FROM dni');
+      out.addAll([for (final r in dni) r['id'] as String]);
+    } on DatabaseException {
+      // Стар билд без таблицата.
+    }
+    // ⚠ И дните от Типикона — по същата причина.
+    try {
+      final tip = await db.rawQuery('SELECT id FROM tipikon');
+      out.addAll([for (final r in tip) r['id'] as String]);
+    } on DatabaseException {
+      // Стар билд без таблицата.
+    }
+    return out;
   }
 
   /// Словата, прикрепени към тези светии — слъг → редове.
@@ -275,6 +381,8 @@ class LivesPlusDb {
 
   /// Тялото на едно слово — вади се при ОТВАРЯНЕ.
   static Future<SaintTexts?> load(String slug) async {
+    if (isDniSlug(slug)) return _loadDni(slug);
+    if (isTipikonSlug(slug)) return _loadTipikon(slug);
     if (!isSlovoSlug(slug)) return null;
     final db = await database;
     final rows = await db.query('slova',
@@ -292,5 +400,50 @@ class LivesPlusDb {
       // цялата книга не сочи къде точно е това слово.
       source: (rows.first['source'] as String?) ?? '',
     );
+  }
+
+  /// Тялото на една глава от „Дни богослужения".
+  static Future<SaintTexts?> _loadDni(String slug) async {
+    final db = await database;
+    try {
+      final rows = await db.query('dni',
+          columns: ['title_bg', 'body', 'source'],
+          where: 'id = ?', whereArgs: [slug], limit: 1);
+      if (rows.isEmpty) return null;
+      return SaintTexts(
+        name: rows.first['title_bg'] as String,
+        lifeHtml: rows.first['body'] as String,
+        slug: slug,
+        source: (rows.first['source'] as String?) ?? '',
+      );
+    } on DatabaseException {
+      return null;
+    }
+  }
+
+  /// Тялото на един ден от Типикона.
+  ///
+  /// ⚠ Текстът стои И в `sluzhba`, И в `lifeHtml`. Отваря се в режим
+  /// `sluzhba` (без буквица — уставът не е разказ), но споделен цитат и
+  /// любимите отварят четивото в режим `life` и четат `lifeHtml`; празно,
+  /// то би дало празен екран.
+  static Future<SaintTexts?> _loadTipikon(String slug) async {
+    final db = await database;
+    try {
+      final rows = await db.query('tipikon',
+          columns: ['title', 'body', 'source'],
+          where: 'id = ?', whereArgs: [slug], limit: 1);
+      if (rows.isEmpty) return null;
+      final body = rows.first['body'] as String;
+      return SaintTexts(
+        name: rows.first['title'] as String,
+        lifeHtml: body,
+        sluzhba: body,
+        slug: slug,
+        source: (rows.first['source'] as String?) ?? '',
+      );
+    } on DatabaseException {
+      return null;
+    }
   }
 }

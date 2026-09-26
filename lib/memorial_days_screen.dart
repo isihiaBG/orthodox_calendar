@@ -104,6 +104,7 @@ class _MemorialDaysSectionState extends State<MemorialDaysSection> {
   /// адресирано към друга родителска събота, ще се появи само̀ — без
   /// промяна в кода.
   List<Slovo> _slova = const [];
+  List<Slovo> _dni = const [];
 
   @override
   void initState() {
@@ -121,6 +122,7 @@ class _MemorialDaysSectionState extends State<MemorialDaysSection> {
 
   Future<void> _loadSlova() async {
     final out = <String, Slovo>{};
+    final outDni = <String, Slovo>{};
     try {
       for (final spec in [..._soulSaturdays, ..._lentSaturdays]) {
         final d = _resolve(spec);
@@ -137,11 +139,23 @@ class _MemorialDaysSectionState extends State<MemorialDaysSection> {
         for (final s in found) {
           out[s.id] = s;
         }
+        for (final s in await LivesPlusDb.dniForDate(
+            d,
+            '${church.month.toString().padLeft(2, '0')}-'
+                '${church.day.toString().padLeft(2, '0')}',
+            oldStyle: AppSettings.isOldStyle)) {
+          outDni[s.id] = s;
+        }
       }
     } catch (_) {
       // Липсваща база в стар билд — екранът работи и без секцията.
     }
-    if (mounted) setState(() => _slova = out.values.toList());
+    if (mounted) {
+      setState(() {
+        _slova = out.values.toList();
+        _dni = outDni.values.toList();
+      });
+    }
   }
 
   /// Съботата непосредствено ПРЕДИ дадена дата. Ако самата дата е събота,
@@ -222,12 +236,12 @@ class _MemorialDaysSectionState extends State<MemorialDaysSection> {
                 // ⚠ НАЙ-ОТДОЛУ и само когато има какво — същата секция като
                 // в дневния изглед, но с име по мястото си („СЛОВА ЗА
                 // ПОМЕНИТЕ", искане на потребителя, 16.09.2026).
-                if (_slova.isNotEmpty)
+                if (_slova.isNotEmpty || _dni.isNotEmpty)
                   Padding(
                     padding: const EdgeInsets.only(top: 10),
                     child: ExpandableSection(
                       title: '📕  СЛОВА ЗА ПОМЕНИТЕ',
-                      content: LivesPlusSection(slova: _slova),
+                      content: LivesPlusSection(slova: _slova, dni: _dni),
                     ),
                   ),
               ],

@@ -16,6 +16,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
 import 'database_helper.dart';
+import 'day_hymns.dart';
 import 'day_readings_view.dart';
 import 'expandable_section.dart';
 import 'lives_plus.dart';
@@ -103,6 +104,15 @@ class _DayScreenState extends State<DayScreen>
   /// където има поне едно (изрично искане на потребителя, 13.09.2026).
   List<Slovo> _slova = const [];
 
+  /// Поясненията за деня (прот. Григорий Дебольски) — в СЪЩАТА секция.
+  List<Slovo> _dni = const [];
+
+  /// Указанията на Типикона за деня — редовете накрая на „Евангелие и
+  /// Апостол". Четат се ТУК, с другите евтини заявки, и се подават наготово:
+  /// секцията се смята синхронно, за да се разгъва плавно (виж бележката за
+  /// `AnimatedSize` в day_readings_view.dart).
+  List<TipikonDay> _tipikon = const [];
+
   /// Словата, прикрепени към СВЕТИИТЕ на деня — слъг → редове.
   /// ⚠ Различно от [_slova]: те се падат на деня, тези са на светията.
   Map<String, List<SaintSlovo>> _saintSlova = const {};
@@ -174,18 +184,24 @@ class _DayScreenState extends State<DayScreen>
     // ⚠ Гърми ли (липсваща база в стар билд), се минава без секцията, а не
     // се отнася целият ден.
     List<Slovo> slova = const [];
+    List<Slovo> dni = const [];
+    List<TipikonDay> tipikon = const [];
     try {
       final church = SaintTexts.churchDateOf(dateStr, 0);
       if (church != null) {
-        slova = await LivesPlusDb.forDate(
-          widget.date,
-          '${church.month.toString().padLeft(2, '0')}-'
-              '${church.day.toString().padLeft(2, '0')}',
-          oldStyle: AppSettings.isOldStyle,
-        );
+        final key = '${church.month.toString().padLeft(2, '0')}-'
+            '${church.day.toString().padLeft(2, '0')}';
+        slova = await LivesPlusDb.forDate(widget.date, key,
+            oldStyle: AppSettings.isOldStyle);
+        dni = await LivesPlusDb.dniForDate(widget.date, key,
+            oldStyle: AppSettings.isOldStyle);
+        tipikon = await LivesPlusDb.tipikonForDate(widget.date, key,
+            oldStyle: AppSettings.isOldStyle);
       }
     } catch (_) {
       slova = const [];
+      dni = const [];
+      tipikon = const [];
     }
 
     // Словата, прикрепени към самите светии на деня. Евтина заявка по слъг
@@ -209,6 +225,8 @@ class _DayScreenState extends State<DayScreen>
       _day = dayResult.isNotEmpty ? CalendarDay.fromMap(dayResult.first) : null;
       _saints = saintsResult.map((s) => Saint.fromMap(s)).toList();
       _slova = slova;
+      _dni = dni;
+      _tipikon = tipikon;
       _saintSlova = saintSlova;
       _loading = false;
     });
@@ -593,11 +611,11 @@ class _DayScreenState extends State<DayScreen>
                 _buildSaintsList(),
                 const SizedBox(height: 8),
                 // ⚠ ПЪРВА в групата и само когато има какво да покаже.
-                if (_slova.isNotEmpty)
+                if (_slova.isNotEmpty || _dni.isNotEmpty)
                   ExpandableSection(
                     title: '📕  СЛОВА ЗА ДЕНЯ',
                     isSunday: isSunday,
-                    content: LivesPlusSection(slova: _slova),
+                    content: LivesPlusSection(slova: _slova, dni: _dni),
                   ),
                 ExpandableSection(
                   title: '📖  ЕВАНГЕЛИЕ И АПОСТОЛ',
@@ -605,14 +623,16 @@ class _DayScreenState extends State<DayScreen>
                   // ⚠ Заявката тръгва при РАЗГЪВАНЕ, не тук —
                   // ExpandableSection монтира съдържанието си чак тогава.
                   // Същият ред както при Теофан и Оптинските старци.
-                  content: DayReadingsSection(date: date, tone: _day?.tone ?? 0),
+                  content: DayReadingsSection(
+                      date: date, tone: _day?.tone ?? 0, tipikon: _tipikon),
                 ),
                 ExpandableSection(
                   title: '🕯️  ТРОПАРИ И КОНДАЦИ',
                   isSunday: isSunday,
-                  content: const Text(
-                    'Тук ще се показват тропарите и кондаците за деня.',
-                    style: TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.6),
+                  content: DayHymnsSection(
+                    lookup: lookupBySlug,
+                    rows: dayHymnRows(
+                        date: date, saints: _saints, tone: _day?.tone ?? 0),
                   ),
                 ),
                 ExpandableSection(

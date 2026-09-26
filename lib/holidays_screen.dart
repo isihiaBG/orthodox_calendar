@@ -140,6 +140,9 @@ class _FeastResult {
   /// Словата, които се падат на ДЕНЯ на празника — виж `lives_plus.dart`.
   /// ⚠ Не зависят от слъга: адресирани са към деня, не към паметта.
   final List<Slovo> slova;
+
+  /// Поясненията за деня на празника (прот. Григорий Дебольски).
+  final List<Slovo> dni;
   const _FeastResult(
     this.spec,
     this.civilDate, {
@@ -151,6 +154,7 @@ class _FeastResult {
     this.hasSluzhba = false,
     this.dmitryRefs = const [],
     this.slova = const [],
+    this.dni = const [],
   });
 }
 
@@ -269,19 +273,15 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         slova = const [];
       }
 
-      // ⚠⚠ СЛОВАТА СЕ ТЪРСЯТ ПО ДЕНЯ, не по слъга. Гражданската дата вече е
-      // сметната по-горе (подвижните от Пасха, неподвижните от църковната
-      // си дата), тъй че оттук нататък е същото, което прави и дневният
-      // изглед — виж [LivesPlusDb.forDate].
-      //
-      // ⚠ Гръмне ли (липсваща база в стар билд), празникът излиза без слова,
-      // вместо да отнесе целия екран.
-      List<Slovo> feastSlova = const [];
+      // Поясненията за деня (прот. Григорий Дебольски) — по същия адрес.
+      // ⚠ Тук дотогава стоеше ВТОРО копие на заявката за словата, чийто
+      // резултат не се ползваше никъде; вместо трети блок то стана този.
+      List<Slovo> dni = const [];
       try {
         final church = SaintTexts.churchDateOf(
             civilDate.toIso8601String().substring(0, 10), 0);
         if (church != null) {
-          feastSlova = await LivesPlusDb.forDate(
+          dni = await LivesPlusDb.dniForDate(
             civilDate,
             '${church.month.toString().padLeft(2, '0')}-'
                 '${church.day.toString().padLeft(2, '0')}',
@@ -289,7 +289,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
           );
         }
       } catch (_) {
-        feastSlova = const [];
+        dni = const [];
       }
 
       final row = rows.isEmpty ? null : rows.first;
@@ -304,6 +304,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
         hasSluzhba: (row?['has_sluzhba'] as int? ?? 0) == 1,
         dmitryRefs: parseDmitryRefs(row?['dmitry_refs'] as String?),
         slova: slova,
+        dni: dni,
       ));
     }
     if (!mounted) return;
@@ -342,6 +343,7 @@ class _HolidaysSectionState extends State<HolidaysSection> {
       hasSluzhba: r.hasSluzhba,
       dmitryRefs: r.dmitryRefs,
       slova: r.slova,
+      dni: r.dni,
       // ⚠ Всеки запис тук Е празник, не обикновен ден.
       slovaTitle: 'СЛОВА ЗА ПРАЗНИКА',
       lifeLabel: lifeLabelFor(rank: r.rank, name: r.spec.displayName),

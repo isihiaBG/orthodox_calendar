@@ -49,7 +49,11 @@ class _ExpandableSectionState extends State<ExpandableSection> {
         ? AppColors.sectionTitleSunday
         : AppColors.sectionTitle;
 
+    // ⚠⚠ `stretch`, а не подразбиращото се `center`. Без него всяко
+    // съдържание, по-тясно от екрана, заставаше ПО СРЕДАТА — така
+    // „Евангелие и Апостол" излизаше центрирано. (Докладвано 25.09.2026.)
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         InkWell(
           onTap: () => setState(() => _expanded = !_expanded),
@@ -95,7 +99,10 @@ class _ExpandableSectionState extends State<ExpandableSection> {
           curve: Curves.easeInOut,
           child: _expanded
               ? Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
+                  // ⚠ Лявият отстъп групира съдържанието ПОД заглавието на
+                  // секцията — еднакво за всички, затова стои тук, а не
+                  // във всяко съдържание поотделно.
+                  padding: const EdgeInsets.only(left: 12, bottom: 12),
                   child: widget.content,
                 )
               : const SizedBox.shrink(),

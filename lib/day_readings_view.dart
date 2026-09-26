@@ -25,7 +25,10 @@ import 'app_theme.dart';
 import 'bible_db.dart';
 import 'bible_reader.dart';
 import 'database_helper.dart';
+import 'day_notes.dart';
 import 'day_readings.dart';
+import 'lives_plus.dart';
+import 'reader_screen.dart';
 import 'readings_lookup.dart';
 import 'saint_expandable_tile.dart';
 import 'prokimen_lookup.dart';
@@ -40,7 +43,15 @@ class DayReadingsSection extends StatefulWidget {
   /// заявка за същото число би била излишна.
   final int tone;
 
-  const DayReadingsSection({super.key, required this.date, this.tone = 0});
+  /// Указанията на Типикона за деня — редове-връзки накрая на секцията.
+  ///
+  /// ⚠ Идват НАГОТОВО отвън (дневният изглед ги чете с другите евтини
+  /// заявки). Прочетени тук, асинхронно, те биха сменили височината насред
+  /// анимацията на разгъване — точно бъгът, описан при [_groups].
+  final List<TipikonDay> tipikon;
+
+  const DayReadingsSection(
+      {super.key, required this.date, this.tone = 0, this.tipikon = const []});
 
   @override
   State<DayReadingsSection> createState() => _DayReadingsSectionState();
@@ -72,6 +83,9 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
   late List<ReadingGroup> _groups;
   Object? _error;
 
+  /// Кратките напомняния за деня (`day_notes.dart`) — също синхронно.
+  List<String> _notes = const [];
+
   @override
   void initState() {
     super.initState();
@@ -91,6 +105,19 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     } catch (e) {
       _groups = const [];
       _error = e;
+    }
+    try {
+      final church = SaintTexts.churchDateOf(
+          widget.date.toIso8601String().substring(0, 10), 0);
+      _notes = church == null
+          ? const []
+          : dayNotes(
+              widget.date,
+              '${church.month.toString().padLeft(2, '0')}-'
+              '${church.day.toString().padLeft(2, '0')}',
+              oldStyle: AppSettings.isOldStyle);
+    } catch (_) {
+      _notes = const [];
     }
   }
 
@@ -189,31 +216,126 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
     // ⚠ ГРЕШКАТА СЕ РАЗЛИЧАВА ОТ ПРАЗНОТО. Слети, грешката изглежда като
     // „няма данни" и се търси с часове — записано е за MiniReader и важи
     // навсякъде.
-    if (_error != null) {
-      return _plain('Четивата не можаха да се заредят.');
-    }
     final groups = _groups;
-    if (groups.isEmpty) {
-      return _plain('За този ден няма записани четива.');
-    }
+    final extras = _extras();
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        if (_error != null)
+          _plain('Четивата не можаха да се заредят.')
+        else if (groups.isEmpty)
+          _plain('За този ден няма записани четива.'),
         for (var i = 0; i < groups.length; i++) ...[
           if (i > 0) const SizedBox(height: 12),
-          Text(
-            groups[i].title,
-            style: const TextStyle(
-              color: AppColors.sectionTitle,
-              fontSize: 14,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
+          _groupTitle(groups[i].title),
           const SizedBox(height: 4),
           for (final line in groups[i].lines) _line(line),
         ],
+        ...extras,
       ],
     );
+  }
+
+  Widget _groupTitle(String text) => Text(
+        text,
+        style: const TextStyle(
+          color: AppColors.sectionTitle,
+          fontSize: 14,
+          fontWeight: FontWeight.w700,
+        ),
+      );
+
+  /// Особеностите на деня и връзките към Типикона — НАКРАЯ на секцията
+  /// (искане на потребителя): първо четивата, после напомнянето какво
+  /// особено става на службата, после пълният устав.
+  List<Widget> _extras() {
+    final tip = widget.tipikon;
+    if (_notes.isEmpty && tip.isEmpty) return const [];
+    return [
+      const SizedBox(height: 14),
+      if (_notes.isNotEmpty) ...[
+        _groupTitle('Особености на деня'),
+        const SizedBox(height: 4),
+        for (final n in _notes)
+          Padding(
+            padding: const EdgeInsets.only(left: 12, top: 3, bottom: 3),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('•  ',
+                    style: TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 15,
+                        height: 1.45)),
+                Expanded(
+                  child: Text(
+                    n,
+                    style: const TextStyle(
+                        color: AppColors.textSecondary,
+                        fontSize: 15,
+                        height: 1.45),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        if (tip.isNotEmpty) const SizedBox(height: 6),
+      ],
+      for (final t in tip) _tipikonLink(t, many: tip.length > 1),
+    ];
+  }
+
+  /// Ред-връзка към пълните указания на Типикона за деня.
+  ///
+  /// ⚠ При два записа (Месецослов И Триод в един ден) редовете са два и
+  /// казват от коя част е всеки; при един — просто „за деня".
+  Widget _tipikonLink(TipikonDay t, {required bool many}) {
+    final part = switch (t.part) {
+      'triodion' => 'Триод',
+      'pentecostarion' => 'Пентикостар',
+      _ => 'Месецослов',
+    };
+    final label = many
+        ? 'Указания на Типикона — $part'
+        : 'Указания на Типикона за деня';
+    return InkWell(
+      onTap: () => _openTipikon(t),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 12, top: 6, bottom: 6, right: 8),
+        child: Text(
+          label,
+          style: const TextStyle(
+            color: AppColors.sectionTitle,
+            fontSize: 15,
+            height: 1.45,
+            decoration: TextDecoration.underline,
+            decorationStyle: TextDecorationStyle.dotted,
+            decorationColor: AppColors.sectionDivider,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// ⚠ Режимът е `sluzhba` — без буквица: уставът е ред на службата, не
+  /// разказ. Същият режим като справочника.
+  Future<void> _openTipikon(TipikonDay t) async {
+    final nav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final texts = await LivesPlusDb.load(t.id);
+    if (texts == null) {
+      // ⚠ Липсата се СЪОБЩАВА — тихият отказ е най-скъпият вид тук.
+      messenger.showSnackBar(const SnackBar(
+          content: Text('Указанията на Типикона за този ден липсват.')));
+      return;
+    }
+    await nav.push(MaterialPageRoute(
+      builder: (_) => ReaderScreen.sluzhba(
+        texts: texts,
+        lookup: lookupBySlug,
+        typeLabel: 'Указания на Типикона',
+      ),
+    ));
   }
 
   Widget _plain(String text) => Text(

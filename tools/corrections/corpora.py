@@ -336,6 +336,18 @@ _BG_КОЛОНИ = ['life', 'tropar_trans', 'tropar2_trans',
                 ('sections', '*', 'blocks_bg', '*')]),
     КорпусSQLite('articles-db', _път('assets', 'db', 'lives.db'),
                  'articles', ['title_bg', 'body'], 'slug'),
+    # ⚠ „Дни богослужения" на прот. Григорий Дебольски (25.09.2026) — изворът
+    # (главите и заглавията) плюс готовата таблица. Без тези редове всяка
+    # масова поправка щеше да подмине книгата МЪЛЧАЛИВО — същият пропуск,
+    # платен вече при словата и при статиите.
+    КорпусJSON('dni',
+               ('tools', 'dni_bogosluzheniya', 'work', 'translated', '*.json'),
+               [('blocks_bg', '*')]),
+    КорпусJSON('dni-titles',
+               ('tools', 'dni_bogosluzheniya', 'work', 'titles_bg.json'),
+               [('*',)]),
+    КорпусSQLite('dni-db', _път('assets', 'db', 'lives_plus.db'),
+                 'dni', ['title_bg', 'body'], 'id'),
 ]
 
 
