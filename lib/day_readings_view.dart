@@ -84,7 +84,7 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
   Object? _error;
 
   /// Кратките напомняния за деня (`day_notes.dart`) — също синхронно.
-  List<String> _notes = const [];
+  List<DayNote> _notes = const [];
 
   @override
   void initState() {
@@ -256,33 +256,89 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
       if (_notes.isNotEmpty) ...[
         _groupTitle('Особености на деня'),
         const SizedBox(height: 4),
-        for (final n in _notes)
-          Padding(
-            padding: const EdgeInsets.only(left: 12, top: 3, bottom: 3),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('•  ',
-                    style: TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 15,
-                        height: 1.45)),
-                Expanded(
-                  child: Text(
-                    n,
-                    style: const TextStyle(
-                        color: AppColors.textSecondary,
-                        fontSize: 15,
-                        height: 1.45),
-                  ),
-                ),
-              ],
-            ),
-          ),
+        for (final n in _notes) _noteLine(n),
         if (tip.isNotEmpty) const SizedBox(height: 6),
       ],
       for (final t in tip) _tipikonLink(t, many: tip.length > 1),
     ];
+  }
+
+  /// Една бележка — текстът и, ако има извор, връзка към него в скоби.
+  ///
+  /// ⚠ „(виж в Типикона)" при устав, „(виж указанията)" при практика,
+  /// описана в друг текст; обичай без текст остава без връзка (искане на
+  /// потребителя, 26.09.2026 — за да се удостовери верността на бележката).
+  Widget _noteLine(DayNote n) {
+    const style =
+        TextStyle(color: AppColors.textSecondary, fontSize: 15, height: 1.45);
+    final link = switch (n.kind) {
+      DayNoteKind.typikon => 'виж в Типикона',
+      DayNoteKind.practice => 'виж указанията',
+      DayNoteKind.custom => '',
+    };
+    return Padding(
+      padding: const EdgeInsets.only(left: 12, top: 3, bottom: 3),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('•  ', style: style),
+          Expanded(
+            child: Text.rich(TextSpan(style: style, children: [
+              TextSpan(text: n.text),
+              if (n.hasLink) ...[
+                const TextSpan(text: ' '),
+                // ⚠ WidgetSpan, не TapGestureRecognizer: разпознавачът иска
+                // ръчно освобождаване в dispose, а редовете се пресъздават.
+                WidgetSpan(
+                  alignment: PlaceholderAlignment.baseline,
+                  baseline: TextBaseline.alphabetic,
+                  child: GestureDetector(
+                    onTap: () => _openNoteSource(n),
+                    child: Text(
+                      '($link)',
+                      style: const TextStyle(
+                        color: AppColors.sectionTitle,
+                        fontSize: 15,
+                        height: 1.45,
+                        decoration: TextDecoration.underline,
+                        decorationStyle: TextDecorationStyle.dotted,
+                        decorationColor: AppColors.sectionDivider,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ])),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Отваря извора на бележката и маркира пасажа ([ReaderScreen.openAtText]).
+  ///
+  /// ⚠ Типиконът — в режим `sluzhba` (без буквица), останалото (Дебольски,
+  /// статиите) — в `life`, както се отваря и отвсякъде другаде.
+  Future<void> _openNoteSource(DayNote n) async {
+    final nav = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    final texts = await lookupBySlug(n.slug);
+    if (texts == null) {
+      messenger.showSnackBar(
+          const SnackBar(content: Text('Изворът на бележката липсва.')));
+      return;
+    }
+    final tip = isTipikonSlug(n.slug);
+    await nav.push(MaterialPageRoute(
+      builder: (_) => tip
+          ? ReaderScreen.sluzhba(
+              texts: texts,
+              lookup: lookupBySlug,
+              typeLabel: 'Указания на Типикона',
+              openAtText: n.passage)
+          : ReaderScreen.life(
+              texts: texts, lookup: lookupBySlug, openAtText: n.passage),
+    ));
   }
 
   /// Ред-връзка към пълните указания на Типикона за деня.

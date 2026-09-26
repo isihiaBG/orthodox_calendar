@@ -53,6 +53,7 @@ import 'reader_match_ticks.dart';
 import 'quotes_list.dart';
 import 'reader_more_menu.dart';
 import 'reader_resume_prompt.dart';
+import 'quote_capture.dart';
 import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
@@ -781,6 +782,15 @@ class ReaderScreen extends StatefulWidget {
   /// а текстът потвърждава, че още сочат където трябва. Виж `quotes.dart`.
   final ParsedQuoteLink? openAtQuote;
 
+  /// Отвори веднага и маркирай ТОЗИ ОТКЪС — дословен текст от четивото.
+  ///
+  /// ⚠ Ползва се от кратките бележки за деня („виж в Типикона"): там се знае
+  /// самият пасаж, но не и координатите му в регионите на четеца. Затова
+  /// откъсът минава през СЪЩОТО улавяне като селекцията на човека
+  /// ([captureSelection]) и после през същото маркиране като споделен цитат
+  /// ([_goToQuote]) — нищо ново не се смята.
+  final String? openAtText;
+
   const ReaderScreen.life({
     super.key,
     required this.texts,
@@ -788,6 +798,7 @@ class ReaderScreen extends StatefulWidget {
     this.lifeTitle,
     this.typeLabel,
     this.openAtQuote,
+    this.openAtText,
   }) : _mode = _ReaderMode.life;
 
   const ReaderScreen.prayers({
@@ -797,6 +808,7 @@ class ReaderScreen extends StatefulWidget {
     this.lifeTitle,
     this.typeLabel,
     this.openAtQuote,
+    this.openAtText,
   }) : _mode = _ReaderMode.prayers;
 
   const ReaderScreen.sluzhba({
@@ -806,6 +818,7 @@ class ReaderScreen extends StatefulWidget {
     this.lifeTitle,
     this.typeLabel,
     this.openAtQuote,
+    this.openAtText,
   }) : _mode = _ReaderMode.sluzhba;
 
   @override
@@ -913,6 +926,18 @@ class _ReaderScreenState extends State<ReaderScreen>
       // „да продължим ли оттам, докъдето беше стигнал" тук само пречи.
       if (widget.openAtQuote != null) {
         _goToQuote(widget.openAtQuote!);
+        return;
+      }
+      if (widget.openAtText != null) {
+        final q = _quoteFromText(widget.openAtText!);
+        if (q != null) {
+          _goToQuote(q);
+        } else {
+          // ⚠ Липсващ пасаж се СЪОБЩАВА — тихият отказ е най-скъпият вид
+          // тук. Четивото остава отворено от началото.
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Пасажът не се намери в текста.')));
+        }
         return;
       }
 
@@ -2689,6 +2714,25 @@ class _ReaderScreenState extends State<ReaderScreen>
   /// ⚠ НЕ се поправя в самия `regionPlainTexts`: той храни оценката на
   /// височините (`_estimateRegionHeight`), а тя трябва да мери каквото
   /// РЕАЛНО се рисува в потока — а буквицата не се рисува там.
+  /// Откъс като текст → цитат с координати, по пътя на селекцията.
+  ParsedQuoteLink? _quoteFromText(String text) {
+    final blocks = _quoteBlocks();
+    if (blocks.isEmpty) return null;
+    final spot =
+        captureSelection(blocks, text, dropCapBlock: _dropCapBlockIndex);
+    if (spot == null) return null;
+    final q = buildQuote(
+      source: QuoteSource.life,
+      locator: widget.texts.slug,
+      title: widget.texts.name,
+      blocks: blocks,
+      spot: spot,
+    );
+    final (fp, fpLen) = quoteFingerprint(q.text);
+    return ParsedQuoteLink(
+        anchor: q.anchor, fingerprint: fp, fingerprintLength: fpLen, text: q.text);
+  }
+
   List<String> _quoteBlocks() {
     final p = _prepared;
     if (p == null) return const [];
@@ -3609,6 +3653,24 @@ class _ReaderScreenState extends State<ReaderScreen>
             // Отстъпът покрива преливането ((draw−box)/2) плюс нормалното
             // разстояние между знак и дума, и расте заедно с шрифта.
             final side = (draw - box) / 2 + ReaderFontSize.value * 0.34;
+            // ⚠⚠ В ЗАГЛАВИЕ ЗНАКЪТ СЕ ВДИГА. Кутията се мери по шрифта на
+            // ТЕКСТА, а редът на заглавието (`h3`, Tamburin, по-едър) е
+            // по-висок — знакът лягаше в долната му част: центърът му стоеше
+            // ~0,19 от рисунката под средата на главните букви (мерено на
+            // екранна снимка на 14 септември в Типикона; докладвано от
+            // потребителя, 26.09.2026). Вдигането е `Transform.translate`,
+            // тоест само рисуване — редът не се разпъва. В обикновен абзац
+            // (справочника) знакът е нагласен отдавна и не се пипа.
+            var inHeading = false;
+            var e = ctx.element?.parent;
+            while (e != null) {
+              if (e.localName == 'h3') {
+                inHeading = true;
+                break;
+              }
+              e = e.parent;
+            }
+            final lift = inHeading ? draw * 0.19 : 0.0;
             return Padding(
               padding: EdgeInsets.symmetric(horizontal: side),
               child: SizedBox(
@@ -3617,11 +3679,14 @@ class _ReaderScreenState extends State<ReaderScreen>
                 child: OverflowBox(
                   maxWidth: draw,
                   maxHeight: draw,
-                  child: SvgPicture.asset(
-                    path,
-                    width: draw,
-                    height: draw,
-                    colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+                  child: Transform.translate(
+                    offset: Offset(0, -lift),
+                    child: SvgPicture.asset(
+                      path,
+                      width: draw,
+                      height: draw,
+                      colorFilter: ColorFilter.mode(color, BlendMode.srcIn),
+                    ),
                   ),
                 ),
               ),
