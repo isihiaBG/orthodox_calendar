@@ -394,3 +394,10 @@ tools/Slova/scripts/__pycache__/
 # (чуждо съдържание / производно) — само скриптовете и README.
 tools/calendar_compare/pravoslavieto_calendar.htm
 tools/calendar_compare/work/
+
+# Молитвословът (27.09.2026) — по образеца на останалите конвейери: изворите
+# (.epub от azbyka.ru) и производното не се пазят, скриптовете и README — да.
+tools/Molitvoslov/*
+!tools/Molitvoslov/scripts/
+!tools/Molitvoslov/README.md
+tools/Molitvoslov/scripts/__pycache__/
