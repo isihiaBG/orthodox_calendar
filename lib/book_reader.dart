@@ -2123,6 +2123,17 @@ class _BookReaderState extends State<BookReader>
           dotAll: true),
       (m) => '<p class="${prayerClass[m.group(1)]}">${m.group(2)}</p>',
     );
+    // Редът с източника, който конвейерът е сложил САМ (предговорът от
+    // прп. Юстин — той няма номер на житие, от който `_chapterHtml` да
+    // сглоби своя). Същият клас `.source` като при всички жития, инак PDF-ът
+    // го разлива като обикновен абзац и самотното „Източник:" отива вдясно.
+    // `<small>` отпада — размерът идва от класа.
+    body = body.replaceAllMapped(
+      RegExp(r'<div\s+class="paragraph"\s+data-role="source"[^>]*>(.*?)</div>',
+          dotAll: true),
+      (m) => '<p class="source">'
+          '${m.group(1)!.replaceAll(RegExp(r'</?small>'), '')}</p>',
+    );
     // Останалите абзаци. Вложени <div> в „paragraph" няма — проверено.
     body = body.replaceAllMapped(
       RegExp(r'<div\s+class="paragraph"[^>]*>(.*?)</div>', dotAll: true),

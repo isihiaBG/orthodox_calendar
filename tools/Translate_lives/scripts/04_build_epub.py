@@ -813,8 +813,14 @@ def add_preface(oebps, stage):
     if p.get("notes"):
         body += ['<div class="paragraph"><small>%s</small></div>' % n
                  for n in p["notes"]]
-    body.append('<div class="paragraph"><small>Източник: <a href="%s">%s</a>'
-                '</small></div>' % (attr(p["source"]), attr(p["source"])))
+    # ⚠ `data-role="source"` — четецът (book_reader._normalize) го превръща в
+    # `<p class="source">`, с който са и източниците на останалите жития.
+    # Като обикновен абзац PDF-ът го разливаше: дългият адрес падаше на нов
+    # ред, а самотното „Източник:" отиваше вдясно (докладвано от
+    # потребителя, 27.09.2026). Видимо е само „azbyka.ru", както навсякъде;
+    # връзката сочи самото слово.
+    body.append('<div class="paragraph" data-role="source"><small>Източник: '
+                '<a href="%s">azbyka.ru</a></small></div>' % attr(p["source"]))
     xhtml = ('<?xml version="1.0" encoding="utf-8"?>\n'
              '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"\n'
              '  "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n\n'
