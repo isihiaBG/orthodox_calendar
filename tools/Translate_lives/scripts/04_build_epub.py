@@ -779,6 +779,95 @@ def apply_meta(oebps, meta):
     return pair[1] if pair else None
 
 
+# ─── Предговорът на прп. Юстин (Попович) ───────────────────────────────
+# Словото „Какво е светост и защо православният християнин трябва да чете
+# житията на светиите" — като ПРЕДГОВОР към всеки от 12-те тома (искане на
+# потребителя, 27.09.2026). Преводът и HTML-ът идват от tools/Slova/
+# (`02_build_db.py` пише preface_justin.json); тук само се ВМЪКВА.
+PREFACE_JSON = os.path.join(PROJECT_DIR, "..", "Slova", "work",
+                            "preface_justin.json")
+PREFACE_FILE = "preface_justin.xhtml"
+
+
+def add_preface(oebps, stage):
+    """Вмъква предговора като глава веднага след заглавната страница.
+
+    Две стъпки, в два различни момента от сглобяването:
+      stage="file" — пише Text/preface_justin.xhtml. ⚠ ПРЕДИ `embed_fonts`:
+          шрифтът се подрязва до знаците на тома, и знак, който го има само в
+          предговора, иначе би излязъл с чужд шрифт в страничните четци.
+      stage="toc"  — вписва главата в toc.ncx и content.opf. ⚠ СЛЕД
+          `apply_meta`: тя превежда toc.ncx ПО ПОРЕДЕН НОМЕР на записа, и нов
+          запис преди нея би изместил всички надписи с един.
+    ⚠ Преномерира playOrder в toc.ncx — трябва да е пореден и уникален.
+    Връща True, ако е вмъкнат.
+    """
+    if not os.path.exists(PREFACE_JSON):
+        print("  ⚠ предговорът липсва (%s) — томът е без него" % PREFACE_JSON)
+        return False
+    p = json.load(open(PREFACE_JSON, encoding="utf-8"))
+    body = ['<h1 class="calibre9">%s</h1>' % attr(p["title"]),
+            '<div class="paragraph"><span>%s</span></div>'
+            % attr(p["subtitle"])]
+    body += ['<div class="paragraph">%s</div>' % x for x in p["paragraphs"]]
+    if p.get("notes"):
+        body += ['<div class="paragraph"><small>%s</small></div>' % n
+                 for n in p["notes"]]
+    body.append('<div class="paragraph"><small>Източник: <a href="%s">%s</a>'
+                '</small></div>' % (attr(p["source"]), attr(p["source"])))
+    xhtml = ('<?xml version="1.0" encoding="utf-8"?>\n'
+             '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.1//EN"\n'
+             '  "http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd">\n\n'
+             '<html xmlns="http://www.w3.org/1999/xhtml">\n<head>\n'
+             '    <title>%s</title>\n'
+             '    <meta http-equiv="Content-Type" content="text/html; '
+             'charset=utf-8"/>\n'
+             '  <link href="../Styles/stylesheet.css" rel="stylesheet" '
+             'type="text/css"/>\n'
+             '<link href="../Styles/page_styles.css" rel="stylesheet" '
+             'type="text/css"/>\n</head>\n  <body class="calibre">\n%s\n'
+             '</body>\n</html>\n' % (attr(p["title"]), "\n".join(body)))
+    if stage == "file":
+        with open(os.path.join(oebps, "Text", PREFACE_FILE), "w",
+                  encoding="utf-8") as f:
+            f.write(xhtml)
+        return True
+    if not os.path.exists(os.path.join(oebps, "Text", PREFACE_FILE)):
+        raise SystemExit("  ✗ предговорът не е записан (stage=file липсва)")
+
+    ncx_path = os.path.join(oebps, "toc.ncx")
+    ncx = open(ncx_path, encoding="utf-8").read()
+    # Първият запис е заглавната страница — предговорът застава след него.
+    first_src = re.search(r'<content src="Text/([^"#]+)', ncx).group(1)
+    end = ncx.index("</navPoint>") + len("</navPoint>")
+    nav = ('\n    <navPoint id="navPoint-preface" playOrder="0">\n'
+           '      <navLabel>\n        <text>%s</text>\n      </navLabel>\n'
+           '      <content src="Text/%s"/>\n    </navPoint>'
+           % (attr(p["title"]), PREFACE_FILE))
+    ncx = ncx[:end] + nav + ncx[end:]
+    n = [0]
+
+    def renum(m):
+        n[0] += 1
+        return 'playOrder="%d"' % n[0]
+    ncx = re.sub(r'playOrder="\d+"', renum, ncx)
+    with open(ncx_path, "w", encoding="utf-8") as f:
+        f.write(ncx)
+
+    opf_path = os.path.join(oebps, "content.opf")
+    o = open(opf_path, encoding="utf-8").read()
+    item = ('    <item href="Text/%s" id="%s" '
+            'media-type="application/xhtml+xml"/>\n' % (PREFACE_FILE, PREFACE_FILE))
+    o = re.sub(r'([ \t]*)</manifest>', lambda m: item + m.group(0), o, count=1)
+    ref = '<itemref idref="%s"/>' % first_src
+    if ref not in o:
+        raise SystemExit("  ✗ няма itemref за заглавната глава %s" % first_src)
+    o = o.replace(ref, ref + '\n    <itemref idref="%s"/>' % PREFACE_FILE, 1)
+    with open(opf_path, "w", encoding="utf-8") as f:
+        f.write(o)
+    return True
+
+
 EPUB_NS = "http://www.idpf.org/2007/ops"
 DOCTYPE3 = "<!DOCTYPE html>"
 RE_DOCTYPE = re.compile(r"<!DOCTYPE[^>]*>", re.S)
@@ -1105,6 +1194,9 @@ def process(vol, dry, epub3=False):
     if replace_cover(oebps, vol):
         print("  корица: българската от Covers_BG/%s.jpg" % vol[:2])
 
+    # ⚠ Файлът на предговора — ПРЕДИ шрифтовете (виж add_preface).
+    has_preface = add_preface(oebps, "file")
+
     n_font = embed_fonts(oebps)
     if n_font:
         print("  вградени шрифтове: %d (Charis SIL за основния текст)" % n_font)
@@ -1116,6 +1208,11 @@ def process(vol, dry, epub3=False):
     # ВНИМАНИЕ на реда: apply_meta превежда toc.ncx, а to_epub3 прави
     # nav.xhtml ОТ него. Обърнати, съдържанието в EPUB 3 излиза на руски.
     title = apply_meta(oebps, meta)
+
+    # ⚠ СЛЕД apply_meta — виж докстринга на add_preface.
+    if has_preface:
+        add_preface(oebps, "toc")
+        print("  предговор: прп. Юстин (Попович)")
 
     if epub3:
         n_ref, n_note = to_epub3(oebps, None)

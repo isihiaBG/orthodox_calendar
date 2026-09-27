@@ -63,6 +63,7 @@ dependencies:
   # Виж CLAUDE.md, „Споделяне на цитати навън".
   app_links: ^6.3.2
   pdf: ^3.13.0
+  sqflite_common_ffi_web: ^1.2.0
 
 dev_dependencies:
   flutter_test:
@@ -197,3 +198,14 @@ flutter_launcher_icons:
   image_path: "assets/icon.png"
 
 
+
+# ⚠ `sqlite3` (дошъл със sqflite_common_ffi_web за уеб версията) по
+# подразбиране сваля и вгражда СВОЯ libsqlite3.so във всеки нативен билд.
+# На телефона не ни трябва — `sqflite` ползва SQLite-а на системата, — тъй че
+# APK-то би носило втори, неизползван SQLite, а билдът би теглил от мрежата.
+# `system` казва: не вграждай нищо. Уеб версията не се засяга: там SQLite
+# идва като web/sqlite3.wasm.
+hooks:
+  user_defines:
+    sqlite3:
+      source: system

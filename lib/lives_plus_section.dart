@@ -26,19 +26,29 @@ class LivesPlusSection extends StatelessWidget {
   // ⚠⚠ РАЗДЕЛЕНИЕТО Е ПО АВТОР (решение на потребителя, 25.09.2026). Двата
   // вида четиво са в ЕДНА секция, за да не се множат секциите, но не бива да
   // се представят като едно и също: словата са проповеди, поясненията — не.
-  static const _kSlovaHeading = 'Слова от свт. Димитрий Ростовски';
   static const _kDniHeading = 'Пояснения за деня от прот. Григорий Дебольски';
 
   @override
   Widget build(BuildContext context) {
+    // ⚠ Словата се групират по АВТОР ([slovoAuthorHeading]) — дотук всички
+    // стояха под свт. Димитрий, а вече има и слова на прп. Юстин (Попович) и
+    // на свт. Йоан Златоуст. Редът на групите следва първото им срещане.
+    final groups = <String, List<Slovo>>{};
+    for (final s in slova) {
+      groups.putIfAbsent(slovoAuthorHeading(s.book), () => []).add(s);
+    }
+    final parts = <Widget>[];
+    for (final e in groups.entries) {
+      if (parts.isNotEmpty) parts.add(const SizedBox(height: 10));
+      parts.addAll(_group(context, e.key, e.value, 'Слово'));
+    }
+    if (dni.isNotEmpty) {
+      if (parts.isNotEmpty) parts.add(const SizedBox(height: 10));
+      parts.addAll(_group(context, _kDniHeading, dni, 'Пояснение за деня'));
+    }
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (slova.isNotEmpty) ..._group(context, _kSlovaHeading, slova, 'Слово'),
-        if (slova.isNotEmpty && dni.isNotEmpty) const SizedBox(height: 10),
-        if (dni.isNotEmpty)
-          ..._group(context, _kDniHeading, dni, 'Пояснение за деня'),
-      ],
+      children: parts,
     );
   }
 

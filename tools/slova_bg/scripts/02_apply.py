@@ -42,23 +42,22 @@ LABEL = {'sv-drosida-rimskaja': 'Похвално слово от свт. Йоа
 # ⚠ Таблицата е ИЗЦЯЛО НАША и се пресъздава при всяко пускане — нищо чуждо
 # не живее в нея, тъй че няма какво да се загуби, а схемата може да расте,
 # без да се пише миграция.
+# ⚠ БЕЗ DROP — таблиците се делят с tools/Slova/ (виж по-долу).
 SCHEMA = """
-DROP TABLE IF EXISTS slovo_saints;
-CREATE TABLE slovo_saints (
+CREATE TABLE IF NOT EXISTS slovo_saints (
     slug  TEXT NOT NULL,         -- слъгът на СВЕТИЯТА (saints.slug)
     id    TEXT NOT NULL,         -- slova.id
     label TEXT NOT NULL,         -- как се казва РЕДЪТ в плочката
     ord   INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (slug, id)
 );
-CREATE INDEX idx_slovo_saints_slug ON slovo_saints(slug);
+CREATE INDEX IF NOT EXISTS idx_slovo_saints_slug ON slovo_saints(slug);
 
 -- ⚠ Бележките под линия — СВОИ записи, не опашка в текста. Номерът в
 -- четивото е връзка „note://N"; четецът показва текста в изскачащ панел
 -- отдолу, както в четеца на книги. Изписани най-долу, същият текст стоеше
 -- два пъти и прекъсваше четенето.
-DROP TABLE IF EXISTS slovo_notes;
-CREATE TABLE slovo_notes (
+CREATE TABLE IF NOT EXISTS slovo_notes (
     id   TEXT NOT NULL,          -- slova.id
     n    TEXT NOT NULL,          -- номерът, както стои в текста
     text TEXT NOT NULL,
@@ -112,7 +111,14 @@ def main():
     db = sqlite3.connect(DB)
     db.executescript(SCHEMA)
     ids = [r['id'] for r in recs]
+    # ⚠⚠ ТРИЯТ СЕ САМО НАШИТЕ РЕДОВЕ. Дотук таблиците `slovo_saints` и
+    # `slovo_notes` се пресъздаваха цели — а в тях пише и `tools/Slova/`
+    # (словата на Златоуст и на прп. Юстин). Пуснат след него, този скрипт
+    # щеше да ги изтрие мълчаливо.
     db.execute('DELETE FROM slova WHERE book = ?', (BOOK,))
+    for i in ids:
+        db.execute('DELETE FROM slovo_saints WHERE id = ?', (i,))
+        db.execute('DELETE FROM slovo_notes WHERE id = ?', (i,))
     for r in recs:
         db.execute(
             'INSERT INTO slova (id, book, address, title_bg, title_ru, body,'

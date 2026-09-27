@@ -1,10 +1,7 @@
 import 'dart:async';
 import 'style_dates.dart';
-import 'package:flutter/services.dart';
-import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'dart:io';
+import 'asset_db.dart';
 import 'app_settings.dart';
 
 class DatabaseHelper {
@@ -152,57 +149,15 @@ class DatabaseHelper {
     }
   }
 
-  // Името на SharedPreferences ключа, в който пазим версията на
-  // последно копираната база — поотделно за всеки стил, защото
-  // calendar_old.db и calendar_new.db се обновяват независимо.
-  static String _versionPrefKey(String dbName) => 'db_version_$dbName';
-
-  /// Осигурява lives.db на диска и връща пътя до нея.
-  /// Копира се веднъж — обща е за двата стила, затова не зависи от
-  /// AppSettings.isOldStyle.
-  static Future<String> _ensureLivesDb() async {
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _livesDbName);
-    final file = File(path);
-
-    String assetVersion = '0';
-    try {
-      assetVersion =
-          (await rootBundle.loadString('assets/db/$_livesDbName.version')).trim();
-    } catch (_) {
-      // няма version файл → третираме като "0"
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final savedVersion = prefs.getString(_versionPrefKey(_livesDbName));
-
-    //final needsCopy = !await file.exists() || savedVersion != assetVersion;
-    final needsCopy = true; // винаги презаписва (както при календара)
-
-    if (needsCopy) {
-      if (await file.exists()) {
-        await file.delete();
-      }
-      final data = await rootBundle.load('assets/db/$_livesDbName');
-      await file.writeAsBytes(data.buffer.asUint8List());
-      await prefs.setString(_versionPrefKey(_livesDbName), assetVersion);
-    }
-    return path;
-  }
+  /// Осигурява lives.db и връща пътя до нея — за ATTACH към календарната.
+  /// Обща е за двата стила, затова не зависи от AppSettings.isOldStyle.
+  static Future<String> _ensureLivesDb() => ensureAssetDatabase(_livesDbName);
 
   /// Базата на "Справочник" — копира се от assets при първо повикване,
   /// по същия ред като lives.db, и остава отворена за сесията.
   static Future<Database> get referenceDatabase async {
     if (_referenceDatabase != null) return _referenceDatabase!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _referenceDbName);
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete(); // винаги презаписва — както другите бази
-    }
-    final data = await rootBundle.load('assets/db/$_referenceDbName');
-    await file.writeAsBytes(data.buffer.asUint8List());
-    _referenceDatabase = await openDatabase(path, readOnly: true);
+    _referenceDatabase = await openAssetDatabase(_referenceDbName);
     return _referenceDatabase!;
   }
 
@@ -221,15 +176,7 @@ class DatabaseHelper {
 
   static Future<Database> get teofanDatabase async {
     if (_teofanDatabase != null) return _teofanDatabase!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _teofanDbName);
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete(); // винаги презаписва — както другите бази
-    }
-    final data = await rootBundle.load('assets/db/$_teofanDbName');
-    await file.writeAsBytes(data.buffer.asUint8List());
-    _teofanDatabase = await openDatabase(path, readOnly: true);
+    _teofanDatabase = await openAssetDatabase(_teofanDbName);
     return _teofanDatabase!;
   }
 
@@ -424,15 +371,7 @@ class DatabaseHelper {
 
   static Future<Database> get optinaDatabase async {
     if (_optinaDatabase != null) return _optinaDatabase!;
-    final dbPath = await getDatabasesPath();
-    final path = join(dbPath, _optinaDbName);
-    final file = File(path);
-    if (await file.exists()) {
-      await file.delete(); // винаги презаписва — както другите бази
-    }
-    final data = await rootBundle.load('assets/db/$_optinaDbName');
-    await file.writeAsBytes(data.buffer.asUint8List());
-    _optinaDatabase = await openDatabase(path, readOnly: true);
+    _optinaDatabase = await openAssetDatabase(_optinaDbName);
     return _optinaDatabase!;
   }
 
@@ -450,51 +389,10 @@ class DatabaseHelper {
   }
 
   static Future<Database> _initDatabase() async {
-    
-    // print('_initDatabase started');
     final dbName = AppSettings.isOldStyle ? 'calendar_old.db' : 'calendar_new.db';
-    // print('dbName: $dbName');
-    final dbPath = await getDatabasesPath();
-    // print('dbPath: $dbPath');
-    
-    // final dbName = AppSettings.isOldStyle ? 'calendar_old.db' : 'calendar_new.db';
-    // final dbPath = await getDatabasesPath();
-    final path = join(dbPath, dbName);
-
-    final file = File(path);
-    final fileExists = await file.exists();
-
-    // Версията на базата в assets — текстов файл до самата база,
-    // напр. assets/db/calendar_old.version, съдържащ само число.
-    // Увеличава се ръчно само когато реално подмениш .db файла
-    // с нова версия на данните (нов extract/clean/import).
-    String assetVersion = '0';
-    try {
-      assetVersion = (await rootBundle.loadString('assets/db/$dbName.version')).trim();
-    } catch (_) {
-      // Ако няма version файл — третираме като версия "0" (винаги презаписва).
-    }
-
-    final prefs = await SharedPreferences.getInstance();
-    final savedVersion = prefs.getString(_versionPrefKey(dbName));
-
-    //final needsCopy = !fileExists || savedVersion != assetVersion;
-    final needsCopy = true; // винаги презаписва
-    
-    // print('dbName: $dbName.version');
-    // print('assetVersion: $assetVersion');
-    // print('savedVersion: $savedVersion');
-    // print('needsCopy: $needsCopy');
-    
-    if (needsCopy) {
-      if (fileExists) {
-        await file.delete();
-      }
-      final data = await rootBundle.load('assets/db/$dbName');
-      final bytes = data.buffer.asUint8List();
-      await file.writeAsBytes(bytes);
-      await prefs.setString(_versionPrefKey(dbName), assetVersion);
-    }
+    // ⚠ Копирането (веднъж на сесия) и пътят — в asset_db.dart, общо за
+    // телефона и браузъра.
+    final path = await ensureAssetDatabase(dbName);
 
     final livesPath = await _ensureLivesDb();
     final db = await openDatabase(path);

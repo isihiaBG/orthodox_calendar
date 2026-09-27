@@ -25,6 +25,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart';
 
@@ -132,6 +133,14 @@ class BiblePacks {
 
   static Directory? _dir;
 
+  /// Могат ли изобщо да се свалят пакети тук.
+  ///
+  /// ⚠ В БРАУЗЪРА — НЕ. Свалянето пише файлове с `dart:io` (там го няма), а
+  /// и GitHub не пуска чужд сайт да тегли активите на изданието (CORS).
+  /// Затова уеб версията има само вградените два превода: всяка функция тук
+  /// отговаря „няма нищо свалено", вместо да гърми.
+  static bool get supported => !kIsWeb;
+
   /// ⚠ СОБСТВЕНА ПАПКА, извън `getDatabasesPath()`. Там живее `bible.db`,
   /// която се трие при всяко пускане; пакетите не бива да са ѝ съседи, за да
   /// не ги помете някое бъдещо чистене „на едро".
@@ -148,6 +157,7 @@ class BiblePacks {
 
   /// Кои пакети са налични на устройството.
   static Future<Set<String>> installed() async {
+    if (!supported) return {};
     final d = await _packDir();
     final out = <String>{};
     for (final f in d.listSync()) {
@@ -160,7 +170,7 @@ class BiblePacks {
   }
 
   static Future<bool> isInstalled(String code) async =>
-      File(await pathFor(code)).exists();
+      supported && await File(await pathFor(code)).exists();
 
   /// Сваля пакет, като известява за напредъка (0..1).
   ///
@@ -179,6 +189,10 @@ class BiblePacks {
     void Function(double progress, int received, int total)? onProgress,
     CancelToken? cancel,
   }) async {
+    if (!supported) {
+      return 'В уеб версията преводите не могат да се свалят — '
+          'има ги в приложението за телефон.';
+    }
     final target = await pathFor(code);
     final part = File('$target.part');
     HttpClient? client;
@@ -238,6 +252,7 @@ class BiblePacks {
 
   /// Изтрива свален пакет.
   static Future<void> remove(String code) async {
+    if (!supported) return;
     final f = File(await pathFor(code));
     if (await f.exists()) await f.delete();
   }

@@ -380,3 +380,12 @@ tools/tipikon/*
 !tools/tipikon/input/
 !tools/tipikon/README.md
 tools/tipikon/scripts/__pycache__/
+
+# ── tools/Slova/ ─────────────────────────────────────────────────────────
+# Словото на прп. Юстин (Попович) и похвалните слова на свт. Йоан Златоуст —
+# книгите и преводите не влизат (чужди права, тежест); скриптовете и
+# README-то — да.
+tools/Slova/*
+!tools/Slova/scripts/
+!tools/Slova/README.md
+tools/Slova/scripts/__pycache__/

@@ -23,7 +23,10 @@
 
 import 'dart:convert';
 import 'dart:typed_data';
-import 'dart:io';
+// ⚠ zlib идва от `archive`, не от `dart:io`: на телефона той вика СЪЩИЯ
+// `ZLibCodec` (линковете излизат байт по байт същите), а в браузъра — своя
+// реализация на чист Dart. `dart:io` там гърми при изпълнение.
+import 'package:archive/archive.dart' show ZLibDecoder, ZLibEncoder;
 
 import 'bible_ref.dart';
 import 'quotes.dart';
@@ -645,7 +648,7 @@ String _packV3(Quote q) {
   // първият байт на двоичния е 0x30..0x32, тоест точно „0"/„1"/„2", каквито
   // започват и текстовите.
   final bytes = Uint8List.fromList(out);
-  final z = ZLibCodec(level: 9).encode(bytes);
+  final z = ZLibEncoder().encodeBytes(bytes, level: 9);
   final useZ = z.length < bytes.length;
   final body =
       base64Url.encode(useZ ? z : bytes).replaceAll('=', '');
@@ -659,7 +662,7 @@ ParsedQuoteLink? _unpackV3(String packed) {
     var body = packed.substring(1);
     body = body.padRight((body.length + 3) ~/ 4 * 4, '=');
     b = base64Url.decode(body);
-    if (packed[0] == 'c') b = ZLibCodec().decode(b);
+    if (packed[0] == 'c') b = ZLibDecoder().decodeBytes(b);
   } catch (_) {
     return null;
   }
@@ -790,7 +793,7 @@ List<String>? _unpack(String s) {
   final body = s.substring(1).padRight((s.length - 1 + 3) ~/ 4 * 4, '=');
   try {
     final raw = base64Url.decode(body);
-    final bytes = kind == 'z' ? ZLibCodec().decode(raw) : raw;
+    final bytes = kind == 'z' ? ZLibDecoder().decodeBytes(raw) : raw;
     return utf8.decode(bytes).split('|').map(_unescField).toList();
   } catch (_) {
     return null;

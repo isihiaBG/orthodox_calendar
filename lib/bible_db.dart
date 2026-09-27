@@ -18,14 +18,12 @@
 // номерация, тъй че редовете се сглобяват по ключ, а не по пореден номер —
 // виж [alignChapter].
 
-import 'dart:io';
-
 import 'package:flutter/foundation.dart' show ValueNotifier;
-import 'package:flutter/services.dart' show rootBundle;
-import 'package:path/path.dart' show join;
 
 import 'search_match.dart';
 import 'package:sqflite/sqflite.dart';
+
+import 'asset_db.dart';
 
 import 'bible_packs.dart';
 
@@ -217,32 +215,12 @@ class BibleDb {
   }
 
   static Future<Database> _open() async {
-    final dbPath = await getDatabasesPath();
-    // ⚠ Папката `databases/` може да я няма изобщо при отваряне ПО ЛИНК:
-    // приложението стига дотук, без да е минало по обичайния път, който я
-    // създава. Тогава записът гърми със същия errno = 2, само че на друг
-    // ред.
-    await Directory(dbPath).create(recursive: true);
-    final path = join(dbPath, _dbName);
-    final file = File(path);
-    if (await file.exists()) {
-      // Винаги презаписва — както другите бази. ⚠ Без това поправка в
-      // assets/db/ не стига до устройството: копието отпреди остава и
-      // приложението чете стария текст, докато данните не се изчистят на
-      // ръка. Точно този капан беше платен веднъж с томовете (виж CLAUDE.md).
-      //
-      // ⚠ Изтриването е ТОЛЕРАНТНО: файлът може да си е отишъл между
-      // проверката и самото триене (друг повикващ, чистене на паметта).
-      // Целта е „да го няма", а не „аз да съм го изтрил".
-      try {
-        await file.delete();
-      } on FileSystemException catch (_) {
-        // вече го няма — точно каквото искахме
-      }
-    }
-    final data = await rootBundle.load('assets/db/$_dbName');
-    await file.writeAsBytes(data.buffer.asUint8List());
-    final db = await openDatabase(path, readOnly: true);
+    // ⚠ Копирането е в asset_db.dart — общо за телефона и браузъра, веднъж
+    // на сесия. Там е и правилото, заради което преди стоеше „винаги
+    // презаписва": поправка в assets/db/ трябва да стига до устройството.
+    // Изтриването вече няма нужда да е толерантно към състезание — две
+    // едновременни повиквания чакат едно и също копиране.
+    final db = await openAssetDatabase(_dbName);
     _db = db;
     return db;
   }
@@ -268,10 +246,12 @@ class BibleDb {
   /// език се помни в настройките.
   static Future<Database> _dbFor(String lang) async {
     if (kBuiltInLangs.contains(lang)) return database;
+    // ⚠ В браузъра пакети няма (виж BiblePacks.supported).
+    if (!BiblePacks.supported) return database;
     final open = _packs[lang];
     if (open != null) return open;
     final path = await BiblePacks.pathFor(lang);
-    if (!await File(path).exists()) return database;
+    if (!await BiblePacks.isInstalled(lang)) return database;
     return _packs[lang] = await openDatabase(path, readOnly: true);
   }
 

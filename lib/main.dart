@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'style_dates.dart';
 import 'database_helper.dart';
+import 'db_platform.dart';
 import 'app_theme.dart';
 import 'quote_incoming.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
@@ -21,6 +22,8 @@ void main() async {
   // да е налична още преди приложението да е тръгнало — иначе стартира с
   // подразбирането и после би се наложило да превключва базата.
   WidgetsFlutterBinding.ensureInitialized();
+  // ⚠ ПРЕДИ всяко отваряне на база — в браузъра подменя фабриката на sqflite.
+  initDatabasePlatform();
   await AppSettings.load();
   runApp(const OrthodoxCalendarApp());
 }

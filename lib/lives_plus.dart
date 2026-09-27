@@ -20,10 +20,11 @@
 //
 // ⚠ Базата е ОТДЕЛНА и не се ATTACH-ва — както `teofan.db` и `optina.db`.
 
-import 'dart:io';
+import 'package:flutter/foundation.dart' show kIsWeb;
+
+import 'asset_db.dart';
 import 'style_dates.dart';
 
-import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -58,6 +59,16 @@ const String kTipikonSlugPrefix = 'tip-';
 
 bool isTipikonSlug(String slug) => slug.startsWith(kTipikonSlugPrefix);
 
+/// Заглавието на групата в „Слова за деня" — по книгата, тоест по автора.
+///
+/// ⚠ Трите книги на свт. Димитрий (`vosk`, `nepe`, `pril`) са една група.
+/// Непозната книга пада при него — така беше и досега.
+String slovoAuthorHeading(String book) => switch (book) {
+      'justin' => 'Слово от прп. Юстин (Попович)',
+      'zl-svyatii' || 'zlat' => 'Слова от свт. Йоан Златоуст',
+      _ => 'Слова от свт. Димитрий Ростовски',
+    };
+
 /// Един ден от Типикона — БЕЗ тялото (то се вади при отваряне).
 class TipikonDay {
   final String id;
@@ -78,10 +89,15 @@ class Slovo {
   final String title;
   final String address;
 
+  /// Коя книга — оттам и авторът, по който се групира в „Слова за деня"
+  /// (виж [slovoAuthorHeading]).
+  final String book;
+
   const Slovo({
     required this.id,
     required this.title,
     required this.address,
+    this.book = '',
   });
 
   // ⚠ Главите на Дебольски носят слъга си в самия id („dni-0061"); словата —
@@ -118,20 +134,19 @@ class LivesPlusDb {
   }
 
   static Future<Database> _open() async {
-    final dir = await getApplicationSupportDirectory();
-    final path = p.join(dir.path, 'lives_plus.db');
-    // ⚠ Презаписва се при ВСЯКО пускане, за да стига поправка в `assets/db/`
-    // до устройството — същото правило като при `bible.db`.
-    final data = await rootBundle.load('assets/db/lives_plus.db');
-    final f = File(path);
-    try {
-      if (await f.exists()) await f.delete();
-    } on FileSystemException {
-      // целта е „да го няма", не „аз да съм го изтрил"
+    // ⚠ Копирането е в asset_db.dart — общо за телефона и браузъра.
+    // Дотук базата живееше в getApplicationSupportDirectory(), каквато в
+    // браузъра няма; сега е при останалите, в папката на базите. Старото
+    // копие (9 MB) се трие веднъж, за да не остане заседнало на телефона.
+    if (!kIsWeb) {
+      try {
+        final dir = await getApplicationSupportDirectory();
+        await deleteDatabase(p.join(dir.path, 'lives_plus.db'));
+      } catch (_) {
+        // няма го — точно каквото искахме
+      }
     }
-    await f.create(recursive: true);
-    await f.writeAsBytes(data.buffer.asUint8List(), flush: true);
-    return _db = await openDatabase(path, readOnly: true);
+    return _db = await openAssetDatabase('lives_plus.db');
   }
 
   /// Всички addrs, на които може да падне този ден.
@@ -169,10 +184,15 @@ class LivesPlusDb {
     // пада на НЯКОЛКО дни — „Поучение през светите пости" върви на началото
     // на всеки от четирите поста. `slova.address` пази само първия и
     // търсене по него би показало словото само в един от тях.
+    // ⚠ GROUP BY: едно слово може да се падне на ДВА от адресите на деня
+    // (словото на прп. Юстин е и на 1 юни ц., и във втората неделя след
+    // Петдесетница — а през 2026 г. двете са един и същ ден). Без групиране
+    // излизаше два пъти.
     final rows = await db.rawQuery('''
-      SELECT s.id, s.title_bg, d.address
+      SELECT s.id, s.title_bg, s.book, MIN(d.address) AS address
       FROM slovo_days d JOIN slova s ON s.id = d.id
       WHERE d.address IN (${List.filled(addrs.length, '?').join(',')})
+      GROUP BY s.id
       ORDER BY s.id
     ''', addrs);
     return [
@@ -181,6 +201,7 @@ class LivesPlusDb {
           id: r['id'] as String,
           title: r['title_bg'] as String,
           address: r['address'] as String,
+          book: (r['book'] as String?) ?? '',
         ),
     ];
   }

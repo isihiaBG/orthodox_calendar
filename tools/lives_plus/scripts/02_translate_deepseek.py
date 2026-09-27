@@ -183,7 +183,15 @@ def main() -> int:
     ap.add_argument('--model')
     ap.add_argument('--workers', type=int, default=4)
     ap.add_argument('--root', help='друга папка на конвейер (със своя work/)')
+    # ⚠ Кой е авторът и какво е четивото — вторият ред на промпта. По
+    # подразбиране остава св. Димитрий, за да не се мени досегашното.
+    ap.add_argument('--intro', help='замества реда „Превеждаш СЛОВА и ПОУЧЕНИЯ на …"')
     a = ap.parse_args()
+    if a.intro:
+        globals()['ПРОМПТ'] = ПРОМПТ.replace(
+            'Превеждаш СЛОВА и ПОУЧЕНИЯ на св. Димитрий Ростовски — проповеди, '
+            'говорени в храм.', a.intro)
+        assert a.intro in ПРОМПТ, 'редът за замяна не е намерен'
 
     if a.chunk:
         globals()['ПАРЧЕ'] = a.chunk
