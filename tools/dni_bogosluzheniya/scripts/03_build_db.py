@@ -22,6 +22,11 @@ import pathlib
 import sqlite3
 import sys
 
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2] / 'bible_refs'))
+import linkify  # noqa: E402
+
+_карта = linkify.abbreviations()
+
 КОРЕН = pathlib.Path(__file__).resolve().parent.parent
 РАБОТА = КОРЕН / 'work'
 БАЗА = КОРЕН.parent.parent / 'assets' / 'db' / 'lives_plus.db'
@@ -58,8 +63,12 @@ def main() -> int:
         if u['id'] not in заглавия:
             грешки.append('няма заглавие: ' + u['id']); continue
         загл = заглавия[u['id']].strip()
+        # ⚠ Библейските препратки → ДЕЙСТВАЩИ връзки (общият модул
+        # tools/bible_refs/linkify.py). До 27.09.2026 тук липсваше и 688
+        # препратки у Дебольски стояха като обикновен текст.
         тяло = '<h3>%s</h3>\n' % html.escape(загл) + '\n'.join(
-            '<p>%s</p>' % html.escape(b.strip()) for b in bg if b and b.strip())
+            '<p>%s</p>' % linkify.link(html.escape(b.strip()), _карта)
+            for b in bg if b and b.strip())
         дял = ДЯЛОВЕ.get((u['path'] or [''])[-1], '')
         редове.append((u['id'], int(u['order']), дял, загл, u['title_ru'],
                        тяло, ИЗТОЧНИК, sum(len(b) for b in bg)))

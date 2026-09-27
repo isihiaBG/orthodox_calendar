@@ -389,16 +389,23 @@ String _buildHtmlFor(_ReaderMode mode, SaintTexts texts,
   // отворено от отметка или от споделен цитат, показва самата запушалка.
   // Същият довод като при `⟦пост⟧` в справочника.
 
+  String live(String html) => expandChurchDates(
+        expandPaschaDates(html, oldStyle: oldStyle, oldFirst: oldFirst),
+        oldStyle: oldStyle,
+        oldFirst: oldFirst,
+      );
+
+  // ⚠⚠ И В РЕЖИМ „СЛУЖБА" — справочните статии (`ref-…`) се отварят ТАМ, а
+  // носят запушалки (`⟦дата:10-26⟧` в „Дни за помени"). Дотук разгъването
+  // беше само за житието и справочникът показваше суровата запушалка
+  // (докладвано от потребителя, 27.09.2026). Службите и Типиконът запушалки
+  // нямат, тъй че за тях изразът не мени нищо.
   if (mode == _ReaderMode.sluzhba) {
-    return '${texts.sluzhba}$src';
+    return '${live(texts.sluzhba)}$src';
   }
 
   if (mode == _ReaderMode.life) {
-    return '${expandChurchDates(
-      expandPaschaDates(texts.lifeHtml, oldStyle: oldStyle, oldFirst: oldFirst),
-      oldStyle: oldStyle,
-      oldFirst: oldFirst,
-    )}$src';
+    return '${live(texts.lifeHtml)}$src';
   }
 
   return '${_prayersBlocksHtml(texts)}$src';

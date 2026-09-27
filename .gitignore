@@ -401,3 +401,6 @@ tools/Molitvoslov/*
 !tools/Molitvoslov/scripts/
 !tools/Molitvoslov/README.md
 tools/Molitvoslov/scripts/__pycache__/
+
+# Резервните копия от tools/bible_refs/link_dbs.py
+tools/bible_refs/backups/

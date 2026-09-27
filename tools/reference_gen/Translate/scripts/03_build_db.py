@@ -28,6 +28,7 @@ import json
 import os
 import re
 import sqlite3
+
 import sys
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -45,6 +46,12 @@ DEFAULT_OUT = os.path.join(REPO_DIR, "assets", "db", "reference.db")
 # която се отваря с едно докосване, и я слага НАЙ-ОТГОРЕ, по `position`.
 # Идентификаторите им започват от 100, за да не се бъркат с номерата на
 # групите от превода.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 '..', '..', '..', 'bible_refs'))
+import linkify  # noqa: E402
+
+_BIBLE = linkify.abbreviations()
+
 MANUAL_DIR = os.path.join(REFGEN_DIR, "manual")
 MANUAL_ID0 = 100
 
@@ -86,6 +93,16 @@ CREATE INDEX idx_articles_group ON ref_articles(group_id, position);
 
 
 RE_ZNAK = re.compile(r"⟦znak([1-5])⟧")
+
+
+def bg_html(units):
+    """Българският текст: като to_html, плюс ДЕЙСТВАЩИ библейски връзки.
+
+    ⚠ До 27.09.2026 препратките в справочника („(Мат. 9:15)") стояха като
+    обикновен текст. Свързва ги общият модул tools/bible_refs/linkify.py —
+    същият вид адрес като в томовете, тъй че се отварят вътре в приложението.
+    Руската колона (`body_ru`) е само за сверка и не се пипа."""
+    return linkify.link(to_html(units), _BIBLE)
 
 
 def to_html(units):
@@ -165,7 +182,7 @@ def main():
             " (id, group_id, title, title_ru, body, body_ru, position)"
             " VALUES (?,?,?,?,?,?,?)",
             (i, gid, a["title_bg"], a["title_ru"],
-             to_html(a["units_bg"]), to_html(a["units"]), counts[gid]))
+             bg_html(a["units_bg"]), to_html(a["units"]), counts[gid]))
 
     # ⚠ Id-то на статията е и слъгът ѝ (`ref-<id>`) — в отметките и в
     # споделените линкове. Затова ръчните имат ПОСТОЯНЕН номер — изричното
