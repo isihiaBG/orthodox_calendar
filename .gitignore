@@ -389,3 +389,8 @@ tools/Slova/*
 !tools/Slova/scripts/
 !tools/Slova/README.md
 tools/Slova/scripts/__pycache__/
+
+# Сверката с pravoslavieto.com: свалената страница и изходът не се пазят
+# (чуждо съдържание / производно) — само скриптовете и README.
+tools/calendar_compare/pravoslavieto_calendar.htm
+tools/calendar_compare/work/

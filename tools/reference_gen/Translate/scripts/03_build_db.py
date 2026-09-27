@@ -37,6 +37,17 @@ REPO_DIR = os.path.dirname(os.path.dirname(REFGEN_DIR))   # коренът на 
 TRANSLATED_DIR = os.path.join(PROJECT_DIR, "work", "translated")
 DEFAULT_OUT = os.path.join(REPO_DIR, "assets", "db", "reference.db")
 
+# ⚠ Статии, написани НА РЪКА, а не преведени (27.09.2026): „Дни, в които се
+# разрешава тайнството брак" и „Символ на вярата". Носят готов HTML
+# (`body_html`), защото Символът иска класовете на песнопенията (.csl /
+# .trans), а не голи абзаци. Всяка става САМОСТОЯТЕЛНА група с едно четиво
+# и еднакво име — екранът (reference_book_screen.dart) я рисува като карта,
+# която се отваря с едно докосване, и я слага НАЙ-ОТГОРЕ, по `position`.
+# Идентификаторите им започват от 100, за да не се бъркат с номерата на
+# групите от превода.
+MANUAL_DIR = os.path.join(REFGEN_DIR, "manual")
+MANUAL_ID0 = 100
+
 # Имената на групите — дадени от потребителя (10 август 2026 г.).
 # Номерът е префиксът на файловете във входната папка.
 GROUP_TITLES = {
@@ -125,6 +136,10 @@ def main():
     articles.sort(key=lambda a: (a["group"], a["order"]))
     used_groups = sorted({a["group"] for a in articles})
 
+    manual = sorted((json.load(open(f, encoding="utf-8"))
+                     for f in glob.glob(os.path.join(MANUAL_DIR, "*.json"))),
+                    key=lambda m: m["position"])
+
     out = os.path.abspath(args.out)
     os.makedirs(os.path.dirname(out), exist_ok=True)
     if os.path.exists(out):
@@ -133,7 +148,11 @@ def main():
     db = sqlite3.connect(out)
     db.executescript(SCHEMA)
 
-    for pos, gid in enumerate(used_groups, start=1):
+    # Ръчните — най-отгоре, после групите от превода.
+    for pos, m in enumerate(manual, start=1):
+        db.execute("INSERT INTO ref_groups (id, title, position) VALUES (?,?,?)",
+                   (MANUAL_ID0 + pos, m["title"], pos))
+    for pos, gid in enumerate(used_groups, start=len(manual) + 1):
         db.execute("INSERT INTO ref_groups (id, title, position) VALUES (?,?,?)",
                    (gid, GROUP_TITLES[gid], pos))
 
@@ -148,8 +167,22 @@ def main():
             (i, gid, a["title_bg"], a["title_ru"],
              to_html(a["units_bg"]), to_html(a["units"]), counts[gid]))
 
+    # ⚠ Id-то на статията е и слъгът ѝ (`ref-<id>`) — в отметките и в
+    # споделените линкове. Затова ръчните имат ПОСТОЯНЕН номер (1000 +
+    # `position`), който не зависи от броя преведени: добави ли се утре нова
+    # преведена статия, отметка към Символа на вярата пак сочи него.
+    for k, m in enumerate(manual, start=1):
+        db.execute(
+            "INSERT INTO ref_articles"
+            " (id, group_id, title, title_ru, body, body_ru, position)"
+            " VALUES (?,?,?,?,?,?,?)",
+            (1000 + m["position"], MANUAL_ID0 + k, m["title"], None,
+             m["body_html"], None, 1))
+
     db.commit()
     print("=" * 64)
+    for m in manual:
+        print("  ръчна: %s" % m["title"])
     for gid in used_groups:
         print("  %d. %-52s %2d статии" % (gid, GROUP_TITLES[gid], counts[gid]))
     print("общо: %d статии в %d групи" % (len(articles), len(used_groups)))

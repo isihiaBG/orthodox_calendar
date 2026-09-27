@@ -44,6 +44,19 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.justify,
       color: ink,
     ),
+    // Точка от изброяване („• …") — абзац, а не `<li>`, нарочно: PDF-ът
+    // (`_parseBlocks`) разбира само `<p>` и `<h*>`, тъй че елементи на
+    // списък биха изчезнали от него МЪЛЧАЛИВО. Сбит и подравнен вляво,
+    // за да се чете като списък, а не като поредица абзаци. (Първо ползван
+    // в „Дни, в които се разрешава тайнството брак", 27.09.2026.)
+    '.item': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.only(top: 2, bottom: 2, left: 12),
+      textAlign: TextAlign.left,
+      color: ink,
+    ),
     // ПРОДЪЛЖЕНИЕТО на абзац, разрязан от обтичащата илюстрация.
     //
     // ⚠ БЕЗ отстъп отгоре: това е СЪЩИЯТ абзац, който просто минава под

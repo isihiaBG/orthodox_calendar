@@ -164,7 +164,54 @@ class _ReferenceBookSectionState extends State<ReferenceBookSection> {
     );
   }
 
+  /// Самостоятелно четиво — група с ЕДНА статия със СЪЩОТО име (така ги
+  /// пише `03_build_db.py` за ръчните статии най-отгоре: „Дни, в които се
+  /// разрешава тайнството брак", „Символ на вярата"). Разгъване би показало
+  /// едно и също име два пъти, затова картата се отваря направо, а
+  /// стрелката е ▸ — води към четеца, като редовете вътре в групите.
+  bool _isStandalone(_RefGroup g) =>
+      g.articles.length == 1 && g.articles.first.title == g.title;
+
+  Widget _standaloneTile(_RefArticle article) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color: AppColors.expansionHeader,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: () => _openArticle(article),
+        child: Padding(
+          // Отстъпите повтарят заглавието на ExpansionTile (14 встрани,
+          // ~56 височина), за да стоят картите в един ред с групите.
+          padding: const EdgeInsets.fromLTRB(14, 16, 12, 16),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  article.title,
+                  style: TextStyle(
+                    fontFamily: _bodyFamily,
+                    fontSize: _fs(2),
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    height: 1.3,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(Icons.chevron_right,
+                  size: _fs(6), color: AppColors.textSecondary),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _groupTile(_RefGroup group) {
+    if (_isStandalone(group)) return _standaloneTile(group.articles.first);
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
