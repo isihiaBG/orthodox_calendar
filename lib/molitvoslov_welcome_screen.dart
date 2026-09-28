@@ -32,7 +32,7 @@ const String _kTempCover = 'assets/bible_covers/02_NewTestament.jpg';
 /// тук няма канон, който да спори с подредбата.
 const List<_Part> _parts = [
   _Part(_kTempCover, 'Молитви', 'утринни, вечерни, за причастие'),
-  _Part(_kTempCover, 'Канонник', 'предстои'),
+  _Part(_kTempCover, 'Канонник', 'канони и седмични служби'),
   _Part(_kTempCover, 'Акатисти', 'към Господ, Богородица, св. Николай и др.'),
   _Part(_kTempCover, 'Богослужебни', 'предстои'),
 ];

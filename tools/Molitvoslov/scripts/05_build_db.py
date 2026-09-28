@@ -117,6 +117,10 @@ def bg_blocks(blocks):
     """
     out = []
     for b in blocks:
+        if 'html' in b:
+            # ⚠ Готов html (Канонникът: винени „Ирмос:", редове с <br>).
+            out.append((b['kind'], b['html']))
+            continue
         t = b['text']
         m = RE_BG_PRIPEV.match(t)
         if m:
@@ -177,8 +181,13 @@ def main():
                            (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
     # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
-    ak_path = os.path.join(W, 'akatisti.json')
-    for ord_, s in enumerate(json.load(open(ak_path, encoding='utf-8')) if os.path.exists(ak_path) else [], 1):
+    # Акатистите и Канонникът (07_kanonnik.py) — един и същ вид.
+    extra = []
+    for name in ('akatisti.json', 'kanonnik.json'):
+        path = os.path.join(W, name)
+        if os.path.exists(path):
+            extra += list(enumerate(json.load(open(path, encoding='utf-8')), 1))
+    for ord_, s in extra:
         sid = s['sec']
         db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?)',
                    (sid, s['tab'], ord_, s['title_bg'], s['title_csl'],

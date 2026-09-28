@@ -359,7 +359,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     return out;
   }
 
+  // ⚠ <br> е нов ред (стихотворният Велик канон се чете ред по ред).
   static String _plain(String s) => s
+      .replaceAll(RegExp(r'<br\s*/?>'), '\n')
       .replaceAll(RegExp(r'<[^>]+>'), '')
       .replaceAll('&lt;', '<')
       .replaceAll('&gt;', '>')
