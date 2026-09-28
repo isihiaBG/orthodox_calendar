@@ -52,10 +52,14 @@ class MolSection {
 
 /// Един абзац: указание (винено) или текст.
 class MolBlock {
-  final String kind; // 'rubric' | 'text'
+  final String kind; // 'rubric' | 'text' | 'refrain'
   final String html;
   const MolBlock(this.kind, this.html);
   bool get isRubric => kind == 'rubric';
+
+  /// Припев в канона: винен етикет + текст, с 2 пункта по-дребен от
+  /// тропарите, за да се отделя от тях (указание на потребителя).
+  bool get isRefrain => kind == 'refrain';
 }
 
 /// Една молитва — с текста си по езици.

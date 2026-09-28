@@ -18,6 +18,7 @@
 („когато цял раздел няма даден език, тази част от екрана се скрива").
 """
 import html
+import re
 import json
 import os
 import sqlite3
@@ -65,6 +66,34 @@ CREATE TABLE blocks (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
 """
 
 
+RE_BG_PRIPEV = re.compile(r'^Припев:\s*(.+)$', re.S)
+RE_BG_DOXA = re.compile(r'^(Слава\.\.\.|И сега\.\.\.)\s+(\S.*)$', re.S)
+
+
+def bg_blocks(blocks):
+    """Българските блокове → (вид, html), в СЪЩОТО построение като цс.
+
+    ⚠ Съответствие между двата езика (указание на потребителя): припевът е
+    винен етикет + по-дребен текст, а „Слава..."/„И сега..." стоят на свой
+    ред, отделно от тропара след тях — както в цс.
+    """
+    out = []
+    for b in blocks:
+        t = b['text']
+        m = RE_BG_PRIPEV.match(t)
+        if m:
+            out.append(('refrain', '<span class="rubric">Припев:</span> '
+                        + html.escape(m.group(1), quote=False)))
+            continue
+        m = RE_BG_DOXA.match(t) if b['kind'] == 'text' else None
+        if m:
+            out.append(('text', m.group(1)))
+            out.append(('text', html.escape(m.group(2), quote=False)))
+            continue
+        out.append((b['kind'], html.escape(t, quote=False)))
+    return out
+
+
 def main():
     aligned = json.load(open(os.path.join(W, 'aligned.json'), encoding='utf-8'))
 
@@ -103,10 +132,9 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'csl', k, blk['kind'], blk['html']))
                 n_blocks += 1
-            for k, blk in enumerate(u['bg']):
+            for k, (kind, h) in enumerate(bg_blocks(u['bg'])):
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
-                           (sid, u['n'], 'bg', k, blk['kind'],
-                            html.escape(blk['text'], quote=False)))
+                           (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
     # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
     ak_path = os.path.join(W, 'akatisti.json')
@@ -123,10 +151,9 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'csr', k, blk['kind'], blk['html']))
                 n_blocks += 1
-            for k, blk in enumerate(u['bg']):
+            for k, (kind, h) in enumerate(bg_blocks(u['bg'])):
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
-                           (sid, u['n'], 'bg', k, blk['kind'],
-                            html.escape(blk['text'], quote=False)))
+                           (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
     db.commit()
     print('→', OUT)
