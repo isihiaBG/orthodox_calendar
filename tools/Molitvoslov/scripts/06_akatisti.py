@@ -304,6 +304,21 @@ def attach_csl(sid, units):
                         new['title_csl'] = 'И́кос %d' % key[1]
         else:
             units.append(new)
+    # ⚠ Бг изворът изобщо не споменава, че след Кондак 13 се чете пак Икос 1
+    # и Кондак 1 — цс ги дава цели. По модела на цс (указание на
+    # потребителя): указанието и двата текста — от СЪЩИЯ бг акатист, нищо
+    # ново не се превежда.
+    if k13 is not None and k13.get('bg') and any(
+            'па́ки' in b['html'] for b in k13.get('csl', [])):
+        rubric_bg = lambda t: {'kind': 'rubric', 'text': t}
+        extra = []
+        if any('три́жды' in b['html'] for b in k13['csl']):
+            extra.append(rubric_bg('Този кондак се чете три пъти.'))
+        for key, label in ((('ikos', 1), 'И пак Икос 1:'), (('kondak', 1), 'И пак Кондак 1:')):
+            src = by_key.get(key)
+            if src and src.get('bg'):
+                extra += [rubric_bg(label)] + [dict(b) for b in src['bg']]
+        k13['bg'] = k13['bg'] + extra
 
 
 def main():

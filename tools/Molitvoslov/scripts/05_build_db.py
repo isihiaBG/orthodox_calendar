@@ -85,7 +85,24 @@ def with_manual(sec, n, blocks):
     указания като „[Трижди]"), затова не минават през bg_blocks."""
     out = bg_blocks(blocks)
     m = _MANUAL.get('%s:%s' % (sec, n))
-    if m:
+    if m and m.get('split'):
+        # Абзацът се дели пред дадените фрази, КАКТО Е В ЦС (там всеки член
+        # на Символа и всяко от 24-те моления стоят на свой ред). Всеки нов
+        # ред почва с главна буква — инак остава без червената.
+        plain_ = [re.escape(x) for x in m['split'] if not x.startswith('!')]
+        bare = [re.escape(x[1:]) for x in m['split'] if x.startswith('!')]
+        alts = []
+        if plain_:
+            alts.append(r'(?<=[.;:!,]) (?=(?:%s))' % '|'.join(plain_))
+        if bare:  # „!фраза" — дели се и без препинателен знак пред нея
+            alts.append(r' (?=(?:%s))' % '|'.join(bare))
+        rx = re.compile('|'.join(alts))
+        split = []
+        for kind, h in out:
+            parts = [x.strip() for x in rx.split(h) if x.strip()] if kind == 'text' else [h]
+            split += [(kind, x[:1].upper() + x[1:]) for x in parts]
+        out = split
+    if m and m.get('blocks'):
         ins = [(b['kind'], b['html']) for b in m['blocks']]
         out = out[:m['after']] + ins + out[m['after']:]
     return out

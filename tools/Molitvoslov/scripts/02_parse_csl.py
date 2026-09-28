@@ -72,7 +72,12 @@ RE_INCIPIT = re.compile('(?<=[.;!] )(?:' + '|'.join(loose(i) for i in INCIPITS) 
 RE_NYNE = re.compile(loose('И҆ ны́нѣ'))
 RE_AMIN = re.compile(loose('А҆ми́нь') + r'\. (?!<span)')
 # Указание-брой или указание-изречение, след което идва текст.
-RE_AFTER_RUBRIC = re.compile(r'(?:\]|\.)</span> (?=[^<\s])')
+# ⚠ Само указание, което СВЪРШВА С ТОЧКА („[Три́жды.]", „[Покло́нъ.]"). Номер
+# на моление („[в҃]") стои ПРЕД своя текст и след него не се реже — инак
+# номерът увисва в края на ПРЕДИШНИЯ ред; същото за „[и҆́мⷬ҇къ]" (име).
+RE_AFTER_RUBRIC = re.compile(r'\.\]?</span> (?=[^<\s])')
+# Пред номер на моление (24-те моления на св. Йоан Златоуст) — нов ред.
+RE_BEFORE_NUMBER = re.compile(r' (?=<span class="rubric">\[[авгдєѕзиѳі]҃і?\]</span>)')
 # Етикети, с които започва нов ред.
 RE_LABEL_SPAN = re.compile(r' (?=<span class="rubric">(?:' + '|'.join(loose(x) for x in [
     'Припѣ́въ', 'Сла́ва ѻ҆ц҃ꙋ̀', 'Сла́ва:', 'Бг҃оро́диченъ', 'Сті́хъ', 'І҆рмо́съ',
@@ -87,6 +92,8 @@ def split_points(html):
     for m in RE_LABEL_SPAN.finditer(html):
         pts.add(m.end())
     for m in RE_AFTER_RUBRIC.finditer(html):
+        pts.add(m.end())
+    for m in RE_BEFORE_NUMBER.finditer(html):
         pts.add(m.end())
     for m in RE_AMIN.finditer(html):
         pts.add(m.end())
@@ -103,6 +110,29 @@ def split_points(html):
 
 def in_tag(html, i):
     return html.rfind('<', 0, i) > html.rfind('>', 0, i)
+
+
+def split_verses(html):
+    """Стиховете („И абие настоящыя стихи:") → по стих на ред.
+
+    ⚠ В цс книгата всеки стих ЗАПОЧВА С ГЛАВНА буква, но са слети в един
+    абзац; бг ги дава ред по ред. Свещените имена тук са под титла и с
+    малка буква (бг҃ъ, хрⷭ҇тѐ), тъй че главна буква след препинателен знак
+    значи НАЧАЛО НА СТИХ, не име."""
+    out, start = [], 0
+    for m in re.finditer(r'(?<=[,.:;!]) (?=\S)', html):
+        nxt = html[m.end():m.end() + 1]
+        if nxt.isupper() and not in_tag(html, m.end()):
+            out.append(html[start:m.start()].strip())
+            start = m.end()
+    out.append(html[start:].strip())
+    return [{'kind': 'text', 'html': x} for x in out if x]
+
+
+# Цс абзаци, слети в извора, а в бг — на логически части (по модела на бг).
+CSL_SPLIT_BEFORE = {
+    'Мл҃тва чⷭ҇тно́мꙋ крⷭ҇тꙋ̀': re.compile(r' (?=ра́дꙋйсѧ, пречⷭ҇тны́й|Ѽ пречⷭ҇тны́й)'),
+}
 
 
 def split_block(html):
@@ -165,7 +195,16 @@ def main():
         if unit is None:                  # уводът преди първото заглавие
             unit = {'n': 0, 'title': None, 'blocks': []}
             sec['units'].append(unit)
-        unit['blocks'].extend(split_block(body))
+        blocks = split_block(body)
+        title = (unit.get('title') or '')
+        if 'стїх' in title:
+            blocks = [v for b in blocks for v in
+                      (split_verses(b['html']) if b['kind'] == 'text' else [b])]
+        for key, rx in CSL_SPLIT_BEFORE.items():
+            if title.startswith(key):
+                blocks = [{'kind': b['kind'], 'html': x[:1].upper() + x[1:]}
+                          for b in blocks for x in rx.split(b['html'])]
+        unit['blocks'].extend(blocks)
 
     # номерата наново, за да са поредни и без дупки
     for s in sections:

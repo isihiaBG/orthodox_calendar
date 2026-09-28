@@ -39,6 +39,7 @@ MARKS = re.compile('[̀-ͯ҃-҉ⷠ-ⷿ꙯-ꙿ]')
 # Цс числата: буква + титла; „а҃і" = 11 и т.н.
 DIGIT = {'а': 1, 'в': 2, 'г': 3, 'д': 4, 'є': 5, 'ѕ': 6, 'з': 7, 'и': 8,
          'ѳ': 9, 'і': 10}
+RE_RUBRIC_P = re.compile(r'^(?:Се́й конда́къ|И҆ па́ки:?$|Та́же)')
 RE_ITEM = re.compile(r'<(h3|p)\b[^>]*>(.*?)</\1>', re.S)
 
 
@@ -118,7 +119,10 @@ def parse(page):
         RAW.append(plain(re.sub(r'<span class="letter">(.*?)</span>', r'\1', inner)))
         txt = para_html(inner)
         if txt:
-            cur['blocks'].append({'kind': 'text', 'html': html.escape(txt, quote=False)})
+            # ⚠ Указанията („Се́й конда́къ глаго́ли три́жды.", „И҆ па́ки:")
+            # стоят в страницата като обикновен абзац — тук стават винени.
+            kind = 'rubric' if RE_RUBRIC_P.match(txt) else 'text'
+            cur['blocks'].append({'kind': kind, 'html': html.escape(txt, quote=False)})
     return units
 
 
