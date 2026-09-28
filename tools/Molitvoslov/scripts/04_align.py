@@ -32,7 +32,11 @@ W = os.path.join(ROOT, 'work')
 
 def load_page(name, cache={}):
     if name not in cache:
-        path = os.path.join(W, 'bg_pages', 'molitvi__%s.json' % name)
+        # Пълното име (bgp__…, molitvi__…) има превес; голото се търси като
+        # страница на pravoslavieto.com, после по окончание.
+        path = os.path.join(W, 'bg_pages', '%s.json' % name)
+        if not os.path.exists(path):
+            path = os.path.join(W, 'bg_pages', 'molitvi__%s.json' % name)
         if not os.path.exists(path):
             for alt in os.listdir(os.path.join(W, 'bg_pages')):
                 if alt.endswith('__%s.json' % name):
@@ -42,9 +46,17 @@ def load_page(name, cache={}):
     return cache[name]
 
 
+def page_url(name):
+    """Адресът на страницата — за посочването на източника в четеца."""
+    if name.startswith('bgp__'):
+        return 'https://bg-patriarshia.bg/liturgical-prayer/' + name[5:]
+    base = name[len('molitvi__'):] if name.startswith('molitvi__') else name
+    return 'https://www.pravoslavieto.com/molitvoslov/molitvi/%s.htm' % base
+
+
 def find(blocks, phrase, start):
     for b in blocks[start:]:
-        if b['kind'] != 'head' and b['text'].startswith(phrase):
+        if b['text'].startswith(phrase):
             return b['i']
     return None
 
@@ -53,7 +65,7 @@ def main():
     csl = json.load(open(os.path.join(W, 'csl_units.json'), encoding='utf-8'))
     rows = list(csv.DictReader(open(os.path.join(ROOT, 'input', 'map_prayers.csv'), encoding='utf-8')))
 
-    by_unit, titles, notes = {}, {}, {}
+    by_unit, titles, notes, sources = {}, {}, {}, {}
     cursor, problems = {}, 0
     for r in rows:
         key = (int(r['sec']), int(r['n']))
@@ -74,8 +86,18 @@ def main():
             problems += 1
             continue
         cursor[r['page']] = b + 1
-        part = [dict(kind=x['kind'], text=x['text']) for x in page[a:b + 1] if x['kind'] != 'head']
+        # ⚠ Заглавията вътре в обхвата отпадат (цс заглавието казва същото);
+        # заглавие, посочено САМО като обхват, влиза като указание — у
+        # Патриаршията началото на помянника е <h2>, а по смисъл е указание.
+        if a == b and page[a]['kind'] == 'head':
+            part = [dict(kind='rubric', text=page[a]['text'])]
+        else:
+            part = [dict(kind=x['kind'], text=x['text'])
+                    for x in page[a:b + 1] if x['kind'] != 'head']
         by_unit.setdefault(key, []).extend(part)
+        url = page_url(r['page'])
+        if url and url not in sources.setdefault(key, []):
+            sources[key].append(url)
         if r['title_bg']:
             titles[key] = r['title_bg']
         if r['note']:
@@ -91,7 +113,7 @@ def main():
                 print('  · %s/%s без бг: %s' % (key + ((u['title'] or '(увод)')[:50],)))
             units.append({'n': u['n'], 'title_csl': u['title'], 'title_bg': titles.get(key),
                           'csl': u['blocks'], 'bg': by_unit.get(key, []),
-                          'note': notes.get(key)})
+                          'note': notes.get(key), 'sources': sources.get(key, [])})
         out.append({'sec': s['sec'], 'title_csl': s['title'], 'units': units})
 
     json.dump(out, open(os.path.join(W, 'aligned.json'), 'w', encoding='utf-8'),

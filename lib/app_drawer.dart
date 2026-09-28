@@ -16,6 +16,8 @@ import 'bible_contents.dart';
 import 'bible_welcome_screen.dart';
 import 'bible_settings.dart';
 import 'library_screen.dart';
+import 'molitvoslov_settings.dart';
+import 'molitvoslov_welcome_screen.dart';
 import 'reference_pager.dart';
 import 'settings_screen.dart';
 
@@ -26,6 +28,20 @@ import 'settings_screen.dart';
 typedef SettingsChangedHook = void Function(bool styleChanged,
     [DateTime? capturedMiddleDate]);
 SettingsChangedHook? appSettingsChangedHook;
+
+/// Отваря „Молитвослов" — през кориците, по образеца на [_openBible].
+///
+/// ⚠ Навигаторът се взима ПРЕДИ изчакването, а стекът се чисти до календара —
+/// и двете са платени при „Библия" (виж бележките там).
+/// ⚠ Запомненият таб се чете ПРЕДИ кориците да се покажат: те се отварят на
+/// него, а прочетен след това, би стигнал след първото построяване.
+Future<void> _openMolitvoslov(BuildContext context) async {
+  final nav = Navigator.of(context);
+  nav.popUntil((route) => route.isFirst);
+  await MolitvoslovLastTab.loadOnce();
+  await nav.push(MaterialPageRoute(
+      builder: (_) => const MolitvoslovWelcomeScreen()));
+}
 
 /// Отваря „Библия" — през въвеждащия екран с трите корици, ако не е изключен.
 ///
@@ -171,7 +187,10 @@ class AppDrawer extends StatelessWidget {
                     color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
           ),
           _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
-          _item(Icons.auto_stories, 'Молитвослов', () {}),
+          _item(Icons.auto_stories, 'Молитвослов', () {
+            Navigator.of(context).pop();
+            _openMolitvoslov(context);
+          }),
           _item(Icons.book, 'Библия', () {
             Navigator.of(context).pop();
             _openBible(context);

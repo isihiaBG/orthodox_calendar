@@ -58,9 +58,22 @@ def parse(t: str) -> list:
             kind = 'head'
         elif re.fullmatch(r'\s*<(em|i)>.*</\1>\s*', inner, re.S | re.I):
             kind = 'rubric'
+        elif len(text) <= 90 and text.endswith(':'):
+            # ⚠ Указанията тук често са ГОЛ текст, не <em>: „Тропар на деня
+            # или умилителните тропари:", „След това:", „Мълком изречи тая
+            # молитва:". Признакът е кратък ред, завършващ с двоеточие —
+            # молитвеният текст не свършва така.
+            kind = 'rubric'
         else:
             kind = 'text'
         blocks.append({'i': len(blocks), 'kind': kind, 'text': text})
+    # ⚠ …освен ако следващият ред е ПРОДЪЛЖЕНИЕ (почва с малка буква) — тогава
+    # двоеточието е насред стих: „Божественото Тяло ме обожествява и храни: /
+    # обожествява духа, а ума чудно храни."
+    for a, b in zip(blocks, blocks[1:]):
+        if (a['kind'] == 'rubric' and a['text'].endswith(':')
+                and b['text'][:1].islower()):
+            a['kind'] = 'text'
     return blocks
 
 
