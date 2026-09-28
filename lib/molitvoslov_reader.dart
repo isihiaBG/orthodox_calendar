@@ -1066,7 +1066,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         size: kReaderBtnSize,
         onTap: () => _stepHit(1),
       ),
-      const SizedBox(width: 10),
+      // ⚠ Поле за скролбара с чертичките (10 + 2) — без него дясното копче
+      // го застъпваше (бележка на потребителя). В Библията накрая стои ⚙,
+      // затова там този проблем го няма.
+      const SizedBox(width: 18),
     ]);
   }
 
