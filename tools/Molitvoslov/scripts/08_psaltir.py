@@ -107,7 +107,9 @@ def cs_heads(doc):
                     out.append((pno, ln['bbox'][1], 'after'))
                 elif t.startswith('По совершенїи'):
                     out.append((pno, ln['bbox'][1], 'end'))
-                elif t.startswith('Разꙋмно да бꙋдетъ'):
+                elif t.startswith('Разꙋмно да бꙋдетъ') and size >= 19:
+                    # ⚠ Само заглавието (20 pt) — същият ред стои и в
+                    # съдържанието на книгата, откъдето влизаше целият указател.
                     out.append((pno, ln['bbox'][1], 'begin'))
     return out
 
@@ -145,7 +147,8 @@ def main():
     begin = next(h for h in heads if h[2] == 'begin')
     first = next(h for h in heads if h[2] == 'kath')
     ls = [r for r in pdf_ucs.lines(doc, begin[0], first[0])
-          if (r[0], r[5]) < (first[0], first[1] - 1)]
+          if (r[0], r[5]) < (first[0], first[1] - 1)
+          and (r[0], r[5]) > (begin[0], begin[1] + 35)]   # без 2-рия ред на заглавието
     out.append({'sec': 300, 'tab': 'psaltir', 'title_bg': 'Преди четене на Псалтира',
                 'title_csl': 'Разꙋ́мно да бꙋ́детъ, ка́кѡ подоба́етъ ѻ҆со́бь пѣ́ти ѱалти́рь',
                 'csr_source': None, 'csl_source': CS_SRC_PR,
