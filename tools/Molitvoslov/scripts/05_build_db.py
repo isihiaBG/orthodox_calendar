@@ -30,7 +30,7 @@ OUT = os.path.join(APP, 'assets', 'db', 'molitvoslov.db')
 BIBLE = os.path.join(APP, 'assets', 'db', 'bible.db')
 
 TABS = [('molitvi', 'Молитви'), ('kanonnik', 'Канонник'),
-        ('akatisti', 'Акатисти'), ('bogosluzhebni', 'Богослужебни')]
+        ('akatisti', 'Акатисти'), ('psaltir', 'Псалтир'), ('bogosluzhebni', 'Богослужебни')]
 
 # Българските имена на разделите от цс молитвослова (ред = редът в книгата).
 SECTION_BG = {
@@ -183,7 +183,7 @@ def main():
     # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
     # Акатистите и Канонникът (07_kanonnik.py) — един и същ вид.
     extra = []
-    for name in ('akatisti.json', 'kanonnik.json'):
+    for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json'):
         path = os.path.join(W, name)
         if os.path.exists(path):
             extra += list(enumerate(json.load(open(path, encoding='utf-8')), 1))

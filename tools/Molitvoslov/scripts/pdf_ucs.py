@@ -54,9 +54,17 @@ def lines(doc, first, last):
                     if 'Arial' in s['font']:
                         continue
                     rows.setdefault(round(ln['bbox'][1]), []).append(
-                        (s['bbox'][0], s['color'] != 0, s['size'], s['text']))
+                        (s['bbox'][0], s['color'] != 0, s['size'], s['text'], s['bbox'][2]))
         for y in sorted(rows):
-            sp = sorted(rows[y])
+            # ⚠ Двустранно подравнен ред понякога идва като ОТДЕЛНИ думи без
+            # интервал помежду им — интервалът се връща по празнината.
+            raw = sorted(rows[y])
+            sp = []
+            for i, (x0, r, sz, t, x1) in enumerate(raw):
+                if i and x0 - raw[i - 1][4] > 2 and not t.startswith(' ') \
+                        and not raw[i - 1][3].endswith(' '):
+                    t = ' ' + t
+                sp.append((x0, r, sz, t))
             text = ''.join(t for *_, t in sp)
             if not text.strip():
                 continue
@@ -67,29 +75,50 @@ def lines(doc, first, last):
             for i, (_, r, sz, t) in enumerate(sp):
                 dec = ucs.decode(t)
                 # Червена буквица (една буква в началото на абзаца) — не е указание.
-                initial = r and i == 0 and not heading and len(bare(dec)) <= 1
+                initial = (r and i == 0 and not heading and len(bare(dec)) <= 1
+                           and not next((q[1] for q in sp[1:] if q[3].strip()), False))
                 runs.append((r and not initial, dec))
-            out.append((pno, sp[0][0], big, heading, runs))
+            out.append((pno, sp[0][0], big, heading, runs, y))
     return out
 
 
 def runs_html(runs):
     """Парчетата на абзаца → html; червените етикети стават span.rubric."""
     parts, red = [], []
+    # ⚠ Червена главна буква насред абзаца („Трист҃о́е. П|рест҃а́ѧ трⷪ҇це:")
+    # е буквица на името на молитвата, не част от указанието — тя се слепва
+    # с черното продължение на думата.
+    fixed = []
+    for i, (is_red, t) in enumerate(runs):
+        nxt = runs[i + 1] if i + 1 < len(runs) else None
+        if is_red and nxt and not nxt[0] and nxt[1][:1].isalpha() and not t.endswith(' '):
+            cut = t.rfind(' ')
+            head, tail = (t[:cut + 1], t[cut + 1:]) if cut >= 0 else ('', t)
+            if head.strip():
+                fixed.append((True, head))
+            fixed.append((False, tail))
+            continue
+        fixed.append((is_red, t))
+    runs = fixed
     for is_red, t in runs:
         if is_red:
             red.append(t)
             continue
+        if red and not ''.join(red).strip():
+            parts.append(''.join(red))
+            red = []
         if red:
-            parts.append('<span class="rubric">%s</span>' % html.escape(''.join(red).strip(), quote=False))
-            parts.append(' ')
+            joined = ''.join(red)
+            parts.append('<span class="rubric">%s</span>' % html.escape(joined.strip(), quote=False))
+            if joined.endswith(' ') or t.startswith(' ') or joined.rstrip()[-1:] in ':.,;':
+                parts.append(' ')
             red = []
         parts.append(html.escape(t, quote=False))
     if red:
         parts.append(' <span class="rubric">%s</span>' % html.escape(''.join(red).strip(), quote=False))
     out = re.sub(r'\s+', ' ', ''.join(parts)).strip()
     # Пренесена дума („ѳесв- і́тѧнина") — сливане.
-    return re.sub(r'(?<=[^\W\d_])- (?=[^\W\d_])', '', out)
+    return re.sub(r'(?<=\S)- (?=[^\W\d_])', '', out)
 
 
 BOUNDARY = [
@@ -110,7 +139,7 @@ def boundary(title):
     return None
 
 
-def units(ls):
+def units(ls, indent=(52, 75)):
     """Редове → [{title, key, blocks}]. Ключът е ('song', N) или (вид, след песен N)."""
     res = [{'title': None, 'key': ('intro', 0), 'blocks': []}]
     para, head = None, []
@@ -145,7 +174,7 @@ def units(ls):
         else:
             res[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(title, quote=False)})
 
-    for pno, x, big, heading, runs in ls:
+    for pno, x, big, heading, runs, *_ in ls:
         text = ''.join(t for _, t in runs).strip()
         if heading and big:
             flush_para()
@@ -167,7 +196,7 @@ def units(ls):
             head.append(text)
             continue
         flush_head()
-        if para is None or 52 <= x <= 75:
+        if para is None or indent[0] <= x <= indent[1]:
             flush_para()
             para = []
         elif para:

@@ -373,6 +373,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       !b.isRubric &&
       !b.isRefrain &&
       !b.isHint &&
+      !b.isVerse &&
       (_lang(lang)?.rubricate ?? false);
 
   /// Една молитва на един език: заглавие, после абзаците.
@@ -886,8 +887,16 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     }
     final hosts = <String>[];
     final firstUrl = <String, String>{};
+    // ⚠ Източникът може да е и КНИГА без адрес (бг Псалтирът) — изписва се
+    // като текст, не като връзка.
+    final plainBg = <String>[];
     for (final u in urls) {
-      final h = Uri.tryParse(u)?.host.replaceFirst('www.', '') ?? u;
+      final uri = Uri.tryParse(u);
+      if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+        plainBg.add(u);
+        continue;
+      }
+      final h = uri.host.replaceFirst('www.', '');
       if (!hosts.contains(h)) {
         hosts.add(h);
         firstUrl[h] = u;
@@ -906,6 +915,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             const Text('Източници:'),
             if (hosts.isNotEmpty)
               _sourceLine(p, 'на български: ', hosts, firstUrl),
+            for (final t in plainBg)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text('на български: $t'),
+              ),
             if (_has('csl') && widget.section.sourceCsl != null)
               _sourceAny(p, 'на църковнославянски: ', widget.section.sourceCsl!),
             if (_has('csr') && widget.section.sourceCsr != null)

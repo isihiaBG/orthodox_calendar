@@ -56,7 +56,7 @@ class MolSection {
 
 /// Един абзац: указание (винено) или текст.
 class MolBlock {
-  final String kind; // 'rubric' | 'text' | 'refrain'
+  final String kind; // 'rubric' | 'text' | 'refrain' | 'hint' | 'verse'
   final String html;
   const MolBlock(this.kind, this.html);
   bool get isRubric => kind == 'rubric';
@@ -68,6 +68,10 @@ class MolBlock {
   /// Подсказка какво се произнася преди стиха („Светителю отче Николае,
   /// моли Бога за нас.") — курсив, посивена, без червена буква.
   bool get isHint => kind == 'hint';
+
+  /// Стих от Псалтира: номерът е винен етикет отпред; червена първа буква
+  /// НЯМА — тя е само за началото на молитва, не на всеки стих.
+  bool get isVerse => kind == 'verse';
 }
 
 /// Една молитва — с текста си по езици.
