@@ -39,7 +39,7 @@ SECTION_BG = {
     3: 'Вечерни молитви',
     4: 'Три канона: покаен към Господ Иисус Христос, молебен към Пресвета '
        'Богородица и към Ангела пазител',
-    5: 'Последование за светото Причастие',
+    5: 'Последование пред свето Причастие',
     6: 'Благодарствени молитви след светото Причастие',
     7: 'Правило при осквернение',
     8: 'Часове на света Пасха',
@@ -67,7 +67,26 @@ CREATE TABLE blocks (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
 
 
 RE_BG_PRIPEV = re.compile(r'^Припев:\s*(.+)$', re.S)
+# „(поклон)" е указание — винено, както „[Поклон.]" в цс (искане на потребителя).
+RE_BG_POKLON = re.compile(r'\((поклон)\)')
 RE_BG_DOXA = re.compile(r'^(Слава\.\.\.|И сега\.\.\.)\s+(\S.*)$', re.S)
+
+
+# Българските текстове, които изворът няма (преводи на потребителя) —
+# вмъкват се в съответната единица, за да не зее бг колоната срещу цс.
+_MANUAL = json.load(open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), 'input', 'manual_bg.json'), encoding='utf-8'))
+
+
+def with_manual(sec, n, blocks):
+    """⚠ Връща (вид, html); ръчните блокове носят ГОТОВ html (с винени
+    указания като „[Трижди]"), затова не минават през bg_blocks."""
+    out = bg_blocks(blocks)
+    m = _MANUAL.get('%s:%s' % (sec, n))
+    if m:
+        ins = [(b['kind'], b['html']) for b in m['blocks']]
+        out = out[:m['after']] + ins + out[m['after']:]
+    return out
 
 
 def bg_blocks(blocks):
@@ -91,7 +110,8 @@ def bg_blocks(blocks):
             out.append(('text', html.escape(m.group(2), quote=False)))
             continue
         out.append((b['kind'], html.escape(t, quote=False)))
-    return out
+    return [(k, RE_BG_POKLON.sub(r'<span class="rubric">(\1)</span>', h))
+            for k, h in out]
 
 
 def main():
@@ -132,7 +152,7 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'csl', k, blk['kind'], blk['html']))
                 n_blocks += 1
-            for k, (kind, h) in enumerate(bg_blocks(u['bg'])):
+            for k, (kind, h) in enumerate(with_manual(sid, u['n'], u['bg'])):
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
@@ -151,7 +171,7 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'csr', k, blk['kind'], blk['html']))
                 n_blocks += 1
-            for k, (kind, h) in enumerate(bg_blocks(u['bg'])):
+            for k, (kind, h) in enumerate(with_manual(sid, u['n'], u['bg'])):
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
