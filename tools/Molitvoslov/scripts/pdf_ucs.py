@@ -94,8 +94,8 @@ def runs_html(runs):
         if is_red and nxt and not nxt[0] and nxt[1][:1].isalpha() and not t.endswith(' '):
             cut = t.rfind(' ')
             head, tail = (t[:cut + 1], t[cut + 1:]) if cut >= 0 else ('', t)
-            if head.strip():
-                fixed.append((True, head))
+            if head:
+                fixed.append((bool(head.strip()), head))   # интервалът остава
             fixed.append((False, tail))
             continue
         fixed.append((is_red, t))
@@ -108,13 +108,18 @@ def runs_html(runs):
             parts.append(''.join(red))
             red = []
         if red:
+            # ⚠ Интервалите ОКОЛО указанието остават извън span-а, но не се
+            # губят: в PDF-а те често са отделни червени парчета (' ') и без
+            # това излизаше „є҆́сть:и҆лѝ," и „ра́дꙋетсѧ:Трист҃о́е.".
             joined = ''.join(red)
-            parts.append('<span class="rubric">%s</span>' % html.escape(joined.strip(), quote=False))
+            lead = joined[:len(joined) - len(joined.lstrip())]
+            parts.append(lead + '<span class="rubric">%s</span>'
+                         % html.escape(joined.strip(), quote=False))
             if joined.endswith(' ') or t.startswith(' ') or joined.rstrip()[-1:] in ':.,;':
                 parts.append(' ')
             red = []
         parts.append(html.escape(t, quote=False))
-    if red:
+    if red and ''.join(red).strip():
         parts.append(' <span class="rubric">%s</span>' % html.escape(''.join(red).strip(), quote=False))
     out = re.sub(r'\s+', ' ', ''.join(parts)).strip()
     # Пренесена дума („ѳесв- і́тѧнина") — сливане.
