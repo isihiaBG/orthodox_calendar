@@ -56,7 +56,9 @@ CREATE TABLE languages (code TEXT PRIMARY KEY, ord INTEGER NOT NULL,
     rubricate INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE tabs (code TEXT PRIMARY KEY, ord INTEGER NOT NULL, title TEXT NOT NULL);
 CREATE TABLE sections (id INTEGER PRIMARY KEY, tab TEXT NOT NULL, ord INTEGER NOT NULL,
-    title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT, source_csr TEXT);
+    title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT, source_csr TEXT,
+    book TEXT,   -- „Богослужебни": книгата (Часослов, Минеи…) — първото ниво
+    grp TEXT);   -- подгрупа в книгата (месецът на Минеята, гласът в Октоиха)
 CREATE TABLE units (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     title_bg TEXT, title_csl TEXT, source_bg TEXT,
     title_cs TEXT,   -- заглавието в ЦС ШРИФТ, където цс текстът е отделен от
@@ -162,10 +164,10 @@ def main():
     n_units = n_blocks = 0
     for ord_, s in enumerate(aligned, 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?)',
                    (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl'],
                     'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html',
-                    None))
+                    None, None, None))
         for u in s['units']:
             # Адресите на бг изворите, по един на ред — като `texts.source`.
             db.execute('INSERT INTO units VALUES (?,?,?,?,?,NULL)',
@@ -183,15 +185,15 @@ def main():
     # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
     # Акатистите и Канонникът (07_kanonnik.py) — един и същ вид.
     extra = []
-    for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json'):
+    for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json'):
         path = os.path.join(W, name)
         if os.path.exists(path):
             extra += list(enumerate(json.load(open(path, encoding='utf-8')), 1))
     for ord_, s in extra:
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?)',
                    (sid, s['tab'], ord_, s['title_bg'], s['title_csl'],
-                    s.get('csl_source'), s['csr_source']))
+                    s.get('csl_source'), s['csr_source'], s.get('book'), s.get('grp')))
         for u in s['units']:
             db.execute('INSERT INTO units VALUES (?,?,?,?,?,?)',
                        (sid, u['n'], u['title_bg'], u['title_csl'],

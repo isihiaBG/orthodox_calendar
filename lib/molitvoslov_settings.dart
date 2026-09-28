@@ -86,6 +86,36 @@ class MolitvoslovLastSection {
   }
 }
 
+/// „Богослужебни": последно отвореният раздел ЗА ВСЯКА КНИГА поотделно —
+/// човек, който кара службата, скача между Часослова, Октоиха и Минеята и
+/// всяка трябва да го върне там, където е спрял в нея.
+class MolitvoslovBookLast {
+  MolitvoslovBookLast._();
+
+  static const String _key = 'molitvoslov_book_last';
+  static final Map<String, int> value = {};
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    final p = await SharedPreferences.getInstance();
+    for (final e in p.getStringList(_key) ?? const <String>[]) {
+      final i = e.lastIndexOf('|');
+      final id = int.tryParse(e.substring(i + 1));
+      if (i > 0 && id != null) value[e.substring(0, i)] = id;
+    }
+  }
+
+  static Future<void> set(String book, int id) async {
+    if (value[book] == id) return;
+    value[book] = id;
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(
+        _key, [for (final e in value.entries) '${e.key}|${e.value}']);
+  }
+}
+
 /// Размерът на шрифта в четеца на молитвослова — свой, както Библията има
 /// свой. Механизмът е общият [PersistedFontSize].
 class MolitvoslovFontSize {

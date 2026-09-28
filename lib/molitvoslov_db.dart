@@ -50,8 +50,13 @@ class MolSection {
   /// Изворът на цс текста с ГРАЖДАНСКИ шрифт — само където двата са отделни
   /// (акатистите: цс шрифт от azbyka.ru, граждански от „Канонник").
   final String? sourceCsr;
+
+  /// „Богослужебни": книгата (първото ниво на съдържанието) и подгрупата в
+  /// нея (месецът на Минеята, гласът в Октоиха). В другите табове — null.
+  final String? book;
+  final String? grp;
   const MolSection(this.id, this.tab, this.titleBg, this.titleCsl,
-      [this.sourceCsl, this.sourceCsr]);
+      [this.sourceCsl, this.sourceCsr, this.book, this.grp]);
 }
 
 /// Един абзац: указание (винено) или текст.
@@ -160,7 +165,8 @@ class MolitvoslovDb {
       for (final r in rows)
         MolSection(r['id'] as int, r['tab'] as String,
             r['title_bg'] as String, r['title_csl'] as String?,
-            r['source_csl'] as String?, r['source_csr'] as String?),
+            r['source_csl'] as String?, r['source_csr'] as String?,
+            r['book'] as String?, r['grp'] as String?),
     ];
   }
 

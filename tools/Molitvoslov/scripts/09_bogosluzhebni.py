@@ -1,0 +1,221 @@
+"""Таб „Богослужебни" → work/bogosluzhebni.json (като kanonnik.json, плюс
+`book` и `grp` за двустепенното съдържание).
+
+Изворите (input/newBooks/*.epub, azbyka.ru) са в старото кодиране Ucs:
+    <p class="calibre6">        абзац
+    <span class="kinovar">      червено (указание, буквица)
+    <span class="slavicgray">   сиви препратки към страници/варианти — отпадат
+    <b>                         получер вътре в заглавие — носи цвета около себе си
+    <h2>                        заглавието на главата (руски граждански) — за превода
+
+⚠ Декодира се САМО текстът между таговете — пуснат през ucs.decode, HTML-ът
+се превръща в безсмислица („ⷯ/ѱⷬ҇…").
+⚠ Заглавията са на руски → превод с DeepSeek (work/bogosl_titles_bg.json,
+кеширан). Самият текст остава на цс.
+"""
+import html
+import json
+import os
+import re
+import sys
+import zipfile
+from html.parser import HTMLParser
+from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(__file__))
+import pdf_ucs  # noqa: E402
+import ucs  # noqa: E402
+
+ROOT = Path(__file__).resolve().parents[1]
+W = ROOT / 'work'
+IN = ROOT / 'input' / 'newBooks'
+SRC = 'https://azbyka.ru/otechnik/Pravoslavnoe_Bogosluzhenie/'
+
+MONTHS = ['януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август',
+          'септември', 'октомври', 'ноември', 'декември']
+MINEI = ['01_Yanvar', '02_Fevral', '03_Mart', '04_Aprel', '05_May', '06_Iyun', '07_Iyul',
+         '08_Avgust', '09_Sentyabr', '10_Oktyabr', '11_Noyabr', '12_Dekabr']
+
+# (файл, ключ на книгата, бг име); редът е редът в таба и в плаващото копче.
+BOOKS = [
+    ('Chasoslov_na_tserkovno-slavyanskom_yazyike.epub', 'chasoslov', 'Часослов'),
+    ('Oktoih.epub', 'oktoih', 'Октоих'),
+] + [('Mineya_%s.epub' % m, 'minei', 'Минеи') for m in MINEI] + [
+    ('Triod_postnaya.epub', 'triod_post', 'Триод постен'),
+    ('Triod_tsvetnaya.epub', 'triod_tsvet', 'Триод цветен'),
+    ('Slujebnik.epub', 'slujebnik', 'Служебник'),
+    ('Tipikon.epub', 'tipikon', 'Типикон'),
+]
+
+
+class ParaParser(HTMLParser):
+    """<p> → [(червено?, текст)], с декодиран Ucs."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.paras, self.cur, self.stack = [], None, []
+
+    def handle_starttag(self, tag, attrs):
+        cls = dict(attrs).get('class', '') or ''
+        if tag == 'p':
+            self.cur = []
+        elif tag == 'br' and self.cur is not None:
+            self.cur.append((False, ' '))
+        if tag in ('span', 'b', 'i', 'a', 'em', 'strong'):
+            self.stack.append('bold' if tag == 'b' else cls)
+
+    def handle_endtag(self, tag):
+        if tag == 'p' and self.cur is not None:
+            self.paras.append(self.cur)
+            self.cur = None
+        elif tag in ('span', 'b', 'i', 'a', 'em', 'strong') and self.stack:
+            self.stack.pop()
+
+    def handle_data(self, data):
+        if self.cur is None or 'slavicgray' in self.stack:
+            return
+        t = re.sub(r'\s+', ' ', data)
+        if t:
+            # ⚠ Третото поле: получер (Октоихът бележи заглавията така, не с
+            # червено) — само за разпознаване на заглавие, не за цвета.
+            self.cur.append(('kinovar' in self.stack, ucs.decode(t), 'bold' in self.stack))
+
+
+RE_UNIT = re.compile(r'^(?:(?:Въ?|Во|На)\s.{0,60}(?:вечер|ѹтр|утр|лїтꙋрг|повечер|полꙋнощ|часѣ|часъ)'
+                     r'|(?:Гласъ \S+ )?Пѣснь\s|Канѡнъ|Послѣдованїе|Чинъ|Часъ\s)')
+
+
+def chapter_units(body):
+    p = ParaParser()
+    p.feed(body)
+    units = [{'title': None, 'blocks': []}]
+    for runs3 in p.paras:
+        runs = [(r, t) for r, t, _ in runs3]
+        text = ''.join(t for _, t in runs).strip()
+        if not text:
+            continue
+        red = all(r for r, t in runs if t.strip())
+        bold = all(r or b for r, t, b in runs3 if t.strip())
+        h = pdf_ucs.runs_html(runs)
+        plain = re.sub(r'<[^>]+>', '', h).strip()
+        b = pdf_ucs.bare(plain).replace('҆', '')
+        if (red or bold) and len(b) <= 90 and RE_UNIT.match(b):
+            if units[-1]['title'] and not units[-1]['blocks']:
+                # Две заглавия едно след друго — второто е указание към първото.
+                units[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(plain, quote=False)})
+            else:
+                # „Пѣ́снь а҃. І҆рмо́съ:" — етикетът на ирмоса отива пред ТЕКСТА му,
+                # както навсякъде другаде в молитвослова, не в заглавието.
+                m = re.match(r'^(.*?Пѣ́снь\s+\S+?\.?)\s+(І҆рмо́съ):?$', plain)
+                if m:
+                    units.append({'title': m.group(1).rstrip('.'), 'blocks': [],
+                                  'label': m.group(2) + ':'})
+                else:
+                    units.append({'title': plain.rstrip(':,.'), 'blocks': []})
+            continue
+        if red or bold and not any(r for r, _ in runs):
+            if bold and not red:
+                units[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(plain, quote=False)})
+                continue
+        if red:
+            units[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(plain, quote=False)})
+            continue
+        lab = units[-1].pop('label', None)
+        if lab:
+            h = '<span class="rubric">%s</span> %s' % (lab, h)
+        kind = 'refrain' if re.match(r'<span class="rubric">Припѣ́въ', h) else 'text'
+        units[-1]['blocks'].append({'kind': kind, 'html': h})
+    for u in units:
+        u.pop('label', None)
+    return [u for u in units if u['blocks'] or u['title']]
+
+
+def chapters(path):
+    z = zipfile.ZipFile(path)
+    ncx = next(n for n in z.namelist() if n.endswith('.ncx'))
+    t = z.read(ncx).decode('utf-8')
+    base = os.path.dirname(ncx)
+    for label, src in re.findall(r'<navLabel>\s*<text>(.*?)</text>.*?<content src="([^"]+)"', t, re.S):
+        label = html.unescape(label).strip()
+        if 'первоисточник' in label:
+            continue
+        name = os.path.join(base, src.split('#')[0]) if base else src.split('#')[0]
+        h = z.read(name).decode('utf-8', 'replace')
+        yield label, h[h.find('<body'):]
+
+
+def translate_titles(titles):
+    cache = W / 'bogosl_titles_bg.json'
+    done = json.loads(cache.read_text(encoding='utf-8')) if cache.exists() else {}
+    missing = [x for x in dict.fromkeys(titles) if x not in done]
+    if missing:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            'tr', ROOT.parent / 'lives_plus' / 'scripts' / '02_translate_deepseek.py')
+        tr = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(tr)
+        tr.ПРОМПТ = PROMPT
+        k = tr.ключ()
+        rep = {'повиквания': 0, 'вход': 0, 'изход': 0}
+        for i in range(0, len(missing), 40):
+            part = missing[i:i + 40]
+            out = tr.преведи(k, part, '', rep)
+            for ru, bg in zip(part, out):
+                done[ru] = bg.strip()
+            cache.write_text(json.dumps(done, ensure_ascii=False, indent=1), encoding='utf-8')
+            print('  заглавия %d/%d' % (i + len(part), len(missing)), flush=True)
+    return done
+
+
+PROMPT = """Ти си опитен преводач на православна богослужебна литература от руски на български.
+
+Превеждаш ЗАГЛАВИЯ на служби от богослужебните книги (Минеи, Октоих, Триоди, Часослов, Служебник, Типикон).
+
+Правила:
+1. Утвърден български църковен стил: „Обрезание Господне“, „Св. пророк Малахия“, „Преподобни Сава Освещени“.
+2. Имената — в утвърдените български форми („Йоан“, не „Иоанн“; „Теодор“, не „Феодор“; „Атанасий“, не „Афанасий“; „Тимотей“; „Евтимий“).
+3. Датата отпред остава, с български месец: „2 января: …“ → „2 януари: …“.
+4. „Глас 1-й. Воскресенье“ → „Глас 1. Неделя“; дните: понеделник, вторник, сряда, четвъртък, петък, събота.
+5. „Неделя о мытаре и фарисее“ → „Неделя на митаря и фарисея“; „седмица“ остава „седмица“.
+6. Не добавяй нищо, не съкращавай, без точка накрая.
+
+Входът е номериран списък, по едно заглавие на ред. Отговори със същите номера, същия ред и същия брой редове.
+"""
+
+
+def grp_of(book, label, fname):
+    if book == 'minei':
+        m = MINEI.index(re.search(r'Mineya_(\d\d_\w+)\.epub', fname).group(1))
+        return 'Минея за %s' % MONTHS[m]
+    if book == 'oktoih':
+        m = re.match(r'Глас (\d)', label)
+        return 'Глас %s' % m.group(1) if m else None
+    return None
+
+
+def main():
+    raw = []
+    for fname, book, bname in BOOKS:
+        for label, body in chapters(IN / fname):
+            raw.append((fname, book, bname, label, chapter_units(body)))
+    titles = translate_titles([r[3] for r in raw])
+    out, sid = [], 1000
+    for fname, book, bname, label, units in raw:
+        sid += 1
+        tbg = titles.get(label, label).strip().rstrip('.')
+        if book == 'oktoih':
+            tbg = re.sub(r'^Глас \d+\.?\s*', '', tbg) or tbg
+        us = [{'n': i, 'title_csl': None, 'title_bg': None, 'title_cs': u['title'],
+               'csr': [], 'bg': [], 'csl': u['blocks'], 'sources': []}
+              for i, u in enumerate(units)]
+        out.append({'sec': sid, 'tab': 'bogosluzhebni', 'book': bname,
+                    'grp': grp_of(book, label, fname), 'title_bg': tbg, 'title_csl': None,
+                    'csr_source': None, 'csl_source': SRC, 'units': us})
+    (W / 'bogosluzhebni.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
+                                          encoding='utf-8')
+    n_bl = sum(len(u['csl']) for s in out for u in s['units'])
+    print('→ work/bogosluzhebni.json: %d раздела, %d блока' % (len(out), n_bl))
+
+
+if __name__ == '__main__':
+    main()

@@ -25,6 +25,7 @@ import 'bible_reader.dart' show kLanguageFontFamilies;
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'external_link.dart';
+import 'molitvoslov_book.dart';
 import 'molitvoslov_db.dart';
 import 'molitvoslov_settings.dart';
 import 'quotes_list.dart';
@@ -135,6 +136,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   @override
   void initState() {
     super.initState();
+    // Запомня се и оттук (линк, любим цитат), не само от съдържанието.
+    final b = widget.section.book;
+    if (b != null) {
+      MolitvoslovBookLast.loadOnce().then((_) => MolitvoslovBookLast.set(b, widget.section.id));
+    }
     _load();
   }
 
@@ -1378,6 +1384,22 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: AppColors.toolbar,
+        // ⚠ Плаващото копче — само в богослужебните книги: списък с книгите
+        // за скок между тях, докато се кара службата (указание на
+        // потребителя). Отместено от десния ръб, за да не се пипа скролбарът.
+        floatingActionButton: widget.section.book == null
+            ? null
+            : Padding(
+                padding: const EdgeInsets.only(right: 14, bottom: 8),
+                child: FloatingActionButton.small(
+                  heroTag: null,
+                  tooltip: 'Богослужебни книги',
+                  backgroundColor: AppColors.toolbar.withValues(alpha: 0.92),
+                  foregroundColor: Colors.white,
+                  onPressed: () => showBookSwitcher(context, widget.section),
+                  child: const Icon(Icons.auto_stories),
+                ),
+              ),
         body: SafeArea(
           // Докато няма текст, лентата стои отгоре неподвижно; с текст тя е
           // вътре в скрола (виж по-горе).

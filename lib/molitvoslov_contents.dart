@@ -10,6 +10,7 @@ import 'package:flutter/material.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'molitvoslov_book.dart';
 import 'molitvoslov_db.dart';
 import 'molitvoslov_reader.dart';
 import 'molitvoslov_settings.dart';
@@ -38,6 +39,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   Future<void> _load() async {
     try {
       await MolitvoslovLastSection.loadOnce();
+      await MolitvoslovBookLast.loadOnce();
       final tabs = await MolitvoslovDb.tabs();
       final sections = await MolitvoslovDb.sections();
       if (!mounted) return;
@@ -145,6 +147,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
         ),
       );
     }
+    if (list.any((s) => s.book != null)) return _booksBody(list);
     return ListView.separated(
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: list.length,
@@ -178,6 +181,60 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
               const Icon(Icons.chevron_right, color: AppColors.textMuted),
             ]),
           ),
+          ),
+        );
+      },
+    );
+  }
+
+  /// „Богослужебни": първото ниво са КНИГИТЕ; тап отваря съдържанието на
+  /// книгата. Под името — последно четеното в нея (синьо, ако е и
+  /// последно отвореното изобщо).
+  Widget _booksBody(List<MolSection> list) {
+    final byId = {for (final s in list) s.id: s};
+    final books = bookOrder(list);
+    return ListView.separated(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      itemCount: books.length,
+      separatorBuilder: (_, _) =>
+          const Divider(height: 1, color: AppColors.sectionDivider),
+      itemBuilder: (context, i) {
+        final b = books[i];
+        final last = byId[MolitvoslovBookLast.value[b]];
+        final isLast = last != null && last.id == MolitvoslovLastSection.value;
+        return Material(
+          color: isLast ? AppColors.rowSelected : Colors.transparent,
+          child: InkWell(
+            onTap: () async {
+              await Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => MolitvoslovBook(book: b, sections: list)));
+              if (mounted) setState(() {});
+            },
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              child: Row(children: [
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(b,
+                            style: const TextStyle(
+                                color: AppColors.textPrimary, fontSize: 17)),
+                        if (last != null)
+                          Padding(
+                            padding: const EdgeInsets.only(top: 3),
+                            child: Text(last.titleBg,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    color: AppColors.textSecondary,
+                                    fontSize: 13)),
+                          ),
+                      ]),
+                ),
+                const Icon(Icons.chevron_right, color: AppColors.textMuted),
+              ]),
+            ),
           ),
         );
       },

@@ -66,6 +66,9 @@ def parse(path=PDF):
         f, sz, t = sp['font'], round(sp['size']), sp['text']
         if 'Palatino' in f or ('Times' in f and 'Italic' not in f):
             continue
+        if 'Cambria' in f and sz <= 9 and not t.strip().isdigit():
+            continue                      # „©" в долния край на 1-ва стр.
+
         if 'Italic' in f and re.match(r'\s*Катизма', t):
             flush_italic()
             m = re.search(r'(\d+)', t)
