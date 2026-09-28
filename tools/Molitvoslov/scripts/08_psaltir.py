@@ -28,7 +28,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 W = os.path.join(ROOT, 'work')
 BIBLE = os.path.join(ROOT, '..', '..', 'assets', 'db', 'bible.db')
 CS_PDF = os.path.join(ROOT, 'input', 'newBooks', '24_Псалтир_ЦС.pdf')
-BG_SRC = 'Псалтир, преведен от църковнославянски език'
+BG_SRC = ('Текстът на български е по Септуагинта, като е преведен от '
+          'църковнославянски език от инок Евтимий (Хинов).')
 CS_SRC_PS = 'https://azbyka.ru/biblia/?Ps.1&utfcs'
 CS_SRC_PR = 'Псалтирь (цс), молитвите след катизмите'
 

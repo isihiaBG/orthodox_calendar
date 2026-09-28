@@ -915,10 +915,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             const Text('Източници:'),
             if (hosts.isNotEmpty)
               _sourceLine(p, 'на български: ', hosts, firstUrl),
+            // Цяло изречение („Текстът на български е…") — без етикет отпред.
             for (final t in plainBg)
               Padding(
                 padding: const EdgeInsets.only(top: 4),
-                child: Text('на български: $t'),
+                child: Text(t),
               ),
             if (_has('csl') && widget.section.sourceCsl != null)
               _sourceAny(p, 'на църковнославянски: ', widget.section.sourceCsl!),
