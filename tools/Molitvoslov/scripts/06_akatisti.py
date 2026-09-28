@@ -123,6 +123,12 @@ def parse_kanonnik(fname):
     return units
 
 
+BG_ERRATA = [('Радвай сети', 'Радвай се ти'), ('радвй се', 'радвай се'),
+             ('радавй се', 'радвай се'), ('радай се', 'радвай се'),
+             ('радвай се.гръме', 'радвай се, гръме'), ('сетлина', 'светлина'),
+             ('лъч затези', 'лъч за тези'),
+             ('славимтъй: Радвайсе, избавителюотвечнотоубожество;',
+              'славим тъй: Радвай се, избавителю от вечното убожество;')]
 RE_BG_LABEL = re.compile(r'^(?:Статия [а-я]+,?\s*)?(Кондак|Икос)\s+(\d+)\s*$')
 RE_BG_STATIA = re.compile(r'^Статия [а-я]+,?\s*$')
 
@@ -155,11 +161,84 @@ def parse_bg(page):
         # ⚠ Печатна грешка в извора: цифрата „0" вместо буквата „О" в
         # началото на кондак 13 на св. Николай („0, пресвети и пречудни…").
         t = re.sub(r'^0, ', 'О, ', t)
+        # ⚠ Още печатни грешки в извора — без тях възгласите не се разпознават
+        # и икосът не се дели на редове като в цс (намерени 28.09.2026).
+        for wrong, right in BG_ERRATA:
+            t = t.replace(wrong, right)
+        # OCR брак: „ь" вместо „ъ" („мъртьвците", „застьпнико"). В
+        # българския „ь" стои САМО пред „о", тъй че правилото е безопасно.
+        t = re.sub(r'ь(?!о)', 'ъ', t)
         cur['blocks'].append({'kind': b['kind'], 'text': t})
     return units
 
 
 CSL_PATH = os.path.join(W, 'akatisti_csl.json')
+MISMATCH = []
+
+
+# Началото на всеки ред-възглас в икосите: „Ра́дуйся…" / „Иису́се…"
+# (цс с граждански шрифт) и „Радвай се…" (бг) — след край на изречение.
+RE_CHAIRE = re.compile(
+    r'(?<=[:.!;,]) (?=(?:[Рр]а́дуйся|[Рр]адуйся|[Рр]адвай се|Иису́се|Иисусе)'
+    r'(?!\s*!)(?![,!]?\s+и\s+со\s))')
+# ⚠ Вторият възглас от двойката е с МАЛКА буква („…: ра́дуйся, е́юже…").
+# ⚠ Нито „ра́дуйся, и со безпло́тным…" (Икос 1 към Богородица в Канонника).
+# ⚠ „ра́дуйся!" вътре във въведението („рещи Богородице: ра́дуйся!") НЕ е
+# ред-възглас — затова не се реже, ако подир думата стои удивителна.
+
+
+def split_like(blocks, target):
+    """Един слят абзац с възгласите → по ред на възглас, КАКТО Е в цс шрифт.
+
+    ⚠ Канонникът (и бг изворът) пестят място и сливат целия икос в един
+    абзац, а цс шрифтът дава всеки „Радуйся"/„Иисусе" на свой ред с червена
+    буква — двата езика вървяха с различни височини и зееха. (Указание на
+    потребителя, 28.09.2026: навсякъде като в цс шрифт.)
+    ⚠ Приема се САМО ако броят редове излезе точно колкото в цс шрифт;
+    иначе абзацът остава, какъвто е — по-добре слят, отколкото насечен
+    на грешни места."""
+    if len(blocks) >= target:
+        return blocks, False
+    out = []
+    for b in blocks:
+        if b.get('kind') != 'text':
+            out.append(b)
+            continue
+        key = 'html' if 'html' in b else 'text'
+        parts = [x.strip() for x in RE_CHAIRE.split(b[key]) if x.strip()]
+        # ⚠ Всеки ред-възглас е с ГЛАВНА буква, както в цс шрифт — инак
+        # вторият от двойката („радвай се…") остава без червена буква.
+        parts = parts[:1] + [x[:1].upper() + x[1:] for x in parts[1:]]
+        out += [dict(b, **{key: x}) for x in parts]
+    # ⚠ Допуска се разлика до ДВА реда: Канонникът е изпуснал по някой
+    # възглас (Икос 1 и 5 към Иисус Христос, Икос 2 към Богородица). Там
+    # редовете пак са ред по ред — по-добре почти изравнени, отколкото слят
+    # абзац срещу четиринайсет реда.
+    if len(out) > len(blocks) and abs(len(out) - target) <= 2:
+        return out, len(out) == target
+    return blocks, False
+
+
+# Възгласът преди всеки кондак и икос в бг акатиста към св. Николай.
+RE_BG_HINT = re.compile(r'^(Светителю отче Николае, моли Бога за нас\.)\s*(.*)$', re.S)
+
+
+def split_hints(blocks):
+    """„Светителю отче Николае, моли Бога за нас. Ти изгря…" → възгласът се
+    МАХА, а стихът остава.
+
+    ⚠ Такъв възглас се казва на КАНОНИТЕ, не на акатистите — в бг извора
+    (pravoslavieto.com) е грешка на съставителя. (Решение на потребителя,
+    28.09.2026; първо беше отделен като посивена подсказка.)"""
+    out = []
+    for b in blocks:
+        m = RE_BG_HINT.match(b.get('text', '')) if b.get('kind') == 'text' else None
+        if m:
+            if m.group(2).strip():
+                out.append(dict(b, text=m.group(2).strip()))
+        else:
+            out.append(b)
+    return out
 
 
 def attach_csl(sid, units):
@@ -197,6 +276,12 @@ def attach_csl(sid, units):
         if target is not None:
             target['csl'] = cu['blocks']
             target['title_cs'] = cu['title']
+            n = len(cu['blocks'])
+            for lang in ('csr', 'bg'):
+                if target.get(lang):
+                    target[lang], ok = split_like(target[lang], n)
+                    if len(target[lang]) != n:
+                        MISMATCH.append((sid, cu['title'], lang, len(target[lang]), n))
             continue
         new = {'title_csl': None, 'title_cs': cu['title'], 'title_bg': None,
                'csr': [], 'bg': [], 'csl': cu['blocks'], 'sources': []}
@@ -251,6 +336,8 @@ def main():
                 units.append({'title_csl': None, 'title_bg': u['title'], 'csr': [],
                               'bg': u['blocks'], 'sources': [bg_url]})
         attach_csl(sid, units)
+        for u in units:
+            u['bg'] = split_hints(u['bg'])
         for i, u in enumerate(units):
             u['n'] = i
         title_csl = None
@@ -272,6 +359,8 @@ def main():
         print('  %d  единици %3d  (цс %3d · бг %3d · двойки %2d)  %s' % (
             sid, len(units), sum(1 for u in units if u['csr']),
             sum(1 for u in units if u['bg']), paired, title_bg))
+    for m in MISMATCH:
+        print('  ⚠ %d %-14s %-3s редове %2d, в цс шрифт %2d' % m)
     json.dump(out, open(os.path.join(W, 'akatisti.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print('→ work/akatisti.json')

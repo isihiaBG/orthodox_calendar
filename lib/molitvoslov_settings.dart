@@ -61,6 +61,31 @@ class MolitvoslovLastTab {
   }
 }
 
+/// Последно отвореният РАЗДЕЛ (id от `sections`) — маркира се в синьо в
+/// съдържанието, както последно четената глава в Библията. `null` — още
+/// нищо не е отваряно, тогава нищо не се маркира.
+class MolitvoslovLastSection {
+  MolitvoslovLastSection._();
+
+  static const String _key = 'molitvoslov_last_section';
+  static int? value;
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    final p = await SharedPreferences.getInstance();
+    value = p.getInt(_key);
+  }
+
+  static Future<void> set(int v) async {
+    if (value == v) return;
+    value = v;
+    final p = await SharedPreferences.getInstance();
+    await p.setInt(_key, v);
+  }
+}
+
 /// Размерът на шрифта в четеца на молитвослова — свой, както Библията има
 /// свой. Механизмът е общият [PersistedFontSize].
 class MolitvoslovFontSize {

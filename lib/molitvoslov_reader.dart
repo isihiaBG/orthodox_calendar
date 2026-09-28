@@ -17,6 +17,7 @@
 // скрива" — указание на потребителя).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
@@ -60,6 +61,21 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   double _textWidth = 300;
   bool _landscape = false;
 
+  /// Височината на изгледа на четеца (не на устройството) — мярката, над
+  /// която празнината получава подсказка.
+  double _viewportH = 600;
+
+  /// Ключ на всяка молитва — за скока до началото на текста и за връщането
+  /// на мястото при завъртане.
+  List<GlobalKey> _unitKeys = const [];
+
+  /// Измерените височини на съдържанието: страна ('L'/'R') → молитва → px.
+  final Map<String, Map<int, double>> _cellH = {'L': {}, 'R': {}};
+
+  /// Подсказките за празнините: страна → молитва-домакин → подсказка.
+  Map<String, Map<int, _GapHint>> _hints = {'L': {}, 'R': {}};
+  bool _hintsQueued = false;
+
   // ───────────────────────────── търсенето ─────────────────────────────
   //
   // ⚠ Устроено като търсенето „в главата" на библейския четец: лентата се
@@ -94,6 +110,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       setState(() {
         _langs = langs;
         _units = units;
+        _unitKeys = [for (var i = 0; i < units.length; i++) GlobalKey()];
       });
     } catch (e) {
       // ⚠ Грешката се ПОКАЗВА — не бива да изглежда като „още се зарежда"
@@ -294,7 +311,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       .replaceAll('&amp;', '&');
 
   bool _redFirst(String lang, MolBlock b) =>
-      !b.isRubric && !b.isRefrain && (_lang(lang)?.rubricate ?? false);
+      !b.isRubric &&
+      !b.isRefrain &&
+      !b.isHint &&
+      (_lang(lang)?.rubricate ?? false);
 
   /// Една молитва на един език: заглавие, после абзаците.
   ///
@@ -336,7 +356,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           ? base.copyWith(color: p.wine, fontSize: base.fontSize! - 2)
           : b.isRefrain
               ? base.copyWith(fontSize: base.fontSize! - 2)
-              : base;
+              : b.isHint
+                  ? base.copyWith(
+                      color: p.dim,
+                      fontStyle: FontStyle.italic,
+                      fontSize: base.fontSize! - 1)
+                  : base;
       children.add(Padding(
         key: keyFor(bi),
         padding: const EdgeInsets.only(bottom: 8),
@@ -350,6 +375,201 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       ));
     }
     return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children);
+  }
+
+
+  // ───────────────────────── празнините ─────────────────────────
+  //
+  // ⚠ Двата езика вървят молитва до молитва, тъй че където единият има
+  // текст, а другият — не, видимата страна зее празна. Човек, който не се
+  // сеща, че вдясно има друг език, вижда празен екран и не знае какво става.
+  // (Указание на потребителя, 28.09.2026.) Подсказка има САМО където
+  // празнината надхвърля ЕДИН ЕКРАН НА ЧЕТЕЦА — по-малките са естествени.
+
+  /// Клетка на една страна: измереното съдържание и, ако тук започва голяма
+  /// празнина, подсказката под него.
+  ///
+  /// ⚠ Мери се САМО съдържанието, без подсказката — инак появата ѝ мени
+  /// мерките и сметката се гони сама.
+  Widget _sideCell(ReaderPalette p, MolUnit u, String lang, int ui, String side) {
+    final hint = (_landscape || _only != null) ? null : _hints[side]?[ui];
+    final cell = _SizeReport(
+      onSize: (h) => _report(side, ui, h),
+      child: _unitCell(p, u, lang, ui),
+    );
+    if (hint == null) return cell;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [cell, _gapHintWidget(p, hint, side)],
+    );
+  }
+
+  void _report(String side, int ui, double h) {
+    final old = _cellH[side]![ui];
+    if (old != null && (old - h).abs() < 0.5) return;
+    _cellH[side]![ui] = h;
+    if (_hintsQueued) return;
+    _hintsQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _hintsQueued = false;
+      if (mounted) _recomputeHints();
+    });
+  }
+
+  void _recomputeHints() {
+    final units = _units ?? const <MolUnit>[];
+    final next = <String, Map<int, _GapHint>>{'L': {}, 'R': {}};
+    for (final side in const ['L', 'R']) {
+      final other = side == 'L' ? 'R' : 'L';
+      int? host;
+      var gap = 0.0;
+      for (var ui = 0; ui < units.length; ui++) {
+        final mine = _cellH[side]![ui] ?? 0;
+        final theirs = _cellH[other]![ui] ?? 0;
+        final unitH = mine > theirs ? mine : theirs;
+        // ⚠ Дребните остатъци (празно заглавие, отстъп) не са „текст".
+        if (mine > 24) {
+          if (host != null && gap > _viewportH) {
+            next[side]![host] = _GapHint(target: ui);
+          }
+          host = ui;
+          gap = unitH - mine;
+        } else {
+          host ??= ui;
+          gap += unitH;
+        }
+      }
+      if (host != null && gap > _viewportH) {
+        next[side]![host] = const _GapHint(target: null);
+      }
+    }
+    String sig(Map<String, Map<int, _GapHint>> m) =>
+        [for (final s in m.keys) '$s:${m[s]!.entries.map((e) => '${e.key}>${e.value.target}').join(',')}'].join('|');
+    if (sig(next) != sig(_hints)) setState(() => _hints = next);
+  }
+
+  /// Името на езика в изречение: „българския текст" и т.н.
+  String _langPhrase(String code) => switch (code) {
+        'bg' => 'българския текст',
+        'csr' => 'църковнославянския текст с граждански шрифт',
+        _ => 'църковнославянския текст',
+      };
+
+  Widget _gapHintWidget(ReaderPalette p, _GapHint hint, String side) {
+    final otherLang = side == 'L' ? _second : _left;
+    final where = side == 'L' ? 'вдясно' : 'вляво';
+    final String text;
+    final IconData icon;
+    final VoidCallback onTap;
+    if (hint.target != null) {
+      text = 'Плъзни надолу до началото на текста или виж $where '
+          '${_langPhrase(otherLang)}';
+      icon = Icons.arrow_downward;
+      onTap = () {
+        final ctx = _unitKeys[hint.target!].currentContext;
+        if (ctx != null) {
+          Scrollable.ensureVisible(ctx,
+              alignment: 0.02,
+              duration: const Duration(milliseconds: 450),
+              curve: Curves.easeInOutCubic);
+        }
+      };
+    } else {
+      text = 'Виж допълнението в ${_langPhrase(otherLang)}';
+      icon = side == 'L' ? Icons.arrow_forward : Icons.arrow_back;
+      onTap = _toggleLanguage;
+    }
+    return SelectionContainer.disabled(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 36, horizontal: 12),
+        child: Column(children: [
+          Text(text,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: p.dim, fontSize: 15, height: 1.35)),
+          const SizedBox(height: 14),
+          Material(
+            color: Colors.transparent,
+            shape: CircleBorder(side: BorderSide(color: p.dim, width: 1.5)),
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap,
+              child: Padding(
+                padding: const EdgeInsets.all(14),
+                child: Icon(icon, size: 34, color: p.dim),
+              ),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  // ───────────────────────── завъртането ─────────────────────────
+  //
+  // ⚠ Четивата са дълги, а изправено и легнало са ДВЕ РАЗЛИЧНИ подредби
+  // (плъзгане срещу две колони), тъй че същият пиксел сочи съвсем друго
+  // място. Затова се пази МОЛИТВАТА горе и докъде в нея, а не пикселът.
+  // (Указание на потребителя: „това е много важно".)
+
+  /// Последното запомнено място — обновява се при всяко СПИРАНЕ на скрола.
+  ///
+  /// ⚠ Не се улавя в мига на завъртането (`didChangeMetrics`): пробвано и
+  /// не сработи — дотогава подредбата вече е сменена и скролът е на нулата.
+  /// Мястото, където човек е СПРЯЛ, е и точно онова, което трябва да се върне.
+  (int, double)? _lastAnchor;
+  bool? _prevLandscape;
+
+  /// Докато тече връщането, собствените ни скокове не пренаписват мястото.
+  bool _restoring = false;
+
+  /// ⚠ Android завърта на НЯКОЛКО стъпки (прозорецът и лентите се
+  /// преоразмеряват поотделно), тъй че подредбата се сменя повече от веднъж.
+  /// Върнато само веднъж, мястото пада в междинна подредба и после се
+  /// разминава — на устройството скочи с четири молитви напред. Затова
+  /// връщането се повтаря, докато оформлението се успокои.
+  void _restoreSettled((int, double) a) {
+    _restoring = true;
+    _restoreAnchor(a, 0);
+    for (final ms in const [250, 600, 1000]) {
+      Future.delayed(Duration(milliseconds: ms), () {
+        if (mounted) _restoreAnchor(a, 0);
+      });
+    }
+    Future.delayed(const Duration(milliseconds: 1200), () => _restoring = false);
+  }
+
+  (int, double)? _topAnchor() {
+    final off = _scroll.offset;
+    for (var ui = 0; ui < _unitKeys.length; ui++) {
+      final box = _unitKeys[ui].currentContext?.findRenderObject() as RenderBox?;
+      if (box == null || !box.hasSize) continue;
+      final top = RenderAbstractViewport.of(box).getOffsetToReveal(box, 0).offset;
+      final h = box.size.height;
+      if (top + h > off) {
+        return (ui, h <= 0 ? 0 : ((off - top) / h).clamp(0.0, 1.0));
+      }
+    }
+    return null;
+  }
+
+  /// ⚠ Изчаква новото оформление (два кадъра: смяна на подредбата, после
+  /// мерките), а непостроена молитва се пробва пак — голото `return` е
+  /// тихият отказ, платен вече няколко пъти в проекта.
+  void _restoreAnchor((int, double) a, int tries) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_scroll.hasClients) return;
+        final box = _unitKeys[a.$1].currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.hasSize) {
+          if (tries < 6) _restoreAnchor(a, tries + 1);
+          return;
+        }
+        final top = RenderAbstractViewport.of(box).getOffsetToReveal(box, 0).offset;
+        final pos = (top + a.$2 * box.size.height)
+            .clamp(0.0, _scroll.position.maxScrollExtent);
+        _scroll.jumpTo(pos);
+      });
+    });
   }
 
   // ───────────────────────────── търсенето ─────────────────────────────
@@ -491,7 +711,16 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     final w = _textWidth;
     final right = _rightOf(u);
     // Молитва без втори език стои неподвижна — при плъзгане няма към какво.
-    if (right == null) return _unitCell(p, u, _left, ui);
+    // ⚠ Мери се и за двете страни: тя Е текст и за двете.
+    if (right == null) {
+      return _SizeReport(
+        onSize: (h) {
+          _report('L', ui, h);
+          _report('R', ui, h);
+        },
+        child: _unitCell(p, u, _left, ui),
+      );
+    }
     return ClipRect(
       child: AnimatedBuilder(
         animation: _slide,
@@ -504,13 +733,13 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 offset: Offset(-t * w, 0),
                 child: SizedBox(
                     width: w,
-                    child: _selectable(t < 0.5, _unitCell(p, u, _left, ui))),
+                    child: _selectable(t < 0.5, _sideCell(p, u, _left, ui, 'L'))),
               ),
               Transform.translate(
                 offset: Offset((1 - t) * w, 0),
                 child: SizedBox(
                     width: w,
-                    child: _selectable(t >= 0.5, _unitCell(p, u, right, ui))),
+                    child: _selectable(t >= 0.5, _sideCell(p, u, right, ui, 'R'))),
               ),
             ],
           );
@@ -546,7 +775,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     TextStyle st(String lang) => _style(p, lang, delta: 6).copyWith(
         fontFamily: lang == 'bg' ? kTitleFamily : null,
         fontFamilyFallback: lang == 'bg' ? kTitleFallback : null,
-        color: p.heading,
+        // ⚠ Цветът на ТЕКСТА, не синьото на заглавията в другите четци:
+        // в богослужебните книги такова оцветяване няма, а синьото не
+        // пасва на мастиленото и виненото (указание на потребителя).
+        color: p.ink,
         height: 1.2);
     Widget t(String lang) => Padding(
           padding: const EdgeInsets.only(top: 8, bottom: 10),
@@ -824,6 +1056,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     final landscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
     _landscape = landscape;
+    if (_prevLandscape != null && _prevLandscape != landscape && _lastAnchor != null) {
+      _restoreSettled(_lastAnchor!);
+    }
+    _prevLandscape = landscape;
     final only = _only;
     final single = only != null;
 
@@ -845,39 +1081,77 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       body = LayoutBuilder(builder: (context, c) {
         const pad = 18.0;
         _textWidth = c.maxWidth - 2 * pad;
+        _viewportH = c.maxHeight - kReaderToolbarHeight;
         final units = _units!;
-        // ⚠ Не `ListView.builder`: обхождането на намереното иска абзацът
-        // да е построен, а мързеливият списък не строи невидимото.
-        // Разделите са по няколко десетки молитви — строят се наведнъж.
-        return _selectionArea(p, SingleChildScrollView(
-          controller: _scroll,
-          padding: const EdgeInsets.fromLTRB(pad, 12, pad, 0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _header(p, only ?? (landscape ? _left : null)),
-              for (var ui = 0; ui < units.length; ui++)
-                single
-                    ? _unitCell(p, units[ui], only, ui)
-                    : landscape
-                        ? _parallel(p, units[ui], ui)
-                        : _slidingPair(p, units[ui], ui),
-              _sources(p),
-            ],
-          ),
-        ));
-      });
-      if (!single && !landscape) {
-        body = GestureDetector(
-          onHorizontalDragUpdate: (d) {
-            final dx = d.primaryDelta ?? 0;
-            _slide.value = (_slide.value - dx / _textWidth).clamp(0.0, 1.0);
+        // ⚠ Не мързелив списък: обхождането на намереното и подсказките в
+        // празнините искат всяка молитва построена и измерена. Разделите са
+        // по няколко десетки молитви — строят се наведнъж.
+        //
+        // ⚠ ЛЕНТАТА Е ВЪТРЕ В СКРОЛА и се скрива при плъзгане — както в
+        // библейския четец. При търсене е ЗАКОВАНА: тя носи полето и
+        // стрелките, а обхождането само мести скрола.
+        return _selectionArea(p, NotificationListener<ScrollEndNotification>(
+          onNotification: (_) {
+            if (!_restoring) _lastAnchor = _topAnchor() ?? _lastAnchor;
+            return false;
           },
-          onHorizontalDragEnd: (d) => _settleSlide(d.primaryVelocity ?? 0),
-          onHorizontalDragCancel: () => _settleSlide(0),
-          child: body,
-        );
-      }
+          child: CustomScrollView(
+          controller: _scroll,
+          slivers: [
+            SliverAppBar(
+              floating: !_searchOpen,
+              snap: !_searchOpen,
+              pinned: _searchOpen,
+              toolbarHeight: kReaderToolbarHeight,
+              automaticallyImplyLeading: false,
+              automaticallyImplyActions: false,
+              titleSpacing: 0,
+              backgroundColor: AppColors.toolbar,
+              surfaceTintColor: Colors.transparent,
+              scrolledUnderElevation: 0,
+              elevation: 0,
+              title: SelectionContainer.disabled(
+                  child: _toolbar(p, single, landscape)),
+            ),
+            SliverPadding(
+              padding: const EdgeInsets.fromLTRB(pad, 12, pad, 0),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    _header(p, only ?? (landscape ? _left : null)),
+                    for (var ui = 0; ui < units.length; ui++)
+                      KeyedSubtree(
+                        key: _unitKeys[ui],
+                        child: single
+                            ? _unitCell(p, units[ui], only, ui)
+                            : landscape
+                                ? _parallel(p, units[ui], ui)
+                                : _slidingPair(p, units[ui], ui),
+                      ),
+                    _sources(p),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        )));
+      });
+      // ⚠ Обвивката стои ВИНАГИ (в легнало — без действия), за да е едно и
+      // също дървото в двете положения: иначе скролът се пресъздава при
+      // завъртане и тръгва от нулата.
+      final slides = !single && !landscape;
+      body = GestureDetector(
+        onHorizontalDragUpdate: slides
+            ? (d) {
+                final dx = d.primaryDelta ?? 0;
+                _slide.value = (_slide.value - dx / _textWidth).clamp(0.0, 1.0);
+              }
+            : null,
+        onHorizontalDragEnd: slides ? (d) => _settleSlide(d.primaryVelocity ?? 0) : null,
+        onHorizontalDragCancel: slides ? () => _settleSlide(0) : null,
+        child: body,
+      );
     }
 
     // ⚠ Скелетът е с цвета на лентата, а фонът на страницата е ВЪТРЕ в
@@ -888,10 +1162,14 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       child: Scaffold(
         backgroundColor: AppColors.toolbar,
         body: SafeArea(
-          child: Column(children: [
-            _toolbar(p, single, landscape),
-            Expanded(child: Container(color: p.bg, child: body)),
-          ]),
+          // Докато няма текст, лентата стои отгоре неподвижно; с текст тя е
+          // вътре в скрола (виж по-горе).
+          child: _units == null || _units!.isEmpty || _error != null
+              ? Column(children: [
+                  _toolbar(p, single, landscape),
+                  Expanded(child: Container(color: p.bg, child: body)),
+                ])
+              : Container(color: p.bg, child: body),
         ),
       ),
     );
@@ -988,4 +1266,36 @@ FoldedText foldPrayerText(String src) {
     i = j;
   }
   return FoldedText(buf.toString(), starts, ends);
+}
+
+/// Подсказка в празнината: `target` — молитвата, където текстът започва
+/// отново; `null` — нататък до края текст няма.
+class _GapHint {
+  final int? target;
+  const _GapHint({required this.target});
+}
+
+/// Отчита височината на детето си след всяко оформление.
+class _SizeReport extends SingleChildRenderObjectWidget {
+  final ValueChanged<double> onSize;
+  const _SizeReport({required this.onSize, required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) => _RenderSizeReport(onSize);
+
+  @override
+  void updateRenderObject(BuildContext context, _RenderSizeReport ro) {
+    ro.onSize = onSize;
+  }
+}
+
+class _RenderSizeReport extends RenderProxyBox {
+  ValueChanged<double> onSize;
+  _RenderSizeReport(this.onSize);
+
+  @override
+  void performLayout() {
+    super.performLayout();
+    onSize(size.height);
+  }
 }

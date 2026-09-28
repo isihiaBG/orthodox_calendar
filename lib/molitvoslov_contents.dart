@@ -37,6 +37,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
 
   Future<void> _load() async {
     try {
+      await MolitvoslovLastSection.loadOnce();
       final tabs = await MolitvoslovDb.tabs();
       final sections = await MolitvoslovDb.sections();
       if (!mounted) return;
@@ -46,16 +47,47 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
           length: tabs.length,
           vsync: this,
           initialIndex: widget.initialTab.clamp(0, tabs.length - 1))
+        // ⚠ Табът НЕ се записва тук: помни се само ИЗБРАНАТА КОРИЦА
+        // (указание на потребителя) — разходката между табовете не бива да я
+        // пренаписва. Слушателят само плъзга до последно отворения раздел.
         ..addListener(() {
-          if (!_ctrl!.indexIsChanging) MolitvoslovLastTab.set(_ctrl!.index);
+          if (!_ctrl!.indexIsChanging) _revealLast(_ctrl!.index, 0);
         });
       setState(() {
         _tabs = tabs;
         _sections = sections;
       });
+      _revealLast(_ctrl!.index, 0);
     } catch (e) {
       if (mounted) setState(() => _error = e);
     }
+  }
+
+  /// Ключ на реда с последно отворения раздел — за плъзгането до него.
+  final GlobalKey _lastKey = GlobalKey();
+
+  /// Плъзга ВИДИМО до последно отворения раздел, ако е в този таб — както
+  /// съдържанието на Библията („самото движение е подсещането").
+  /// ⚠ Непостроен ред се пробва пак на следващия кадър — голото `return` е
+  /// тихият отказ, платен вече няколко пъти в проекта.
+  void _revealLast(int tabIndex, int attempt) {
+    final last = MolitvoslovLastSection.value;
+    final tabs = _tabs;
+    if (last == null || tabs == null) return;
+    final inTab = _sections.any((s) => s.id == last && s.tab == tabs[tabIndex].code);
+    if (!inTab) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _lastKey.currentContext;
+      if (ctx == null) {
+        if (attempt < 8) _revealLast(tabIndex, attempt + 1);
+        return;
+      }
+      Scrollable.ensureVisible(ctx,
+          alignment: 0.3,
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeInOutCubic);
+    });
   }
 
   @override
@@ -120,9 +152,21 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
           const Divider(height: 1, color: AppColors.sectionDivider),
       itemBuilder: (context, i) {
         final s = list[i];
-        return InkWell(
-          onTap: () => Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => MolitvoslovReader(section: s))),
+        final isLast = s.id == MolitvoslovLastSection.value;
+        // ⚠ Синьото е `AppColors.rowSelected` — същото, с което Библията
+        // бележи последно четената глава. Не е нов цвят с ново значение.
+        return Material(
+          key: isLast ? _lastKey : null,
+          color: isLast ? AppColors.rowSelected : Colors.transparent,
+          child: InkWell(
+          onTap: () {
+            // ⚠ Не `setState(() => …set(...))`: `set` връща Future, а
+            // setState гърми, ако обратното извикване върне Future.
+            MolitvoslovLastSection.set(s.id);
+            setState(() {});
+            Navigator.of(context).push(MaterialPageRoute(
+                builder: (_) => MolitvoslovReader(section: s)));
+          },
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(children: [
@@ -133,6 +177,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
               ),
               const Icon(Icons.chevron_right, color: AppColors.textMuted),
             ]),
+          ),
           ),
         );
       },
