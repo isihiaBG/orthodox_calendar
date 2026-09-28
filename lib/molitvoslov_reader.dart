@@ -115,17 +115,41 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   bool _has(String lang) =>
       (_units ?? const []).any((u) => u.of(lang).isNotEmpty);
 
-  /// Вторият (цс) език на раздела: `csl` — истински цс шрифт, или `csr` —
-  /// цс с граждански шрифт („Канонник"). Който има текст.
-  String get _second => _has('csl') ? 'csl' : 'csr';
+  /// Левият език: българският, ако го има; иначе цс с граждански шрифт.
+  String get _left => _has('bg') ? 'bg' : (_has('csr') ? 'csr' : 'csl');
+
+  /// Десният език на ЕДНА молитва — цс шрифт, ако го има, иначе граждански.
+  ///
+  /// ⚠ Решава се ЗА ВСЯКА МОЛИТВА, не за целия раздел: при акатистите цс
+  /// шрифтът покрива само кондаците, икосите и молитвите, а канонът го има
+  /// само с граждански шрифт — там дясната колона пада на него, вместо да
+  /// зее празна. `null` — молитвата няма втори език.
+  String? _rightOf(MolUnit u) {
+    for (final l in const ['csl', 'csr']) {
+      if (l != _left && u.of(l).isNotEmpty) return l;
+    }
+    return null;
+  }
+
+  /// Надписът на копчето за езика. ⚠ Двата цс вида се различават — при
+  /// акатиста към Иисус Христос те са ЛЯВО и ДЯСНО и иначе копчето би
+  /// казвало „цс" и за двете страни.
+  String _langLabel(String code) => switch (code) {
+        'bg' => 'бг',
+        'csr' => 'цс гр.',
+        _ => 'цс',
+      };
+
+  /// Десният език на раздела изобщо — за заглавието, търсенето и копчето.
+  String get _second =>
+      (_left != 'csl' && _has('csl')) ? 'csl' : (_left != 'csr' && _has('csr') ? 'csr' : 'csl');
 
   /// ⚠ Раздел само с ЕДИН език — той се показва на цялата ширина, без
   /// плъзгане (указание на потребителя). Кой е — идва от данните: у
   /// акатистите без цс извор това е българският.
   String? get _only {
-    final bg = _has('bg'), cs = _has(_second);
-    if (bg && cs) return null;
-    return bg ? 'bg' : _second;
+    final units = _units ?? const <MolUnit>[];
+    return units.any((u) => _rightOf(u) != null) ? null : _left;
   }
 
   MolLanguage? _lang(String code) {
@@ -330,9 +354,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
 
   // ───────────────────────────── търсенето ─────────────────────────────
 
-  /// Езикът, в който се търси — онзи, който се вижда. В легнало — левият.
-  String get _searchLang =>
-      _only ?? (_landscape ? 'bg' : (_slide.value >= 0.5 ? _second : 'bg'));
+  /// Езикът, в който се търси в ДАДЕНА молитва — онзи, който се вижда. В
+  /// легнало — левият. ⚠ По молитва, защото десният език е по молитва.
+  String _searchLangOf(MolUnit u) => _only ??
+      (_landscape || _slide.value < 0.5 ? _left : (_rightOf(u) ?? _left));
 
   void _toggleSearch() {
     setState(() {
@@ -352,13 +377,13 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   }
 
   void _runSearch(String q) {
-    final lang = _searchLang;
     final terms = searchTerms(foldPrayerText(q).text);
     final hits = <_Hit>[];
     if (terms.isNotEmpty) {
       final units = _units ?? const <MolUnit>[];
       for (var ui = 0; ui < units.length; ui++) {
         final u = units[ui];
+        final lang = _searchLangOf(u);
         final blocks = u.of(lang);
         final title = u.titleFor(lang);
         if (title != null && title.isNotEmpty && (blocks.isNotEmpty || lang != 'bg')) {
@@ -464,6 +489,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   /// `Transform.translate` не мени подредбата.
   Widget _slidingPair(ReaderPalette p, MolUnit u, int ui) {
     final w = _textWidth;
+    final right = _rightOf(u);
+    // Молитва без втори език стои неподвижна — при плъзгане няма към какво.
+    if (right == null) return _unitCell(p, u, _left, ui);
     return ClipRect(
       child: AnimatedBuilder(
         animation: _slide,
@@ -476,13 +504,13 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 offset: Offset(-t * w, 0),
                 child: SizedBox(
                     width: w,
-                    child: _selectable(t < 0.5, _unitCell(p, u, 'bg', ui))),
+                    child: _selectable(t < 0.5, _unitCell(p, u, _left, ui))),
               ),
               Transform.translate(
                 offset: Offset((1 - t) * w, 0),
                 child: SizedBox(
                     width: w,
-                    child: _selectable(t >= 0.5, _unitCell(p, u, _second, ui))),
+                    child: _selectable(t >= 0.5, _unitCell(p, u, right, ui))),
               ),
             ],
           );
@@ -492,11 +520,14 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   }
 
   /// Легнало: двата езика успоредно, с черта по средата.
-  Widget _parallel(ReaderPalette p, MolUnit u, int ui) => IntrinsicHeight(
+  Widget _parallel(ReaderPalette p, MolUnit u, int ui) {
+    final right = _rightOf(u);
+    if (right == null) return _unitCell(p, u, _left, ui);
+    return IntrinsicHeight(
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Expanded(child: _unitCell(p, u, 'bg', ui)),
+            Expanded(child: _unitCell(p, u, _left, ui)),
             Container(
               width: 1,
               margin: const EdgeInsets.symmetric(horizontal: 14),
@@ -504,10 +535,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             ),
             // ⚠ В легнало се маркира ЛЯВАТА колона — както в Библията:
             // селекция през двете колони би редувала езиците ред по ред.
-            Expanded(child: _selectable(false, _unitCell(p, u, _second, ui))),
+            Expanded(child: _selectable(false, _unitCell(p, u, right, ui))),
           ],
         ),
       );
+  }
 
   Widget _header(ReaderPalette p, String? only) {
     final s = widget.section;
@@ -525,7 +557,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           ),
         );
     if (only != null) return t(only);
-    return _slidingPairWidgets(t('bg'), t(_second));
+    return _slidingPairWidgets(t(_left), t(_second));
   }
 
   Widget _slidingPairWidgets(Widget a, Widget b) {
@@ -573,9 +605,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             const Text('Източници:'),
             if (hosts.isNotEmpty)
               _sourceLine(p, 'на български: ', hosts, firstUrl),
-            if (_has(_second) && widget.section.sourceCsl != null)
+            if (_has('csl') && widget.section.sourceCsl != null)
               _sourceLine(p, 'на църковнославянски: ', [csl],
                   {csl: widget.section.sourceCsl!}),
+            if (_has('csr') && widget.section.sourceCsr != null)
+              _sourceLine(p, 'на църковнославянски (граждански шрифт): ', [csl],
+                  {csl: widget.section.sourceCsr!}),
           ],
         ),
       ),
@@ -627,7 +662,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                   animation: _slide,
                   builder: (_, _) => TextButton(
                     onPressed: _toggleLanguage,
-                    child: Text(_slide.value >= 0.5 ? 'цс' : 'бг',
+                    child: Text(_langLabel(_slide.value >= 0.5 ? _second : _left),
                         style: TextStyle(color: fg, fontSize: 16)),
                   ),
                 ),
@@ -820,7 +855,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _header(p, only ?? (landscape ? 'bg' : null)),
+              _header(p, only ?? (landscape ? _left : null)),
               for (var ui = 0; ui < units.length; ui++)
                 single
                     ? _unitCell(p, units[ui], only, ui)

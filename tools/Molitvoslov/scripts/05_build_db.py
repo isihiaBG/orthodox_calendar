@@ -56,9 +56,11 @@ CREATE TABLE languages (code TEXT PRIMARY KEY, ord INTEGER NOT NULL,
     rubricate INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE tabs (code TEXT PRIMARY KEY, ord INTEGER NOT NULL, title TEXT NOT NULL);
 CREATE TABLE sections (id INTEGER PRIMARY KEY, tab TEXT NOT NULL, ord INTEGER NOT NULL,
-    title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT);
+    title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT, source_csr TEXT);
 CREATE TABLE units (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     title_bg TEXT, title_csl TEXT, source_bg TEXT,
+    title_cs TEXT,   -- заглавието в ЦС ШРИФТ, където цс текстът е отделен от
+                     -- гражданския (акатистите); иначе NULL и важи title_csl
     PRIMARY KEY (section_id, n));
 CREATE TABLE blocks (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     lang TEXT NOT NULL, ord INTEGER NOT NULL, kind TEXT NOT NULL, html TEXT NOT NULL,
@@ -139,12 +141,13 @@ def main():
     n_units = n_blocks = 0
     for ord_, s in enumerate(aligned, 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?)',
                    (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl'],
-                    'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html'))
+                    'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html',
+                    None))
         for u in s['units']:
             # Адресите на бг изворите, по един на ред — като `texts.source`.
-            db.execute('INSERT INTO units VALUES (?,?,?,?,?)',
+            db.execute('INSERT INTO units VALUES (?,?,?,?,?,NULL)',
                        (sid, u['n'], u['title_bg'], u['title_csl'],
                         '\n'.join(u.get('sources') or []) or None))
             n_units += 1
@@ -160,13 +163,19 @@ def main():
     ak_path = os.path.join(W, 'akatisti.json')
     for ord_, s in enumerate(json.load(open(ak_path, encoding='utf-8')) if os.path.exists(ak_path) else [], 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?)',
-                   (sid, s['tab'], ord_, s['title_bg'], s['title_csl'], s['csr_source']))
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?)',
+                   (sid, s['tab'], ord_, s['title_bg'], s['title_csl'],
+                    s.get('csl_source'), s['csr_source']))
         for u in s['units']:
-            db.execute('INSERT INTO units VALUES (?,?,?,?,?)',
+            db.execute('INSERT INTO units VALUES (?,?,?,?,?,?)',
                        (sid, u['n'], u['title_bg'], u['title_csl'],
-                        '\n'.join(u.get('sources') or []) or None))
+                        '\n'.join(u.get('sources') or []) or None, u.get('title_cs')))
             n_units += 1
+            # Цс шрифт (06b_akatisti_csl.py) — само за трите основни акатиста.
+            for k, blk in enumerate(u.get('csl') or []):
+                db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
+                           (sid, u['n'], 'csl', k, blk['kind'], blk['html']))
+                n_blocks += 1
             for k, blk in enumerate(u['csr']):
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'csr', k, blk['kind'], blk['html']))

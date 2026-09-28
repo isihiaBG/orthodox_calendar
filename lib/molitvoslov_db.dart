@@ -46,8 +46,12 @@ class MolSection {
 
   /// Изворът на църковнославянския текст (адрес).
   final String? sourceCsl;
+
+  /// Изворът на цс текста с ГРАЖДАНСКИ шрифт — само където двата са отделни
+  /// (акатистите: цс шрифт от azbyka.ru, граждански от „Канонник").
+  final String? sourceCsr;
   const MolSection(this.id, this.tab, this.titleBg, this.titleCsl,
-      [this.sourceCsl]);
+      [this.sourceCsl, this.sourceCsr]);
 }
 
 /// Един абзац: указание (винено) или текст.
@@ -68,6 +72,10 @@ class MolUnit {
   final String? titleBg;
   final String? titleCsl;
 
+  /// Заглавието в ЦС ШРИФТ, където цс текстът е отделен от гражданския
+  /// (акатистите). Иначе `null` и за `csl` важи [titleCsl].
+  final String? titleCs;
+
   /// Адресите на българските извори, по един на ред.
   final String? sourceBg;
   final Map<String, List<MolBlock>> blocks;
@@ -76,6 +84,7 @@ class MolUnit {
     required this.n,
     this.titleBg,
     this.titleCsl,
+    this.titleCs,
     this.sourceBg,
     required this.blocks,
   });
@@ -83,7 +92,11 @@ class MolUnit {
   List<MolBlock> of(String lang) => blocks[lang] ?? const [];
   /// Заглавието на единицата на даден език — `csl` и `csr` делят цс
   /// заглавието (то е едно и също, само в различна графика).
-  String? titleFor(String lang) => lang == 'bg' ? titleBg : titleCsl;
+  String? titleFor(String lang) => switch (lang) {
+        'bg' => titleBg,
+        'csl' => titleCs ?? titleCsl,
+        _ => titleCsl,
+      };
 }
 
 class MolitvoslovDb {
@@ -139,7 +152,7 @@ class MolitvoslovDb {
       for (final r in rows)
         MolSection(r['id'] as int, r['tab'] as String,
             r['title_bg'] as String, r['title_csl'] as String?,
-            r['source_csl'] as String?),
+            r['source_csl'] as String?, r['source_csr'] as String?),
     ];
   }
 
@@ -163,6 +176,7 @@ class MolitvoslovDb {
           n: u['n'] as int,
           titleBg: u['title_bg'] as String?,
           titleCsl: u['title_csl'] as String?,
+          titleCs: u['title_cs'] as String?,
           sourceBg: u['source_bg'] as String?,
           blocks: byUnit[u['n'] as int] ?? const {},
         ),

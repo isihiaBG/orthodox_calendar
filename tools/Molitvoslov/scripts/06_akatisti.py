@@ -159,6 +159,68 @@ def parse_bg(page):
     return units
 
 
+CSL_PATH = os.path.join(W, 'akatisti_csl.json')
+
+
+def attach_csl(sid, units):
+    """Цс шрифтът (06b_akatisti_csl.py) → поле `csl` на единиците.
+
+    ⚠ ПО ВИД И НОМЕР, не по ред — цс страницата няма канона. Каквото няма
+    двойка в Канонника (тропарът; Икос 9 при акатиста към Иисус Христос, който
+    Канонникът е изпуснал), влиза като НОВА единица на мястото си."""
+    if not os.path.exists(CSL_PATH):
+        return
+    data = json.load(open(CSL_PATH, encoding='utf-8')).get(str(sid))
+    if not data:
+        return
+    for u in units:
+        u.setdefault('csl', [])
+    by_key = {}
+    for u in units:
+        k = key_of(u['title_csl'] or '')
+        if k and k not in by_key:
+            by_key[k] = u
+    prayers = [u for u in units if (u['title_csl'] or '').replace(ACUTE, '').startswith('Молитва')]
+    rubric = lambda t: {'kind': 'rubric', 'html': t}
+    k13 = by_key.get(('kondak', 13))
+    for cu in data['units']:
+        key = tuple(cu['key']) if cu['key'] else None
+        if cu['repeat'] and k13 is not None:
+            # Повторените накрая Икос 1 и Кондак 1 — целите, при Кондак 13.
+            k13['csl'] += [rubric(cu['title'])] + cu['blocks']
+            continue
+        target = None
+        if key and key[0] in ('kondak', 'ikos'):
+            target = by_key.get(key)
+        elif key and key[0] == 'prayer':
+            target = prayers[key[1] - 1] if key[1] <= len(prayers) else None
+        if target is not None:
+            target['csl'] = cu['blocks']
+            target['title_cs'] = cu['title']
+            continue
+        new = {'title_csl': None, 'title_cs': cu['title'], 'title_bg': None,
+               'csr': [], 'bg': [], 'csl': cu['blocks'], 'sources': []}
+        if key and key[0] == 'troparion':
+            units.insert(0, new)
+        elif key and key[0] == 'ikos':
+            prev = by_key.get(('kondak', key[1]))
+            units.insert(units.index(prev) + 1 if prev else len(units), new)
+            by_key[key] = new
+            # ⚠ Печатна грешка в Канонника (акатистът към Иисус Христос):
+            # Икос 9 стои ВЪТРЕ в Кондак 9, с етикет „Пе́снь 9:" вместо
+            # „И́кос 9:". Блокът се премества тук, без грешния етикет.
+            if prev is not None:
+                for b in list(prev['csr']):
+                    m = re.match(r'(?:<span class="rubric">)?Пе́снь \d+:(?:</span>)?\s*(.*)$',
+                                 b['html'], re.S)
+                    if m and b['kind'] == 'text':
+                        prev['csr'].remove(b)
+                        new['csr'].append({'kind': 'text', 'html': m.group(1)})
+                        new['title_csl'] = 'И́кос %d' % key[1]
+        else:
+            units.append(new)
+
+
 def main():
     out = []
     for sid, kfile, bgpage, title_bg in AKATHISTS:
@@ -188,6 +250,7 @@ def main():
             for u in bg:
                 units.append({'title_csl': None, 'title_bg': u['title'], 'csr': [],
                               'bg': u['blocks'], 'sources': [bg_url]})
+        attach_csl(sid, units)
         for i, u in enumerate(units):
             u['n'] = i
         title_csl = None
@@ -199,8 +262,12 @@ def main():
             tfile = TITLE_FILE.get(sid, kfile)
             h = re.search(r'<h2[^>]*>(.*?)</h2>', z.read(tfile).decode('utf-8'), re.S)
             title_csl = plain(h.group(1)) if h else None
+        csl_src = None
+        if os.path.exists(CSL_PATH):
+            csl_src = (json.load(open(CSL_PATH, encoding='utf-8')).get(str(sid)) or {}).get('source')
         out.append({'sec': sid, 'tab': 'akatisti', 'title_bg': title_bg, 'title_csl': title_csl,
-                    'csr_source': KANONNIK_URL if kfile else None, 'units': units})
+                    'csr_source': KANONNIK_URL if kfile else None,
+                    'csl_source': csl_src, 'units': units})
         paired = sum(1 for u in units if u['bg'] and u['csr'])
         print('  %d  единици %3d  (цс %3d · бг %3d · двойки %2d)  %s' % (
             sid, len(units), sum(1 for u in units if u['csr']),
