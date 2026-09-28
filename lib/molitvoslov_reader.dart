@@ -894,7 +894,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       }
     }
     // ⚠ Адресът е от самата книга (`dc:source` в .epub-а, след пренасочването), не е гаден.
-    const csl = 'azbyka.ru';
+    // ⚠ Източникът на цс може да е и КНИГА без адрес (Канонникът в PDF) —
+    // тогава се изписва като обикновен текст.
     return Padding(
       padding: const EdgeInsets.only(top: 28, bottom: 36),
       child: DefaultTextStyle(
@@ -906,15 +907,27 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             if (hosts.isNotEmpty)
               _sourceLine(p, 'на български: ', hosts, firstUrl),
             if (_has('csl') && widget.section.sourceCsl != null)
-              _sourceLine(p, 'на църковнославянски: ', [csl],
-                  {csl: widget.section.sourceCsl!}),
+              _sourceAny(p, 'на църковнославянски: ', widget.section.sourceCsl!),
             if (_has('csr') && widget.section.sourceCsr != null)
-              _sourceLine(p, 'на църковнославянски (граждански шрифт): ', [csl],
-                  {csl: widget.section.sourceCsr!}),
+              _sourceAny(p, 'на църковнославянски (граждански шрифт): ',
+                  widget.section.sourceCsr!),
           ],
         ),
       ),
     );
+  }
+
+  /// Адрес → връзка с името на сайта; друго → текст както е.
+  Widget _sourceAny(ReaderPalette p, String label, String value) {
+    final uri = Uri.tryParse(value);
+    if (uri == null || !uri.hasScheme || uri.host.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(top: 4),
+        child: Text('$label$value'),
+      );
+    }
+    final h = uri.host.replaceFirst('www.', '');
+    return _sourceLine(p, label, [h], {h: value});
   }
 
   Widget _sourceLine(ReaderPalette p, String label, List<String> hosts,

@@ -192,8 +192,259 @@ def attach(units, segs, lang):
             target['title_bg'] = 'Песен %d' % n
 
 
+# ─── Канонникът на цс (PDF, „Вертоград", кодиране Ucs) ─────────────────────
+# ⚠ Номерата са ОТПЕЧАТАНИТЕ страници от съдържанието на книгата; индексът
+# в PDF-а е с единица по-малко (стр. 4 е индекс 3 — измерено).
+import pdf_ucs  # noqa: E402
+
+PDF = os.path.join(ROOT, 'input', 'newBooks', '20_Канонник ЦС.pdf')
+PDF_SOURCE = 'Канонник, изд. „Вертоград“ (2012)'
+
+# Разделите на книгата: първа страница → какво се прави с тях.
+#   ('attach', sid)        цс шрифт към наш раздел (само съвпадащите единици)
+#   ('new', sid, заглавие) нов раздел само на цс
+#   None                   пропуска се (вече имаме цс, или е акатист)
+# ⚠ „songs" = само песните и кондака/икоса към канона; акатистът, вмъкнат
+# след 6-та песен, отпада (той е в таб „Акатисти").
+PDF_TOC = [
+    (4, ('new', 231, 'Канон към Света Троица (творение на Митрофан)')),
+    (19, ('attach', 202, 'songs')),
+    (53, None),                               # покаен — цс вече има
+    (66, ('new', 232, 'Канон на Пасха')),
+    (83, ('new', 233, 'Канон на Рождество Христово')),
+    (99, ('new', 234, 'Канон към Честния и Животворящ Кръст')),
+    (117, 'great'),                           # Великият канон — отделно
+    (318, None),                              # молебен — цс вече има
+    (334, ('attach', 204, 'songs')),
+    (366, ('new', 235, 'Канон на Рождество Богородично')),
+    (386, ('new', 236, 'Канон на Покрова на Пресвета Богородица')),
+    (401, ('new', 237, 'Канон пред иконата на Божията Майка „Утоли моите скърби“')),
+    (419, ('new', 238, 'Канон пред иконата на Божията Майка „Скоропослушница“')),
+    (434, ('new', 239, 'Канон пред иконата на Божията Майка „Троеручица“')),
+    (456, ('attach', 211, 'all')),
+    (471, ('new', 251, 'Канон към св. архистратиг Михаил')),
+    (489, ('new', 252, 'Канон към св. архангел Гавриил')),
+    (505, None),                              # Ангел пазител — цс вече има
+    (518, ('attach', 212, 'all')),
+    (535, ('new', 253, 'Канон към свт. Николай Чудотворец', 'songs')),
+    (580, ('new', 254, 'Канон към свт. Спиридон Тримитунтски')),
+    (598, ('new', 255, 'Канон към свщмч. Киприан и мц. Иустина')),
+    (613, ('new', 256, 'Канон към вмч. Пантелеймон Лечител')),
+    (630, ('new', 257, 'Канон към мч. Трифон')),
+    (644, ('new', 258, 'Канон към прп. Сергий Радонежки')),
+    (668, ('new', 259, 'Канон към прп. Александър Свирски')),
+    (686, ('new', 260, 'Канон към прп. Серафим Саровски')),
+    (705, ('new', 261, 'Канон към св. прав. Йоан Кронщадски')),
+    (720, ('new', 262, 'Канон към прп. Мария Египетска')),
+    (735, ('new', 263, 'Канон към св. Петър и Феврония Муромски')),
+    (750, ('new', 264, 'Канон към св. прав. Анна, майка на Пресвета Богородица')),
+    (765, None),                              # акатистите — има ги
+]
+PDF_END = 764            # последната страница преди акатистите
+
+GREAT_DAYS = [
+    ('Въ понедѣльникъ', 241, 'Великият покаен канон — понеделник от първата седмица'),
+    ('Во вторникъ', 242, 'Великият покаен канон — вторник от първата седмица'),
+    ('Въ средꙋ', 243, 'Великият покаен канон — сряда от първата седмица'),
+    ('Въ четвертокъ', 244, 'Великият покаен канон — четвъртък от първата седмица'),
+]
+
+
+def csr_key_units(units, title_of):
+    """Ключове като при PDF-а: ('song', N) или (вид, след песен N, пореден)."""
+    keys, last, cnt = {}, 0, {}
+    for u in units:
+        t = (title_of(u) or '').replace(ak.ACUTE, '')
+        m = re.match(r'(?:Пе?снь|Песен)\s+(\d+)', t)
+        kind = None
+        if m:
+            last = int(m.group(1))
+            keys[('song', last)] = u
+            continue
+        for k, w in (('kondak', 'Кондак'), ('ikos', 'Икос'), ('sedalen', 'Седален'),
+                     ('prayer', 'Молитва')):
+            if t.startswith(w):
+                kind = k
+        if kind:
+            cnt[(kind, last)] = cnt.get((kind, last), 0) + 1
+            keys[(kind, last, cnt[(kind, last)])] = u
+    return keys
+
+
+def csl_unit(pu):
+    return {'title_csl': None, 'title_bg': None, 'title_cs': pu['title'],
+            'csr': [], 'bg': [], 'csl': pu['blocks'], 'sources': []}
+
+
+def merge_pdf(units, pdf_units, title_of, insert_unmatched):
+    """Цс от PDF-а към готовите единици, по ключ. Несъвпадналите се вмъкват
+    СЛЕД последната съвпаднала (при Великия канон) или отпадат."""
+    keys = csr_key_units(units, title_of)
+    hit = miss = 0
+    after = None
+    for pu in pdf_units:
+        k = tuple(pu['key'])
+        if k[0] == 'intro':
+            continue
+        u = keys.get(k)
+        if u is not None:
+            u['csl'] = pu['blocks']
+            after = u
+            hit += 1
+        elif insert_unmatched:
+            new = csl_unit(pu)
+            units.insert(units.index(after) + 1 if after else 0, new)
+            after = new
+            miss += 1
+        else:
+            miss += 1
+    return hit, miss
+
+
+def only_songs(pdf_units):
+    """Акатистът е вмъкнат след 6-та песен — той не е част от канона."""
+    return [u for u in pdf_units if u['key'][0] in ('intro', 'song', 'prayer', 'sedalen')]
+
+
+def pdf_sections():
+    """→ (attach: {sid: (pdf_units, mode)}, new: [раздел], great: pdf_units)."""
+    doc = pdf_ucs.open_doc(PDF)
+    starts = [p for p, _ in PDF_TOC] + [PDF_END + 2]
+    attach, new, great_full = {}, [], None
+    for (page, act), nxt in zip(PDF_TOC, starts[1:]):
+        if act is None:
+            continue
+        ls = pdf_ucs.lines(doc, page - 1, nxt - 2)
+        title_cs = ' '.join(''.join(t for _, t in r[4]).strip() for r in ls
+                            if r[2] and r[3] and r[0] == page - 1)
+        if act == 'great':
+            # ⚠ Четирите дни идват от ПАРАЛЕЛНОТО издание (цс | бг), не
+            # оттук — тук се взима само целият канон от 5-та седмица.
+            great_full, _ = great_canon(ls)
+            new.extend(great_days_parallel())
+            continue
+        pu = pdf_ucs.units(ls)
+        if act[0] == 'attach':
+            attach[act[1]] = only_songs(pu) if act[2] == 'songs' else pu
+        else:
+            if len(act) > 3 and act[3] == 'songs':
+                pu = only_songs(pu)
+            new.append(pdf_new_section(act[1], act[2], title_cs, pu))
+    return attach, new, great_full
+
+
+def great_canon(ls):
+    """Великият канон: четирите дни от 1-ва седмица + целият (5-та седмица)."""
+    bare = lambda r: pdf_ucs.bare(''.join(t for _, t in r[4])).replace('҆', '')
+    heads = [i for i, r in enumerate(ls) if r[2] and r[3]]
+    day_at = []
+    for word, sid, tbg in GREAT_DAYS:
+        i = next(i for i in heads if bare(ls[i]).startswith(word)
+                 and not any(i == d for d, *_ in day_at))
+        day_at.append((i, sid, tbg))
+    fifth = next(i for i in heads if 'пѧтыѧ' in bare(ls[i + 1]) or 'пѧтыѧ' in bare(ls[i]))
+    days = []
+    for n, (i, sid, tbg) in enumerate(day_at):
+        end = day_at[n + 1][0] if n + 1 < len(day_at) else fifth
+        days.append((sid, tbg, ls[i:end]))
+    full_at = next(i for i, r in enumerate(ls) if i > fifth and r[3]
+                   and bare(r).startswith('Канѡнъ великїй'))
+    return pdf_ucs.units(ls[full_at:]), days
+
+
+PARALLEL = os.path.join(ROOT, 'input', 'newBooks', 'Velik_kanon_Andrei Kritski.pdf')
+PARALLEL_BG = 'http://bulgarian-orthodox-church.org/rr/liturg/tripesnvp-01-vkanon.pdf'
+PARALLEL_CS = 'Велик канон, фондация „Свети Седмочисленици“ (2013)'
+
+
+def great_days_parallel():
+    """Великият канон по дни — цс и бг от паралелното издание (2013)."""
+    out = []
+    for (word, sid, tbg), day in zip(GREAT_DAYS, pdf_ucs.parallel(PARALLEL)):
+        units = [{'title_csl': None, 'title_bg': u['title_bg'], 'title_cs': u['title_cs'],
+                  'csr': [], 'bg': u['bg'], 'csl': u['csl'],
+                  'sources': [PARALLEL_BG] if u['bg'] else []}
+                 for u in day['units']]
+        out.append({'sec': sid, 'tab': 'kanonnik', 'title_bg': tbg,
+                    'title_csl': day['title_cs'], 'csr_source': None,
+                    'csl_source': PARALLEL_CS, 'units': units})
+    return out
+
+
+_TR = str.maketrans({'ѡ': 'о', 'ѻ': 'о', 'ꙋ': 'у', 'ѹ': 'у', 'ѧ': 'я', 'ꙗ': 'я', 'ѣ': 'е',
+                     'є': 'е', 'і': 'и', 'ї': 'и', 'ѵ': 'и', 'ѳ': 'ф', 'ѕ': 'з', 'ъ': None,
+                     'ь': None, 'й': 'и', 'ы': 'и'})
+
+
+def fold_cs(h):
+    """За сравнение между ДВЕ издания: без етикетите, надредните знаци и
+    правописните варианти (ѡ/о, ꙋ/у…) — те се разминават между книгите."""
+    h = re.sub(r'<span class="rubric">.*?</span>', '', h)
+    h = re.sub(r'<[^>]+>', '', h)
+    t = pdf_ucs.bare(h).replace('҆', '').lower()
+    t = t.replace('ѿ', 'от').replace('ѯ', 'кс').replace('ѱ', 'пс').replace('ѽ', 'от')
+    return re.sub(r'[\W\d_]', '', t.translate(_TR))[:50]
+
+
+def great_full_bg(pdf_units):
+    """Целият Велик канон с бг превод, взет от четирите дни по съвпадение на
+    цс текста. ⚠ Добавките в четвъртък на 5-та седмица (канонът към
+    апостолите, припевите към св. Андрей, блаженствата) ги няма в дните —
+    остават само на цс."""
+    import difflib
+    tr = {}
+    for day in pdf_ucs.parallel(PARALLEL):
+        for u in day['units']:
+            if len(u['csl']) != len(u['bg']):
+                continue
+            for a, b in zip(u['csl'], u['bg']):
+                f = fold_cs(a['html'])
+                if f:
+                    tr.setdefault(f, b)
+    keys = list(tr)
+    units, hit, tot = [], 0, 0
+    for pu in pdf_units:
+        bg = []
+        for b in pu['blocks']:
+            if b['kind'] == 'rubric':
+                continue
+            tot += 1
+            f = fold_cs(b['html'])
+            k = f if f in tr else next(iter(difflib.get_close_matches(f, keys, 1, 0.8)), None)
+            if k:
+                bg.append(tr[k])
+                hit += 1
+        n = pdf_ucs.song_no(pu['title']) if pu['title'] else None
+        tb = ('Песен %d' % n if n else
+              {'kondak': 'Кондак, глас 6', 'sedalen': 'Седален, глас 8'}.get(pu['key'][0]))
+        units.append({'title_csl': None, 'title_bg': tb,
+                      'title_cs': pu['title'], 'csr': [], 'bg': bg, 'csl': pu['blocks'],
+                      'sources': [PARALLEL_BG] if bg else []})
+    print('     Велик канон (цял): бг за %d от %d тропара' % (hit, tot))
+    return units
+
+
+def pdf_new_section(sid, title_bg, title_cs, pdf_units):
+    units = [csl_unit(u) for u in pdf_units]
+    return {'sec': sid, 'tab': 'kanonnik', 'title_bg': title_bg, 'title_csl': title_cs or None,
+            'csr_source': None, 'csl_source': PDF_SOURCE, 'units': units}
+
+
+# Редът в таба: каноните към Господ и празниците, Богородица, безплътните
+# сили, светиите, седмичните служби, накрая Великият канон с дните му.
+ORDER = [201, 202, 231, 207, 232, 233, 234, 203, 204, 205, 235, 236, 237, 238, 239,
+         206, 251, 252, 253, 254, 255, 256, 257, 258, 259, 260, 261, 262, 263, 264,
+         211, 212, 213, 214, 215, 216, 221, 241, 242, 243, 244]
+
+
+def order(secs):
+    pos = {sid: i for i, sid in enumerate(ORDER)}
+    return sorted(secs, key=lambda x: pos.get(x['sec'], 999))
+
+
 def main():
     csl = csl_canons()
+    pdf_attach, pdf_new, pdf_great = pdf_sections()
     out = []
     for sid, kfile, title_bg, songs_only, csl_role, bg_page in KANONS:
         units = []
@@ -231,6 +482,17 @@ def main():
                                       'title_bg': 'Песен %d' % n if n else None,
                                       'csr': [], 'bg': segs[n], 'csl': [],
                                       'sources': [BG_URL % bg_page]})
+        pdf_src = None
+        if sid in pdf_attach:
+            h, m = merge_pdf(units, pdf_attach[sid], lambda u: u['title_csl'], False)
+            print('     цс от PDF: %d съвпаднали, %d отпаднали' % (h, m))
+            pdf_src = PDF_SOURCE
+        if sid == 221 and pdf_great:
+            # ⚠ Целият канон: цс от Канонника (службата в четвъртък на 5-та
+            # седмица), бг — ПРЕВОДЪТ ОТ ЧЕТИРИТЕ ДНИ, тропар по тропар.
+            # Стихотворното преразказване от pravoslavieto.com отпада.
+            units = great_full_bg(pdf_great)
+            pdf_src = PARALLEL_CS + '; ' + PDF_SOURCE
         for i, u in enumerate(units):
             u['n'] = i
         title_csl = None
@@ -241,10 +503,18 @@ def main():
             title_csl = ak.plain(h.group(1)) if h else None
         out.append({'sec': sid, 'tab': 'kanonnik', 'title_bg': title_bg, 'title_csl': title_csl,
                     'csr_source': KANONNIK_URL if kfile else None,
-                    'csl_source': CSL_URL if csl_role else None, 'units': units})
+                    'csl_source': CSL_URL if csl_role else pdf_src, 'units': units})
         print('  %d  единици %3d  (цс гр. %3d · цс %3d · бг %3d)  %s' % (
             sid, len(units), sum(1 for u in units if u['csr']),
             sum(1 for u in units if u.get('csl')), sum(1 for u in units if u['bg']), title_bg))
+    for sec in pdf_new:
+        for i, u in enumerate(sec['units']):
+            u['n'] = i
+        out.append(sec)
+        print('  %d  единици %3d  (цс %d · бг %d)  %s' % (
+            sec['sec'], len(sec['units']), sum(1 for u in sec['units'] if u['csl']),
+            sum(1 for u in sec['units'] if u['bg']), sec['title_bg']))
+    out = order(out)
     json.dump(out, open(os.path.join(W, 'kanonnik.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)
     print('→ work/kanonnik.json')
