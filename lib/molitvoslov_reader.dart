@@ -33,6 +33,8 @@ import 'reader_toolbar.dart';
 import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'search_match.dart' show searchTerms;
+import 'selection_toolbar.dart';
+import 'package:share_plus/share_plus.dart';
 
 /// Основното междуредие — като в библейския четец.
 const double _kLineHeight = 1.35;
@@ -472,11 +474,15 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             children: [
               Transform.translate(
                 offset: Offset(-t * w, 0),
-                child: SizedBox(width: w, child: _unitCell(p, u, 'bg', ui)),
+                child: SizedBox(
+                    width: w,
+                    child: _selectable(t < 0.5, _unitCell(p, u, 'bg', ui))),
               ),
               Transform.translate(
                 offset: Offset((1 - t) * w, 0),
-                child: SizedBox(width: w, child: _unitCell(p, u, _second, ui)),
+                child: SizedBox(
+                    width: w,
+                    child: _selectable(t >= 0.5, _unitCell(p, u, _second, ui))),
               ),
             ],
           );
@@ -496,7 +502,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               margin: const EdgeInsets.symmetric(horizontal: 14),
               color: p.dim.withValues(alpha: 0.35),
             ),
-            Expanded(child: _unitCell(p, u, _second, ui)),
+            // ⚠ В легнало се маркира ЛЯВАТА колона — както в Библията:
+            // селекция през двете колони би редувала езиците ред по ред.
+            Expanded(child: _selectable(false, _unitCell(p, u, _second, ui))),
           ],
         ),
       );
@@ -528,8 +536,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         builder: (context, _) {
           final t = _slide.value;
           return Stack(children: [
-            Transform.translate(offset: Offset(-t * w, 0), child: SizedBox(width: w, child: a)),
-            Transform.translate(offset: Offset((1 - t) * w, 0), child: SizedBox(width: w, child: b)),
+            Transform.translate(offset: Offset(-t * w, 0), child: SizedBox(width: w, child: _selectable(t < 0.5, a))),
+            Transform.translate(offset: Offset((1 - t) * w, 0), child: SizedBox(width: w, child: _selectable(t >= 0.5, b))),
           ]);
         },
       ),
@@ -628,8 +636,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 context: context,
                 onSearch: _toggleSearch,
                 searchOpen: _searchOpen,
-                onThemeToggle: () =>
-                    setState(() => ReaderTheme.dark = !ReaderTheme.dark),
+                onThemeToggle: () {
+                  // ⚠ Менюто живее в Overlay и не се преизгражда при смяна
+                  // на темата — прибира се, както в Библията.
+                  ContextMenuController.removeAny();
+                  setState(() => ReaderTheme.dark = !ReaderTheme.dark);
+                },
                 onFontSmaller: () => setState(
                     () => MolitvoslovFontSize.nudge(-MolitvoslovFontSize.step)),
                 onFontBigger: () => setState(
@@ -725,6 +737,52 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     ]);
   }
 
+  /// ⚠ НЕВИДИМИЯТ ЕЗИК НЕ СЕ МАРКИРА. Двата езика стоят построени един до
+  /// друг (само отместени), а `SelectionArea` хваща ВСЕКИ текст под себе си —
+  /// без това маркиране през два абзаца би вмъкнало и скрития превод
+  /// (същият капан като в библейския четец, виж `_quotableOnly` там).
+  static Widget _selectable(bool on, Widget child) =>
+      on ? child : SelectionContainer.disabled(child: child);
+
+  String? _selected;
+
+  /// Маркиране и контекстно меню — ЕДНО И СЪЩО с другите четци
+  /// ([IconSelectionToolbar], същите цветове на селекцията и на менюто).
+  ///
+  /// ⚠ БЕЗ „Запази цитат": любимите цитати се отварят наново по адрес, а
+  /// молитвословът още няма свой вид адрес. Сърчице, което запазва нещо
+  /// неотворимо, би било по-лошо от липсата му. „Сподели" праща текста с
+  /// надпис откъде е.
+  Widget _selectionArea(ReaderPalette p, Widget child) {
+    return Theme(
+      data: Theme.of(context).copyWith(
+        textSelectionTheme: TextSelectionThemeData(
+          selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
+          selectionHandleColor: AppColors.sectionTitle,
+          cursorColor: AppColors.sectionTitle,
+        ),
+        colorScheme: Theme.of(context).colorScheme.copyWith(
+              surface: p.sheet,
+              onSurface: p.ink,
+            ),
+      ),
+      child: SelectionArea(
+        onSelectionChanged: (c) => _selected = c?.plainText,
+        contextMenuBuilder: (context, region) => IconSelectionToolbar(
+          anchors: region.contextMenuAnchors,
+          items: region.contextMenuButtonItems,
+          onShareQuote: () {
+            final text = _selected?.trim() ?? '';
+            region.hideToolbar();
+            if (text.isEmpty) return;
+            Share.share('$text\n\n— из „${widget.section.titleBg}“, Молитвослов');
+          },
+        ),
+        child: child,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final p = ReaderTheme.palette;
@@ -756,7 +814,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // ⚠ Не `ListView.builder`: обхождането на намереното иска абзацът
         // да е построен, а мързеливият списък не строи невидимото.
         // Разделите са по няколко десетки молитви — строят се наведнъж.
-        return SingleChildScrollView(
+        return _selectionArea(p, SingleChildScrollView(
           controller: _scroll,
           padding: const EdgeInsets.fromLTRB(pad, 12, pad, 0),
           child: Column(
@@ -772,7 +830,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               _sources(p),
             ],
           ),
-        );
+        ));
       });
       if (!single && !landscape) {
         body = GestureDetector(

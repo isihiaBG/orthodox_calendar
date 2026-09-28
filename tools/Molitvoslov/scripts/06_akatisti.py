@@ -68,12 +68,24 @@ def key_of(label):
     return (('kondak' if m.group(1) == 'кондак' else 'ikos'), int(m.group(2))) if m else None
 
 
+# Печатни грешки в „Канонник" — поправят се ТУК, не в базата, за да оцелеят
+# при пресглобяване. Двойките са дословни (с ударенията).
+CSR_ERRATA = [
+    # Кондак 1 на акатиста към Богородица: „ти" (на Тебе), не „и"
+    # (забелязано от потребителя, 28.09.2026).
+    ('воспису́ем и раби́', 'воспису́ем ти раби́'),
+]
+
+
 def csr_html(inner):
     """Абзац от Канонник → html с винени указания; началната буква се слива."""
     inner = re.sub(r'^\s*<span>([^<]{1,2})</span>', r'\1', inner)
     inner = re.sub(r'<span>(.*?)</span>', r'<span class="rubric">\1</span>', inner, flags=re.S)
     inner = re.sub(r'<(?!/?span\b)[^>]+>', '', inner)
-    return re.sub(r'\s+', ' ', inner).strip()
+    inner = re.sub(r'\s+', ' ', inner).strip()
+    for wrong, right in CSR_ERRATA:
+        inner = inner.replace(wrong, right)
+    return inner
 
 
 def parse_kanonnik(fname):
