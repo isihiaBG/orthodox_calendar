@@ -167,8 +167,16 @@ def main():
                     units[-1]['bg'].append({'kind': 'rubric', 'html': 'Слава:'})
                     units[-1]['csl'].append({'kind': 'rubric', 'html': 'Сла́ва:'})
                 else:
+                    if not re.search(r'[^\W\d_]', val):
+                        continue          # показалец на бележка под линия
                     units[-1]['bg'].append({'kind': 'rubric',
                                             'html': html.escape(val, quote=False)})
+                    # ⚠ В 1-вата катизма бг изписва славословието ЦЯЛО („Слава
+                    # на Отца…"), а не „Слава:" — това е първата стихия и цс
+                    # оставаше без своята „Сла́ва:" (бележка на потребителя).
+                    if val.startswith('Слава на Отца') and not any(
+                            b['html'] == 'Сла́ва:' for b in units[-1]['csl']):
+                        units[-1]['csl'].append({'kind': 'rubric', 'html': 'Сла́ва:'})
         assert START[k - 1] + i == START[k], (k, i)
         pr = cs_blocks(prayers_after(doc, heads, k))
         units.append({'title_csl': None, 'title_bg': 'Молитви след %s катизма' % ORD_BG[k - 1],
