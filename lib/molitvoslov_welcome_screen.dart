@@ -33,7 +33,7 @@ const String _kTempCover = 'assets/bible_covers/02_NewTestament.jpg';
 const List<_Part> _parts = [
   _Part(_kTempCover, 'Молитви', 'утринни, вечерни, за причастие'),
   _Part(_kTempCover, 'Канонник', 'предстои'),
-  _Part(_kTempCover, 'Акатисти', 'предстои'),
+  _Part(_kTempCover, 'Акатисти', 'към Господ, Богородица, св. Николай и др.'),
   _Part(_kTempCover, 'Богослужебни', 'предстои'),
 ];
 

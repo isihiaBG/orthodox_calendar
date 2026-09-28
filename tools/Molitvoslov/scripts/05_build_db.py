@@ -55,7 +55,7 @@ CREATE TABLE languages (code TEXT PRIMARY KEY, ord INTEGER NOT NULL,
     rubricate INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE tabs (code TEXT PRIMARY KEY, ord INTEGER NOT NULL, title TEXT NOT NULL);
 CREATE TABLE sections (id INTEGER PRIMARY KEY, tab TEXT NOT NULL, ord INTEGER NOT NULL,
-    title_bg TEXT NOT NULL, title_csl TEXT);
+    title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT);
 CREATE TABLE units (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     title_bg TEXT, title_csl TEXT, source_bg TEXT,
     PRIMARY KEY (section_id, n));
@@ -80,14 +80,19 @@ def main():
                ('bg', 1, 'Български', 'бг', bg[0], bg[1], bg[2], 1))
     db.execute('INSERT INTO languages VALUES (?,?,?,?,?,?,?,?)',
                ('csl', 2, 'Църковнославянски', 'цс', cs[0], cs[1], cs[2], 1))
+    # ⚠ Трети език: цс с ГРАЖДАНСКИ шрифт (с ударения) — „Канонник". Шрифтът
+    # е Charis SIL: носи комбиниращото ударение, а системният го слага криво.
+    db.execute('INSERT INTO languages VALUES (?,?,?,?,?,?,?,?)',
+               ('csr', 3, 'Църковнославянски (граждански шрифт)', 'цс', 'charis', 0, 0, 1))
     for i, (code, title) in enumerate(TABS, 1):
         db.execute('INSERT INTO tabs VALUES (?,?,?)', (code, i, title))
 
     n_units = n_blocks = 0
     for ord_, s in enumerate(aligned, 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?)',
-                   (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl']))
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?)',
+                   (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl'],
+                    'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html'))
         for u in s['units']:
             # Адресите на бг изворите, по един на ред — като `texts.source`.
             db.execute('INSERT INTO units VALUES (?,?,?,?,?)',
@@ -103,13 +108,33 @@ def main():
                            (sid, u['n'], 'bg', k, blk['kind'],
                             html.escape(blk['text'], quote=False)))
                 n_blocks += 1
+    # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
+    ak_path = os.path.join(W, 'akatisti.json')
+    for ord_, s in enumerate(json.load(open(ak_path, encoding='utf-8')) if os.path.exists(ak_path) else [], 1):
+        sid = s['sec']
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?)',
+                   (sid, s['tab'], ord_, s['title_bg'], s['title_csl'], s['csr_source']))
+        for u in s['units']:
+            db.execute('INSERT INTO units VALUES (?,?,?,?,?)',
+                       (sid, u['n'], u['title_bg'], u['title_csl'],
+                        '\n'.join(u.get('sources') or []) or None))
+            n_units += 1
+            for k, blk in enumerate(u['csr']):
+                db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
+                           (sid, u['n'], 'csr', k, blk['kind'], blk['html']))
+                n_blocks += 1
+            for k, blk in enumerate(u['bg']):
+                db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
+                           (sid, u['n'], 'bg', k, blk['kind'],
+                            html.escape(blk['text'], quote=False)))
+                n_blocks += 1
     db.commit()
     print('→', OUT)
     print('  раздели %d · молитви %d · блокове %d' % (len(aligned), n_units, n_blocks))
     for sid, t, nb in db.execute(
             "SELECT s.id, s.title_bg, (SELECT count(*) FROM blocks WHERE section_id=s.id AND lang='bg') "
             "FROM sections s ORDER BY ord"):
-        print('  %2d  бг блокове %3d  %s' % (sid, nb, t[:60]))
+        print('  %3d  бг блокове %3d  %s' % (sid, nb, t[:60]))
 
 
 if __name__ == '__main__':

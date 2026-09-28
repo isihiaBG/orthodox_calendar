@@ -43,7 +43,11 @@ class MolSection {
   final String tab;
   final String titleBg;
   final String? titleCsl;
-  const MolSection(this.id, this.tab, this.titleBg, this.titleCsl);
+
+  /// Изворът на църковнославянския текст (адрес).
+  final String? sourceCsl;
+  const MolSection(this.id, this.tab, this.titleBg, this.titleCsl,
+      [this.sourceCsl]);
 }
 
 /// Един абзац: указание (винено) или текст.
@@ -73,7 +77,9 @@ class MolUnit {
   });
 
   List<MolBlock> of(String lang) => blocks[lang] ?? const [];
-  String? titleFor(String lang) => lang == 'csl' ? titleCsl : titleBg;
+  /// Заглавието на единицата на даден език — `csl` и `csr` делят цс
+  /// заглавието (то е едно и също, само в различна графика).
+  String? titleFor(String lang) => lang == 'bg' ? titleBg : titleCsl;
 }
 
 class MolitvoslovDb {
@@ -128,7 +134,8 @@ class MolitvoslovDb {
     return [
       for (final r in rows)
         MolSection(r['id'] as int, r['tab'] as String,
-            r['title_bg'] as String, r['title_csl'] as String?),
+            r['title_bg'] as String, r['title_csl'] as String?,
+            r['source_csl'] as String?),
     ];
   }
 

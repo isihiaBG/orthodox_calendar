@@ -86,8 +86,21 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     super.dispose();
   }
 
-  /// Има ли в раздела поне един български абзац.
-  bool get _hasBg => (_units ?? const []).any((u) => u.of('bg').isNotEmpty);
+  bool _has(String lang) =>
+      (_units ?? const []).any((u) => u.of(lang).isNotEmpty);
+
+  /// Вторият (цс) език на раздела: `csl` — истински цс шрифт, или `csr` —
+  /// цс с граждански шрифт („Канонник"). Който има текст.
+  String get _second => _has('csl') ? 'csl' : 'csr';
+
+  /// ⚠ Раздел само с ЕДИН език — той се показва на цялата ширина, без
+  /// плъзгане (указание на потребителя). Кой е — идва от данните: у
+  /// акатистите без цс извор това е българският.
+  String? get _only {
+    final bg = _has('bg'), cs = _has(_second);
+    if (bg && cs) return null;
+    return bg ? 'bg' : _second;
+  }
 
   MolLanguage? _lang(String code) {
     for (final l in _langs) {
@@ -182,7 +195,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     final base = _style(p, lang);
     final l = _lang(lang);
     final children = <Widget>[];
-    if (title != null && title.isNotEmpty && (blocks.isNotEmpty || lang == 'csl')) {
+    if (title != null && title.isNotEmpty && (blocks.isNotEmpty || lang != 'bg')) {
       children.add(Padding(
         padding: const EdgeInsets.only(top: 14, bottom: 6),
         child: Text(
@@ -233,7 +246,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               ),
               Transform.translate(
                 offset: Offset((1 - t) * w, 0),
-                child: SizedBox(width: w, child: _unitCell(p, u, 'csl')),
+                child: SizedBox(width: w, child: _unitCell(p, u, _second)),
               ),
             ],
           );
@@ -253,12 +266,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               margin: const EdgeInsets.symmetric(horizontal: 14),
               color: p.dim.withValues(alpha: 0.35),
             ),
-            Expanded(child: _unitCell(p, u, 'csl')),
+            Expanded(child: _unitCell(p, u, _second)),
           ],
         ),
       );
 
-  Widget _header(ReaderPalette p, bool single) {
+  Widget _header(ReaderPalette p, String? only) {
     final s = widget.section;
     TextStyle st(String lang) => _style(p, lang, delta: 6).copyWith(
         fontFamily: lang == 'bg' ? kTitleFamily : null,
@@ -273,8 +286,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             style: st(lang),
           ),
         );
-    if (single) return t('csl');
-    return _slidingPairWidgets(t('bg'), t('csl'));
+    if (only != null) return t(only);
+    return _slidingPairWidgets(t('bg'), t(_second));
   }
 
   Widget _slidingPairWidgets(Widget a, Widget b) {
@@ -322,8 +335,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             const Text('Източници:'),
             if (hosts.isNotEmpty)
               _sourceLine(p, 'на български: ', hosts, firstUrl),
-            _sourceLine(p, 'на църковнославянски: ', [csl],
-                {csl: 'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html'}),
+            if (_has(_second) && widget.section.sourceCsl != null)
+              _sourceLine(p, 'на църковнославянски: ', [csl],
+                  {csl: widget.section.sourceCsl!}),
           ],
         ),
       ),
@@ -394,7 +408,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     final p = ReaderTheme.palette;
     final landscape =
         MediaQuery.of(context).orientation == Orientation.landscape;
-    final single = !_hasBg;
+    final only = _only;
+    final single = only != null;
 
     Widget body;
     if (_error != null) {
@@ -419,10 +434,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           padding: const EdgeInsets.fromLTRB(pad, 12, pad, 0),
           itemCount: units.length + 2,
           itemBuilder: (context, i) {
-            if (i == 0) return _header(p, single || landscape);
+            if (i == 0) {
+              return _header(p, only ?? (landscape ? 'bg' : null));
+            }
             if (i == units.length + 1) return _sources(p);
             final u = units[i - 1];
-            if (single) return _unitCell(p, u, 'csl');
+            if (single) return _unitCell(p, u, only);
             return landscape ? _parallel(p, u) : _slidingPair(p, u);
           },
         );
