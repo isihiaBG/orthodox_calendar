@@ -10,6 +10,10 @@ import 'open_day.dart';
 import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
 import 'app_drawer.dart';
+import 'bookmarks.dart';
+import 'bookmarks_all.dart';
+import 'quotes_list.dart';
+import 'reader_more_menu.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'welcome_screen.dart';
@@ -374,6 +378,28 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     );
   }
 
+  /// Менюто зад трите точки в календара — ОБЩОТО на четците, само с
+  /// трите точки, които имат смисъл тук.
+  Future<void> _showMainMenu() async {
+    final choice = await showReaderMoreMenu(context, items: [
+      kReaderSettingsMenuItem,
+      kBookmarksMenuItem,
+      kQuotesMenuItem,
+    ]);
+    if (!mounted || choice == null) return;
+    if (choice == kReaderSettingsMenuItem.value) {
+      _scaffoldKey.currentState?.openEndDrawer();
+    } else if (choice == kBookmarksMenuItem.value) {
+      Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookmarksListScreen(
+          load: () => allBookmarkEntries(lookupBySlug),
+        ),
+      ));
+    } else if (choice == kQuotesMenuItem.value) {
+      openQuotesList(context, lookupBySlug);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -517,12 +543,16 @@ class _CalendarPageViewState extends State<CalendarPageView> {
               }
             },
           ),
-          // ================ Настройки =================
+          // ================ Трите точки =================
+          // ⚠ Като в четците (предложение на потребителя, 28.09.2026):
+          // настройките са първа точка, а отметките и любимите цитати се
+          // стигат и от календара, без да се влиза в четиво.
           IconButton(
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            icon: const Icon(Icons.settings, color: AppColors.textPrimary, size: 24),
-            onPressed: () => _scaffoldKey.currentState?.openEndDrawer(),
+            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary, size: 24),
+            tooltip: 'Още',
+            onPressed: _showMainMenu,
           ),
         ],
       ),

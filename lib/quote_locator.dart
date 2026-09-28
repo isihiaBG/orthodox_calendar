@@ -33,6 +33,7 @@ Future<QuoteAnchor> resolveQuoteLocator(QuoteAnchor a) async {
     QuoteSource.life => await _slugForFingerprint(body),
     QuoteSource.book => _bookLocator(body),
     QuoteSource.bible => null,
+    QuoteSource.molitvoslov => null,
   };
   if (real == null) return a;
 

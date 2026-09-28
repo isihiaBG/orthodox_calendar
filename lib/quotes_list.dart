@@ -5,6 +5,7 @@
 // `bookmarks.dart`, това затваря кръгов внос — четците на свой ред отварят
 // списъка.
 
+import 'molitvoslov_reader.dart' show openMolitvoslovQuote;
 import 'package:flutter/material.dart';
 
 import 'bookmarks.dart';
@@ -77,6 +78,14 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
             case QuoteSource.bible:
               await openBibleQuote(context, q.anchor, fingerprint(q.text),
                   text: q.text);
+            case QuoteSource.molitvoslov:
+              await openMolitvoslovQuote(
+                  Navigator.of(context),
+                  ParsedQuoteLink(
+                    anchor: q.anchor,
+                    fingerprint: fingerprint(q.text),
+                    text: q.text,
+                  ));
           }
         },
       ),

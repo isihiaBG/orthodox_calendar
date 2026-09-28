@@ -28,21 +28,26 @@ import 'external_link.dart';
 import 'molitvoslov_db.dart';
 import 'molitvoslov_settings.dart';
 import 'quotes_list.dart';
+import 'reader_match_ticks.dart';
 import 'reader_more_menu.dart';
 import 'reader_theme.dart';
 import 'reader_toolbar.dart';
 import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
 import 'search_match.dart' show searchTerms;
-import 'selection_toolbar.dart';
-import 'package:share_plus/share_plus.dart';
+import 'quote_link.dart';
+import 'quote_menu.dart';
+import 'quotes.dart';
 
 /// Основното междуредие — като в библейския четец.
 const double _kLineHeight = 1.35;
 
 class MolitvoslovReader extends StatefulWidget {
   final MolSection section;
-  const MolitvoslovReader({super.key, required this.section});
+
+  /// Цитат, до който да се отвори (от любимите или от споделен линк).
+  final ParsedQuoteLink? openAtQuote;
+  const MolitvoslovReader({super.key, required this.section, this.openAtQuote});
 
   @override
   State<MolitvoslovReader> createState() => _MolitvoslovReaderState();
@@ -90,6 +95,43 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   int _currentHit = 0;
   final GlobalKey _hitKey = GlobalKey();
 
+  /// Мястото на всяко намерено като ДЯЛ от цялата височина на текста.
+  ///
+  /// ⚠ Смята се при РИСУВАНЕ (след оформлението), не се пази отпреди: зависи
+  /// от височините, а те се менят с шрифта и при завъртане (виж CLAUDE.md,
+  /// „Съотношенията се смятат при рисуване"). Съотношението е просто
+  /// `място / цялата дължина` — палецът представя целия екран.
+  List<double> _tickRatios = const [];
+  bool _ticksQueued = false;
+
+  void _queueTicks() {
+    if (_ticksQueued) return;
+    _ticksQueued = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _ticksQueued = false;
+      if (!mounted || !_scroll.hasClients) return;
+      final total = _scroll.position.maxScrollExtent + _scroll.position.viewportDimension;
+      if (total <= 0) return;
+      final out = <double>[];
+      final units = _units ?? const <MolUnit>[];
+      for (final h in _hits) {
+        final box = _unitKeys[h.unit].currentContext?.findRenderObject() as RenderBox?;
+        if (box == null || !box.hasSize) continue;
+        final vp = RenderAbstractViewport.of(box) as RenderBox;
+        final top = box.localToGlobal(Offset.zero, ancestor: vp).dy + _scroll.offset;
+        // Вътре в молитвата — по реда на абзаца: достатъчно точно за
+        // чертичка, а молитвите рядко са по-високи от няколко екрана.
+        final n = units[h.unit].of(h.lang).length;
+        final frac = (h.block + 1.5) / (n + 2);
+        out.add(((top + frac * box.size.height) / total).clamp(0.0, 1.0));
+      }
+      final same = out.length == _tickRatios.length &&
+          [for (var i = 0; i < out.length; i++) (out[i] - _tickRatios[i]).abs() < 0.001]
+              .every((x) => x);
+      if (!same) setState(() => _tickRatios = out);
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -111,6 +153,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         _langs = langs;
         _units = units;
         _unitKeys = [for (var i = 0; i < units.length; i++) GlobalKey()];
+      });
+      // Цитатът се търси СЛЕД първото оформление — тогава и ключовете, и
+      // езиците по страни са налице.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _goToQuote();
       });
     } catch (e) {
       // ⚠ Грешката се ПОКАЗВА — не бива да изглежда като „още се зарежда"
@@ -262,13 +309,13 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   /// ⚠ Реже се по ОБЕДИНЕНИТЕ граници — на парчетата И на намереното, —
   /// тъй че съвпадение, пресичащо червената буква, пак свети цяло.
   List<InlineSpan> _spansOf(List<_Run> runs, ReaderPalette p,
-      List<_Hit> hits, int? current) {
+      List<_Hit> hits, int? current, [List<_Hit> quote = const []]) {
     final out = <InlineSpan>[];
     var pos = 0;
     for (final r in runs) {
       final end = pos + r.text.length;
       final cuts = <int>{pos, end};
-      for (final h in hits) {
+      for (final h in [...hits, ...quote]) {
         if (h.start > pos && h.start < end) cuts.add(h.start);
         if (h.end > pos && h.end < end) cuts.add(h.end);
       }
@@ -283,6 +330,16 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 ? p.hitCurrent
                 : p.hit;
             break;
+          }
+        }
+        // ⚠ Търсенето ПОБЕЖДАВА цитата (жълтото над синьото) — както в
+        // другите четци.
+        if (bg == null) {
+          for (final h in quote) {
+            if (h.start <= a && h.end >= b) {
+              bg = p.quote;
+              break;
+            }
           }
         }
         out.add(TextSpan(
@@ -328,12 +385,21 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           for (final h in _hits)
             if (h.unit == ui && h.lang == lang && h.block == bi) h
         ];
-    Key? keyFor(int bi) => (cur != null &&
-            cur.unit == ui &&
-            cur.lang == lang &&
-            cur.block == bi)
-        ? _hitKey
-        : null;
+    List<_Hit> quoteIn(int bi) => [
+          for (final h in _quoteMarks)
+            if (h.unit == ui && h.lang == lang && h.block == bi) h
+        ];
+    final q0 = _quoteMarks.isEmpty ? null : _quoteMarks.first;
+    Key? keyFor(int bi) {
+      if (cur != null && cur.unit == ui && cur.lang == lang && cur.block == bi) {
+        return _hitKey;
+      }
+      // Началото на отворения цитат — за плъзгането до него.
+      if (q0 != null && q0.unit == ui && q0.lang == lang && q0.block == bi) {
+        return _quoteKey;
+      }
+      return null;
+    }
 
     final children = <Widget>[];
     if (title != null && title.isNotEmpty && (blocks.isNotEmpty || lang != 'bg')) {
@@ -345,7 +411,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               style: base.copyWith(
                   color: p.wine, fontWeight: FontWeight.w600, height: 1.25),
               children: _spansOf([_Run(_plain(title), false)], p, hitsIn(-1),
-                  _currentHit)),
+                  _currentHit, quoteIn(-1))),
           textAlign: TextAlign.center,
         ),
       ));
@@ -369,7 +435,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           TextSpan(
               style: style,
               children: _spansOf(_runs(b.html, redFirst: _redFirst(lang, b)),
-                  p, hitsIn(bi), _currentHit)),
+                  p, hitsIn(bi), _currentHit, quoteIn(bi))),
           textAlign: TextAlign.justify,
         ),
       ));
@@ -1013,13 +1079,12 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
 
   String? _selected;
 
-  /// Маркиране и контекстно меню — ЕДНО И СЪЩО с другите четци
-  /// ([IconSelectionToolbar], същите цветове на селекцията и на менюто).
+  /// Маркиране и контекстно меню — ЕДНО И СЪЩО с другите четци, заедно
+  /// със „Запази цитат" и споделянето с линк ([QuotableSelectionArea]).
   ///
-  /// ⚠ БЕЗ „Запази цитат": любимите цитати се отварят наново по адрес, а
-  /// молитвословът още няма свой вид адрес. Сърчице, което запазва нещо
-  /// неотворимо, би било по-лошо от липсата му. „Сподели" праща текста с
-  /// надпис откъде е.
+  /// ⚠ АДРЕСЪТ Е „раздел|страна": блоковете се броят в езика, който се
+  /// вижда (невидимият е изключен от селекцията), а десният език е по
+  /// молитва — затова страната, а не кодът на езика.
   Widget _selectionArea(ReaderPalette p, Widget child) {
     return Theme(
       data: Theme.of(context).copyWith(
@@ -1033,21 +1098,104 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               onSurface: p.ink,
             ),
       ),
-      child: SelectionArea(
-        onSelectionChanged: (c) => _selected = c?.plainText,
-        contextMenuBuilder: (context, region) => IconSelectionToolbar(
-          anchors: region.contextMenuAnchors,
-          items: region.contextMenuButtonItems,
-          onShareQuote: () {
-            final text = _selected?.trim() ?? '';
-            region.hideToolbar();
-            if (text.isEmpty) return;
-            Share.share('$text\n\n— из „${widget.section.titleBg}“, Молитвослов');
-          },
-        ),
+      child: QuotableSelectionArea(
+        source: QuoteSource.molitvoslov,
+        locator: () => '${widget.section.id}|${_quoteSide()}',
+        title: () => widget.section.titleBg,
+        blocks: () => _quoteBlocks(_quoteSide()).$1,
+        // Ориентирът е ДО МОЛИТВАТА: блоковете вътре в нея нямат свои
+        // ключове, а търсенето уточнява мястото по текста.
+        blockKey: (i) {
+          final map = _quoteBlocks(_quoteSide()).$2;
+          return i >= 0 && i < map.length ? _unitKeys[map[i].$1] : null;
+        },
         child: child,
       ),
     );
+  }
+
+  /// Коя страна се вижда — в легнало се маркира лявата.
+  String _quoteSide() => (_landscape || _slide.value < 0.5) ? 'L' : 'R';
+
+  /// Езикът на дадена страна в дадена молитва — същото правило като при
+  /// рисуването.
+  String _langOn(String side, MolUnit u) =>
+      side == 'L' ? _left : (_rightOf(u) ?? _left);
+
+  /// Текстът по блокове, в реда на четене, за една страна — заедно с
+  /// (молитва, абзац) на всеки блок (абзац −1 = заглавието).
+  ///
+  /// ⚠ СЪЩИЯТ текст като рисувания: заглавието се брои само ако се показва,
+  /// а абзацът — през `_runs`, както го вижда и търсенето.
+  (List<String>, List<(int, int)>) _quoteBlocks(String side) {
+    final texts = <String>[];
+    final map = <(int, int)>[];
+    final units = _units ?? const <MolUnit>[];
+    for (var ui = 0; ui < units.length; ui++) {
+      final u = units[ui];
+      final lang = _langOn(side, u);
+      final blocks = u.of(lang);
+      final title = u.titleFor(lang);
+      if (title != null && title.isNotEmpty && (blocks.isNotEmpty || lang != 'bg')) {
+        texts.add(_plain(title));
+        map.add((ui, -1));
+      }
+      for (var bi = 0; bi < blocks.length; bi++) {
+        texts.add(_runs(blocks[bi].html, redFirst: _redFirst(lang, blocks[bi]))
+            .map((r) => r.text)
+            .join());
+        map.add((ui, bi));
+      }
+    }
+    return (texts, map);
+  }
+
+  /// Маркираното от отворения цитат — синьото `palette.quote`.
+  List<_Hit> _quoteMarks = const [];
+  final GlobalKey _quoteKey = GlobalKey();
+
+  /// Отваря се на цитата: страната от адреса, намиране по текста, синьо
+  /// маркиране и плъзгане до него.
+  void _goToQuote() {
+    final q = widget.openAtQuote;
+    if (q == null || _units == null) return;
+    final side = q.anchor.locator.split('|').elementAtOrNull(1) == 'R' ? 'R' : 'L';
+    if (!_landscape) {
+      _slide.value = side == 'R' ? 1 : 0;
+    }
+    final (texts, map) = _quoteBlocks(side);
+    if (texts.isEmpty) return;
+    final hit = locateParsedQuote(texts, q);
+    final startB = hit.block.clamp(0, texts.length - 1);
+    final endB = (startB + (q.anchor.blockEnd - q.anchor.block)).clamp(startB, texts.length - 1);
+    final marks = <_Hit>[];
+    for (var b = startB; b <= endB; b++) {
+      final (ui, bi) = map[b];
+      final lang = _langOn(side, _units![ui]);
+      final len = texts[b].length;
+      final from = b == startB ? hit.start.clamp(0, len) : 0;
+      final to = b == endB
+          ? (b == startB ? (hit.start + hit.length) : q.anchor.charEnd).clamp(from, len)
+          : len;
+      if (to > from) marks.add(_Hit(ui, lang, bi, from, to));
+    }
+    setState(() => _quoteMarks = marks);
+    _revealQuote(0);
+  }
+
+  void _revealQuote(int tries) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final ctx = _quoteKey.currentContext;
+      if (ctx == null) {
+        if (tries < 8) _revealQuote(tries + 1);
+        return;
+      }
+      Scrollable.ensureVisible(ctx,
+          alignment: 0.25,
+          duration: const Duration(milliseconds: 450),
+          curve: Curves.easeInOutCubic);
+    });
   }
 
   @override
@@ -1095,6 +1243,17 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             if (!_restoring) _lastAnchor = _topAnchor() ?? _lastAnchor;
             return false;
           },
+          // ⚠ Показалецът е като в другите четци: хваща се с пръст и се влачи,
+          // а докато се търси, стои постоянно видим (човек скача между
+          // намереното и палецът трябва да е под пръста).
+          child: ScrollbarTheme(
+          data: readerScrollbarTheme(p),
+          child: Scrollbar(
+          controller: _scroll,
+          interactive: true,
+          // Постоянно видим само докато се търси и има намерено — тогава
+          // чертичките стоят върху лентата и палецът е отправната точка.
+          thumbVisibility: _searchOpen && _hits.isNotEmpty,
           child: CustomScrollView(
           controller: _scroll,
           slivers: [
@@ -1135,8 +1294,32 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               ),
             ),
           ],
-        )));
+        )))));
       });
+      // Чертичките за намереното — върху скролбара, по неговата геометрия
+      // (crossAxisMargin 2, mainAxisMargin 4, дебелина kReaderScrollThumb).
+      if (_searchOpen && _hits.isNotEmpty && _tickRatios.isNotEmpty) {
+        body = Stack(children: [
+          body,
+          Positioned(
+            right: 2,
+            top: 4,
+            bottom: 4,
+            width: kReaderScrollThumb,
+            child: IgnorePointer(
+              child: CustomPaint(
+                painter: MatchTicksPainter(
+                  ratios: _tickRatios,
+                  currentIndex: _currentHit,
+                  hitColor: p.tickHit,
+                  currentColor: p.tickCurrent,
+                ),
+              ),
+            ),
+          ),
+        ]);
+      }
+      if (_searchOpen && _hits.isNotEmpty) _queueTicks();
       // ⚠ Обвивката стои ВИНАГИ (в легнало — без действия), за да е едно и
       // също дървото в двете положения: иначе скролът се пресъздава при
       // завъртане и тръгва от нулата.
@@ -1297,5 +1480,32 @@ class _RenderSizeReport extends RenderProxyBox {
   void performLayout() {
     super.performLayout();
     onSize(size.height);
+  }
+}
+
+/// Отваря цитат от молитвослова — от любимите или от споделен линк.
+///
+/// ⚠ `replaceStack` само при ВЪНШЕН линк — същият довод като при житията
+/// (quote_incoming.dart): „назад" трябва да върне в приложението, откъдето
+/// е дошъл човекът.
+Future<void> openMolitvoslovQuote(NavigatorState nav, ParsedQuoteLink q,
+    {bool replaceStack = false}) async {
+  final id = int.tryParse(q.anchor.locator.split('|').first);
+  final sections = await MolitvoslovDb.sections();
+  final section = sections.where((s) => s.id == id).firstOrNull;
+  if (section == null) {
+    final ctx = nav.context;
+    if (ctx.mounted) {
+      ScaffoldMessenger.of(ctx).showSnackBar(const SnackBar(
+          content: Text('Този раздел го няма в молитвослова.')));
+    }
+    return;
+  }
+  final route = MaterialPageRoute<void>(
+      builder: (_) => MolitvoslovReader(section: section, openAtQuote: q));
+  if (replaceStack) {
+    nav.pushAndRemoveUntil(route, (_) => false);
+  } else {
+    nav.push(route);
   }
 }

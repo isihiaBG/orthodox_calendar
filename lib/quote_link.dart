@@ -609,6 +609,9 @@ String _packV3(Quote q) {
       }
     case QuoteSource.bible:
       compact = null;
+    case QuoteSource.molitvoslov:
+      // „5|L" е и без това три знака — свиване няма какво да спечели.
+      compact = null;
   }
 
   var flags = 0;
@@ -724,6 +727,7 @@ ParsedQuoteLink? _unpackV3(String packed) {
         final ch = _getVarint(b, pos);
         locator = '$kLocatorMarker${vol.toString().padLeft(2, '0')}/$ch';
       case QuoteSource.bible:
+      case QuoteSource.molitvoslov:
         return null;
     }
   } else {

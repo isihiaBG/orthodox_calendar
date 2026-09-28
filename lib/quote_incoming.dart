@@ -16,6 +16,7 @@
 // Липсва ли което и да е, Android тихо отваря браузъра и този код никога не
 // се вика.
 
+import 'molitvoslov_reader.dart' show openMolitvoslovQuote;
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
@@ -218,6 +219,9 @@ class IncomingQuoteLinks {
           await openBibleQuote(bctx, q.anchor, q.fingerprint,
               text: q.text, replaceStack: true, navigator: nav);
         }
+      case QuoteSource.molitvoslov:
+        // ⚠ `replaceStack` — същият довод като при житията по-горе.
+        await openMolitvoslovQuote(nav, q, replaceStack: true);
     }
   }
 
