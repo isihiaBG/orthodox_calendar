@@ -12,6 +12,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'edit_icon.dart';
 import 'molitvoslov_db.dart';
 import 'molitvoslov_lang_chip.dart';
 import 'molitvoslov_reader.dart';
@@ -414,7 +415,7 @@ class _BookSwitcherState extends State<_BookSwitcher> {
           const Expanded(child: Text('БОГОСЛУЖЕБНИ КНИГИ', style: _kHeadStyle)),
           IconButton(
             tooltip: 'Подреди списъка',
-            icon: const Icon(Icons.edit_document, color: AppColors.textSecondary, size: 22),
+            icon: const EditIcon(color: AppColors.textSecondary, size: 22),
             onPressed: () => setState(() => _editing = true),
           ),
           const SizedBox(width: 8),

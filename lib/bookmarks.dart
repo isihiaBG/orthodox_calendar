@@ -16,6 +16,7 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
+import 'edit_icon.dart';
 
 /// Един запис в списъка.
 class BookmarkEntry {
@@ -335,7 +336,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
               tooltip: 'Редактирай',
               // Моливче върху лист — по-ясно „редактирай списъка" от голото
               // моливче (избор на потребителя, 29.09.2026).
-              icon: const Icon(Icons.edit_document),
+              icon: const EditIcon(),
               onPressed: _startEditing,
             ),
           ),
