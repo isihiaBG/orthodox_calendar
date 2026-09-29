@@ -69,32 +69,44 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   final GlobalKey _lastKey = GlobalKey();
 
   /// Плъзга ВИДИМО до последно отворения раздел, ако е в този таб — както
-  /// съдържанието на Библията („самото движение е подсещането").
-  /// ⚠ Непостроен ред се пробва пак на следващия кадър — голото `return` е
-  /// тихият отказ, платен вече няколко пъти в проекта.
+  /// съдържанието на Библията („самото движение е подсещането"). Виж
+  /// [glideToRow] — далечният ред се построява по пътя.
   void _revealLast(int tabIndex, int attempt) {
     final last = MolitvoslovLastSection.value;
     final tabs = _tabs;
     if (last == null || tabs == null) return;
-    final inTab = _sections.any((s) => s.id == last && s.tab == tabs[tabIndex].code);
-    if (!inTab) return;
+    final code = tabs[tabIndex].code;
+    final list = _sections.where((s) => s.tab == code).toList();
+    final i = list.indexWhere((s) => s.id == last);
+    if (i < 0) return;
+    // В „Богослужебни" редът е КНИГАТА на последния раздел (два реда текст).
+    final double y;
+    if (list.any((s) => s.book != null)) {
+      final bi = bookOrder(list).indexOf(list[i].book ?? '');
+      if (bi < 0) return;
+      y = 8 + bi * 67.0;
+    } else {
+      y = 8 + i * 51.0;
+    }
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final ctx = _lastKey.currentContext;
-      if (ctx == null) {
-        if (attempt < 8) _revealLast(tabIndex, attempt + 1);
-        return;
-      }
-      Scrollable.ensureVisible(ctx,
-          alignment: 0.3,
-          duration: const Duration(milliseconds: 450),
-          curve: Curves.easeInOutCubic);
+      glideToRow(_scrollerFor(code), _lastKey, y,
+          () => mounted && _ctrl?.index == tabIndex);
     });
   }
+
+  /// Всеки таб — свой контролер: списъците живеят наведнъж в `TabBarView`,
+  /// а един контролер за няколко скрола гърми (виж Библията).
+  final Map<String, ScrollController> _scrollers = {};
+  ScrollController _scrollerFor(String code) =>
+      _scrollers.putIfAbsent(code, ScrollController.new);
 
   @override
   void dispose() {
     _ctrl?.dispose();
+    for (final c in _scrollers.values) {
+      c.dispose();
+    }
     super.dispose();
   }
 
@@ -147,8 +159,9 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
         ),
       );
     }
-    if (list.any((s) => s.book != null)) return _booksBody(list);
+    if (list.any((s) => s.book != null)) return _booksBody(list, tab.code);
     return ListView.separated(
+      controller: _scrollerFor(tab.code),
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: list.length,
       separatorBuilder: (_, _) =>
@@ -190,10 +203,11 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   /// „Богослужебни": първото ниво са КНИГИТЕ; тап отваря съдържанието на
   /// книгата. Под името — последно четеното в нея (синьо, ако е и
   /// последно отвореното изобщо).
-  Widget _booksBody(List<MolSection> list) {
+  Widget _booksBody(List<MolSection> list, String code) {
     final byId = {for (final s in list) s.id: s};
     final books = bookOrder(list);
     return ListView.separated(
+      controller: _scrollerFor(code),
       padding: const EdgeInsets.symmetric(vertical: 8),
       itemCount: books.length,
       separatorBuilder: (_, _) =>
@@ -203,6 +217,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
         final last = byId[MolitvoslovBookLast.value[b]];
         final isLast = last != null && last.id == MolitvoslovLastSection.value;
         return Material(
+          key: isLast ? _lastKey : null,
           color: isLast ? AppColors.rowSelected : Colors.transparent,
           child: InkWell(
             onTap: () async {

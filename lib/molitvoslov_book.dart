@@ -16,6 +16,38 @@ import 'molitvoslov_db.dart';
 import 'molitvoslov_reader.dart';
 import 'molitvoslov_settings.dart';
 
+/// Плъзга ВИДИМО до реда с [key] — както съдържанието на Библията
+/// (`_revealAnchor` там): списъкът е мързелив, тъй че далечен ред още не е
+/// построен и `ensureVisible` няма за какво да се хване. Затова първо се
+/// плъзга по ОЦЕНКА [estimate] (което го построява), после се донамества.
+/// ⚠ Голото `return` при непостроен ред е тихият отказ, платен вече
+/// няколко пъти в проекта.
+Future<void> glideToRow(ScrollController ctrl, GlobalKey key, double estimate,
+    bool Function() alive, [int attempt = 0]) async {
+  if (!alive()) return;
+  final ctx = key.currentContext;
+  if (ctx != null) {
+    await Scrollable.ensureVisible(ctx,
+        alignment: 0.3,
+        duration: Duration(milliseconds: attempt == 0 ? 450 : 220),
+        curve: Curves.easeOutCubic);
+    return;
+  }
+  if (attempt >= 8) return;
+  if (!ctrl.hasClients) {
+    WidgetsBinding.instance.addPostFrameCallback(
+        (_) => glideToRow(ctrl, key, estimate, alive, attempt + 1));
+    return;
+  }
+  final max = ctrl.position.maxScrollExtent;
+  final want = (estimate - ctrl.position.viewportDimension * 0.3).clamp(0.0, max);
+  if (attempt > 0 && (ctrl.offset - want).abs() < 1) return;
+  final ms = (260 + (ctrl.offset - want).abs() * 0.38).clamp(260, 900).round();
+  await ctrl.animateTo(want,
+      duration: Duration(milliseconds: ms), curve: Curves.easeInOutCubic);
+  await glideToRow(ctrl, key, estimate, alive, attempt + 1);
+}
+
 /// Псалтирът е свой таб, но за плаващото копче е КНИГА като останалите —
 /// с него се кара Часословът (катизмите).
 const String kPsalterBook = 'Псалтир';
@@ -76,6 +108,16 @@ class MolitvoslovBook extends StatefulWidget {
 class _MolitvoslovBookState extends State<MolitvoslovBook> {
   final Set<String> _open = {};
   final GlobalKey _lastKey = GlobalKey();
+  final ScrollController _scroll = ScrollController();
+
+  // Номиналните височини — само за оценката; точното място дава ensureVisible.
+  static const double _kHeaderH = 50, _kRowH = 48;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
 
   List<MolSection> get _mine =>
       widget.sections.where((s) => bookKeyOf(s) == widget.book).toList();
@@ -90,19 +132,24 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
     _reveal(0);
   }
 
-  /// Плъзга до последно четения раздел (виж съдържанието на молитвослова).
+  /// Плъзга до последно четения раздел — виж [glideToRow].
   void _reveal(int attempt) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      final ctx = _lastKey.currentContext;
-      if (ctx == null) {
-        if (attempt < 8) _reveal(attempt + 1);
-        return;
+      final last = MolitvoslovBookLast.value[widget.book];
+      if (last == null) return;
+      // Оценка: заглавията на групите и видимите редове преди последния.
+      var y = 8.0;
+      String? g;
+      for (final s in _mine) {
+        if (s.grp != g) {
+          g = s.grp;
+          if (g != null) y += _kHeaderH;
+        }
+        if (s.id == last) break;
+        if (s.grp == null || _open.contains(s.grp)) y += _kRowH;
       }
-      Scrollable.ensureVisible(ctx,
-          alignment: 0.3,
-          duration: const Duration(milliseconds: 450),
-          curve: Curves.easeInOutCubic);
+      glideToRow(_scroll, _lastKey, y, () => mounted);
     });
   }
 
@@ -128,6 +175,7 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(widget.book)),
       body: ListView(
+        controller: _scroll,
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: rows,
       ),
