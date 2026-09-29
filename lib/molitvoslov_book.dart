@@ -45,11 +45,13 @@ List<String> switcherCandidates(List<MolSection> all) {
 
 /// Отваря раздел от богослужебна книга и го запомня — общо място за
 /// съдържанието на книгата и за плаващото копче.
-void openBookSection(NavigatorState nav, MolSection s, {bool replace = false}) {
+void openBookSection(NavigatorState nav, MolSection s,
+    {bool replace = false, bool service = false}) {
   MolitvoslovLastSection.set(s.id);
   final b = bookKeyOf(s);
   if (b != null) MolitvoslovBookLast.set(b, s.id);
-  final route = MaterialPageRoute(builder: (_) => MolitvoslovReader(section: s));
+  final route = MaterialPageRoute(
+      builder: (_) => MolitvoslovReader(section: s, serviceMode: service));
   if (replace) {
     nav.pushReplacement(route);
   } else {
@@ -60,7 +62,12 @@ void openBookSection(NavigatorState nav, MolSection s, {bool replace = false}) {
 class MolitvoslovBook extends StatefulWidget {
   final String book;
   final List<MolSection> sections;
-  const MolitvoslovBook({super.key, required this.book, required this.sections});
+
+  /// Дошло през плаващото копче — разделите се отварят в режим „служба"
+  /// (важи за Псалтира; виж [MolitvoslovReader.serviceMode]).
+  final bool service;
+  const MolitvoslovBook(
+      {super.key, required this.book, required this.sections, this.service = false});
 
   @override
   State<MolitvoslovBook> createState() => _MolitvoslovBookState();
@@ -163,7 +170,7 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
       color: isLast ? AppColors.rowSelected : Colors.transparent,
       child: InkWell(
         onTap: () {
-          openBookSection(Navigator.of(context), s);
+          openBookSection(Navigator.of(context), s, service: widget.service);
           setState(() {});
         },
         child: Container(
@@ -229,14 +236,14 @@ class _BookSwitcherState extends State<_BookSwitcher> {
   void _contents(String book) {
     Navigator.of(context).pop();
     widget.nav.push(MaterialPageRoute(
-        builder: (_) => MolitvoslovBook(book: book, sections: widget.all)));
+        builder: (_) => MolitvoslovBook(book: book, sections: widget.all, service: true)));
   }
 
   void _open(String book) {
     final last = _byId[MolitvoslovBookLast.value[book]];
     if (last == null) return _contents(book);
     Navigator.of(context).pop();
-    openBookSection(widget.nav, last, replace: true);
+    openBookSection(widget.nav, last, replace: true, service: true);
   }
 
   Future<void> _add() async {

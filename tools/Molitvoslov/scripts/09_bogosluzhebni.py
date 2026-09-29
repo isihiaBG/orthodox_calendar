@@ -131,16 +131,37 @@ def chapter_units(body):
 
 
 def chapters(path):
+    """Главите по РЕДА НА КНИГАТА (spine), не по toc.ncx.
+
+    ⚠ Съдържанието на някои книги е НЕПЪЛНО: в Октоиха свършва на глас 7, а
+    глас 8 и десет приложения са в книгата; в Типикона липсват гл. 49–62, в
+    две Минеи — по едно приложение. Затова се обхожда spine-ът, а заглавието
+    се взима от съдържанието, ако го има там, инак от <h2>.
+    """
     z = zipfile.ZipFile(path)
     ncx = next(n for n in z.namelist() if n.endswith('.ncx'))
-    t = z.read(ncx).decode('utf-8')
     base = os.path.dirname(ncx)
+    t = z.read(ncx).decode('utf-8')
+    labels = {}
     for label, src in re.findall(r'<navLabel>\s*<text>(.*?)</text>.*?<content src="([^"]+)"', t, re.S):
-        label = html.unescape(label).strip()
-        if 'первоисточник' in label:
+        labels.setdefault(src.split('#')[0], html.unescape(label).strip())
+    opf = next(n for n in z.namelist() if n.endswith('.opf'))
+    o = z.read(opf).decode('utf-8')
+    items = dict(re.findall(r'<item\b[^>]*?id="([^"]+)"[^>]*?href="([^"]+)"', o))
+    items.update({i: h for h, i in re.findall(r'<item\b[^>]*?href="([^"]+)"[^>]*?id="([^"]+)"', o)})
+    for idref in re.findall(r'<itemref\b[^>]*idref="([^"]+)"', o):
+        href = items.get(idref, '')
+        if not href.endswith('html'):
             continue
-        name = os.path.join(base, src.split('#')[0]) if base else src.split('#')[0]
+        name = os.path.join(os.path.dirname(opf), href) if os.path.dirname(opf) else href
         h = z.read(name).decode('utf-8', 'replace')
+        m = re.search(r'<h2[^>]*>(.*?)</h2>', h, re.S)
+        label = labels.get(href) or (html.unescape(re.sub(r'<[^>]+>', '', m.group(1))).strip()
+                                     if m else '')
+        # „Глас 8-йВоскресенье" — в заглавията от <h2> интервалът липсва.
+        label = re.sub(r'(\d-й)(?=[А-Я])', r'\1. ', re.sub(r'\s+', ' ', label)).strip()
+        if not label or 'первоисточник' in label or label.startswith('Полное оглавление'):
+            continue
         yield label, h[h.find('<body'):]
 
 
@@ -183,13 +204,21 @@ PROMPT = """Ти си опитен преводач на православна 
 """
 
 
+# Кратките имена, които потребителят иска в съдържанието (Часослов).
+TITLE_OVERRIDES = {
+    'Последование на утренята': 'Утреня',
+    'Последование на вечернята': 'Вечерня',
+}
+
+
 def grp_of(book, label, fname):
     if book == 'minei':
         m = MINEI.index(re.search(r'Mineya_(\d\d_\w+)\.epub', fname).group(1))
         return 'Минея за %s' % MONTHS[m]
     if book == 'oktoih':
         m = re.match(r'Глас (\d)', label)
-        return 'Глас %s' % m.group(1) if m else None
+        # Ексапостилариите, утринните евангелия и т.н. след 8-те гласа.
+        return 'Глас %s' % m.group(1) if m else 'Приложения'
     return None
 
 
@@ -203,6 +232,7 @@ def main():
     for fname, book, bname, label, units in raw:
         sid += 1
         tbg = titles.get(label, label).strip().rstrip('.')
+        tbg = TITLE_OVERRIDES.get(tbg, tbg)
         if book == 'oktoih':
             tbg = re.sub(r'^Глас \d+\.?\s*', '', tbg) or tbg
         us = [{'n': i, 'title_csl': None, 'title_bg': None, 'title_cs': u['title'],

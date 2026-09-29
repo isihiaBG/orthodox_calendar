@@ -48,7 +48,16 @@ class MolitvoslovReader extends StatefulWidget {
 
   /// Цитат, до който да се отвори (от любимите или от споделен линк).
   final ParsedQuoteLink? openAtQuote;
-  const MolitvoslovReader({super.key, required this.section, this.openAtQuote});
+
+  /// Режим „водене на служба": отворено през плаващото копче. Тогава и в
+  /// Псалтира има копче и се връща точното място. Отворен от съдържанието,
+  /// Псалтирът е за самостоятелно четене — там копчето само пречи
+  /// (указание на потребителя). Богослужебните книги са винаги в този режим.
+  final bool serviceMode;
+  const MolitvoslovReader(
+      {super.key, required this.section, this.openAtQuote, this.serviceMode = false});
+
+  bool get inService => section.book != null || serviceMode;
 
   @override
   State<MolitvoslovReader> createState() => _MolitvoslovReaderState();
@@ -168,7 +177,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // В богослужебна книга човекът се връща ТОЧНО там, където е спрял
         // (освен ако не идва по цитат — тогава печели цитатът).
         final place = MolitvoslovPlaces.value[widget.section.id];
-        if (widget.openAtQuote == null && bookKeyOf(widget.section) != null &&
+        if (widget.openAtQuote == null && widget.inService &&
             place != null && place.$1 < units.length) {
           _lastAnchor = place;
           _restoreSettled(place);
@@ -1408,7 +1417,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // ⚠ Плаващото копче — само в богослужебните книги: списък с книгите
         // за скок между тях, докато се кара службата (указание на
         // потребителя). Отместено от десния ръб, за да не се пипа скролбарът.
-        floatingActionButton: bookKeyOf(widget.section) == null
+        floatingActionButton: !widget.inService
             ? null
             : Padding(
                 padding: const EdgeInsets.only(right: 14, bottom: 8),
