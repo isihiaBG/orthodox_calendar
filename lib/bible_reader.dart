@@ -43,6 +43,7 @@ import 'quote_menu.dart';
 import 'quotes.dart';
 import 'apostol_incipits.dart';
 import 'bible_packs.dart';
+import 'bible_packs_screen.dart';
 import 'prokimen.dart';
 import 'bible_ref.dart';
 import 'bible_search_panel.dart';
@@ -4386,6 +4387,11 @@ class _BibleReaderState extends State<BibleReader>
     return '$b ${widget.chapter}';
   }
 
+  /// Има ли превод, който още не е свален — за реда „Свали още езици".
+  bool get _hasMoreLanguages =>
+      BiblePacks.supported &&
+      availablePacks().any((p) => !_langs.any((l) => l.code == p.code));
+
   String _shownCode(BibleLanguagePair pair, int? column) {
     if (column != null) return column == 0 ? pair.first : pair.second;
     return _slide.value >= 0.5 ? pair.second : pair.first;
@@ -4400,7 +4406,14 @@ class _BibleReaderState extends State<BibleReader>
     return PopupMenuButton<String>(
       tooltip: 'Превод',
       color: AppColors.toolbar,
-      onSelected: (code) => _pickLanguage(code, column),
+      onSelected: (code) {
+        if (code == _kMoreLanguages) {
+          Navigator.of(context).push(
+              MaterialPageRoute(builder: (_) => const BiblePacksScreen()));
+          return;
+        }
+        _pickLanguage(code, column);
+      },
       itemBuilder: (_) => [
         for (final l in _langs)
           PopupMenuItem<String>(
@@ -4432,6 +4445,31 @@ class _BibleReaderState extends State<BibleReader>
               ],
             ),
           ),
+        // ⚠ Указател към свалянето — тук, защото това е единственото място,
+        // където човек изобщо мисли за езици; в настройките никой не би го
+        // потърсил (идея на потребителя). Отделен с черта и посивен, за да
+        // не се чете като още един език. Има го САМО ако има какво да се
+        // свали: иначе води към празен екран. В уеб свалянето не работи.
+        // Новосвалените се появяват в менюто сами (`languagesRevision`).
+        if (_hasMoreLanguages) ...[
+          const PopupMenuItem<String>(
+            enabled: false,
+            height: 9,
+            child: Divider(height: 1, color: Colors.white24),
+          ),
+          const PopupMenuItem<String>(
+            value: _kMoreLanguages,
+            child: Row(
+              children: [
+                SizedBox(width: 28),
+                Text('Свали още езици',
+                    style: TextStyle(color: Colors.white54, fontSize: 14)),
+                SizedBox(width: 4),
+                Icon(Icons.chevron_right, color: Colors.white54, size: 18),
+              ],
+            ),
+          ),
+        ],
       ],
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 8),
@@ -4457,3 +4495,7 @@ class _BibleReaderState extends State<BibleReader>
     );
   }
 }
+
+/// Стойността на реда „Свали още езици" в менюто за превода — не е код на
+/// език (кодовете са латински букви и тирета, без подчертавки).
+const String _kMoreLanguages = '__more__';
