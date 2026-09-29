@@ -47,9 +47,9 @@ TITLES = {
     '13bgrvoskr': 'Богородични възкресни на осемте гласа',
     '14bgrvsednev': 'Богородични на осемте гласа, когато е Слава на светия в Минея',
     '15stepen': 'Степенни на осемте гласа',
-    '16pesnvsedn': 'На утренята след шестопсалмието; Троични песни; всекидневни песни на Писанието',
-    '17pesnprazd': 'Празнични песни на Свещеното Писание',
-    '18pesnpost': 'Песни на Свещеното Писание през Светата Четиридесетница',
+    '16pesnvsedn': 'На утренята след шестопсалмието',
+    '17pesnprazd': 'Библейски песни – празнични',
+    '18pesnpost': 'Библейски песни през Светата Четиридесетница',
     '19neporochned': 'Възкресни тропари след Непорочните в неделя, глас 5',
     '20prokother': 'Възкресни прокимени',
     '21neporochsub': 'Тропари след Непорочните в събота, глас 5',
@@ -58,8 +58,17 @@ TITLES = {
     '24pripev': 'Припеви на 9-ата песен на Господските и Богородичните празници',
 }
 
+# ⚠ Файлът 16 носи ТРИ отделни неща едно след друго — делят се по шевовете в
+# самия текст, всяко става свой раздел (искане на потребителя, 30.09.2026):
+# абзацът, който ПОЧВА така, е първият на новия раздел.
+SPLITS = {
+    '16pesnvsedn': [('Вѣ́домо бꙋ́ди, ꙗ҆́кѡ въ трⷪ҇чныхъ', 'Троични песни'),
+                    ('Та́же стїхосло́вїе Ѱалти́ра', 'Библейски песни – всекидневни')],
+}
+
 RE_SONG = re.compile(r'^(Пѣ́снь\s+\S+?)[.:](?:\s+(?:[Іі]҆рмо́съ):?\s*(.*))?$')
-RE_GLAS = re.compile(r'^Гла́съ\s+\S+?\.(?:\s+(.*))?$')
+# „Пѣ̑сни трⷪ҇чны. Гла́съ а҃." — при троичните гласът носи и името на песните.
+RE_GLAS = re.compile(r'^(?:Пѣ̑сни трⷪ҇чны\.\s+)?(Гла́съ\s+\S+?)[.:](?:\s+(.*))?$')
 STARTERS = ('Та́же', 'Посе́мъ', 'Вѣ́домо', 'Подоба́етъ', 'Пое́тсѧ', 'И҆ а҆́бїе', 'И҆ про́чее',
             'А҆́ще же', 'Въ недѣ́лю ѹ҆́бѡ', 'По возгла́сѣ', 'По пе́рвомъ', 'И҆ по чи́нꙋ', 'Кі́йждо',
             'Нача́ло', 'И҆ начина́етъ', 'Глаго́лемъ же', 'Пое́мъ', 'На є҆ди́номъ',
@@ -94,7 +103,10 @@ def units_of(paras):
             continue
         m = RE_GLAS.match(plain)
         if m and len(plain) < 60:
-            units.append({'title': plain.rstrip('.:'), 'blocks': []})
+            units.append({'title': m.group(1), 'blocks': []})
+            if m.group(2):
+                units[-1]['blocks'].append({'kind': 'text', 'html': brackets(
+                    html.escape(m.group(2), quote=False))})
             continue
         whole = re.fullmatch(r'\[([^\[\]]+)\]', plain)
         if whole or (len(plain) < 150 and plain.endswith(':') and not plain.startswith('['))\
@@ -116,7 +128,8 @@ def main():
     HIPDIR.mkdir(parents=True, exist_ok=True)
     subprocess.run(['unrar', 'x', '-o+', '-inul', str(RAR), str(HIPDIR) + '/'], check=True)
     out = []
-    for i, key in enumerate(TITLES):
+    sid = FIRST_ID
+    for key in TITLES:
         f = HIPDIR / (key + '.hip')
         if not f.exists():
             sys.exit('⚠ липсва %s' % f.name)
@@ -124,13 +137,25 @@ def main():
         paras = hip.convert(f.read_bytes().decode('cp1251'), unknown)
         if unknown:
             print('  ⚠ %s: непознати означения %s' % (f.name, sorted(unknown)))
-        us = units_of(paras)
-        out.append({'sec': FIRST_ID + i, 'tab': 'bogosluzhebni', 'book': BOOK, 'grp': None,
-                    'title_bg': TITLES[key], 'title_csl': None, 'csr_source': None,
-                    'csl_source': SRC,
-                    'units': [{'n': k, 'title_csl': u['title'], 'title_bg': None, 'title_cs': None,
-                               'csl': u['blocks'], 'csr': [], 'bg': [], 'sources': []}
-                              for k, u in enumerate(us)]})
+        parts = [(TITLES[key], paras)]
+        for start, title in SPLITS.get(key, []):
+            rest = parts[-1][1]
+            plain = [re.sub(r'<[^>]+>', '', html.unescape(p)) for p in rest]
+            at = next((j for j, t in enumerate(plain) if t.startswith(start)), None)
+            if at is None:
+                sys.exit('⚠ %s: няма шев „%s"' % (f.name, start))
+            parts[-1] = (parts[-1][0], rest[:at])
+            parts.append((title, rest[at:]))
+        for title, ps in parts:
+            us = units_of(ps)
+            out.append({'sec': sid, 'tab': 'bogosluzhebni', 'book': BOOK, 'grp': None,
+                        'title_bg': title, 'title_csl': None, 'csr_source': None,
+                        'csl_source': SRC,
+                        'units': [{'n': k, 'title_csl': u['title'], 'title_bg': None,
+                                   'title_cs': None, 'csl': u['blocks'], 'csr': [], 'bg': [],
+                                   'sources': []}
+                                  for k, u in enumerate(us)]})
+            sid += 1
     (W / 'irmologii.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
                                       encoding='utf-8')
     n = sum(len(u['csl']) for s in out for u in s['units'])
