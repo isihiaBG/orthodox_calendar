@@ -16,6 +16,7 @@
 // плъзгане („когато цял раздел няма даден език, тази част от екрана се
 // скрива" — указание на потребителя).
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -54,10 +55,23 @@ class MolitvoslovReader extends StatefulWidget {
   /// Псалтирът е за самостоятелно четене — там копчето само пречи
   /// (указание на потребителя). Богослужебните книги са винаги в този режим.
   final bool serviceMode;
-  const MolitvoslovReader(
-      {super.key, required this.section, this.openAtQuote, this.serviceMode = false});
 
-  bool get inService => section.book != null || serviceMode;
+  /// ВГРАДЕН в панела за препратка (виж [showRefSheet]): същото оформление,
+  /// но без плаващото копче и без да записва мястото и последно четеното —
+  /// човекът само надниква и се връща в службата си.
+  final bool embedded;
+
+  /// Отваря се превъртян на този абзац (молитва, абзац на цс).
+  final (int, int)? startAt;
+  const MolitvoslovReader(
+      {super.key,
+      required this.section,
+      this.openAtQuote,
+      this.serviceMode = false,
+      this.embedded = false,
+      this.startAt});
+
+  bool get inService => !embedded && (section.book != null || serviceMode);
 
   @override
   State<MolitvoslovReader> createState() => _MolitvoslovReaderState();
@@ -146,7 +160,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   void initState() {
     super.initState();
     // Запомня се и оттук (линк, любим цитат), не само от съдържанието.
-    final b = bookKeyOf(widget.section);
+    final b = widget.embedded ? null : bookKeyOf(widget.section);
     if (b != null) {
       MolitvoslovBookLast.loadOnce().then((_) => MolitvoslovBookLast.set(b, widget.section.id));
     }
@@ -183,6 +197,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           _restoreSettled(place);
         }
         _goToQuote();
+        if (widget.startAt != null) _revealQuote(0);
       });
     } catch (e) {
       // ⚠ Грешката се ПОКАЗВА — не бива да изглежда като „още се зарежда"
@@ -298,11 +313,18 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   /// двете, маркирането пада на съседни думи.
   List<_Run> _runs(String html, {required bool redFirst}) {
     final out = <_Run>[];
-    final re = RegExp(r'<span class="rubric">(.*?)</span>', dotAll: true);
+    // ⚠ И вътрешни препратки `<a href="mol:…">` (виж [showRefSheet]) —
+    // парчето помни адреса си и се рисува подчертано.
+    final re = RegExp(r'<span class="rubric">(.*?)</span>|<a href="(mol:[^"]+)">(.*?)</a>',
+        dotAll: true);
     var at = 0;
     for (final m in re.allMatches(html)) {
       if (m.start > at) out.add(_Run(_plain(html.substring(at, m.start)), false));
-      out.add(_Run(_plain(m.group(1)!), true));
+      if (m.group(2) != null) {
+        out.add(_Run(_plain(m.group(3)!), false, href: _plain(m.group(2)!)));
+      } else {
+        out.add(_Run(_plain(m.group(1)!), true));
+      }
       at = m.end;
     }
     if (at < html.length) out.add(_Run(_plain(html.substring(at)), false));
@@ -367,14 +389,20 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
             }
           }
         }
+        final href = r.href;
         out.add(TextSpan(
           text: r.text.substring(a - pos, b - pos),
-          style: (r.wine || bg != null)
+          recognizer: href == null
+              ? null
+              : (TapGestureRecognizer()..onTap = () => showRefSheet(context, href)),
+          style: (r.wine || bg != null || href != null)
               ? TextStyle(
                   color: r.wine ? p.wine : null,
                   backgroundColor: bg,
                   // В светла тема жълтото е светло — текстът върху него
                   // остава мастилен (виж [ReaderPalette.hit]).
+                  decoration: href != null ? TextDecoration.underline : null,
+                  decorationStyle: TextDecorationStyle.dotted,
                 )
               : null,
         ));
@@ -424,6 +452,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       }
       // Началото на отворения цитат — за плъзгането до него.
       if (q0 != null && q0.unit == ui && q0.lang == lang && q0.block == bi) {
+        return _quoteKey;
+      }
+      // Панел за препратка — мястото, на което се отваря.
+      final st = widget.startAt;
+      if (q0 == null && st != null && st.$1 == ui && st.$2 == bi && lang != 'bg') {
         return _quoteKey;
       }
       return null;
@@ -640,7 +673,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   /// Мястото в богослужебна книга се пази — виж [MolitvoslovPlaces].
   void _savePlace() {
     final a = _lastAnchor;
-    if (bookKeyOf(widget.section) != null && a != null) {
+    if (!widget.embedded && bookKeyOf(widget.section) != null && a != null) {
       MolitvoslovPlaces.set(widget.section.id, a);
     }
   }
@@ -1422,7 +1455,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // ⚠ Плаващото копче — само в богослужебните книги: списък с книгите
         // за скок между тях, докато се кара службата (указание на
         // потребителя). Отместено от десния ръб, за да не се пипа скролбарът.
-        floatingActionButton: !widget.inService
+        floatingActionButton: !widget.inService || widget.embedded
             ? null
             : Padding(
                 padding: const EdgeInsets.only(right: 14, bottom: 8),
@@ -1551,10 +1584,62 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
 }
 
 /// Парче текст от абзац — винено (указание, червена буква) или обикновено.
+/// Вътрешна препратка в богослужебна книга → ПАНЕЛ ОТДОЛУ със същия четец.
+///
+/// ⚠ Панел, а не нов екран (идея на потребителя): човекът не напуска
+/// службата, прочита колкото му трябва и затваря с плъзгане или „назад" —
+/// няма връщане от връзка, което да се управлява.
+///
+/// Адресът: `mol:<книга>/<заглавие на раздела>[#<начало на абзац>]` —
+/// по ИМЕ и по ТЕКСТ, не по номер: номерата на разделите се разместват при
+/// пресглобяване на базата (виж `pruneBookLast`).
+Future<void> showRefSheet(BuildContext context, String href) async {
+  final m = RegExp(r'^mol:([^/]+)/([^#]+)(?:#(.+))?$').firstMatch(href);
+  if (m == null) return;
+  final all = await MolitvoslovDb.sections();
+  final sec = all.where((s) => s.book == m.group(1) && s.titleBg == m.group(2)).firstOrNull;
+  if (sec == null || !context.mounted) return;
+  (int, int)? start;
+  final anchor = m.group(3);
+  if (anchor != null) {
+    String fold(String t) => t
+        .replaceAll(RegExp(r'<[^>]+>'), '')
+        .replaceAll(RegExp(r'[\u0300-\u036f\u0483-\u0489\u2de0-\u2dff\ua66f-\ua67f\s.,:;]'), '')
+        .toLowerCase();
+    final want = fold(anchor);
+    final units = await MolitvoslovDb.units(sec.id);
+    for (var ui = 0; ui < units.length && start == null; ui++) {
+      final bl = units[ui].of('csl');
+      for (var bi = 0; bi < bl.length; bi++) {
+        if (fold(bl[bi].html).startsWith(want)) {
+          start = (ui, bi);
+          break;
+        }
+      }
+    }
+  }
+  if (!context.mounted) return;
+  final h = MediaQuery.of(context).size.height;
+  await showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    backgroundColor: Colors.transparent,
+    builder: (_) => SizedBox(
+      height: h * 0.9,
+      child: ClipRRect(
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+        child: MolitvoslovReader(section: sec, embedded: true, startAt: start),
+      ),
+    ),
+  );
+}
+
 class _Run {
   final String text;
   final bool wine;
-  const _Run(this.text, this.wine);
+  final String? href;
+  const _Run(this.text, this.wine, {this.href});
 }
 
 /// Едно намерено място: молитва, език, абзац (−1 = заглавието) и знаците.
