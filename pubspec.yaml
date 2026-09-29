@@ -64,6 +64,8 @@ dependencies:
   app_links: ^6.3.2
   pdf: ^3.13.0
   sqflite_common_ffi_web: ^1.2.0
+  in_app_review: ^2.0.12
+  package_info_plus: ^9.0.1
 
 dev_dependencies:
   flutter_test:

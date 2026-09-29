@@ -12,6 +12,7 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'about_screen.dart';
 import 'app_settings.dart';
 import 'app_theme.dart';
+import 'rate_app.dart';
 import 'bible_contents.dart';
 import 'bible_welcome_screen.dart';
 import 'bible_settings.dart';
@@ -215,7 +216,13 @@ class AppDrawer extends StatelessWidget {
               (_) => SettingsScreen(onChanged: appSettingsChangedHook),
             ).then((_) => AppSettings.saveNow());
           }),
-          _itemText('❈', 'Оцени приложението', () {}),
+          _itemText('❈', 'Оцени приложението', () {
+            // Съобщението иска жив Scaffold — взима се ПРЕДИ менюто да се
+            // затвори, иначе контекстът му вече е разрушен.
+            final messenger = ScaffoldMessenger.maybeOf(context);
+            Navigator.of(context).pop();
+            rateApp(messenger);
+          }),
           // ⚠ Само ОТДОЛУ (лентата за жестове). Отстрани отстъпва самият
           // ListTile — SafeArea и отстрани го изместваше втори път в
           // легнало положение (докладвано от потребителя, 30.09.2026).
