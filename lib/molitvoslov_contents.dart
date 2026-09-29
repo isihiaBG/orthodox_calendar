@@ -12,6 +12,7 @@ import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'molitvoslov_book.dart';
 import 'molitvoslov_db.dart';
+import 'molitvoslov_lang_chip.dart';
 import 'molitvoslov_reader.dart';
 import 'molitvoslov_settings.dart';
 
@@ -187,10 +188,20 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
             child: Row(children: [
               Expanded(
-                child: Text(s.titleBg,
-                    style: const TextStyle(
-                        color: AppColors.textPrimary, fontSize: 17)),
+                // Етикетът с езиците — горе вдясно, до ПЪРВИЯ ред на
+                // заглавието (многоредовото заглавие не го влачи надолу).
+                child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Expanded(
+                    child: Text(s.titleBg,
+                        style: const TextStyle(
+                            color: AppColors.textPrimary, fontSize: 17)),
+                  ),
+                  const SizedBox(width: 10),
+                  Transform.translate(
+                      offset: const Offset(0, -2), child: LangChip(s.langs)),
+                ]),
               ),
+              const SizedBox(width: 2),
               const Icon(Icons.chevron_right, color: AppColors.textMuted),
             ]),
           ),
@@ -232,9 +243,14 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
                   child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(b,
-                            style: const TextStyle(
-                                color: AppColors.textPrimary, fontSize: 17)),
+                        Row(children: [
+                          Expanded(
+                            child: Text(b,
+                                style: const TextStyle(
+                                    color: AppColors.textPrimary, fontSize: 17)),
+                          ),
+                          LangChip(_bookLangs(list, b)),
+                        ]),
                         if (last != null)
                           Padding(
                             padding: const EdgeInsets.only(top: 3),
@@ -254,5 +270,11 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
         );
       },
     );
+  }
+
+  /// Езиците на книгата — сборът от езиците на разделите ѝ.
+  static List<String> _bookLangs(List<MolSection> list, String book) {
+    final all = {for (final s in list) if (s.book == book) ...s.langs};
+    return [for (final l in const ['bg', 'csl', 'csr']) if (all.contains(l)) l];
   }
 }

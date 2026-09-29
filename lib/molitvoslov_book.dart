@@ -13,6 +13,7 @@ import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'molitvoslov_db.dart';
+import 'molitvoslov_lang_chip.dart';
 import 'molitvoslov_reader.dart';
 import 'molitvoslov_settings.dart';
 
@@ -227,9 +228,16 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
           padding: EdgeInsets.fromLTRB(s.grp == null ? 16 : 28, 13, 16, 13),
           child: Row(children: [
             Expanded(
-              child: Text(s.titleBg,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+              child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(
+                  child: Text(s.titleBg,
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+                ),
+                const SizedBox(width: 10),
+                Transform.translate(offset: const Offset(0, -2), child: LangChip(s.langs)),
+              ]),
             ),
+            const SizedBox(width: 2),
             const Icon(Icons.chevron_right, color: AppColors.textMuted),
           ]),
         ),

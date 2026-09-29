@@ -58,7 +58,8 @@ CREATE TABLE tabs (code TEXT PRIMARY KEY, ord INTEGER NOT NULL, title TEXT NOT N
 CREATE TABLE sections (id INTEGER PRIMARY KEY, tab TEXT NOT NULL, ord INTEGER NOT NULL,
     title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT, source_csr TEXT,
     book TEXT,   -- „Богослужебни": книгата (Часослов, Минеи…) — първото ниво
-    grp TEXT);   -- подгрупа в книгата (месецът на Минеята, гласът в Октоиха)
+    grp TEXT,    -- подгрупа в книгата (месецът на Минеята, гласът в Октоиха)
+    langs TEXT); -- наличните езици („bg,csl,csr") — за етикета в съдържанието
 CREATE TABLE units (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     title_bg TEXT, title_csl TEXT, source_bg TEXT,
     title_cs TEXT,   -- заглавието в ЦС ШРИФТ, където цс текстът е отделен от
@@ -164,7 +165,7 @@ def main():
     n_units = n_blocks = 0
     for ord_, s in enumerate(aligned, 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL)',
                    (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl'],
                     'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html',
                     None, None, None))
@@ -191,7 +192,7 @@ def main():
             extra += list(enumerate(json.load(open(path, encoding='utf-8')), 1))
     for ord_, s in extra:
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL)',
                    (sid, s['tab'], ord_, s['title_bg'], s['title_csl'],
                     s.get('csl_source'), s['csr_source'], s.get('book'), s.get('grp')))
         for u in s['units']:
@@ -212,6 +213,12 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
+    # Наличните езици по раздел — изведени от САМИТЕ блокове, за да не се
+    # разминат с текста (ред: бг, цс, цс гр.).
+    db.execute("""UPDATE sections SET langs = (
+        SELECT group_concat(lang) FROM (
+          SELECT DISTINCT b.lang FROM blocks b WHERE b.section_id = sections.id
+          ORDER BY CASE b.lang WHEN 'bg' THEN 1 WHEN 'csl' THEN 2 ELSE 3 END))""")
     db.commit()
     print('→', OUT)
     print('  раздели %d · молитви %d · блокове %d' % (len(aligned), n_units, n_blocks))

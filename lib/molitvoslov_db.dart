@@ -55,8 +55,11 @@ class MolSection {
   /// нея (месецът на Минеята, гласът в Октоиха). В другите табове — null.
   final String? book;
   final String? grp;
+
+  /// Наличните езици, в реда бг, цс, цс гр. — за етикета в съдържанието.
+  final List<String> langs;
   const MolSection(this.id, this.tab, this.titleBg, this.titleCsl,
-      [this.sourceCsl, this.sourceCsr, this.book, this.grp]);
+      [this.sourceCsl, this.sourceCsr, this.book, this.grp, this.langs = const []]);
 }
 
 /// Един абзац: указание (винено) или текст.
@@ -176,7 +179,8 @@ class MolitvoslovDb {
         MolSection(r['id'] as int, r['tab'] as String,
             r['title_bg'] as String, r['title_csl'] as String?,
             r['source_csl'] as String?, r['source_csr'] as String?,
-            r['book'] as String?, r['grp'] as String?),
+            r['book'] as String?, r['grp'] as String?,
+            ((r['langs'] as String?) ?? '').split(',').where((x) => x.isNotEmpty).toList()),
     ];
   }
 
