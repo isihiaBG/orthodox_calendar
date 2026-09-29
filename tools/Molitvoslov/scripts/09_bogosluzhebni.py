@@ -257,6 +257,36 @@ def fix_small_compline(out):
         sys.exit('⚠ Малкото повечерие: Пс. 101 намерен %d пъти (очаквано 1)' % n)
 
 
+# ⚠ ВЪТРЕШНИТЕ ПРЕПРАТКИ В ЧАСОСЛОВА („Вѣ́рꙋю во є҆ди́наго бг҃а: (стр. …)").
+# В извора номерът на страницата е бил в друг шрифт и се разчита като
+# безсмислени надредни знаци; истински връзки там няма. Вместо да се
+# правят активни (връщането от тях би било сложно), препратката се ЗАМЕНЯ с
+# пълния текст, намерен другаде в Часослова по началото си. Решение на
+# потребителя — дублирането струва няколко KB. Пет места, всичките в края
+# на Малкото повечерие; ненамерено начало СПИРА скрипта.
+def _fold(h):
+    import unicodedata
+    t = re.sub(r'<[^>]+>', '', h)
+    t = ''.join(c for c in unicodedata.normalize('NFD', t) if not unicodedata.combining(c))
+    return re.sub(r'[^\w]', '', t).lower()
+
+
+def expand_page_refs(out):
+    chas = [b for s in out if s['book'] == 'Часослов' for u in s['units'] for b in u['csl']]
+    n = 0
+    for b in chas:
+        if '(стр.' not in b['html']:
+            continue
+        inc = _fold(b['html'].split('<span class="rubric">(стр.')[0])
+        full = next((c for c in chas if c is not b and '(стр.' not in c['html']
+                     and _fold(c['html']).startswith(inc)), None)
+        if full is None:
+            sys.exit('⚠ Часослов: препратката „%s…" няма пълен текст' % inc[:30])
+        b['html'], b['kind'] = full['html'], full['kind']
+        n += 1
+    print('Часослов: %d препратки заменени с пълния текст' % n)
+
+
 def main():
     raw = []
     for fname, book, bname in BOOKS:
@@ -277,6 +307,7 @@ def main():
                     'grp': grp_of(book, label, fname), 'title_bg': tbg, 'title_csl': None,
                     'csr_source': None, 'csl_source': SRC, 'units': us})
     fix_small_compline(out)
+    expand_page_refs(out)
     (W / 'bogosluzhebni.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
                                           encoding='utf-8')
     n_bl = sum(len(u['csl']) for s in out for u in s['units'])
