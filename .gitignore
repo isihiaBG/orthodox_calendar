@@ -98,6 +98,7 @@ assets/calendar_covers/
 # папката, въвеждащият екран остава без изображения и няма откъде да се
 # сглобят наново.
 assets/bible_covers/
+assets/prayer_covers/
 
 # Конвейерът за българския текст на Библията (pravoslavieto.com).
 #

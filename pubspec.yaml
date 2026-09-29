@@ -104,6 +104,8 @@ flutter:
     # (bible_welcome_screen.dart). ⚠ Папката е в .gitignore, но ТУК е нужна:
     # git пази хранилището от двоични файлове, а пакетът има нужда от тях.
     - assets/bible_covers/
+    # Кориците на петте дяла на „Молитвослов" (molitvoslov_welcome_screen.dart).
+    - assets/prayer_covers/
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #

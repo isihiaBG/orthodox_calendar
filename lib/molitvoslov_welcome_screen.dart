@@ -26,16 +26,16 @@ class _Part {
   const _Part(this.cover, this.name, this.detail);
 }
 
-const String _kTempCover = 'assets/bible_covers/02_NewTestament.jpg';
+const String _kCovers = 'assets/prayer_covers';
 
 /// ⚠ Редът тук Е редът на табовете (индекс = таб) — за разлика от „Библия",
 /// тук няма канон, който да спори с подредбата.
 const List<_Part> _parts = [
-  _Part(_kTempCover, 'Молитви', 'утринни, вечерни, за причастие'),
-  _Part(_kTempCover, 'Канонник', 'канони и седмични служби'),
-  _Part(_kTempCover, 'Акатисти', 'към Господ, Богородица, св. Николай и др.'),
-  _Part(_kTempCover, 'Псалтир', 'бг по Септуагинта и цс, с молитвите след катизмите'),
-  _Part(_kTempCover, 'Богослужебни', 'предстои'),
+  _Part('$_kCovers/01_Molitvenik.jpg', 'Молитви', 'утринни, вечерни, за причастие'),
+  _Part('$_kCovers/02_Kanonnik.jpg', 'Канонник', 'канони и седмични служби'),
+  _Part('$_kCovers/03_Akatisti.jpg', 'Акатисти', 'към Господ, Богородица, св. Николай и др.'),
+  _Part('$_kCovers/04_Psaltir.jpg', 'Псалтир', 'бг по Септуагинта и цс, с молитвите след катизмите'),
+  _Part('$_kCovers/05_Bogosluzhebni.jpg', 'Богослужебни', 'Часослов, Октоих, Минеи, Триоди и др.'),
 ];
 
 class MolitvoslovWelcomeScreen extends StatefulWidget {
@@ -67,7 +67,9 @@ class _MolitvoslovWelcomeScreenState extends State<MolitvoslovWelcomeScreen>
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    precacheImage(const AssetImage(_kTempCover), context);
+    for (final p in _parts) {
+      precacheImage(AssetImage(p.cover), context);
+    }
   }
 
   /// ⚠ ПРЕПИСАНО от `_choose` в bible_welcome_screen.dart — всеки ред там има
@@ -121,7 +123,7 @@ class _MolitvoslovWelcomeScreenState extends State<MolitvoslovWelcomeScreen>
       onOpen: _choose,
       flowKey: _flow,
       drawer: const AppDrawer(),
-      aspect: 523 / 741,
+      aspect: 479 / 741,  // кориците са 479×741, като томовете
       infoBuilder: (_, i) => _info(i),
       landscapeLabel: (i) => _parts[i].name,
     );
