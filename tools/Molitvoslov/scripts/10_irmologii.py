@@ -1,99 +1,142 @@
 #!/usr/bin/env python3
-"""Ирмологий (част 1) → work/irmologii.json — последната от богослужебните книги.
+"""Ирмологий → work/irmologii.json — последната от богослужебните книги.
 
     python3 10_irmologii.py        # после 05_build_db.py
 
-⚠ Книгата е на ЦЪРКОВНОСЛАВЯНСКИ С ГРАЖДАНСКИ ШРИФТ (с ударения) — езикът е
-`csr`, НЕ `csl`. За разлика от останалите богослужебни книги тук НЯМА Ucs и
-текстът не минава през `ucs.decode`. Не се превежда (решение на
-потребителя); превеждат се само ЗАГЛАВИЯТА в съдържанието — по същия кеш
-като другите книги (`work/bogosl_titles_bg.json`).
+⚠ ИЗВОРЪТ Е HIP (orthlib.ru), НЕ .epub-ът. Книгата я има и като .epub от
+azbyka.ru, но там е с ГРАЖДАНСКИ шрифт, а всички останали богослужебни книги
+са с църковнославянски — затова се предпочита HIP (решение на потребителя).
+Преобразуването е в `hip.py`. Архивът `input/newBooks2/irmologij.rar` се
+разархивира в `work/irmologij_hip/` при всяко пускане.
 
-Устройството на извора (azbyka.ru, calibre):
-  <h2>…</h2>                          заглавие на главата
-  <p><span>Песнь 1</span></p>         нова ПЕСЕН → заглавие на молитва
-  <p><span>Святых Богоявлений:</span></p>  указание → червен ред
-  <p><span>На 8:</span> Тогда́ …</p>  указание в началото на текста
-  <p>…</p>                            текст
+⚠ ЧЕРВЕНОТО НЕ Е ОТБЕЛЯЗАНО В ИЗВОРА (няма `%<`). Указанията се познават по
+вид — с ограниченията на всяко гадаене:
+  • „Пѣ́снь а҃." (и „Гла́съ а҃." в богородичните/степенните) → нова молитва;
+  • „[Въ ржⷭ҇тво̀ хрⷭ҇то́во:]" в началото или вътре в реда → червен етикет;
+  • кратък ред, завършващ на „:" → червен ред;
+  • ред, започващ с указателна дума (Та́же, Посе́мъ, Вѣ́домо…) → червен;
+  • „Сті́хъ:", „Сла́ва:", „И҆ ны́нѣ:", „Пе́рвый ли́къ:"… в началото → етикет.
+Не се превежда (решение на потребителя); заглавията в съдържанието са на
+български, написани тук на ръка.
 """
 import html
-import importlib.util
 import json
 import re
+import subprocess
 import sys
 from pathlib import Path
 
+import hip
+
 ROOT = Path(__file__).resolve().parents[1]
 W = ROOT / 'work'
-SRC_FILE = ROOT / 'input' / 'newBooks2' / 'Ирмологий. Часть 1_ Богородичны всего лета.gen.epub'
-SRC = 'https://azbyka.ru/otechnik/Pravoslavnoe_Bogosluzhenie/irmologij-bogorodichny-vsego-leta/'
+RAR = ROOT / 'input' / 'newBooks2' / 'irmologij.rar'
+HIPDIR = W / 'irmologij_hip'
+SRC = 'http://orthlib.ru'
 BOOK = 'Ирмологий'
 FIRST_ID = 2001        # богослужебните книги са 1001…; тук — отделен обхват
 
-spec = importlib.util.spec_from_file_location('b09', Path(__file__).with_name('09_bogosluzhebni.py'))
-b09 = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(b09)
+TITLES = {
+    '01glas': 'Ирмоси на глас 1', '02glas': 'Ирмоси на глас 2', '03glas': 'Ирмоси на глас 3',
+    '04glas': 'Ирмоси на глас 4', '05glas': 'Ирмоси на глас 5', '06glas': 'Ирмоси на глас 6',
+    '07glas': 'Ирмоси на глас 7', '08glas': 'Ирмоси на глас 8',
+    '09predrojd': 'Ирмоси в предпразненството на Рождество Христово',
+    '10predkres': 'Ирмоси в предпразненството на Светите Богоявления',
+    '11liturgia': 'Последование на църковните песнопения на Божествената литургия',
+    '12prezhdeosv': 'Ако е Великата Четиридесетница',
+    '13bgrvoskr': 'Богородични възкресни на осемте гласа',
+    '14bgrvsednev': 'Богородични на осемте гласа, когато е Слава на светия в Минея',
+    '15stepen': 'Степенни на осемте гласа',
+    '16pesnvsedn': 'На утренята след шестопсалмието; Троични песни; всекидневни песни на Писанието',
+    '17pesnprazd': 'Празнични песни на Свещеното Писание',
+    '18pesnpost': 'Песни на Свещеното Писание през Светата Четиридесетница',
+    '19neporochned': 'Възкресни тропари след Непорочните в неделя, глас 5',
+    '20prokother': 'Възкресни прокимени',
+    '21neporochsub': 'Тропари след Непорочните в събота, глас 5',
+    '22paskha': 'Канон в Светата Неделя на Пасха и в цялата Светла седмица',
+    '23izbrpsalm': 'Избрани псалми',
+    '24pripev': 'Припеви на 9-ата песен на Господските и Богородичните празници',
+}
 
-RE_P = re.compile(r'<p\b[^>]*>(.*?)</p>', re.S)
-RE_LEAD = re.compile(r'^\s*<span[^>]*>(.*?)</span>\s*(.*)$', re.S)
+RE_SONG = re.compile(r'^(Пѣ́снь\s+\S+?)[.:](?:\s+(?:[Іі]҆рмо́съ):?\s*(.*))?$')
+RE_GLAS = re.compile(r'^Гла́съ\s+\S+?\.(?:\s+(.*))?$')
+STARTERS = ('Та́же', 'Посе́мъ', 'Вѣ́домо', 'Подоба́етъ', 'Пое́тсѧ', 'И҆ а҆́бїе', 'И҆ про́чее',
+            'А҆́ще же', 'Въ недѣ́лю ѹ҆́бѡ', 'По возгла́сѣ', 'По пе́рвомъ', 'И҆ по чи́нꙋ', 'Кі́йждо',
+            'Нача́ло', 'И҆ начина́етъ', 'Глаго́лемъ же', 'Пое́мъ', 'На є҆ди́номъ',
+            'Въ недѣ́лю же')
+LABEL = re.compile(r'^((?:Сті́хъ(?:\s+\S+)?|Сла́ва|И҆ ны́нѣ|Сла́ва,? и҆ ны́нѣ|Прокі́менъ[^:]{0,15}|'
+                   r'Тропа́рь|Бг҃оро́диченъ|Пе́рвый ли́къ[^:]{0,15}|Вторы́й ли́къ[^:]{0,15}|'
+                   r'Ли́къ|І҆рмо́съ|И҆ і҆рмо́съ|Начина́й|На \S{1,6}):)\s+(\S.*)$')
+TITLE_PAGE = ('І҆РМОЛО́ГЇЙ', 'съ бг҃омъ ст҃ы́мъ', 'ѡ҆бдержа́й всѧ̑')
 
 
-def plain(h):
-    return html.unescape(re.sub(r'<[^>]+>', '', h)).replace('\xa0', ' ').strip()
+def red(t):
+    return '<span class="rubric">%s</span>' % t
 
 
-def units_of(body):
+def brackets(h):
+    """„[…]" — червен етикет, без скобите."""
+    return re.sub(r'\[([^\[\]]+)\]', lambda m: red(m.group(1)), h)
+
+
+def units_of(paras):
     units = [{'title': None, 'blocks': []}]
-    for inner in RE_P.findall(body):
-        m = RE_LEAD.match(inner)
-        if m and not plain(m.group(2)):
-            lab = re.sub(r'\s+', ' ', plain(m.group(1)))
-            if not lab:
-                continue
-            if re.fullmatch(r'Пе́?снь \d+', lab):
-                units.append({'title': lab, 'blocks': []})
-            else:
-                units[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(lab, quote=False)})
+    for p in paras:
+        plain = re.sub(r'<[^>]+>', '', html.unescape(p))
+        if 'Библиотека' in plain or plain.startswith(TITLE_PAGE):
             continue
+        m = RE_SONG.match(plain)
+        if m and len(plain) < 200:
+            units.append({'title': m.group(1), 'blocks': []})
+            if m.group(2):
+                units[-1]['blocks'].append({'kind': 'text', 'html': brackets(
+                    '%s %s' % (red('І҆рмо́съ:'), html.escape(m.group(2), quote=False)))})
+            continue
+        m = RE_GLAS.match(plain)
+        if m and len(plain) < 60:
+            units.append({'title': plain.rstrip('.:'), 'blocks': []})
+            continue
+        whole = re.fullmatch(r'\[([^\[\]]+)\]', plain)
+        if whole or (len(plain) < 150 and plain.endswith(':') and not plain.startswith('['))\
+                or (plain.startswith(STARTERS) and len(plain) < 400):
+            units[-1]['blocks'].append({'kind': 'rubric', 'html': html.escape(
+                whole.group(1) if whole else plain, quote=False)})
+            continue
+        m = LABEL.match(plain)
         if m:
-            lab = re.sub(r'\s+', ' ', plain(m.group(1)))
-            txt = re.sub(r'\s+', ' ', plain(m.group(2)))
-            h = '<span class="rubric">%s</span> %s' % (html.escape(lab, quote=False),
-                                                      html.escape(txt, quote=False))
+            h = '%s %s' % (red(html.escape(m.group(1), quote=False)),
+                           html.escape(m.group(2), quote=False))
         else:
-            txt = re.sub(r'\s+', ' ', plain(inner))
-            if not txt:
-                continue
-            h = html.escape(txt, quote=False)
-        units[-1]['blocks'].append({'kind': 'text', 'html': h})
+            h = html.escape(plain, quote=False)
+        units[-1]['blocks'].append({'kind': 'text', 'html': brackets(h)})
     return [u for u in units if u['blocks']]
 
 
 def main():
-    raw = []
-    for label, body in b09.chapters(SRC_FILE):
-        us = units_of(body)
-        # Заглавната страница и обвивките („Ирмологий часть 1") нямат текст.
-        if not any(b['kind'] == 'text' for u in us for b in u['blocks']):
-            continue
-        raw.append((label, us))
-    titles = b09.translate_titles([r[0] for r in raw])
+    HIPDIR.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['unrar', 'x', '-o+', '-inul', str(RAR), str(HIPDIR) + '/'], check=True)
     out = []
-    for i, (label, us) in enumerate(raw):
-        tbg = titles.get(label, label).strip().rstrip('.')
+    for i, key in enumerate(TITLES):
+        f = HIPDIR / (key + '.hip')
+        if not f.exists():
+            sys.exit('⚠ липсва %s' % f.name)
+        unknown = set()
+        paras = hip.convert(f.read_bytes().decode('cp1251'), unknown)
+        if unknown:
+            print('  ⚠ %s: непознати означения %s' % (f.name, sorted(unknown)))
+        us = units_of(paras)
         out.append({'sec': FIRST_ID + i, 'tab': 'bogosluzhebni', 'book': BOOK, 'grp': None,
-                    'title_bg': tbg, 'title_csl': None, 'csr_source': SRC, 'csl_source': None,
+                    'title_bg': TITLES[key], 'title_csl': None, 'csr_source': None,
+                    'csl_source': SRC,
                     'units': [{'n': k, 'title_csl': u['title'], 'title_bg': None, 'title_cs': None,
-                               'csr': u['blocks'], 'csl': [], 'bg': [], 'sources': []}
+                               'csl': u['blocks'], 'csr': [], 'bg': [], 'sources': []}
                               for k, u in enumerate(us)]})
-    if not out:
-        sys.exit('⚠ нищо не е разчетено')
     (W / 'irmologii.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
                                       encoding='utf-8')
-    print('→ work/irmologii.json: %d глави, %d блока' % (
-        len(out), sum(len(u['csr']) for s in out for u in s['units'])))
-    for s in out:
-        print('  ', s['title_bg'])
+    n = sum(len(u['csl']) for s in out for u in s['units'])
+    r = sum(1 for s in out for u in s['units'] for b in u['csl'] if b['kind'] == 'rubric')
+    print('→ work/irmologii.json: %d глави, %d молитви, %d блока (%d червени реда)' % (
+        len(out), sum(len(s['units']) for s in out), n, r))
 
 
 if __name__ == '__main__':
