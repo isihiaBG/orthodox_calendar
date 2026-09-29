@@ -452,7 +452,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
               // 4 пункта — при 2 разликата с тропарите не личеше (потребителят).
               ? base.copyWith(fontSize: base.fontSize! - 4)
           : b.isRefrain
-              ? base.copyWith(fontSize: base.fontSize! - 2)
+              // Текстът на припева е посивен, за да се отделя от тропарите;
+              // етикетът „Припев:" е червено парче и остава винен.
+              ? base.copyWith(color: p.dim, fontSize: base.fontSize! - 2)
               : b.isHint
                   ? base.copyWith(
                       color: p.dim,

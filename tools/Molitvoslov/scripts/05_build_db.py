@@ -22,6 +22,7 @@ import re
 import json
 import os
 import sqlite3
+import unicodedata
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APP = os.path.dirname(os.path.dirname(ROOT))
@@ -213,6 +214,21 @@ def main():
                 db.execute('INSERT INTO blocks VALUES (?,?,?,?,?,?)',
                            (sid, u['n'], 'bg', k, kind, h))
                 n_blocks += 1
+    # Припевите, които изворът не е отбелязал като такива (в Минеите
+    # „Припѣ́въ:" стои като гол текст, а на места етикетът е червен, но
+    # блокът е минал за обикновен). Четецът ги рисува посивени, тъй че иначе
+    # тъкмо те се сливат с тропарите. Признакът е НАЧАЛОТО на блока.
+    fold = lambda s: ''.join(ch for ch in unicodedata.normalize('NFD', s)
+                             if not unicodedata.combining(ch))
+    lead = re.compile(r'^\s*(?:<span class="rubric">)?\s*(Прип[^\s:<]*:)\s*(?:</span>)?\s*')
+    for rowid, h in db.execute(
+            "SELECT rowid, html FROM blocks WHERE kind = 'text'").fetchall():
+        m = lead.match(h)
+        if not m or not re.fullmatch(r'Прип[еѣ]въ?:', fold(m.group(1))):
+            continue
+        db.execute("UPDATE blocks SET kind = 'refrain', html = ? WHERE rowid = ?",
+                   ('<span class="rubric">%s</span> %s' % (m.group(1), h[m.end():]),
+                    rowid))
     # Наличните езици по раздел — изведени от САМИТЕ блокове, за да не се
     # разминат с текста (ред: бг, цс, цс гр.).
     db.execute("""UPDATE sections SET langs = (
