@@ -186,11 +186,16 @@ def main():
                 n_blocks += 1
     # Акатистите (06_akatisti.py) — цс с граждански шрифт + бг.
     # Акатистите и Канонникът (07_kanonnik.py) — един и същ вид.
+    # ⚠ Редът е ОБЩ за всички файлове: Ирмологият (10_irmologii.py) е в таба
+    # „Богослужебни" СЛЕД книгите от bogosluzhebni.json — номериран отначало,
+    # той би се вмъкнал между тях.
     extra = []
-    for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json'):
+    for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json',
+                 'irmologii.json'):
         path = os.path.join(W, name)
         if os.path.exists(path):
-            extra += list(enumerate(json.load(open(path, encoding='utf-8')), 1))
+            extra += [(len(extra) + i, s) for i, s in
+                      enumerate(json.load(open(path, encoding='utf-8')), 1)]
     for ord_, s in extra:
         sid = s['sec']
         db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL)',
