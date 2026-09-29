@@ -1429,8 +1429,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 child: FloatingActionButton.small(
                   heroTag: null,
                   tooltip: 'Богослужебни книги',
-                  backgroundColor: AppColors.toolbar.withValues(alpha: 0.92),
-                  foregroundColor: Colors.white,
+                  // ⚠ Цветовете на изскачащите прозорчета (`palette.sheet`,
+                  // както подканата за връщане при отметките): сиво и в двете
+                  // теми. Закованото тъмно се сливаше с тъмната страница.
+                  backgroundColor: p.sheet,
+                  foregroundColor: p.ink,
                   onPressed: () {
                     // ⚠ Мястото се взима СЕГА — скролът може още да не е
                     // спирал, а раздела ще го смени друг.
