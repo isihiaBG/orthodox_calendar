@@ -479,7 +479,12 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
           if (_editing)
             IconButton(
               tooltip: 'Отмени',
-              icon: const Icon(Icons.undo),
+              // ⚠ Цветът е ИЗРИЧЕН: в лентата AppBar налага своя преден цвят
+              // и угасеното копче изглеждаше като живо. Сиво е, докато няма
+              // стъпка за връщане — при влизане и след като „отмени" е
+              // върнало всичко до началото.
+              icon: Icon(Icons.undo,
+                  color: _history.isEmpty ? AppColors.textMuted : null),
               onPressed: _history.isEmpty ? null : _undo,
             ),
           if (has || _editing)
@@ -488,7 +493,8 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
               child: _editing
                   ? IconButton(
                       tooltip: 'Изтрий всички',
-                      icon: const Icon(Icons.delete_sweep_outlined),
+                      icon: Icon(Icons.delete_sweep_outlined,
+                          color: _editStart.isEmpty ? AppColors.textMuted : null),
                       onPressed: _editStart.isEmpty ? null : _deleteAllEditing,
                     )
                   : IconButton(
