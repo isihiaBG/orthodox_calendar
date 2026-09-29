@@ -42,7 +42,17 @@ Future<void> glideToRow(ScrollController ctrl, GlobalKey key, double estimate,
   }
   final max = ctrl.position.maxScrollExtent;
   final want = (estimate - ctrl.position.viewportDimension * 0.3).clamp(0.0, max);
-  if (attempt > 0 && (ctrl.offset - want).abs() < 1) return;
+  // ⚠ Стигнато е до оценката, а редът още не е построен: оценката е по
+  // НОМИНАЛНИ височини, а дългите заглавия (Минеите) се пренасят на два-три
+  // реда — тоест реалното място е ПО-НАДОЛУ. Дотук тук стоеше голо `return`
+  // и в Минеята списъкът спираше далеч преди днешната дата. Сега се върви
+  // по още почти един екран надолу, докато редът се построи.
+  if (attempt > 0 && (ctrl.offset - want).abs() < 1) {
+    if (want >= max) return;
+    await glideToRow(ctrl, key,
+        estimate + ctrl.position.viewportDimension * 0.8, alive, attempt + 1);
+    return;
+  }
   final ms = (260 + (ctrl.offset - want).abs() * 0.38).clamp(260, 900).round();
   await ctrl.animateTo(want,
       duration: Duration(milliseconds: ms), curve: Curves.easeInOutCubic);
@@ -56,6 +66,15 @@ const String kPsalterBook = 'Псалтир';
 /// Книгата, към която принадлежи разделът (null — не е богослужебна).
 String? bookKeyOf(MolSection s) =>
     s.book ?? (s.tab == 'psaltir' ? kPsalterBook : null);
+
+/// Чисти остарелите записи в [MolitvoslovBookLast] срещу ТЕКУЩАТА база.
+void pruneBookLast(List<MolSection> all) {
+  final byId = {for (final s in all) s.id: s};
+  MolitvoslovBookLast.prune((id) {
+    final s = byId[id];
+    return s == null ? null : bookKeyOf(s);
+  });
+}
 
 /// Книгите в реда на таба „Богослужебни".
 List<String> bookOrder(List<MolSection> all) {
@@ -138,7 +157,11 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final last = MolitvoslovBookLast.value[widget.book];
-      if (last == null) return;
+      // ⚠ Запомненото id може да НЕ е от тази книга: базата се пресглобява и
+      // номерата на разделите се разместват, а записът на телефона остава
+      // стар. Тогава цикълът долу не спира и оценката излиза колкото целия
+      // списък — екранът тръгваше надолу без нищо маркирано.
+      if (last == null || !_mine.any((s) => s.id == last)) return;
       // Оценка: заглавията на групите и видимите редове преди последния.
       var y = 8.0;
       String? g;
@@ -254,6 +277,7 @@ Future<void> showBookSwitcher(BuildContext context, MolSection current) async {
   final nav = Navigator.of(context);
   await Future.wait([MolitvoslovBookLast.loadOnce(), MolitvoslovSwitcherBooks.loadOnce()]);
   final all = await MolitvoslovDb.sections();
+  pruneBookLast(all);
   if (!context.mounted) return;
   await showModalBottomSheet<void>(
     context: context,

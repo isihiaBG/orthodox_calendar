@@ -43,6 +43,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
       await MolitvoslovBookLast.loadOnce();
       final tabs = await MolitvoslovDb.tabs();
       final sections = await MolitvoslovDb.sections();
+      pruneBookLast(sections);
       if (!mounted) return;
       // ⚠ Контролерът се прави ВЕДНЪЖ, след като броят табове е известен —
       // слушател, окачен в build, би се добавял при всяко построяване.

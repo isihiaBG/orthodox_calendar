@@ -107,6 +107,15 @@ class MolitvoslovBookLast {
     }
   }
 
+  /// Маха записите, чието id вече не е от своята книга. Базата се
+  /// пресглобява и номерата на разделите се разместват, а записът на
+  /// телефона остава — тогава „последно четеното" в една книга сочи чужд
+  /// раздел (и съдържанието тръгваше да плъзга към несъществуващ ред).
+  /// [bookOf] връща книгата на раздела с това id или null, ако го няма.
+  static void prune(String? Function(int id) bookOf) {
+    value.removeWhere((book, id) => bookOf(id) != book);
+  }
+
   static Future<void> set(String book, int id) async {
     if (value[book] == id) return;
     value[book] = id;
