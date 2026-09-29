@@ -16,7 +16,15 @@ import 'molitvoslov_db.dart';
 import 'molitvoslov_reader.dart';
 import 'molitvoslov_settings.dart';
 
-/// Книгите в реда на таба (и на плаващото копче).
+/// Псалтирът е свой таб, но за плаващото копче е КНИГА като останалите —
+/// с него се кара Часословът (катизмите).
+const String kPsalterBook = 'Псалтир';
+
+/// Книгата, към която принадлежи разделът (null — не е богослужебна).
+String? bookKeyOf(MolSection s) =>
+    s.book ?? (s.tab == 'psaltir' ? kPsalterBook : null);
+
+/// Книгите в реда на таба „Богослужебни".
 List<String> bookOrder(List<MolSection> all) {
   final out = <String>[];
   for (final s in all) {
@@ -26,11 +34,21 @@ List<String> bookOrder(List<MolSection> all) {
   return out;
 }
 
+/// Всички книги, годни за копчето: Псалтирът — веднага след Часослова.
+List<String> switcherCandidates(List<MolSection> all) {
+  final out = bookOrder(all);
+  if (all.any((s) => s.tab == 'psaltir')) {
+    out.insert(out.isEmpty ? 0 : 1, kPsalterBook);
+  }
+  return out;
+}
+
 /// Отваря раздел от богослужебна книга и го запомня — общо място за
 /// съдържанието на книгата и за плаващото копче.
 void openBookSection(NavigatorState nav, MolSection s, {bool replace = false}) {
   MolitvoslovLastSection.set(s.id);
-  if (s.book != null) MolitvoslovBookLast.set(s.book!, s.id);
+  final b = bookKeyOf(s);
+  if (b != null) MolitvoslovBookLast.set(b, s.id);
   final route = MaterialPageRoute(builder: (_) => MolitvoslovReader(section: s));
   if (replace) {
     nav.pushReplacement(route);
@@ -53,7 +71,7 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
   final GlobalKey _lastKey = GlobalKey();
 
   List<MolSection> get _mine =>
-      widget.sections.where((s) => s.book == widget.book).toList();
+      widget.sections.where((s) => bookKeyOf(s) == widget.book).toList();
 
   @override
   void initState() {
@@ -165,78 +183,294 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
   }
 }
 
-/// Плаващото копче в четеца на богослужебна книга: списък с книгите, всяка
-/// с последно четения си раздел. Тап върху реда отваря този раздел на мястото
-/// на текущия; копчето вдясно — съдържанието на книгата.
+/// Плаващото копче в четеца: списък с книгите, всяка с последно четения си
+/// раздел. Тап върху реда отваря този раздел на мястото на текущия; копчето
+/// вдясно — съдържанието на книгата. Моливчето горе — режим на редактиране
+/// (разместване, махане, добавяне), запомня се в [MolitvoslovSwitcherBooks].
 Future<void> showBookSwitcher(BuildContext context, MolSection current) async {
   final nav = Navigator.of(context);
-  await MolitvoslovBookLast.loadOnce();
+  await Future.wait([MolitvoslovBookLast.loadOnce(), MolitvoslovSwitcherBooks.loadOnce()]);
   final all = await MolitvoslovDb.sections();
   if (!context.mounted) return;
-  final byId = {for (final s in all) s.id: s};
   await showModalBottomSheet<void>(
     context: context,
+    isScrollControlled: true,
     backgroundColor: AppColors.backgroundCard,
-    showDragHandle: true,
-    builder: (ctx) => SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(20, 0, 20, 8),
-            child: Text('Богослужебни книги',
-                style: TextStyle(color: AppColors.sectionTitle, fontSize: 15,
-                    fontWeight: FontWeight.w700)),
-          ),
-          for (final b in bookOrder(all))
-            _switcherRow(ctx, nav, b, byId[MolitvoslovBookLast.value[b]], all,
-                current.book == b),
-        ],
-      ),
-    ),
+    shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+    builder: (_) => _BookSwitcher(nav: nav, all: all, current: bookKeyOf(current)),
   );
 }
 
-Widget _switcherRow(BuildContext ctx, NavigatorState nav, String book,
-    MolSection? last, List<MolSection> all, bool isCurrent) {
-  void contents() {
-    Navigator.of(ctx).pop();
-    nav.push(MaterialPageRoute(
-        builder: (_) => MolitvoslovBook(book: book, sections: all)));
+class _BookSwitcher extends StatefulWidget {
+  final NavigatorState nav;
+  final List<MolSection> all;
+  final String? current;
+  const _BookSwitcher({required this.nav, required this.all, required this.current});
+
+  @override
+  State<_BookSwitcher> createState() => _BookSwitcherState();
+}
+
+class _BookSwitcherState extends State<_BookSwitcher> {
+  late final List<String> _candidates = switcherCandidates(widget.all);
+  late final List<String> _books = [
+    for (final b in MolitvoslovSwitcherBooks.value ?? _candidates)
+      if (_candidates.contains(b)) b,
+  ];
+  bool _editing = false;
+
+  late final Map<int, MolSection> _byId = {for (final s in widget.all) s.id: s};
+
+  List<String> get _missing => [for (final b in _candidates) if (!_books.contains(b)) b];
+
+  void _save() => MolitvoslovSwitcherBooks.set(_books);
+
+  void _contents(String book) {
+    Navigator.of(context).pop();
+    widget.nav.push(MaterialPageRoute(
+        builder: (_) => MolitvoslovBook(book: book, sections: widget.all)));
   }
 
-  return Material(
-    color: isCurrent ? AppColors.rowSelected : Colors.transparent,
-    child: InkWell(
-      onTap: () {
-        if (last == null) return contents();
-        Navigator.of(ctx).pop();
-        openBookSection(nav, last, replace: true);
-      },
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 10, 8, 10),
-        child: Row(children: [
-          Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(book,
-                  style: const TextStyle(color: AppColors.textPrimary, fontSize: 17)),
-              if (last != null)
-                Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(last.titleBg,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-                ),
-            ]),
+  void _open(String book) {
+    final last = _byId[MolitvoslovBookLast.value[book]];
+    if (last == null) return _contents(book);
+    Navigator.of(context).pop();
+    openBookSection(widget.nav, last, replace: true);
+  }
+
+  Future<void> _add() async {
+    final miss = _missing;
+    if (miss.isEmpty) return;
+    final pick = await showModalBottomSheet<String>(
+      context: context,
+      backgroundColor: AppColors.backgroundCard,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(18))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const _SheetHandle(),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(24, 4, 24, 10),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text('ДОБАВИ КНИГА', style: _kHeadStyle),
+            ),
           ),
-          IconButton(
-            tooltip: 'Съдържание',
-            icon: const Icon(Icons.list, color: AppColors.textSecondary),
-            onPressed: contents,
-          ),
+          for (final b in miss)
+            ListTile(
+              contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+              leading: const Icon(Icons.add_circle_outline, color: AppColors.sectionTitle),
+              title: Text(b, style: const TextStyle(color: AppColors.textPrimary, fontSize: 17)),
+              onTap: () => Navigator.of(ctx).pop(b),
+            ),
+          const SizedBox(height: 8),
         ]),
       ),
-    ),
-  );
+    );
+    if (pick == null || !mounted) return;
+    setState(() => _books.add(pick));
+    _save();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final maxH = MediaQuery.of(context).size.height * 0.8;
+    return SafeArea(
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: maxH),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const _SheetHandle(),
+          AnimatedSwitcher(
+            duration: const Duration(milliseconds: 180),
+            child: _editing ? _editHeader() : _viewHeader(),
+          ),
+          const Divider(height: 1, color: AppColors.sectionDivider),
+          Flexible(child: _editing ? _editList() : _viewList()),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+  }
+
+  // ─── горната лента ───
+
+  Widget _viewHeader() => SizedBox(
+        key: const ValueKey('view'),
+        height: 52,
+        child: Row(children: [
+          const SizedBox(width: 24),
+          const Expanded(child: Text('БОГОСЛУЖЕБНИ КНИГИ', style: _kHeadStyle)),
+          IconButton(
+            tooltip: 'Подреди списъка',
+            icon: const Icon(Icons.edit_outlined, color: AppColors.textSecondary, size: 22),
+            onPressed: () => setState(() => _editing = true),
+          ),
+          const SizedBox(width: 8),
+        ]),
+      );
+
+  Widget _editHeader() {
+    final canAdd = _missing.isNotEmpty;
+    return SizedBox(
+      key: const ValueKey('edit'),
+      height: 52,
+      child: Row(children: [
+        const SizedBox(width: 8),
+        IconButton(
+          tooltip: 'Готово',
+          icon: const Icon(Icons.close, color: AppColors.textPrimary),
+          onPressed: () => setState(() => _editing = false),
+        ),
+        const Expanded(
+          child: Text('Подредба на книгите',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: AppColors.textPrimary, fontSize: 16,
+                  fontWeight: FontWeight.w600)),
+        ),
+        IconButton(
+          tooltip: 'Добави книга',
+          icon: Icon(Icons.add,
+              color: canAdd ? AppColors.sectionTitle : AppColors.textMuted),
+          onPressed: canAdd ? _add : null,
+        ),
+        const SizedBox(width: 8),
+      ]),
+    );
+  }
+
+  // ─── списъците ───
+
+  Widget _viewList() {
+    if (_books.isEmpty) return _empty();
+    return ListView(
+      shrinkWrap: true,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      children: [for (final b in _books) _viewRow(b)],
+    );
+  }
+
+  Widget _viewRow(String book) {
+    final last = _byId[MolitvoslovBookLast.value[book]];
+    final isCurrent = book == widget.current;
+    return Material(
+      color: isCurrent ? AppColors.rowSelected : Colors.transparent,
+      child: InkWell(
+        onTap: () => _open(book),
+        child: Container(
+          // Текущата книга — тънка синя черта вляво (като маркер в книга).
+          decoration: BoxDecoration(
+            border: Border(
+                left: BorderSide(
+                    color: isCurrent ? AppColors.sectionTitle : Colors.transparent,
+                    width: 3)),
+          ),
+          padding: const EdgeInsets.fromLTRB(21, 10, 8, 10),
+          child: Row(children: [
+            Expanded(
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(book,
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 17)),
+                const SizedBox(height: 2),
+                Text(last?.titleBg ?? 'още не е отваряна',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: last == null ? AppColors.textMuted : AppColors.textSecondary,
+                        fontSize: 13,
+                        fontStyle: last == null ? FontStyle.italic : FontStyle.normal)),
+              ]),
+            ),
+            IconButton(
+              tooltip: 'Съдържание',
+              icon: const Icon(Icons.format_list_bulleted, color: AppColors.textSecondary),
+              onPressed: () => _contents(book),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _editList() {
+    if (_books.isEmpty) return _empty();
+    return ReorderableListView(
+      shrinkWrap: true,
+      buildDefaultDragHandles: false,
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      // Влаченият ред се повдига като карта над останалите.
+      proxyDecorator: (child, _, anim) => AnimatedBuilder(
+        animation: anim,
+        builder: (_, c) => Material(
+          elevation: 6 * anim.value,
+          color: AppColors.backgroundCard,
+          borderRadius: BorderRadius.circular(10),
+          child: c,
+        ),
+        child: child,
+      ),
+      // onReorderItem вече е поправил индекса за премахнатия ред.
+      onReorderItem: (a, b) {
+        setState(() => _books.insert(b, _books.removeAt(a)));
+        _save();
+      },
+      children: [
+        for (var i = 0; i < _books.length; i++)
+          Container(
+            key: ValueKey(_books[i]),
+            height: 56,
+            decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: AppColors.sectionDivider, width: 0.5))),
+            child: Row(children: [
+              ReorderableDragStartListener(
+                index: i,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                  child: Icon(Icons.drag_indicator, color: AppColors.textMuted),
+                ),
+              ),
+              Expanded(
+                child: Text(_books[i],
+                    style: const TextStyle(color: AppColors.textPrimary, fontSize: 17)),
+              ),
+              IconButton(
+                tooltip: 'Махни от списъка',
+                icon: const Icon(Icons.close, color: AppColors.textSecondary, size: 20),
+                onPressed: () {
+                  setState(() => _books.removeAt(i));
+                  _save();
+                },
+              ),
+              const SizedBox(width: 8),
+            ]),
+          ),
+      ],
+    );
+  }
+
+  Widget _empty() => const Padding(
+        padding: EdgeInsets.fromLTRB(24, 28, 24, 28),
+        child: Text('Списъкът е празен — добави книги с ＋ в режима на подредба.',
+            textAlign: TextAlign.center,
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+      );
+}
+
+const TextStyle _kHeadStyle = TextStyle(
+    color: AppColors.sectionTitle, fontSize: 13, fontWeight: FontWeight.w700,
+    letterSpacing: 1.0);
+
+class _SheetHandle extends StatelessWidget {
+  const _SheetHandle();
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.only(top: 10, bottom: 6),
+        child: Container(
+          width: 36,
+          height: 4,
+          decoration: BoxDecoration(
+              color: AppColors.textMuted, borderRadius: BorderRadius.circular(2)),
+        ),
+      );
 }

@@ -137,7 +137,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   void initState() {
     super.initState();
     // Запомня се и оттук (линк, любим цитат), не само от съдържанието.
-    final b = widget.section.book;
+    final b = bookKeyOf(widget.section);
     if (b != null) {
       MolitvoslovBookLast.loadOnce().then((_) => MolitvoslovBookLast.set(b, widget.section.id));
     }
@@ -150,6 +150,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         ReaderTheme.loadOnce(),
         MolitvoslovFontSize.loadOnce(),
         MolitvoslovLanguages.loadOnce(),
+        MolitvoslovPlaces.loadOnce(),
       ]);
       final langs = await MolitvoslovDb.languages();
       final units = await MolitvoslovDb.units(widget.section.id);
@@ -163,7 +164,16 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       // Цитатът се търси СЛЕД първото оформление — тогава и ключовете, и
       // езиците по страни са налице.
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _goToQuote();
+        if (!mounted) return;
+        // В богослужебна книга човекът се връща ТОЧНО там, където е спрял
+        // (освен ако не идва по цитат — тогава печели цитатът).
+        final place = MolitvoslovPlaces.value[widget.section.id];
+        if (widget.openAtQuote == null && bookKeyOf(widget.section) != null &&
+            place != null && place.$1 < units.length) {
+          _lastAnchor = place;
+          _restoreSettled(place);
+        }
+        _goToQuote();
       });
     } catch (e) {
       // ⚠ Грешката се ПОКАЗВА — не бива да изглежда като „още се зарежда"
@@ -611,6 +621,14 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       });
     }
     Future.delayed(const Duration(milliseconds: 1200), () => _restoring = false);
+  }
+
+  /// Мястото в богослужебна книга се пази — виж [MolitvoslovPlaces].
+  void _savePlace() {
+    final a = _lastAnchor;
+    if (bookKeyOf(widget.section) != null && a != null) {
+      MolitvoslovPlaces.set(widget.section.id, a);
+    }
   }
 
   (int, double)? _topAnchor() {
@@ -1280,7 +1298,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // стрелките, а обхождането само мести скрола.
         return _selectionArea(p, NotificationListener<ScrollEndNotification>(
           onNotification: (_) {
-            if (!_restoring) _lastAnchor = _topAnchor() ?? _lastAnchor;
+            if (!_restoring) {
+              _lastAnchor = _topAnchor() ?? _lastAnchor;
+              _savePlace();
+            }
             return false;
           },
           // ⚠ Показалецът е като в другите четци: хваща се с пръст и се влачи,
@@ -1387,7 +1408,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         // ⚠ Плаващото копче — само в богослужебните книги: списък с книгите
         // за скок между тях, докато се кара службата (указание на
         // потребителя). Отместено от десния ръб, за да не се пипа скролбарът.
-        floatingActionButton: widget.section.book == null
+        floatingActionButton: bookKeyOf(widget.section) == null
             ? null
             : Padding(
                 padding: const EdgeInsets.only(right: 14, bottom: 8),
@@ -1396,7 +1417,13 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                   tooltip: 'Богослужебни книги',
                   backgroundColor: AppColors.toolbar.withValues(alpha: 0.92),
                   foregroundColor: Colors.white,
-                  onPressed: () => showBookSwitcher(context, widget.section),
+                  onPressed: () {
+                    // ⚠ Мястото се взима СЕГА — скролът може още да не е
+                    // спирал, а раздела ще го смени друг.
+                    if (!_restoring) _lastAnchor = _topAnchor() ?? _lastAnchor;
+                    _savePlace();
+                    showBookSwitcher(context, widget.section);
+                  },
                   child: const Icon(Icons.auto_stories),
                 ),
               ),

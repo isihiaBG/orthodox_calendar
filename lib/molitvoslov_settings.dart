@@ -116,6 +116,63 @@ class MolitvoslovBookLast {
   }
 }
 
+/// Кои книги и в какъв ред стоят в плаващото копче — нагласява се от
+/// човека (режим на редактиране). null = всички, в подразбиращия се ред.
+class MolitvoslovSwitcherBooks {
+  MolitvoslovSwitcherBooks._();
+
+  static const String _key = 'molitvoslov_switcher_books';
+  static List<String>? value;
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    final p = await SharedPreferences.getInstance();
+    value = p.getStringList(_key);
+  }
+
+  static Future<void> set(List<String> books) async {
+    value = List.of(books);
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_key, books);
+  }
+}
+
+/// „Богослужебни": ТОЧНОТО място във всеки раздел — (молитва, дял от
+/// височината ѝ). Човек, който кара службата, скача за всяка стихира между
+/// Часослова, Октоиха и Минеята; приблизително място прави това неизползваемо
+/// (указание на потребителя). Дялът, а не пикселът — пикселът се разминава при
+/// друг шрифт или завъртане.
+class MolitvoslovPlaces {
+  MolitvoslovPlaces._();
+
+  static const String _key = 'molitvoslov_places';
+  static final Map<int, (int, double)> value = {};
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    final p = await SharedPreferences.getInstance();
+    for (final e in p.getStringList(_key) ?? const <String>[]) {
+      final f = e.split('|');
+      if (f.length != 3) continue;
+      final id = int.tryParse(f[0]), u = int.tryParse(f[1]), d = double.tryParse(f[2]);
+      if (id != null && u != null && d != null) value[id] = (u, d);
+    }
+  }
+
+  static Future<void> set(int section, (int, double) place) async {
+    value[section] = place;
+    final p = await SharedPreferences.getInstance();
+    await p.setStringList(_key, [
+      for (final e in value.entries)
+        '${e.key}|${e.value.$1}|${e.value.$2.toStringAsFixed(5)}'
+    ]);
+  }
+}
+
 /// Размерът на шрифта в четеца на молитвослова — свой, както Библията има
 /// свой. Механизмът е общият [PersistedFontSize].
 class MolitvoslovFontSize {
