@@ -180,12 +180,7 @@ class AppDrawer extends StatelessWidget {
               ],
             ),
           ),
-          const Padding(
-            padding: EdgeInsets.only(left: 16, top: 8, bottom: 4),
-            child: Text('ОСНОВНИ',
-                style: TextStyle(
-                    color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
-          ),
+          _groupTitle('ОСНОВНИ', top: 8),
           _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
           _item(Icons.auto_stories, 'Молитвослов', () {
             Navigator.of(context).pop();
@@ -213,12 +208,7 @@ class AppDrawer extends StatelessWidget {
           _item(Icons.info_outline, 'Справочник',
               () => _openSection(context, ReferenceSection.book)),
           const Divider(color: AppColors.drawerDivider),
-          const Padding(
-            padding: EdgeInsets.only(left: 16, top: 4, bottom: 4),
-            child: Text('ДРУГИ',
-                style: TextStyle(
-                    color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
-          ),
+          _groupTitle('ДРУГИ', top: 4),
           _item(Icons.settings, 'Настройки', () {
             _openScreen(
               context,
@@ -226,8 +216,13 @@ class AppDrawer extends StatelessWidget {
             ).then((_) => AppSettings.saveNow());
           }),
           _itemText('❈', 'Оцени приложението', () {}),
+          // ⚠ Само ОТДОЛУ (лентата за жестове). Отстрани отстъпва самият
+          // ListTile — SafeArea и отстрани го изместваше втори път в
+          // легнало положение (докладвано от потребителя, 30.09.2026).
           SafeArea(
             top: false,
+            left: false,
+            right: false,
             child: _item(Icons.help_outline, 'За приложението', () {
               _openScreen(context, (_) => const AboutScreen());
             }),
@@ -237,6 +232,20 @@ class AppDrawer extends StatelessWidget {
       ),
     );
   }
+
+  /// Заглавие на група. ⚠ В `SafeArea` отстрани, защото редовете под него
+  /// са `ListTile`, а той сам отстъпва от изреза на камерата в легнало
+  /// положение — без това заглавието стоеше по-вляво от редовете си.
+  Widget _groupTitle(String text, {required double top}) => SafeArea(
+        top: false,
+        bottom: false,
+        child: Padding(
+          padding: EdgeInsets.only(left: 16, top: top, bottom: 4),
+          child: Text(text,
+              style: const TextStyle(
+                  color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
+        ),
+      );
 
   Widget _item(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
