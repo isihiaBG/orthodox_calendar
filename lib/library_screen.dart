@@ -26,6 +26,7 @@ import 'book_reader.dart';
 import 'cover_flow.dart';
 import 'cover_picker.dart';
 import 'epub_source.dart';
+import 'slova_volume.dart';
 
 /// Един том. Числата са преброени от съдържанията на .epub-ите
 /// (tools/extract_covers.py ги изписва) и стоят тук като константи, за да не
@@ -37,7 +38,11 @@ class _Volume {
   final int lives;
   final String file; // част от името на .epub-а
 
-  const _Volume(this.month, this.roman, this.days, this.lives, this.file);
+  /// Томът „Слова" — не .epub, а съдържание над словата в lives_plus.db.
+  final bool slova;
+
+  const _Volume(this.month, this.roman, this.days, this.lives, this.file,
+      {this.slova = false});
 
   String get cover => 'assets/books_covers/$file.jpg';
 }
@@ -51,6 +56,9 @@ const List<_Volume> _volumes = [
   _Volume('юни', 'VI', 30, 79, '06'),
   _Volume('юли', 'VII', 31, 88, '07'),
   _Volume('август', 'VIII', 31, 87, '08'),
+  // ⚠ Между август и септември — там започва църковната година, а
+  // словата в тома са наредени именно от 1 септември (потребителят).
+  _Volume('слова', '', 0, 100, '13', slova: true),
   _Volume('септември', 'IX', 30, 117, '09'),
   _Volume('октомври', 'X', 31, 108, '10'),
   _Volume('ноември', 'XI', 30, 110, '11'),
@@ -91,7 +99,10 @@ class _LibraryScreenState extends State<LibraryScreen>
   late final List<ImageProvider> _covers =
       _volumes.map<ImageProvider>((v) => AssetImage(v.cover)).toList();
 
-  int _index = DateTime.now().month - 1; // тестето отваря на текущия месец
+  // Тестето отваря на текущия месец. ⚠ По ФАЙЛА, не по номер: томът
+  // „Слова" стои между август и септември и измества следващите с едно.
+  int _index = _volumes.indexWhere(
+      (v) => v.file == DateTime.now().month.toString().padLeft(2, '0'));
   bool _opening = false;
 
   /// Ходът на излитащата корица и на вдигането на пелената след това
@@ -122,7 +133,8 @@ class _LibraryScreenState extends State<LibraryScreen>
     if (_opening) return;
     setState(() => _opening = true);
 
-    final loading = EpubBook.open(kEpubOf[_volumes[i].file]!);
+    final isSlova = _volumes[i].slova;
+    final loading = isSlova ? null : EpubBook.open(kEpubOf[_volumes[i].file]!);
     final rect = _flow.currentState?.centerCoverRect();
     OverlayEntry? flying;
 
@@ -145,13 +157,15 @@ class _LibraryScreenState extends State<LibraryScreen>
 
       final book = await loading;
       if (!mounted) return;
-      final opened = Navigator.of(context).push(bookOpenRoute(BookReader(
-        book: book,
-        hintContents: true,
-        // Библиотеката сама стои без системна лента — четецът не бива да я
-        // пали на излизане, инак се вижда премигване.
-        keepImmersiveOnExit: true,
-      )));
+      final opened = Navigator.of(context).push(bookOpenRoute(isSlova
+          ? const SlovaVolume()
+          : BookReader(
+              book: book!,
+              hintContents: true,
+              // Библиотеката сама стои без системна лента — четецът не бива да я
+              // пали на излизане, инак се вижда премигване.
+              keepImmersiveOnExit: true,
+            )));
 
       // Един кадър, колкото четецът да се построи и подреди ПОД пелената.
       // Без него вдигането ѝ откроява първото му, още неуталожено рисуване.
@@ -202,6 +216,7 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget _info() {
 
     final v = _volumes[_index];
+    if (v.slova) return _slovaInfo();
     return Padding(
       padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
       child: Column(
@@ -253,6 +268,39 @@ class _LibraryScreenState extends State<LibraryScreen>
       ),
     );
   }
+  /// Долният панел за тома „Слова".
+  Widget _slovaInfo() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const Text('Свт. Димитрий Ростовски',
+              style: TextStyle(
+                  color: AppColors.textSecondary, fontSize: 13, letterSpacing: 1.2)),
+          const SizedBox(height: 6),
+          const Text('Слова и поучения',
+              style: TextStyle(
+                  color: AppColors.textPrimary, fontSize: 30, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          const Text('100 слова · от септември до август',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+            onPressed: _opening ? null : () => _open(_index),
+            icon: const Icon(Icons.menu_book, size: 18),
+            label: const Text('Отвори тома'),
+            style: FilledButton.styleFrom(
+              backgroundColor: AppColors.sectionTitle,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return CoverPickerScaffold(
@@ -265,8 +313,9 @@ class _LibraryScreenState extends State<LibraryScreen>
       // Хамбургер вместо стрелка „назад" — както във всяка друга секция.
       drawer: const AppDrawer(),
       infoBuilder: (_, __) => _info(),
-      landscapeLabel: (i) =>
-          '${_volumes[i].month} · том ${_volumes[i].roman}',
+      landscapeLabel: (i) => _volumes[i].slova
+          ? 'Слова и поучения'
+          : '${_volumes[i].month} · том ${_volumes[i].roman}',
     );
   }
 }

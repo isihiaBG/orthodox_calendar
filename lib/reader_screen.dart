@@ -782,6 +782,12 @@ class ReaderScreen extends StatefulWidget {
   /// подава отвън. Празно значи старото поведение — „Служба".
   final String? typeLabel;
 
+  /// Опашка под четивото („предишно / следващо"), като в томовете на
+  /// „Месецослов". Подава я САМО томът със словата — отворено от календара,
+  /// словото стои само, без съседи (указание на потребителя). Получава
+  /// приглушения цвят на палитрата, за да е четима и в светла тема.
+  final Widget Function(Color dim)? footer;
+
   /// Отвори веднага на този цитат — от списъка с любими или от споделен
   /// линк.
   ///
@@ -806,6 +812,7 @@ class ReaderScreen extends StatefulWidget {
     this.typeLabel,
     this.openAtQuote,
     this.openAtText,
+    this.footer,
   }) : _mode = _ReaderMode.life;
 
   const ReaderScreen.prayers({
@@ -816,7 +823,8 @@ class ReaderScreen extends StatefulWidget {
     this.typeLabel,
     this.openAtQuote,
     this.openAtText,
-  }) : _mode = _ReaderMode.prayers;
+  })  : _mode = _ReaderMode.prayers,
+        footer = null;
 
   const ReaderScreen.sluzhba({
     super.key,
@@ -826,7 +834,8 @@ class ReaderScreen extends StatefulWidget {
     this.typeLabel,
     this.openAtQuote,
     this.openAtText,
-  }) : _mode = _ReaderMode.sluzhba;
+  })  : _mode = _ReaderMode.sluzhba,
+        footer = null;
 
   @override
   State<ReaderScreen> createState() => _ReaderScreenState();
@@ -3535,6 +3544,8 @@ class _ReaderScreenState extends State<ReaderScreen>
                     padding: const EdgeInsets.fromLTRB(16, 8, 16, 60),
                     sliver: contentSliver,
                   ),
+                  if (widget.footer != null)
+                    SliverToBoxAdapter(child: widget.footer!(_dim)),
                 ],
               ),
             ),

@@ -120,6 +120,15 @@ class SaintSlovo {
   const SaintSlovo({required this.slovo, required this.label});
 }
 
+/// Слово по свт. Димитрий Ростовски на своя ден в църковната година.
+class DmitrySlovoDay {
+  final Slovo slovo;
+
+  /// Гражданската дата тази година и църковната ѝ съответна.
+  final DateTime civil, church;
+  const DmitrySlovoDay(this.slovo, this.civil, this.church);
+}
+
 class LivesPlusDb {
   static Database? _db;
   static Future<Database>? _opening;
@@ -298,6 +307,52 @@ class LivesPlusDb {
       final addrs = addressesFor(d, key, oldStyle: oldStyle);
       if (addrs.any(known.contains)) {
         out.add(d.toIso8601String().substring(0, 10));
+      }
+    }
+    return out;
+  }
+
+  /// Словата по свт. Димитрий Ростовски в ХРОНОЛОГИЯ на текущата
+  /// ЦЪРКОВНА година — от 1 септември (църковно новолетие) до 31 август.
+  /// Томът „Слова" в „Месецослов" (slova_volume.dart).
+  ///
+  /// ⚠ Подвижните (неделите, Триодът, Пентикостарът) нямат постоянна дата,
+  /// затова мястото им се смята за ТАЗИ година — по същите адреси и по
+  /// същата сметка, с които ги намира дневният изглед ([addressesFor]).
+  /// Слово на няколко дни (постното поучение) стои при ПЪРВИЯ от тях.
+  static Future<List<DmitrySlovoDay>> dmitryChronology({required bool oldStyle}) async {
+    final db = await database;
+    final rows = await db.rawQuery('''
+      SELECT d.address, s.id, s.title_bg, s.book
+      FROM slovo_days d JOIN slova s ON s.id = d.id
+      WHERE s.book IN ('nepe', 'pril', 'vosk')
+    ''');
+    final byAddr = <String, List<Slovo>>{};
+    for (final r in rows) {
+      byAddr.putIfAbsent(r['address'] as String, () => []).add(Slovo(
+            id: r['id'] as String,
+            title: r['title_bg'] as String,
+            address: r['address'] as String,
+            book: (r['book'] as String?) ?? '',
+          ));
+    }
+    final now = DateTime.now();
+    final churchNow = oldStyle ? toChurchDate(now) : now;
+    final y = churchNow.month >= 9 ? churchNow.year : churchNow.year - 1;
+    final from = civilDateOfChurch(y, 9, 1, oldStyle: oldStyle);
+    final to = civilDateOfChurch(y + 1, 8, 31, oldStyle: oldStyle);
+    final seen = <String>{};
+    final out = <DmitrySlovoDay>[];
+    for (var d = DateTime.utc(from.year, from.month, from.day);
+        !d.isAfter(to);
+        d = d.add(const Duration(days: 1))) {
+      final church = oldStyle ? toChurchDate(d) : d;
+      final key = '${church.month.toString().padLeft(2, '0')}-'
+          '${church.day.toString().padLeft(2, '0')}';
+      for (final a in addressesFor(d, key, oldStyle: oldStyle)) {
+        for (final sl in byAddr[a] ?? const <Slovo>[]) {
+          if (seen.add(sl.id)) out.add(DmitrySlovoDay(sl, d, church));
+        }
       }
     }
     return out;
