@@ -77,6 +77,10 @@ def psalm_unit(db, ps, p):
             continue                      # стих 1 Е надписанието
         if t:
             bg.append({'kind': 'verse', 'html': verse_html(v, t)})
+        for after, kind, txt in p.get('breaks', []):
+            if after == v:
+                bg.append({'kind': 'rubric', 'html': 'Слава:' if kind == 'slava'
+                           else html.escape(txt, quote=False)})
     cs = cs_verses(db, ps)
     for v, t in cs:
         # Надписанието: стих 0, или стих 1, щом почва с „Ѱало́мъ"/„Въ коне́цъ".
@@ -85,6 +89,11 @@ def psalm_unit(db, ps, p):
             csl.append({'kind': 'rubric', 'html': html.escape(t, quote=False)})
         else:
             csl.append({'kind': 'verse', 'html': verse_html(v, t)})
+        # ⚠ Същите прекъсвания и в цс — след СЪЩИЯ стих (номерацията е обща).
+        for after, kind, txt in p.get('breaks', []):
+            if after == v:
+                csl.append({'kind': 'rubric', 'html': 'Сла́ва:' if kind == 'slava'
+                            else 'Среда̀.'})
     return {'title_csl': None, 'title_bg': 'Псалом %d' % ps,
             'title_cs': 'Ѱало́мъ %s' % cs_num(ps), 'csr': [], 'bg': bg, 'csl': csl,
             'sources': [BG_SRC]}

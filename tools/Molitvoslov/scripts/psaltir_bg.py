@@ -43,12 +43,23 @@ def parse(path=PDF):
         t = head_text()
         buf = []
         m = re.match(r'^(Слава[:.…]*(?:\s*и сега…\s*Алилуя…)?)\s*(.*)$', t)
+        # ⚠⚠ „Слава" и „Среда" се закачат за СТИХА, след който стоят, не за
+        # края на псалма. Дотук вървяха в списъка на катизмата СЛЕД целия
+        # псалом — невидимо, докато псалмите са къси, но в 17-а катизма
+        # псаломът е ЕДИН (Пс. 118) и трите „Слава" и „Среда" се събираха
+        # накрая (докладвано от потребителя). `breaks` = [(след стих, вид, текст)].
         if m:
-            kath[cur_k].append(('slava', m.group(1)))
+            if psalm is not None and verse is not None:
+                psalm.setdefault('breaks', []).append((verse, 'slava', m.group(1)))
+            else:
+                kath[cur_k].append(('slava', m.group(1)))
             if m.group(2):
                 pend_head.append(m.group(2))   # надписанието на следващия
         elif t in ('Среда', 'Среда.'):
-            kath[cur_k].append(('rubric', t))
+            if psalm is not None and verse is not None:
+                psalm.setdefault('breaks', []).append((verse, 'rubric', t))
+            else:
+                kath[cur_k].append(('rubric', t))
         elif re.match(r'^Катизма', t):
             pass
         else:
