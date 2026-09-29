@@ -289,6 +289,57 @@ def expand_page_refs(out):
         b['html'], b['kind'] = full['html'], full['kind']
         n += 1
     print('Часослов: %d препратки заменени с пълния текст' % n)
+    expand_vespers_psalms(out)
+    # Малкото повечерие: „…зрѝ въ нача́лѣ полꙋ́нощницы по всѧ̑ дни̑. стр. 7" —
+    # указание към началото на друга служба; номерът на печатната страница
+    # тук нищо не казва и се маха (потребителят). В Полунощницата
+    # „(зрѝ стр. 229)" към 17-а катизма остава, вече четимо.
+    for s in out:
+        if s['book'] == 'Часослов' and s['title_bg'] == 'Малко повечерие':
+            for u in s['units']:
+                for b in u['csl']:
+                    b['html'] = re.sub(r'(по всѧ̑ дни̑\.)\s*стр\.\s*\d+', r'\1', b['html'])
+
+
+def _psalm(ch):
+    import sqlite3
+    con = sqlite3.connect(BIBLE_DB)
+    # ⚠ Без надписанието („Ѱало́мъ дв҃дꙋ, внегда̀…") — в службата то не се
+    # чете. При Пс. 33 то е стих 1, не 0 — затова по таблицата `headings`.
+    vs = [t for (t,) in con.execute(
+        "SELECT text FROM verses v WHERE lang='utfcs' AND book='Ps' AND chapter=? "
+        "AND NOT EXISTS (SELECT 1 FROM headings h WHERE h.book='Ps' AND h.chapter=v.chapter "
+        "AND h.verse=v.verse) ORDER BY ord", (ch,))]
+    con.close()
+    return html.escape(' '.join(vs).replace('\u1c82у', 'ѹ'), quote=False)
+
+
+def expand_vespers_psalms(out):
+    """Вечернята през Великия пост: „Та́же, ѱало́мъ л҃г: Бл҃гословлю̀ гдⷭ҇а…
+    Стр. 125, и҆ ѱало́мъ рм҃д: Вознесꙋ́ тѧ, бж҃е мо́й:" — само началата на
+    Пс. 33 и Пс. 144 с препратка към страница. Заменят се с целите псалми от
+    bible.db (решение на потребителя). Препратката към 17-а катизма в
+    Полунощницата НЕ се разгъва — тя е цяла катизма (пак решение на
+    потребителя). Ненамерено място СПИРА скрипта."""
+    for s in out:
+        if s['book'] != 'Часослов':
+            continue
+        for u in s['units']:
+            bl = u['csl']
+            for i, b in enumerate(bl):
+                h = b['html']
+                if 'ѱало́мъ л҃г:' in h and 'ѱало́мъ рм҃д:' in h:
+                    rest = h.split('Вознесꙋ́ тѧ, бж҃е мо́й:', 1)[1].lstrip()
+                    bl[i:i + 1] = [
+                        {'kind': 'rubric', 'html': 'Та́же, ѱало́мъ л҃г:'},
+                        {'kind': 'text', 'html': _psalm(33)},
+                        {'kind': 'rubric', 'html': 'И҆ ѱало́мъ рм҃д:'},
+                        {'kind': 'text', 'html': _psalm(144)},
+                        {'kind': 'text', 'html': rest},
+                    ]
+                    print('Часослов: Пс. 33 и Пс. 144 вмъкнати във Вечернята')
+                    return
+    sys.exit('⚠ Часослов: не е намерено мястото с Пс. 33 и Пс. 144')
 
 
 def main():
