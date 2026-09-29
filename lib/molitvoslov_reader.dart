@@ -1444,7 +1444,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                   child: const Icon(Icons.auto_stories),
                 ),
               ),
-        body: SafeArea(
+        // ⚠ `Stack` — за етикета с книгата В ИЗРЕЗА, извън `SafeArea`
+        // (виж [_bookSpine]).
+        body: Stack(children: [
+        SafeArea(
           // Докато няма текст, лентата стои отгоре неподвижно; с текст тя е
           // вътре в скрола (виж по-горе).
           child: _units == null || _units!.isEmpty || _error != null
@@ -1454,8 +1457,96 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 ])
               : Container(color: p.bg, child: body),
         ),
+        _bookSpine(),
+        ]),
       ),
     );
+  }
+
+  /// Коя книга е отворена — за всеки таб: в богослужебните се сменя книга
+  /// след книга и ориентирът е най-нужен, но и в останалите помага.
+  String? get _bookLabel {
+    final s = widget.section;
+    switch (s.tab) {
+      case 'psaltir':
+        return kPsalterBook;
+      case 'molitvi':
+        return 'Молитвеник';
+      case 'kanonnik':
+        return 'Канонник';
+      case 'akatisti':
+        return 'Акатисти';
+    }
+    final b = s.book;
+    if (b == null) return null;
+    final g = s.grp;
+    if (b == 'Минеи' && g != null) return g;              // „Миней за август"
+    if (b == 'Октоих' && g != null && g.startsWith('Глас')) {
+      return 'Октоих, ${g.toLowerCase()}';                // „Октоих, глас 5"
+    }
+    return b;
+  }
+
+  /// Етикетът с книгата — В САМИЯ ИЗРЕЗ, преписан от `_chapterSpine` в
+  /// bible_reader.dart (там са и всички доводи): лентата се крие при скрол,
+  /// а изрезът е извън него, тъй че „в коя книга съм" стои винаги. Без фон,
+  /// дребен и приглушен; в изправено — отгоре, от ръба на текста до 44% от
+  /// ширината (в средата е обективът); в легнало — отвесен, от долния ръб на
+  /// лентата до средата. Няма ли изрез — няма и етикет.
+  Widget _bookSpine() {
+    final label = _bookLabel;
+    if (label == null) return const SizedBox.shrink();
+    final mq = MediaQuery.of(context);
+    final pad = mq.padding;
+    final size = mq.size;
+    final text = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: const TextStyle(
+        color: AppColors.textSecondary,
+        fontSize: 14,
+        letterSpacing: 0.4,
+        height: 1.0,
+      ),
+    );
+    const minStrip = 20.0;
+    if (pad.top >= minStrip) {
+      const left = 18.0; // полето на текста (`pad` в тялото)
+      return Positioned(
+        top: 0,
+        left: left,
+        height: pad.top,
+        width: size.width * 0.44 - left,
+        child: Align(alignment: Alignment.centerLeft, child: text),
+      );
+    }
+    final toCutout = size.height / 2 - kReaderToolbarHeight - 12;
+    if (pad.left >= minStrip) {
+      return Positioned(
+        left: 0,
+        top: kReaderToolbarHeight,
+        width: pad.left,
+        height: toCutout,
+        child: RotatedBox(
+          quarterTurns: 3,
+          child: Align(alignment: Alignment.centerRight, child: text),
+        ),
+      );
+    }
+    if (pad.right >= minStrip) {
+      return Positioned(
+        right: 0,
+        top: kReaderToolbarHeight,
+        width: pad.right,
+        height: toCutout,
+        child: RotatedBox(
+          quarterTurns: 1,
+          child: Align(alignment: Alignment.centerLeft, child: text),
+        ),
+      );
+    }
+    return const SizedBox.shrink();
   }
 }
 
