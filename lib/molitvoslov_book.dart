@@ -415,7 +415,7 @@ class _BookSwitcherState extends State<_BookSwitcher> {
           const Expanded(child: Text('БОГОСЛУЖЕБНИ КНИГИ', style: _kHeadStyle)),
           IconButton(
             tooltip: 'Подреди списъка',
-            icon: const EditIcon(color: AppColors.textSecondary, size: 24),
+            icon: const EditIcon(color: AppColors.textSecondary, size: 29),
             onPressed: () => setState(() => _editing = true),
           ),
           const SizedBox(width: 8),
