@@ -20,9 +20,10 @@ class EditIcon extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = IconTheme.of(context);
     // Рисунката запълва целия си квадрат, а глифовете на Material оставят
-    // поле около себе си — затова е с една пета по-малка, за да изглежда
-    // еднакво едра със съседните иконки.
-    final s = (size ?? theme.size ?? 24) * 0.8;
+    // поле около себе си. Първо беше смалена с една пета и излизаше дребна
+    // (бележка на потребителя, 30.09.2026) — сега е в пълния размер на
+    // иконка, а в лентата и мъничко отгоре.
+    final s = (size ?? theme.size ?? 24) * 1.0;
     return SizedBox(
       width: size ?? theme.size ?? 24,
       height: size ?? theme.size ?? 24,

@@ -336,7 +336,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
               tooltip: 'Редактирай',
               // Моливче върху лист — по-ясно „редактирай списъка" от голото
               // моливче (избор на потребителя, 29.09.2026).
-              icon: const EditIcon(),
+              icon: const EditIcon(size: 26),
               onPressed: _startEditing,
             ),
           ),
