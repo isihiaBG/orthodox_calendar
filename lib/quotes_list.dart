@@ -203,6 +203,7 @@ void openQuotesList(BuildContext context, SaintLookup lookup) {
       emptyText: 'Няма запазени цитати.\n'
           'Маркирай текст в четиво и избери „Запази цитат".',
       // ⚠ id-тата в списъка са „quote:<id>" — префиксът се маха тук.
+      pluralNoun: 'цитати',
       onReorder: (ids) => QuotesStore.reorder(
           [for (final id in ids) id.substring('quote:'.length)]),
     ),
