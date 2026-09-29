@@ -319,6 +319,35 @@ class QuotesStore {
     }
   }
 
+  /// ⚠ Дотук редът на показване беше „най-скорошното отгоре" и се смяташе
+  /// при всяко четене. От 29.09.2026 човек подрежда цитатите сам, тъй че
+  /// МЕРОДАВЕН е редът на записа. Заварен запис се подрежда веднъж по
+  /// старото правило (виж [ordered]) и оттам нататък редът е негов.
+  static const _orderedKey = 'favourite_quotes_ordered';
+
+  /// Цитатите в реда на показване.
+  static Future<List<Quote>> ordered() async {
+    final prefs = await SharedPreferences.getInstance();
+    final all = [...await load()];
+    if (prefs.getBool(_orderedKey) != true) {
+      all.sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs));
+      await _save(all);
+      await prefs.setBool(_orderedKey, true);
+    }
+    return all;
+  }
+
+  /// Записва реда, в който човек ги е подредил. Непознати id-та се
+  /// пропускат, а липсващите в [ids] остават накрая — така запис, влязъл
+  /// междувременно от друг екран, не се губи.
+  static Future<void> reorder(List<String> ids) async {
+    final all = await ordered();
+    final byId = {for (final q in all) q.id: q};
+    final out = [for (final id in ids) if (byId.containsKey(id)) byId[id]!];
+    out.addAll([for (final q in all) if (!ids.contains(q.id)) q]);
+    await _save(out);
+  }
+
   static Future<void> _save(List<Quote> quotes) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(
@@ -326,9 +355,10 @@ class QuotesStore {
   }
 
   static Future<void> add(Quote q) async {
-    final all = [...await load()];
+    // Новият цитат застава НАЙ-ОТГОРЕ — там човек ще го потърси веднага.
+    final all = [...await ordered()];
     all.removeWhere((x) => x.id == q.id);
-    all.add(q);
+    all.insert(0, q);
     await _save(all);
   }
 

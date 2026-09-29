@@ -27,8 +27,10 @@ Future<List<BookmarkEntry>> quoteEntries(SaintLookup lookup) async {
   // ⚠ Сортира се КОПИЕ. Днес [QuotesStore.load] връща изменим списък, но
   // разчитането на това е крехко: върне ли някой ден пак `const []`, бъгът
   // се връща като ВЕЧЕН СПИНЕР, а не като видима грешка. Копието струва нула.
-  final quotes = [...await QuotesStore.load()]
-    ..sort((a, b) => b.savedAtMs.compareTo(a.savedAtMs));
+  //
+  // ⚠ Редът вече е на ЧОВЕКА (разместване в режим на редактиране), а не по
+  // време — виж [QuotesStore.ordered].
+  final quotes = await QuotesStore.ordered();
 
   return [
     for (final q in quotes)
@@ -200,6 +202,9 @@ void openQuotesList(BuildContext context, SaintLookup lookup) {
       screenTitle: 'Любими цитати',
       emptyText: 'Няма запазени цитати.\n'
           'Маркирай текст в четиво и избери „Запази цитат".',
+      // ⚠ id-тата в списъка са „quote:<id>" — префиксът се маха тук.
+      onReorder: (ids) => QuotesStore.reorder(
+          [for (final id in ids) id.substring('quote:'.length)]),
     ),
   ));
 }

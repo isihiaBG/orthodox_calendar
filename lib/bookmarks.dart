@@ -78,11 +78,27 @@ class BookmarksListScreen extends StatefulWidget {
   /// Какво се пише, когато няма нищо.
   final String emptyText;
 
+  /// Подаде ли се, списъкът минава на РЕЖИМ НА РЕДАКТИРАНЕ по образеца на
+  /// плаващото копче в богослужебните книги (`molitvoslov_book.dart`):
+  ///
+  ///   преглед    ред → стрелка „отвори"; моливче горе вдясно
+  ///   редакция   плъзгач вляво, ✕ вдясно, „изтрий всички" горе
+  ///
+  /// ⚠ Кошчето на всеки ред изчезва от прегледа нарочно — там то стоеше до
+  /// пръста и се натискаше неволно. ✕ в редакцията трие БЕЗ питане (човекът
+  /// вече е влязъл нарочно, за да махне нещо); пита се САМО при „изтрий
+  /// всички" (решение на потребителя, 29.09.2026).
+  ///
+  /// Получава id-тата в новия ред. Днес го ползват само ЛЮБИМИТЕ ЦИТАТИ:
+  /// отметките са групирани по томове и разместване там няма смисъл.
+  final Future<void> Function(List<String> ids)? onReorder;
+
   const BookmarksListScreen({
     super.key,
     required this.load,
     this.screenTitle = 'Списък с отметки',
     this.emptyText = 'Няма запазени отметки',
+    this.onReorder,
   });
 
   @override
@@ -100,6 +116,50 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
   /// Излиза се само нарочно: с ✕, с „назад" или след изтриване.
   final _selected = <String>{};
   bool _selectionMode = false;
+
+  /// Режимът на редактиране — само при [BookmarksListScreen.onReorder].
+  bool _editing = false;
+  bool get _editable => widget.onReorder != null;
+
+  /// ⚠ Промените в редакцията се ЗАПИСВАТ ЧАК ПРИ ИЗЛИЗАНЕ от нея — само така
+  /// „отмени" може да върне и изтрит запис ([BookmarkEntry] знае как се трие,
+  /// но не и как се връща). [_editStart] е списъкът при влизането, а
+  /// [_history] — състоянията преди всяка стъпка.
+  List<BookmarkEntry> _editStart = const [];
+  final _history = <List<BookmarkEntry>>[];
+
+  void _startEditing() {
+    if (_editing) return;
+    setState(() {
+      _editing = true;
+      _editStart = [...?_items];
+      _history.clear();
+    });
+  }
+
+  void _finishEditing() {
+    _commitEdits();
+    if (mounted) setState(() => _editing = false);
+  }
+
+  /// Нанася промените: трие махнатите и записва реда. Вика се и от
+  /// [dispose], тъй че не пипа състоянието на екрана.
+  void _commitEdits() {
+    if (!_editing) return;
+    final now = [...?_items];
+    final keep = {for (final e in now) e.id};
+    for (final e in _editStart) {
+      if (!keep.contains(e.id)) e.delete();
+    }
+    if (_history.isNotEmpty) widget.onReorder!([for (final e in now) e.id]);
+    _history.clear();
+    _editStart = const [];
+  }
+
+  void _undo() {
+    if (_history.isEmpty) return;
+    setState(() => _items = _history.removeLast());
+  }
 
   /// Копчето горе не сменя иконката си, когато влезем в режим „избиране" —
   /// вместо това тя леко се разтърсва и наедрява. Подсещането се повтаря,
@@ -150,6 +210,7 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
 
   @override
   void dispose() {
+    _commitEdits(); // излизане със системния „назад" насред редакцията
     _nudgeTimer?.cancel();
     _nudge.dispose();
     super.dispose();
@@ -210,8 +271,10 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
 
   Future<void> _deleteAll() async {
     final confirmed = await _confirm(
-      'Изтриване на всички отметки',
-      'Наистина ли искате да изтриете ВСИЧКИ запазени отметки?',
+      _editable ? 'Изтриване на всички цитати' : 'Изтриване на всички отметки',
+      _editable
+          ? 'Наистина ли искате да изтриете ВСИЧКИ запазени цитати?'
+          : 'Наистина ли искате да изтриете ВСИЧКИ запазени отметки?',
     );
     if (!confirmed) return;
     for (final e in _items ?? const <BookmarkEntry>[]) {
@@ -236,6 +299,43 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
 
   Future<void> _open(BookmarkEntry e) => e.open(context);
 
+  /// ✕ в редакцията — без питане; връща се с „отмени".
+  void _removeNow(BookmarkEntry e) {
+    setState(() {
+      _history.add([...?_items]);
+      _items = [...?_items]..removeWhere((x) => x.id == e.id);
+    });
+  }
+
+  /// „Изтрий всички" — единственото, което пита, и затова е ОКОНЧАТЕЛНО:
+  /// не минава през „отмени".
+  Future<void> _deleteAllEditing() async {
+    final confirmed = await _confirm(
+      'Изтриване на всички цитати',
+      'Наистина ли искате да изтриете ВСИЧКИ запазени цитати?',
+    );
+    if (!confirmed) return;
+    for (final e in _editStart) {
+      await e.delete();
+    }
+    _history.clear();
+    _editStart = const [];
+    if (!mounted) return;
+    setState(() {
+      _items = const [];
+      _editing = false;
+    });
+  }
+
+  void _reorder(int a, int b) {
+    final items = [...?_items];
+    items.insert(b, items.removeAt(a));
+    setState(() {
+      _history.add([...?_items]);
+      _items = items;
+    });
+  }
+
   /// Редовете за рисуване: заглавие на група или запис.
   List<(String?, BookmarkEntry?)> _rows(List<BookmarkEntry> items) {
     final rows = <(String?, BookmarkEntry?)>[];
@@ -259,11 +359,16 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
     return PopScope(
       // Докато има избрани редове, „назад" излиза от режима, а не от
       // екрана — иначе човек губи списъка вместо избора си.
-      canPop: !_selectionMode,
+      canPop: !_selectionMode && !_editing,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _clearSelection();
+        if (didPop) return;
+        if (_editing) {
+          _finishEditing();
+        } else {
+          _clearSelection();
+        }
       },
-      child: _buildScaffold(items),
+      child: _editable ? _buildEditableScaffold(items) : _buildScaffold(items),
     );
   }
 
@@ -349,6 +454,164 @@ class _BookmarksListScreenState extends State<BookmarksListScreen>
                   : _list(_rows(items)),
         ),
       ),
+    );
+  }
+
+  // ─── списъкът с редакция (любимите цитати) ───
+
+  Widget _buildEditableScaffold(List<BookmarkEntry>? items) {
+    final has = items != null && items.isNotEmpty;
+    return Scaffold(
+      backgroundColor: AppColors.toolbar,
+      appBar: AppBar(
+        backgroundColor: AppColors.toolbar,
+        // В редакцията вляво стои ✕ „Готово" — същото като в плаващото копче.
+        leading: _editing
+            ? IconButton(
+                tooltip: 'Готово',
+                icon: const Icon(Icons.close),
+                onPressed: _finishEditing,
+              )
+            : null,
+        title: Text(_editing ? 'Подредба' : widget.screenTitle),
+        actionsPadding: EdgeInsets.zero,
+        actions: [
+          if (_editing)
+            IconButton(
+              tooltip: 'Отмени',
+              icon: const Icon(Icons.undo),
+              onPressed: _history.isEmpty ? null : _undo,
+            ),
+          if (has || _editing)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _editing
+                  ? IconButton(
+                      tooltip: 'Изтрий всички',
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      onPressed: _editStart.isEmpty ? null : _deleteAllEditing,
+                    )
+                  : IconButton(
+                      tooltip: 'Подреди',
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: _startEditing,
+                    ),
+            ),
+        ],
+      ),
+      body: SafeArea(
+        child: Container(
+          color: AppColors.background,
+          child: items == null
+              ? const Center(child: CircularProgressIndicator())
+              : items.isEmpty && !_editing
+                  ? Center(
+                      child: Text(
+                        widget.emptyText,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: AppColors.textSecondary,
+                          fontSize: 16,
+                        ),
+                      ),
+                    )
+                  : (_editing ? _editList(items) : _viewList(items)),
+        ),
+      ),
+    );
+  }
+
+  Widget _entryText(BookmarkEntry e) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            e.title,
+            // ⚠ Таван на редовете — цитатът може да е цял абзац (виж _list).
+            maxLines: 4,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            e.typeLabel,
+            style: const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
+          ),
+        ],
+      );
+
+  Widget _viewList(List<BookmarkEntry> items) {
+    return ListView.separated(
+      itemCount: items.length,
+      separatorBuilder: (_, _) =>
+          const Divider(height: 1, thickness: 0, color: AppColors.sectionDivider),
+      itemBuilder: (context, i) {
+        final e = items[i];
+        return InkWell(
+          onTap: () => _open(e),
+          // Задържането е другият вход в редакцията, освен моливчето.
+          onLongPress: _startEditing,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+            child: Row(children: [
+              Expanded(child: _entryText(e)),
+              IconButton(
+                tooltip: 'Отвори',
+                icon: const Icon(Icons.chevron_right,
+                    color: AppColors.textSecondary),
+                onPressed: () => _open(e),
+              ),
+            ]),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _editList(List<BookmarkEntry> items) {
+    return ReorderableListView(
+      buildDefaultDragHandles: false,
+      // Влаченият ред се повдига като карта — същото като в плаващото копче.
+      proxyDecorator: (child, _, anim) => AnimatedBuilder(
+        animation: anim,
+        builder: (_, c) => Material(
+          elevation: 6 * anim.value,
+          color: AppColors.backgroundCard,
+          borderRadius: BorderRadius.circular(10),
+          child: c,
+        ),
+        child: child,
+      ),
+      // onReorderItem вече е поправил индекса за премахнатия ред.
+      onReorderItem: _reorder,
+      children: [
+        for (var i = 0; i < items.length; i++)
+          Container(
+            key: ValueKey(items[i].id),
+            decoration: const BoxDecoration(
+                border: Border(
+                    bottom: BorderSide(
+                        color: AppColors.sectionDivider, width: 0.5))),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(children: [
+              ReorderableDragStartListener(
+                index: i,
+                child: const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                  child:
+                      Icon(Icons.drag_indicator, color: AppColors.textMuted),
+                ),
+              ),
+              Expanded(child: _entryText(items[i])),
+              IconButton(
+                tooltip: 'Махни',
+                icon: const Icon(Icons.close,
+                    color: AppColors.textSecondary, size: 20),
+                onPressed: () => _removeNow(items[i]),
+              ),
+              const SizedBox(width: 8),
+            ]),
+          ),
+      ],
     );
   }
 
