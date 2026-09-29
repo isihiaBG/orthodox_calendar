@@ -69,10 +69,37 @@ class ParaParser(HTMLParser):
             self.paras.append(self.cur)
             self.cur = None
         elif tag in ('span', 'b', 'i', 'a', 'em', 'strong') and self.stack:
-            self.stack.pop()
+            if self.stack.pop() == 'slavicgray' and 'slavicgray' not in self.stack:
+                self._flush_gray()
+
+    # ⚠ СИВИЯТ ШРИФТ (`slavicgray`) — дотук се изхвърляше ЦЯЛ, а в него има и
+    # текст от печатната книга: „(А҆нато́лїевъ)" (стихирата е от св. Анатолий),
+    # препратки към Писанието („(Мїх. є҃.)"), обикновени скоби от текста
+    # („(Внеза́пꙋ)", „(Пѣ́снь степе́ней, р҃к)"). Изхвърлят се САМО бележките на
+    # дигитализиращите на руски и „(комм.)" в Типикона; останалото влиза като
+    # обикновен текст — както е в печатната книга.
+    EDITORIAL = ('Исправ', 'источник', 'оригинал', 'Словар', 'Служба', 'Опущен',
+                 'комм.', 'Прим.', 'печата', 'По другим', 'племянника', 'так у',
+                 'строка между', 'Текст сей')
+    gray = None
+
+    def _flush_gray(self):
+        g, self.gray = self.gray or [], None
+        raw = ''.join(r for r in g if isinstance(r, str))
+        if any(w in raw for w in self.EDITORIAL) or self.cur is None:
+            return
+        self.cur.extend(x for x in g if not isinstance(x, str))
 
     def handle_data(self, data):
-        if self.cur is None or 'slavicgray' in self.stack:
+        if self.cur is None:
+            return
+        if 'slavicgray' in self.stack:
+            t = re.sub(r'\s+', ' ', data)
+            if self.gray is None:
+                self.gray = []
+            self.gray.append(t)                      # суров — за разпознаването
+            dec = t if 'slavicgreek' in self.stack else ucs.decode(t)
+            self.gray.append(('kinovar' in self.stack, dec, 'bold' in self.stack))
             return
         t = re.sub(r'\s+', ' ', data)
         if t:
