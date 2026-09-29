@@ -220,7 +220,9 @@ def main():
         a, b = START[k - 1], START[k] - 1
         rng = 'псалом %d' % a if a == b else 'псалми %d–%d' % (a, b)
         out.append({'sec': 300 + k, 'tab': 'psaltir',
-                    'title_bg': 'Катизма %s (%s)' % (ORD_BG[k - 1], rng),
+                    # С ЧИСЛО, не с дума („Катизма 17", не „седемнадесета") —
+                    # чете се по-бързо в съдържанието (потребителят).
+                    'title_bg': 'Катизма %d (%s)' % (k, rng),
                     'title_csl': 'Каѳі́сма %s' % cs_num(k),
                     'csr_source': None, 'csl_source': CS_SRC_PS, 'units': units})
         print('  катизма %2d  псалми %3d–%3d  молитви: %d блока' % (k, a, b, len(pr)))
