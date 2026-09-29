@@ -156,7 +156,9 @@ class _SlovaVolumeState extends State<SlovaVolume> {
               style: TextStyle(fontSize: 13, color: AppColors.textSecondary)),
         ]),
       ),
-      body: _body(),
+      // ⚠ Отстъп отстрани от изреза (в легнало камерата е на единия ръб и
+      // текстът се пъхаше под нея). Горе/долу се пазят от лентата и системата.
+      body: SafeArea(top: false, bottom: false, child: _body()),
     );
   }
 

@@ -144,9 +144,15 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
           tabs: [for (final t in tabs) Tab(text: t.title)],
         ),
       ),
-      body: TabBarView(controller: _ctrl, children: [
-        for (final t in tabs) _tabBody(t),
-      ]),
+      // ⚠ Отстъп отстрани от изреза (в легнало камерата е на единия ръб и
+      // текстът се пъхаше под нея). Горе/долу се пазят от лентата и системата.
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: TabBarView(controller: _ctrl, children: [
+          for (final t in tabs) _tabBody(t),
+        ]),
+      ),
     );
   }
 

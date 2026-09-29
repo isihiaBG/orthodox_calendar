@@ -198,10 +198,16 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(title: Text(widget.book)),
-      body: ListView(
-        controller: _scroll,
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        children: rows,
+      // ⚠ Отстъп отстрани от изреза (в легнало камерата е на единия ръб и
+      // текстът се пъхаше под нея). Горе/долу се пазят от лентата и системата.
+      body: SafeArea(
+        top: false,
+        bottom: false,
+        child: ListView(
+          controller: _scroll,
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: rows,
+        ),
       ),
     );
   }
