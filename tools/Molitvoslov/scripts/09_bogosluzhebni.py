@@ -214,7 +214,7 @@ TITLE_OVERRIDES = {
 def grp_of(book, label, fname):
     if book == 'minei':
         m = MINEI.index(re.search(r'Mineya_(\d\d_\w+)\.epub', fname).group(1))
-        return 'Минея за %s' % MONTHS[m]
+        return 'Миней за %s' % MONTHS[m]
     if book == 'oktoih':
         m = re.match(r'Глас (\d)', label)
         # Ексапостилариите, утринните евангелия и т.н. след 8-те гласа.
