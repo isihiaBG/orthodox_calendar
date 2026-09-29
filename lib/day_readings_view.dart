@@ -32,6 +32,10 @@ import 'reader_screen.dart';
 import 'readings_lookup.dart';
 import 'saint_expandable_tile.dart';
 import 'prokimen_lookup.dart';
+import 'parimii_days.dart';
+import 'bible_ref.dart';
+import 'molitvoslov_db.dart';
+import 'molitvoslov_book.dart' show openBookSection;
 
 class DayReadingsSection extends StatefulWidget {
   final DateTime date;
@@ -50,8 +54,16 @@ class DayReadingsSection extends StatefulWidget {
   /// анимацията на разгъване — точно бъгът, описан при [_groups].
   final List<TipikonDay> tipikon;
 
+  /// Имената на светиите за деня — за паримиите: неподвижна паримия излиза
+  /// само ако паметта ѝ я има в деня (виж [parimiiFor]).
+  final List<String> saintNames;
+
   const DayReadingsSection(
-      {super.key, required this.date, this.tone = 0, this.tipikon = const []});
+      {super.key,
+      required this.date,
+      this.tone = 0,
+      this.tipikon = const [],
+      this.saintNames = const []});
 
   @override
   State<DayReadingsSection> createState() => _DayReadingsSectionState();
@@ -86,6 +98,9 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
   /// Кратките напомняния за деня (`day_notes.dart`) — също синхронно.
   List<DayNote> _notes = const [];
 
+  /// Паримиите за деня (`parimii_days.dart`) — също синхронно, `const` карта.
+  List<ParimiaDay> _parimii = const [];
+
   @override
   void initState() {
     super.initState();
@@ -118,6 +133,22 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
               oldStyle: AppSettings.isOldStyle);
     } catch (_) {
       _notes = const [];
+    }
+    try {
+      final d = widget.date;
+      final church = AppSettings.isOldStyle ? toChurchDate(d) : d;
+      _parimii = parimiiFor(
+        churchMonthDay: '${church.month.toString().padLeft(2, '0')}-'
+            '${church.day.toString().padLeft(2, '0')}',
+        daysFromPascha: DateTime.utc(d.year, d.month, d.day)
+            .difference(DateTime.utc(DatabaseHelper.paschaOf(d.year).year,
+                DatabaseHelper.paschaOf(d.year).month,
+                DatabaseHelper.paschaOf(d.year).day))
+            .inDays,
+        saintNames: widget.saintNames,
+      );
+    } catch (_) {
+      _parimii = const [];
     }
   }
 
@@ -231,6 +262,7 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
           const SizedBox(height: 4),
           for (final line in groups[i].lines) _line(line),
         ],
+        ..._parimiiWidgets(),
         ...extras,
       ],
     );
@@ -244,6 +276,84 @@ class _DayReadingsSectionState extends State<DayReadingsSection> {
           fontWeight: FontWeight.w700,
         ),
       );
+
+  /// Паримиите — подгрупа ПРЕДИ указанията (Типикона и прот. Григорий
+  /// Дебольски), само в дните, в които ги има (искане на потребителя).
+  ///
+  /// ⚠ Над четивата — чия е паметта, а над всяка служба — коя е тя
+  /// („На вечернята", „На шестия час"): паримиите на големите празници се
+  /// четат на различни служби (изрично поискано).
+  List<Widget> _parimiiWidgets() {
+    if (_parimii.isEmpty) return const [];
+    final out = <Widget>[const SizedBox(height: 12), _groupTitle('Паримии')];
+    for (final d in _parimii) {
+      out.add(Padding(
+        padding: const EdgeInsets.only(left: 12, top: 4),
+        child: Text(d.title,
+            style: const TextStyle(
+                color: AppColors.textSecondary,
+                fontSize: 14,
+                fontStyle: FontStyle.italic,
+                height: 1.35)),
+      ));
+      String? service;
+      for (final r in d.readings) {
+        if (r.service != service) {
+          service = r.service;
+          out.add(Padding(
+            padding: const EdgeInsets.only(left: 12, top: 6),
+            child: Text(service,
+                style: const TextStyle(
+                    color: AppColors.textSecondary, fontSize: 13.5, height: 1.3)),
+          ));
+        }
+        out.add(_parimiaLine(d, r));
+      }
+    }
+    return out;
+  }
+
+  Widget _parimiaLine(ParimiaDay d, ParimiaReading r) {
+    // „Бит. 28:10-17" → „Битие, гл. 28:10-17" — по записа на останалите редове.
+    final m = RegExp(r'^\S+(?:\s[А-ЯЁа-яё]+\.)?\s+(\d.*)$').firstMatch(r.label);
+    final text = r.compiled || m == null ? r.label : '${r.book}, гл. ${m.group(1)}';
+    return InkWell(
+      onTap: () => _openParimia(d, r),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 24, top: 6, bottom: 6, right: 8),
+        child: Text(
+          text,
+          style: const TextStyle(
+            color: AppColors.sectionTitle,
+            fontSize: 15,
+            height: 1.45,
+            decoration: TextDecoration.underline,
+            decorationStyle: TextDecorationStyle.dotted,
+            decorationColor: AppColors.sectionDivider,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Сглобеното четиво — в библейския четец (двата езика, като апостола);
+  /// свободната компилация — в книгата „Паримии", защото стиховете в нея са
+  /// преразказани и в Писанието така ги няма.
+  Future<void> _openParimia(ParimiaDay d, ParimiaReading r) async {
+    final nav = Navigator.of(context);
+    if (r.compiled) {
+      final all = await MolitvoslovDb.sections();
+      final s = all.where((x) => x.id == d.section).firstOrNull;
+      if (s != null) openBookSection(nav, s, service: true);
+      return;
+    }
+    final passages = [for (final x in r.refs) ...parseBibleRef(x).passages];
+    if (passages.isEmpty) return;
+    final book = await BibleDb.book(passages.first.book);
+    if (book == null || !mounted) return;
+    await nav.push(MaterialPageRoute(
+        builder: (_) => BibleReader.forRef(BibleRef(passages))));
+  }
 
   /// Особеностите на деня и връзките към Типикона — НАКРАЯ на секцията
   /// (искане на потребителя): първо четивата, после напомнянето какво
