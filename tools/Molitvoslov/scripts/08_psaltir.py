@@ -82,16 +82,25 @@ def psalm_unit(db, ps, p):
                 bg.append({'kind': 'rubric', 'html': 'Слава:' if kind == 'slava'
                            else html.escape(txt, quote=False)})
     cs = cs_verses(db, ps)
+    # ⚠ Надписанието в цс се взима от таблицата `headings` на САМАТА Библия,
+    # не от българския PDF: там стих 1 е надписание при други псалми и
+    # правилото „като в бг" оцветяваше в червено ИСТИНСКИ стихове (първият
+    # стих на Пс. 13–16 и 72).
+    heads = {int(v) for (v,) in db.execute(
+        "SELECT verse FROM headings WHERE book='Ps' AND chapter=?", (ps,)) if v.isdigit()}
+    bg_last = max(p['verses']) if p['verses'] else 0
+    cs_last = cs[-1][0] if cs else 0
     for v, t in cs:
-        # Надписанието: стих 0, или стих 1, щом почва с „Ѱало́мъ"/„Въ коне́цъ".
-        head = v == 0 or (v == 1 and p['head_is_v1'] and len(cs) > 1)
+        head = v in heads
         if head:
             csl.append({'kind': 'rubric', 'html': html.escape(t, quote=False)})
         else:
             csl.append({'kind': 'verse', 'html': verse_html(v, t)})
         # ⚠ Същите прекъсвания и в цс — след СЪЩИЯ стих (номерацията е обща).
+        # Прекъсване след ПОСЛЕДНИЯ бг стих отива след последния цс стих:
+        # номерацията в края на псалма понякога се разминава с един.
         for after, kind, txt in p.get('breaks', []):
-            if after == v:
+            if after == v if after < bg_last else v == cs_last:
                 csl.append({'kind': 'rubric', 'html': 'Сла́ва:' if kind == 'slava'
                             else 'Среда̀.'})
     return {'title_csl': None, 'title_bg': 'Псалом %d' % ps,
@@ -190,6 +199,18 @@ def main():
                             b['html'] == 'Сла́ва:' for b in units[-1]['csl']):
                         units[-1]['csl'].append({'kind': 'rubric', 'html': 'Сла́ва:'})
         assert START[k - 1] + i == START[k], (k, i)
+        # ⚠ ВСЯКА катизма свършва със „Слава" (края на третата статия). В
+        # бг PDF-а при катизма 2 и 8 тя липсва — добавя се в двете колони.
+        # ⚠ Само ако „Славите" са ПО-МАЛКО от три: в 20-а катизма Пс. 151 се
+        # чете СЛЕД третата статия и след него „Слава" няма.
+        last = units[-1]
+        for lang, lab in (('bg', 'Слава'), ('csl', 'Сла́ва')):
+            n = sum(1 for u in units for b in u[lang] if b['kind'] == 'rubric'
+                    and b['html'].startswith(lab) and 'Отца' not in b['html'])
+            n += any('Слава на Отца' in b['html'] for u in units for b in u['bg']) \
+                and lang == 'bg' and n < 3
+            if n < 3:
+                last[lang].append({'kind': 'rubric', 'html': lab + ':'})
         pr = cs_blocks(prayers_after(doc, heads, k))
         units.append({'title_csl': None, 'title_bg': 'Молитви след %s катизма' % ORD_BG[k - 1],
                       'title_cs': 'По %s-й каѳі́смѣ' % cs_num(k), 'csr': [], 'bg': [],
