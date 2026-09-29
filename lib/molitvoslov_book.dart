@@ -67,6 +67,23 @@ const String kPsalterBook = 'Псалтир';
 String? bookKeyOf(MolSection s) =>
     s.book ?? (s.tab == 'psaltir' ? kPsalterBook : null);
 
+/// Заглавието на раздел в съдържание. В Псалтира диапазонът в скобите
+/// („Катизма първа (псалми 1–8)") минава на СВОЙ ред: иначе в изправено
+/// половината заглавия се пречупват насред скобите. Редовете са сбити
+/// (height 1.15), за да стои скобата по-близо до своето заглавие, отколкото
+/// до следващия ред в списъка (указание на потребителя).
+Widget sectionTitleText(MolSection s, TextStyle style) {
+  final m = s.tab == 'psaltir'
+      ? RegExp(r'^(.*?)\s+(\([^()]*\))$').firstMatch(s.titleBg)
+      : null;
+  if (m == null) return Text(s.titleBg, style: style);
+  final tight = style.copyWith(height: 1.15);
+  return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    Text(m.group(1)!, style: tight),
+    Text(m.group(2)!, style: tight),
+  ]);
+}
+
 /// Чисти остарелите записи в [MolitvoslovBookLast] срещу ТЕКУЩАТА база.
 void pruneBookLast(List<MolSection> all) {
   final byId = {for (final s in all) s.id: s};
@@ -259,8 +276,8 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
             Expanded(
               child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(
-                  child: Text(s.titleBg,
-                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+                  child: sectionTitleText(
+                      s, const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
                 ),
                 const SizedBox(width: 10),
                 Transform.translate(offset: const Offset(0, -2), child: LangChip(s.langs)),

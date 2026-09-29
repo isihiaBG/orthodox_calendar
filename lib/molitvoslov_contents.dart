@@ -199,8 +199,9 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
                 // заглавието (многоредовото заглавие не го влачи надолу).
                 child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   Expanded(
-                    child: Text(s.titleBg,
-                        style: const TextStyle(
+                    child: sectionTitleText(
+                        s,
+                        const TextStyle(
                             color: AppColors.textPrimary, fontSize: 17)),
                   ),
                   const SizedBox(width: 10),

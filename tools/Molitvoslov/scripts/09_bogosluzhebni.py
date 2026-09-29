@@ -222,6 +222,41 @@ def grp_of(book, label, fname):
     return None
 
 
+# ⚠ МАЛКОТО ПОВЕЧЕРИЕ: Пс. 101 → Пс. 142. Нашият Часослов е от редакцията,
+# която след Пс. 69 дава Пс. 101 („Гдⷭ҇и, ѹ҆слы́ши моли́твꙋ мою̀, и҆ во́пль
+# мо́й…"); далеч по-разпространената (и ползваната у нас) дава Пс. 142
+# („Гдⷭ҇и, ѹ҆слы́ши моли́твꙋ мою̀, внꙋшѝ моле́нїе моѐ…"). Двата започват
+# еднакво — затова разпознаването е по ПРОДЪЛЖЕНИЕТО. Текстът на Пс. 142 се
+# взима от bible.db (цс), без надписанието. (Решение на потребителя.)
+PS101_HEAD = 'Гдⷭ҇и, ѹ҆слы́ши моли́твꙋ мою̀, и҆ во́пль мо́й'
+BIBLE_DB = Path(__file__).resolve().parents[3] / 'assets' / 'db' / 'bible.db'
+
+
+def ps142_csl():
+    import sqlite3
+    con = sqlite3.connect(BIBLE_DB)
+    vs = [t for (t,) in con.execute(
+        "SELECT text FROM verses WHERE lang='utfcs' AND book='Ps' AND chapter=142 "
+        "AND verse <> '0' ORDER BY ord")]
+    con.close()
+    # bible.db пише „ᲂу" (U+1C82+у), Часословът — „ѹ"; да не се смесват.
+    return ' '.join(vs).replace('\u1c82у', 'ѹ')
+
+
+def fix_small_compline(out):
+    n = 0
+    for s in out:
+        if s['book'] != 'Часослов' or s['title_bg'] != 'Малко повечерие':
+            continue
+        for u in s['units']:
+            for b in u['csl']:
+                if b['html'].startswith(PS101_HEAD):
+                    b['html'] = ps142_csl()
+                    n += 1
+    if n != 1:
+        sys.exit('⚠ Малкото повечерие: Пс. 101 намерен %d пъти (очаквано 1)' % n)
+
+
 def main():
     raw = []
     for fname, book, bname in BOOKS:
@@ -241,6 +276,7 @@ def main():
         out.append({'sec': sid, 'tab': 'bogosluzhebni', 'book': bname,
                     'grp': grp_of(book, label, fname), 'title_bg': tbg, 'title_csl': None,
                     'csr_source': None, 'csl_source': SRC, 'units': us})
+    fix_small_compline(out)
     (W / 'bogosluzhebni.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
                                           encoding='utf-8')
     n_bl = sum(len(u['csl']) for s in out for u in s['units'])

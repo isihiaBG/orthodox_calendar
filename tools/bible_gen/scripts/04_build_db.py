@@ -36,6 +36,7 @@
 import argparse
 import csv
 import json
+import re
 from html import unescape
 import os
 import sqlite3
@@ -221,6 +222,30 @@ GROUP BY book, chapter, verse;
 """
 
 
+# „1. Псалом от Давида (…). Господи, чуй…" — надписанието слято с ПЪРВИЯ
+# стих, заедно с номера му. Среща се в българския превод на azbyka.ru (Пс.
+# 142); навсякъде другаде надписанието е отделен стих „0". Слято, то се чете
+# като част от стиха вместо като бележка (курсив, посивено).
+_MERGED_HEADING = re.compile(r"^\s*1\.\s*(Псалом\b[^()]*?(?:\([^)]*\))?\.)\s+(\S.*)$",
+                             re.S)
+
+
+def split_merged_heading(verses):
+    """Отделя надписание, слято с първия стих, в стих „0". Само ако стих „0"
+    още НЯМА — инак нищо не се пипа."""
+    if not verses or any(v["verse"] == "0" for v in verses):
+        return verses
+    first = verses[0]
+    m = _MERGED_HEADING.match(first["text"]) if first["verse"] == "1" else None
+    if not m:
+        return verses
+    head, rest = m.group(1), m.group(2)
+    heading = dict(first, verse="0", text=head, heading=True,
+                   html='<span class="cyn" title="Слова, добавленные '
+                        'переводчиками для ясности">%s</span>' % head)
+    return [heading, dict(first, text=rest, html=rest)] + verses[1:]
+
+
 def load_corrections():
     """Поправки по конкретен стих, четени от input/corrections.csv.
 
@@ -336,6 +361,8 @@ def main():
 
             for chapter_str, verses in payload["chapters"].items():
                 chapter = int(chapter_str)
+                if book == "Ps":
+                    verses = split_merged_heading(verses)
                 for ordinal, v in enumerate(verses, start=1):
                     fixes = corrections.get((code, book, chapter, v["verse"]))
                     if fixes:
