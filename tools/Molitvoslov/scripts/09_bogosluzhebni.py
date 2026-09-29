@@ -78,7 +78,11 @@ class ParaParser(HTMLParser):
         if t:
             # ⚠ Третото поле: получер (Октоихът бележи заглавията така, не с
             # червено) — само за разпознаване на заглавие, не за цвета.
-            self.cur.append(('kinovar' in self.stack, ucs.decode(t), 'bold' in self.stack))
+            # ⚠ Номерата на страниците („зри стр. 229") са АРАБСКИ ЦИФРИ в
+            # отделен шрифт (`slavicgreek`); минати през ucs.decode, те стават
+            # надредни знаци и не се четат. Остават както са (потребителят).
+            dec = t if 'slavicgreek' in self.stack else ucs.decode(t)
+            self.cur.append(('kinovar' in self.stack, dec, 'bold' in self.stack))
 
 
 RE_UNIT = re.compile(r'^(?:(?:Въ?|Во|На)\s.{0,60}(?:вечер|ѹтр|утр|лїтꙋрг|повечер|полꙋнощ|часѣ|часъ)'
