@@ -112,8 +112,9 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
   /// [_history] — състоянията преди всяка стъпка.
   ///
   /// ⚠ ✕ трие БЕЗ питане — човекът е влязъл нарочно, а грешката се връща с
-  /// „отмени". Пита се САМО при „изтрий всички" и то е окончателно.
-  /// (Решение на потребителя, 29.09.2026.)
+  /// „отмени". Пита се САМО при „изтрий всички", но и то е обикновена
+  /// стъпка: списъкът остава в редакцията и „отмени" го връща; окончателно
+  /// става чак при излизане. (Решение на потребителя, 29.09.2026.)
   List<BookmarkEntry> _editStart = const [];
   final _history = <List<BookmarkEntry>>[];
 
@@ -225,16 +226,10 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
         ],
       ),
     );
-    if (result != true) return;
-    for (final e in _editStart) {
-      await e.delete();
-    }
-    _history.clear();
-    _editStart = const [];
-    if (!mounted) return;
+    if (result != true || !mounted) return;
     setState(() {
-      _items = const [];
-      _editing = false;
+      _history.add([...?_items]);
+      _items = <BookmarkEntry>[];
     });
   }
 
@@ -329,8 +324,8 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
             child: IconButton(
               tooltip: 'Изтрий всички',
               icon: Icon(Icons.delete_sweep_outlined,
-                  color: _editStart.isEmpty ? AppColors.textMuted : null),
-              onPressed: _editStart.isEmpty ? null : _deleteAll,
+                  color: has ? null : AppColors.textMuted),
+              onPressed: has ? _deleteAll : null,
             ),
           ),
         ] else if (has)

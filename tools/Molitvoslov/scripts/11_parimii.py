@@ -637,7 +637,11 @@ def main():
             if units and units[0]['bg'] == [('rubric', vesp)]:
                 units = units[1:]
             units = [{'title_bg': None, 'title_csl': None,
-                      'bg': [('rubric', 'Общи паримии: %s' % tt.get(ptr, ptr))], 'csl': []},
+                      # Името е това на общия раздел в съдържанието — до
+                      # първата запетая, инак редът става на три реда.
+                      'bg': [('rubric', 'Общи паримии: %s'
+                              % tt.get(c['name_ru'], c['name_ru']).split(',')[0])],
+                      'csl': []},
                      {'title_bg': None, 'title_csl': None,
                       'bg': [('rubric', vesp)], 'csl': [('rubric', vesp)]}] + \
                 [u for u, _ in cu if u] + units
