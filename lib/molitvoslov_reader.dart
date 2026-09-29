@@ -448,7 +448,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       final b = blocks[bi];
       final style = b.isRubric
           ? base.copyWith(color: p.wine, fontSize: base.fontSize! - 2)
-          : b.isRefrain || b.isIrmos
+          : b.isIrmos
+              // 4 пункта — при 2 разликата с тропарите не личеше (потребителят).
+              ? base.copyWith(fontSize: base.fontSize! - 4)
+          : b.isRefrain
               ? base.copyWith(fontSize: base.fontSize! - 2)
               : b.isHint
                   ? base.copyWith(
