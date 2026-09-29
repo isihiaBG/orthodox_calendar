@@ -80,7 +80,8 @@ Widget sectionTitleText(MolSection s, TextStyle style) {
   final tight = style.copyWith(height: 1.15);
   return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
     Text(m.group(1)!, style: tight),
-    Text(m.group(2)!, style: tight),
+    // Диапазонът — посивен, за да не изпъква наравно с името (потребителят).
+    Text(m.group(2)!, style: tight.copyWith(color: AppColors.textSecondary)),
   ]);
 }
 
