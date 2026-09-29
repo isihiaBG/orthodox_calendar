@@ -592,6 +592,22 @@ def main():
         service = 'на вечерне'
         first = next((it['title_ru'] for it in items_ if it['title_ru']), None)
         service = service_of(first) or service
+        # ⚠ И В САМАТА КНИГА: пред първото четиво на всяка служба и при всяка
+        # смяна стои червен ред „На вечернята" / „При водосвета"… Дотук
+        # службата стигаше само до календара, а книгата беше без указания.
+        # (Докладвано от потребителя, 29.09.2026.) На български и в двете
+        # колони — указание за служещия, не част от четивото.
+        shown = None
+
+        def mark(sv):
+            nonlocal shown
+            if sv == shown:
+                return
+            shown = sv
+            lab = SERVICE_BG.get(sv, sv)
+            units.append({'title_bg': None, 'title_csl': None,
+                          'bg': [('rubric', lab)], 'csl': [('rubric', lab)]})
+
         for it in items_:
             sv = service_of(it['title_ru'])
             if sv:
@@ -603,6 +619,7 @@ def main():
                 continue
             u, r = build_item(it, len(readings))
             if u:
+                mark(service)
                 units.append(u)
             if r:
                 readings.append(r + (service,))
@@ -614,8 +631,15 @@ def main():
             if c is None:
                 sys.exit('⚠ няма общ раздел „%s"' % ptr)
             cu = [build_item(it, 0) for it in c['items']]
+            vesp = SERVICE_BG['на вечерне']
+            # Общите паримии са на вечернята; ако собствените на деня започват
+            # със същата служба, второто указание е излишно.
+            if units and units[0]['bg'] == [('rubric', vesp)]:
+                units = units[1:]
             units = [{'title_bg': None, 'title_csl': None,
-                      'bg': [('rubric', 'Общи паримии: %s' % tt.get(ptr, ptr))], 'csl': []}] + \
+                      'bg': [('rubric', 'Общи паримии: %s' % tt.get(ptr, ptr))], 'csl': []},
+                     {'title_bg': None, 'title_csl': None,
+                      'bg': [('rubric', vesp)], 'csl': [('rubric', vesp)]}] + \
                 [u for u, _ in cu if u] + units
             readings = [r + ('на вечерне',) for _, r in cu if r] + readings
         if not units:
