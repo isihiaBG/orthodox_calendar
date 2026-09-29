@@ -1625,11 +1625,34 @@ Future<void> showRefSheet(BuildContext context, String href) async {
     isScrollControlled: true,
     useSafeArea: true,
     backgroundColor: Colors.transparent,
+    // ⚠ Отгоре стои ИВИЦА С ЧЕРТИЧКА, в цвета на останалите изскачащи
+    // прозорчета. Без нея прозорецът почваше направо с тъмната лента на
+    // четеца: хващане за затваряне нямаше, а горният ръб се сливаше с
+    // потъмнения фон зад него. (Докладвано от потребителя, 29.09.2026.)
+    // Плъзгането надолу работи по ивицата — по текста го поема скролът.
     builder: (_) => SizedBox(
       height: h * 0.9,
       child: ClipRRect(
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
-        child: MolitvoslovReader(section: sec, embedded: true, startAt: start),
+        child: Column(children: [
+          Container(
+            width: double.infinity,
+            color: AppColors.backgroundCard,
+            padding: const EdgeInsets.only(top: 10, bottom: 8),
+            alignment: Alignment.center,
+            child: Container(
+              width: 36,
+              height: 4,
+              decoration: BoxDecoration(
+                  color: AppColors.textMuted,
+                  borderRadius: BorderRadius.circular(2)),
+            ),
+          ),
+          Expanded(
+            child: MolitvoslovReader(
+                section: sec, embedded: true, startAt: start),
+          ),
+        ]),
       ),
     ),
   );
