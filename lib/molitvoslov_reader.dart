@@ -36,7 +36,6 @@ import 'reader_theme.dart';
 import 'reader_toolbar.dart';
 import 'round_icon_button.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
-import 'search_match.dart' show searchTerms;
 import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
@@ -739,7 +738,15 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   }
 
   void _runSearch(String q) {
-    final terms = searchTerms(foldPrayerText(q).text);
+    // ⚠ ЦЕЛИ ИЗРАЗИ, не отделни думи (указание на потребителя): иначе
+    // „Отче наш" намира всяко „наш" поотделно и обхождането се губи из
+    // абзаци, които нямат нищо общо с търсеното. Няколко израза се разделят
+    // с „|" — съвпадението е с КОЙТО И ДА Е от тях.
+    final terms = [
+      for (final part in q.split('|'))
+        if (_squeeze(foldPrayerText(part).text).trim().isNotEmpty)
+          _squeeze(foldPrayerText(part).text).trim()
+    ];
     final hits = <_Hit>[];
     if (terms.isNotEmpty) {
       final units = _units ?? const <MolUnit>[];
@@ -767,16 +774,42 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     if (hits.isNotEmpty) _revealCurrent();
   }
 
+  /// Пунктуацията отпада, а поредица от интервали става един — за да не
+  /// пречат на израза запетая или двоен интервал между думите му.
+  static final _notWord = RegExp(r'[^\p{L}\p{N}\s]', unicode: true);
+  static String _squeeze(String t) =>
+      t.replaceAll(_notWord, '').replaceAll(RegExp(r'\s+'), ' ');
+
   static List<_Hit> _find(
       String text, List<String> terms, int ui, String lang, int bi) {
-    final f = foldPrayerText(text);
+    final f0 = foldPrayerText(text);
+    // Същото изчистване като при заявката, с пазене на местата в изходния
+    // текст (виж [foldPrayerText]).
+    final buf = StringBuffer();
+    final starts = <int>[], ends = <int>[];
+    var lastSpace = true;              // и водещите интервали отпадат
+    for (var i = 0; i < f0.text.length; i++) {
+      final ch = f0.text[i];
+      if (_notWord.hasMatch(ch)) continue;
+      final space = ch.trim().isEmpty;
+      if (space) {
+        if (lastSpace) continue;
+        buf.write(' ');
+      } else {
+        buf.write(ch);
+      }
+      lastSpace = space;
+      starts.add(f0.starts[i]);
+      ends.add(f0.ends[i]);
+    }
+    final flat = buf.toString();
     final found = <List<int>>[];
     for (final t in terms) {
       var from = 0;
       while (true) {
-        final at = f.text.indexOf(t, from);
+        final at = flat.indexOf(t, from);
         if (at < 0) break;
-        found.add([f.starts[at], f.ends[at + t.length - 1]]);
+        found.add([starts[at], ends[at + t.length - 1]]);
         from = at + 1;
       }
     }
