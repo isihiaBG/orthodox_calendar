@@ -294,6 +294,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     final chain = kLanguageFontFamilies[l?.font ?? ''];
     return TextStyle(
       color: p.ink,
+      // ⚠ Цветът на ПОДЧЕРТАВАНЕТО се задава изрично. Иначе идва от темата на
+      // приложението (тъмна → бяло) и в светлата тема на четеца връзките
+      // губеха подчертаването си върху кремавата страница (потребителят).
+      decorationColor: p.ink,
       fontSize: MolitvoslovFontSize.value + (l?.sizeDelta ?? 0) + delta,
       height: _kLineHeight + (l?.lineDelta ?? 0),
       fontFamily: (chain == null || chain.isEmpty) ? null : chain.first,
@@ -404,10 +408,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                   // остава мастилен (виж [ReaderPalette.hit]).
                   decoration: href != null ? TextDecoration.underline : null,
                   decorationStyle: TextDecorationStyle.dotted,
-                  // ⚠ С подразбиращата се дебелина точките в светла тема
-                  // почти изчезваха върху кремавата страница (докладвано от
-                  // потребителя). По-плътни, личат и в двете теми.
-                  decorationThickness: href != null ? 2.2 : null,
+                  // ⚠ Мастилено — следва темата (потребителят).
+                  decorationColor: href != null ? p.ink : null,
                 )
               : null,
         ));
