@@ -404,6 +404,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                   // остава мастилен (виж [ReaderPalette.hit]).
                   decoration: href != null ? TextDecoration.underline : null,
                   decorationStyle: TextDecorationStyle.dotted,
+                  // ⚠ С подразбиращата се дебелина точките в светла тема
+                  // почти изчезваха върху кремавата страница (докладвано от
+                  // потребителя). По-плътни, личат и в двете теми.
+                  decorationThickness: href != null ? 2.2 : null,
                 )
               : null,
         ));
