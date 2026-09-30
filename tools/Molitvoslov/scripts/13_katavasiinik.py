@@ -102,6 +102,9 @@ GROUP_LINES = {'КАТАВАСИИ', 'ѺБЩИ КАТАВАСИИ ПРЕЗ ГО�
                'Полиелейни псалми.', 'Величаниѧ с избрани псалми по месецослова и',
                'Триода.', 'Величаниѧ общи.'}
 
+# Над кой раздел стои и заглавието на групата си — (горе, долу), центрирани.
+HEAD_OVER = {'Псалом 134': ('ПОЛИЕЛЕЙ', 'Полиелейни псалми')}
+
 BG_MAP = str.maketrans({'ѧ': 'я', 'Ѧ': 'Я', 'ꙋ': 'у', 'Ꙋ': 'У', 'ѻ': 'о', 'Ѻ': 'О',
                         'ꙗ': 'я', 'Ꙗ': 'Я', 'ѹ': 'у', 'Ѹ': 'У'})
 
@@ -212,7 +215,10 @@ def main():
     out = []
     for k, (grp, title, page, _) in enumerate(TOC):
         # заглавният ред е в `title`
-        chunk = [ls[q] for q in pre[k]] + ls[starts[k] + 1:ends[k]]
+        # ⚠ „Псалом 134." остава В ТЕКСТА като заглавие на своята част —
+        # след бележките над него, както в книгата (указание на потребителя).
+        own = starts[k] if title.startswith('Псалом') else starts[k] + 1
+        chunk = [ls[q] for q in pre[k]] + ls[own:ends[k]]
         units = [{'title': None, 'blocks': []}]
         para = None
         in_title = True             # заглавните редове на самия раздел
@@ -227,7 +233,10 @@ def main():
                 else:
                     kind = 'text'
                 if is_bg_para(h):
-                    h = bg_words(h)
+                    # ⚠ Българските бележки са УКАЗАНИЯ — винени и по-дребни,
+                    # както в другите книги (указание на потребителя), макар в
+                    # книгата да са черни с червена буквица.
+                    h, kind = bg_words(h), 'rubric'
                 if h:
                     units[-1]['blocks'].append({'kind': kind, 'html': h})
             para = None
@@ -272,6 +281,10 @@ def main():
         # Червени редове, продължили предния абзац без нов ред („(три́жды)"),
         # и празните блокове се сливат/махат.
         units = [u for u in units if u['blocks'] or u['title']]
+        # Заглавието на групата над първия ѝ раздел (указание на потребителя).
+        if title in HEAD_OVER:
+            units[0]['title'] = HEAD_OVER[title][1]
+            units.insert(0, {'title': HEAD_OVER[title][0], 'blocks': []})
         out.append({'sec': FIRST_SEC + k, 'tab': 'bogosluzhebni', 'book': BOOK, 'grp': grp,
                     'title_bg': title, 'title_csl': None, 'csr_source': None,
                     'csl_source': SRC,
