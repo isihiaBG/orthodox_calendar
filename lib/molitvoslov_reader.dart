@@ -314,14 +314,16 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
   List<_Run> _runs(String html, {required bool redFirst}) {
     final out = <_Run>[];
     // ⚠ И вътрешни препратки `<a href="mol:…">` (виж [showRefSheet]) —
-    // парчето помни адреса си и се рисува подчертано.
-    final re = RegExp(r'<span class="rubric">(.*?)</span>|<a href="(mol:[^"]+)">(.*?)</a>',
+    // парчето помни адреса си и се рисува подчертано. С `class="rubric"` —
+    // и винено: препратка насред указание в обикновен абзац.
+    final re = RegExp(
+        r'<span class="rubric">(.*?)</span>|<a href="(mol:[^"]+)"( class="rubric")?>(.*?)</a>',
         dotAll: true);
     var at = 0;
     for (final m in re.allMatches(html)) {
       if (m.start > at) out.add(_Run(_plain(html.substring(at, m.start)), false));
       if (m.group(2) != null) {
-        out.add(_Run(_plain(m.group(3)!), false, href: _plain(m.group(2)!)));
+        out.add(_Run(_plain(m.group(4)!), m.group(3) != null, href: _plain(m.group(2)!)));
       } else {
         out.add(_Run(_plain(m.group(1)!), true));
       }
