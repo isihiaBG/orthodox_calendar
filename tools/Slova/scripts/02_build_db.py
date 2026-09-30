@@ -302,6 +302,14 @@ def main() -> int:
             for т in ('slovo_saints', 'slovo_notes', 'slovo_days'):
                 db.execute(f'DELETE FROM {т} WHERE id = ?', (i,))
         db.execute('DELETE FROM slova WHERE book = ?', (книга,))
+    # ⚠ И ПО СОБСТВЕНИТЕ id-та, не само по `slova`. Пуснат СЛЕД
+    # `lives_plus/03_build_db.py`, горният цикъл не намира нищо — той
+    # пресъздава `slova` празна, а `slovo_notes`/`slovo_saints` оцеляват.
+    # Тогава бележките гърмяха с „UNIQUE constraint failed" и 25-те слова
+    # изчезваха от базата (платено на 30.09.2026).
+    for ч in четива:
+        for т in ('slovo_saints', 'slovo_notes', 'slovo_days'):
+            db.execute(f'DELETE FROM {т} WHERE id = ?', (ч['id'],))
     for ч in четива:
         db.execute(
             'INSERT INTO slova (id, book, address, title_bg, title_ru, body,'

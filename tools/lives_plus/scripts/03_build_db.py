@@ -98,6 +98,20 @@ def тяло(блокове: list[str]) -> str:
     return '\n'.join(_абзац(b) for b in блокове if b.strip())
 
 
+# ⚠ Пред неделите, закачени за ЕВАНГЕЛИЕТО си (`G:…`, виж address.py):
+# номерът в заглавието е по реда на евангелията и понякога не съвпада с
+# неделята в календара — бележката казва защо. `memorydate` е приглушен
+# центриран курсив и буквицата сама я прескача (търси гол `<p>`).
+# (Искане на потребителя, 30.09.2026.) Същият текст стои и в
+# `tools/dni_bogosluzheniya/scripts/03_build_db.py` — мени ги заедно.
+БЕЛЕЖКА_НЕДЕЛЯ = (
+    '<p class="memorydate">Номерът на неделята следва реда на неделните '
+    'евангелия. След Въздвижение той понякога се разминава с броя на '
+    'неделите след Петдесетница в календара (т.нар. отстъпка и преступка '
+    'на четивата), затова поучението излиза в деня, в който се чете самото '
+    'евангелие.</p>')
+
+
 def main() -> int:
     преведени = sorted((РАБОТА / 'translated').glob('*.json'))
     if not преведени:
@@ -137,6 +151,8 @@ def main() -> int:
         тяло_ = тяло(x['blocks_bg'])
         # ⚠ „;" дели няколко адреса; първият е главният.
         адреси = [a.strip() for a in x['address'].split(';') if a.strip()]
+        if any(a.startswith('G:') for a in адреси):
+            тяло_ = БЕЛЕЖКА_НЕДЕЛЯ + тяло_
         x['address'] = адреси[0]
         src = (връзки.get(x['id']) or {}).get('url', '')
         if not src:
@@ -160,6 +176,7 @@ def main() -> int:
         SELECT CASE
             WHEN address IN ('fast','memorial') THEN 'повод'
             WHEN instr(address,'|') > 0 THEN 'закотвен'
+            WHEN substr(address,1,2) = 'G:' THEN 'по евангелие'
             WHEN substr(address,1,1) IN ('T','P','W') THEN 'подвижен'
             ELSE 'неподвижен' END AS вид, COUNT(*)
         FROM slova GROUP BY вид ORDER BY 2 DESC""").fetchall()

@@ -181,7 +181,36 @@ class LivesPlusDb {
         }
       }
     }
+    // ⚠⚠ НЕДЕЛЯТА И ПО СВОЕТО ЕВАНГЕЛИЕ: „G:Лк.30".
+    //
+    // Главите на прот. Григорий Дебольски и поученията на свт. Димитрий
+    // Ростовски за неделите от 17-та нататък тълкуват НЕДЕЛНОТО ЕВАНГЕЛИЕ, а
+    // номерът им е по реда на евангелията. След Въздвижение той се
+    // разминава с броя на неделите след Петдесетница (Лукиният скок — виж
+    // [gospelWeekFor]), тъй че закачени за „W20:7" те излизаха в деня на
+    // ДРУГО евангелие: през 2026 г. на 18.X (Лк. 6:31-36) се показваше
+    // главата за наинската вдовица (Лк. 7:11-16), която се чете на 25.X.
+    // (Докладвано от потребителя, 30.09.2026.)
+    //
+    // Затова те са закачени за самото евангелие, а тук денят го предлага —
+    // ПРЕЗ СЪЩАТА сметка, с която секцията „Евангелие и Апостол" показва
+    // четивата. Двете не могат да се разминат по устройство.
+    if (d.weekday == DateTime.sunday) {
+      for (final r in readingsFor(date, churchMonthDay, oldStyle: oldStyle)) {
+        if (r.type != 'gospel') continue;
+        final g = gospelAddressOf(r.ref);
+        if (g != null && !out.contains(g)) out.add(g);
+      }
+    }
     return out;
+  }
+
+  /// „Лк. 30 (7:11-16)" → „G:Лк.30" — адресът на глава, закачена за
+  /// евангелие. Книгата е както я пише [readingsFor]: „Мат.", „Марк.",
+  /// „Лк.", „Иоан".
+  static String? gospelAddressOf(String ref) {
+    final m = RegExp(r'^\s*([^\d\s(.]+)\.?\s*(\d+)').firstMatch(ref);
+    return m == null ? null : 'G:${m.group(1)}.${m.group(2)}';
   }
 
   /// Словата за деня, или празен списък.
@@ -228,9 +257,10 @@ class LivesPlusDb {
     final db = await database;
     try {
       final rows = await db.rawQuery('''
-        SELECT n.id, n.title_bg, d.address
+        SELECT n.id, n.title_bg, MIN(d.address) AS address
         FROM dni_days d JOIN dni n ON n.id = d.id
         WHERE d.address IN (${List.filled(addrs.length, '?').join(',')})
+        GROUP BY n.id
         ORDER BY n.ord
       ''', addrs);
       return [
