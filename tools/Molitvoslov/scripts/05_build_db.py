@@ -191,7 +191,7 @@ def main():
     # той би се вмъкнал между тях.
     extra = []
     for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json',
-                 'parimii.json', 'irmologii.json'):
+                 'parimii.json', 'irmologii.json', 'katavasiinik.json'):
         path = os.path.join(W, name)
         if os.path.exists(path):
             extra += [(len(extra) + i, s) for i, s in
