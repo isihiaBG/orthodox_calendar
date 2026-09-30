@@ -910,6 +910,19 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       );
   }
 
+  /// Заглавието на раздела повтаря ли се като заглавие на част ВЪТРЕ в
+  /// него? Тогава горното отпада — иначе стои два пъти. Единственият случай
+  /// е „Псалом 134" в Катавасийника: там над псалма стоят „ПОЛИЕЛЕЙ" и
+  /// бележката, а „Псалом 134." е след тях, както в книгата (указание на
+  /// потребителя). Правилото е общо, не по име на раздел.
+  bool _titleRepeatedInside(List<MolUnit> units) {
+    String norm(String? t) =>
+        (t ?? '').trim().replaceAll(RegExp(r'[.:]+$'), '').toLowerCase();
+    final own = norm(widget.section.titleBg);
+    return own.isNotEmpty &&
+        units.any((u) => norm(u.titleBg) == own || norm(u.titleCsl) == own);
+  }
+
   Widget _header(ReaderPalette p, String? only) {
     final s = widget.section;
     TextStyle st(String lang) => _style(p, lang, delta: 6).copyWith(
@@ -1386,7 +1399,8 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    _header(p, only ?? (landscape ? _left : null)),
+                    if (!_titleRepeatedInside(units))
+                      _header(p, only ?? (landscape ? _left : null)),
                     for (var ui = 0; ui < units.length; ui++)
                       KeyedSubtree(
                         key: _unitKeys[ui],
