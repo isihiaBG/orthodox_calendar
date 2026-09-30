@@ -324,19 +324,31 @@ class _BookSwitcher extends StatefulWidget {
   State<_BookSwitcher> createState() => _BookSwitcherState();
 }
 
+/// Книгите, добавени СЛЕД първите записани списъци на плаващото копче —
+/// виж [MolitvoslovSwitcherBooks.known].
+const _kAddedLater = {'Паримии', 'Ирмологий', 'Катавасийник'};
+
 class _BookSwitcherState extends State<_BookSwitcher> {
   late final List<String> _candidates = switcherCandidates(widget.all);
-  late final List<String> _books = [
-    for (final b in MolitvoslovSwitcherBooks.value ?? _candidates)
-      if (_candidates.contains(b)) b,
-  ];
+  late final List<String> _books = () {
+    final saved = MolitvoslovSwitcherBooks.value;
+    if (saved == null) return List.of(_candidates);
+    // ⚠ Запис отпреди [MolitvoslovSwitcherBooks.known]: тогава нови са
+    // точно трите книги, добавени след него.
+    final known = MolitvoslovSwitcherBooks.known ??
+        [for (final b in _candidates) if (!_kAddedLater.contains(b)) b];
+    return [
+      for (final b in saved) if (_candidates.contains(b)) b,
+      for (final b in _candidates) if (!known.contains(b) && !saved.contains(b)) b,
+    ];
+  }();
   bool _editing = false;
 
   late final Map<int, MolSection> _byId = {for (final s in widget.all) s.id: s};
 
   List<String> get _missing => [for (final b in _candidates) if (!_books.contains(b)) b];
 
-  void _save() => MolitvoslovSwitcherBooks.set(_books);
+  void _save() => MolitvoslovSwitcherBooks.set(_books, _candidates);
 
   void _contents(String book) {
     Navigator.of(context).pop();

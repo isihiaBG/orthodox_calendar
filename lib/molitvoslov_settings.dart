@@ -127,11 +127,19 @@ class MolitvoslovBookLast {
 
 /// Кои книги и в какъв ред стоят в плаващото копче — нагласява се от
 /// човека (режим на редактиране). null = всички, в подразбиращия се ред.
+///
+/// ⚠ [known] — кои книги СЪЩЕСТВУВАХА, когато човекът е нагласил списъка.
+/// Книга, която я няма там, е НОВА (дошла с по-нов билд) и влиза в списъка
+/// сама, накрая; иска ли я вън, я маха с редактирането (указание на
+/// потребителя). Без това всяка нова книга оставаше извън списъка, защото
+/// записаното изглеждаше като съзнателен избор без нея.
 class MolitvoslovSwitcherBooks {
   MolitvoslovSwitcherBooks._();
 
   static const String _key = 'molitvoslov_switcher_books';
+  static const String _knownKey = 'molitvoslov_switcher_known';
   static List<String>? value;
+  static List<String>? known;
   static bool _loaded = false;
 
   static Future<void> loadOnce() async {
@@ -139,12 +147,15 @@ class MolitvoslovSwitcherBooks {
     _loaded = true;
     final p = await SharedPreferences.getInstance();
     value = p.getStringList(_key);
+    known = p.getStringList(_knownKey);
   }
 
-  static Future<void> set(List<String> books) async {
+  static Future<void> set(List<String> books, List<String> knownBooks) async {
     value = List.of(books);
+    known = List.of(knownBooks);
     final p = await SharedPreferences.getInstance();
     await p.setStringList(_key, books);
+    await p.setStringList(_knownKey, knownBooks);
   }
 }
 
