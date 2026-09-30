@@ -387,6 +387,57 @@ const Map<int, String> kSundayGospels = {
   return (number: result);
 }
 
+/// Възкресните утринни евангелия (единайсетте).
+///
+/// ⚠ Второто е „Марк 70", а изворът го пише „Мат. 70" — печатна грешка,
+/// с която връзката отваряше ДРУГ текст (Мат. 16:1-8).
+const Map<int, String> kSundayMatins = {
+  1: 'Утр. Ев. 1: Мат. 116 (28:16-20)', 2: 'Утр. Ев. 2: Марк 70 (16:1-8)',
+  3: 'Утр. Ев. 3: Марк 71 (16:9-20)', 4: 'Утр. Ев. 4: Лк. 112 (24:1-12)',
+  5: 'Утр. Ев. 5: Лк. 113 (24:12-35)', 6: 'Утр. Ев. 6: Лк. 114 (24:36-53)',
+  7: 'Утр. Ев. 7: Иоан 63 (20:1-10)', 8: 'Утр. Ев. 8: Иоан 64 (20:11-18)',
+  9: 'Утр. Ев. 9: Иоан 65 (20:19-31)', 10: 'Утр. Ев. 10: Иоан 66 (21:1-14)',
+  11: 'Утр. Ев. 11: Иоан 67 (21:15-25)',
+};
+
+/// Неподвижните Господски и Богородични празници (църковна дата). Падне ли
+/// се някой от тях в неделя, възкресно утринно няма — чете се празничното.
+const kGreatFixedFeasts = {
+  '01-01', '01-06', '02-02', '03-25', '08-06', '08-15', '09-08', '09-14',
+  '11-21', '12-25',
+};
+
+/// Номерът на ВЪЗКРЕСНОТО утринно евангелие за неделята, или `null`.
+///
+/// ⚠⚠ ДОТУК ТО СЕ ВЗИМАШЕ ОТ ТАБЛИЦАТА, А ТАМ БЕШЕ НА ФИКСИРАНИ ДАТИ —
+/// 47-те утринни на 2026 г., залепени за църковните си дати, тъй че в друга
+/// година излизаха в делници. Генераторът вече не ги записва
+/// (`12_extract_cycle.py`, 30.09.2026) и номерът се смята тук.
+///
+/// ПРАВИЛАТА — сверени с всичките недели от данните за 2026 г.:
+///   • Пасха, Връбница, Петдесетница — без възкресно утринно;
+///   • Пентикостар: Томина 1, Мироносици 4, Разслабления 5, Самарянката 7,
+///     Слепия 8, св. Отци 10 — по БЪЛГАРСКАТА традиция (руската дава 3 и 4
+///     за Мироносици и Разслабления; решение на потребителя, 07.09.2026);
+///   • от Вси светии нататък — кръг от 11, непрекъснато, през Триода до
+///     Връбница;
+///   • неделя, паднала на голям неподвижен празник, не чете възкресно, но
+///     броячът върви.
+int? sundayMatinsNumber(DateTime date, String churchMonthDay) {
+  final d = DateTime.utc(date.year, date.month, date.day);
+  if (d.weekday != DateTime.sunday) return null;
+  final py = d.isBefore(paschaOf(d.year)) ? d.year - 1 : d.year;
+  final pascha = paschaOf(py);
+  final off = d.difference(pascha).inDays;
+  if (d == paschaOf(py + 1).subtract(const Duration(days: 7))) return null;
+  if (off == 0 || off == 49) return null;
+  const pentecostarion = {7: 1, 14: 4, 21: 5, 28: 7, 35: 8, 42: 10};
+  if (off < 49) return pentecostarion[off];
+  if (kGreatFixedFeasts.contains(churchMonthDay)) return null;
+  final k = (off - 56) ~/ 7; // 0 = Вси светии
+  return k % 11 + 1;
+}
+
 /// Неделята на митаря и фарисея — началото на Триода.
 DateTime publicanSunday(int year) =>
     paschaOf(year).subtract(const Duration(days: 70));
@@ -465,9 +516,13 @@ List<R> anchoredFor(DateTime date, {required bool oldStyle}) {
     for (final y in [d.year - 1, d.year, d.year + 1]) {
       final feastDate = civilDateOfChurch(y, m, day, oldStyle: oldStyle);
       final diff = d.difference(feastDate).inDays;
-      // Търси се само в тясна околност — най-много седмица от двете страни.
-      if (diff.abs() > 7 || diff == 0) continue;
-      final dir = diff < 0 ? 'before' : 'after';
+      // Търси се само в тясна околност — най-много седмица от двете страни,
+      // плюс ВТОРАТА неделя преди празника („before2"): Неделята на св.
+      // Праотци е двете седмици преди Рождество. Дотук тя беше вкаменена
+      // на църковна 14.XII (датата ѝ през 2026 г.) и в друга година
+      // излизаше в делник. (30.09.2026.)
+      if (diff == 0 || diff > 7 || diff < -14) continue;
+      final dir = diff < -7 ? 'before2' : (diff < 0 ? 'before' : 'after');
       final rows = kReadingsAnchored['$feast|${d.weekday}|$dir'];
       if (rows != null) out.addAll(rows);
     }
@@ -517,6 +572,22 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
     }
   }
 
+  final matins = sundayMatinsNumber(date, churchMonthDay);
+  if (matins != null) out.add(R('gospel', kSundayMatins[matins]!));
+  // ⚠ Неделя, паднала на ГОСПОДСКИ празник, чете само празничното (така е
+  // и в данните за 2026 г.: Въздвижение в неделя, без редово). Дотук това
+  // идваше „даром" — таблицата просто нямаше тези адреси; попълнени сега
+  // (input/cycle_holes.csv), те трябва изрично да отстъпят. (30.09.2026.)
+  const lordsFeasts = {'01-06', '08-06', '09-14', '12-25'};
+  if (addr.cycle == ReadingCycle.afterPentecost &&
+      DateTime.utc(date.year, date.month, date.day).weekday ==
+          DateTime.sunday &&
+      lordsFeasts.contains(churchMonthDay)) {
+    final fixed = kReadingsFixed[churchMonthDay];
+    if (fixed != null) out.addAll(fixed);
+    out.addAll(anchoredFor(date, oldStyle: oldStyle));
+    return out;
+  }
   take(kReadingsApostle, apostleKey, 'apostle');
   // ⚠⚠ НЕДЕЛНОТО ЕВАНГЕЛИЕ СЛЕД ВЪЗДВИЖЕНИЕ — по свое правило, не по
   // таблицата: виж [sundayGospelAfterExaltation].
