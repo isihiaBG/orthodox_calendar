@@ -721,6 +721,11 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       (_landscape || _slide.value < 0.5 ? _left : (_rightOf(u) ?? _left));
 
   void _toggleSearch() {
+    // ⚠ Затварянето на търсенето връщаше в НАЧАЛОТО на раздела и
+    // намереното се губеше (докладвано от потребителя). Мястото се улавя
+    // ПРЕДИ смяната на лентата (заковата → плаваща) и се връща след нея —
+    // по същия път като при завъртане.
+    final keep = _searchOpen ? _topAnchor() : null;
     setState(() {
       _searchOpen = !_searchOpen;
       if (!_searchOpen) {
@@ -730,6 +735,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         _currentHit = 0;
       }
     });
+    if (keep != null) {
+      _lastAnchor = keep;
+      _restoreSettled(keep);
+    }
   }
 
   void _clearSearch() {
