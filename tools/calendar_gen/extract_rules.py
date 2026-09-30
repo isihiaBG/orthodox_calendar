@@ -150,6 +150,13 @@ def nearest_weekday(anchor: datetime.date, weekday: int, direction: str) -> date
     delta = (weekday - anchor.weekday()) % 7
     if direction == 'преди':
         delta -= 7
+    elif delta == 0:
+        # ⚠ Празникът САМ пада в търсения ден („Събота след Рождество", а
+        # Рождество е в събота) — „след" значи СЛЕДВАЩАТА седмица, не самия
+        # празник. „Преди" открай време го отчиташе, „след" — не: така през
+        # 2027 г. по нов стил съботата след Рождество излизаше на 25.XII.
+        # (Намерено при проверка, 30.09.2026.)
+        delta = 7
     return anchor + datetime.timedelta(days=delta)
 
 
