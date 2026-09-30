@@ -215,9 +215,9 @@ def main():
     out = []
     for k, (grp, title, page, _) in enumerate(TOC):
         # заглавният ред е в `title`
-        # ⚠ „Псалом 134." остава В ТЕКСТА като заглавие на своята част —
+        # ⚠ „Псалом 134." (само той) остава В ТЕКСТА като заглавие на своята част —
         # след бележките над него, както в книгата (указание на потребителя).
-        own = starts[k] if title.startswith('Псалом') else starts[k] + 1
+        own = starts[k] if title == 'Псалом 134' else starts[k] + 1
         chunk = [ls[q] for q in pre[k]] + ls[own:ends[k]]
         units = [{'title': None, 'blocks': []}]
         para = None
