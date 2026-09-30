@@ -273,6 +273,120 @@ DateTime? winterReferenceSunday(int year, {required bool oldStyle}) {
   return feast.add(Duration(days: ahead == 0 ? 7 : ahead));
 }
 
+/// Неделните евангелия по реда на неделите след Петдесетница — 13-та до
+/// 32-ра. Записът е като в [kReadingsGospel].
+const Map<int, String> kSundayGospels = {
+  13: 'Мат. 87 (21:33-42)', 14: 'Мат. 89 (22:1-14)',
+  15: 'Мат. 92 (22:35-46)', 16: 'Мат. 105 (25:14-30)',
+  17: 'Мат. 62 (15:21-28)', 18: 'Лк. 17 (5:1-11)', 19: 'Лк. 26 (6:31-36)',
+  20: 'Лк. 30 (7:11-16)', 21: 'Лк. 35 (8:5-15)', 22: 'Лк. 83 (16:19-31)',
+  23: 'Лк. 38 (8:26-39)', 24: 'Лк. 39 (8:41-56)', 25: 'Лк. 53 (10:25-37)',
+  26: 'Лк. 66 (12:16-21)', 27: 'Лк. 71 (13:10-17)', 28: 'Лк. 76 (14:16-24)',
+  29: 'Лк. 85 (17:12-19)', 30: 'Лк. 91 (18:18-27)', 31: 'Лк. 93 (18:35-43)',
+  32: 'Лк. 94 (19:1-10)',
+};
+
+/// Кое НЕДЕЛНО евангелие се чете в неделя от „Неделя след Въздвижение" до
+/// неделята на Закхей. `null` = денят не е такава неделя (важи таблицата);
+/// `number == null` = редово неделно евангелие днес НЯМА (четат се само
+/// тези на празника).
+///
+/// ⚠⚠ ДОТУК НЕДЕЛИТЕ СЕ ВЗИМАХА ОТ ТАБЛИЦАТА ПО НОМЕРА НА НЕДЕЛЯТА, а тя е
+/// наредена по 2026 г. стар стил. През 2025 г. по стар стил това даваше
+/// Лк. 5:1-11 на 19.X вместо на 5.X, а Мат. 62 (хананейката) и Лк. 94
+/// (Закхей) не излизаха НИКОГА. (Сверено от потребителя с руско календарче,
+/// 30.09.2026.)
+///
+/// ПРАВИЛАТА — изведени от ТРИ независими извора и сверени с всеки:
+/// календарчето за 2025 г. (5.X Лк. 17, 19.X Лк. 30), данните за 2026 г.
+/// (`test/fixtures/readings_2026.json`) и календара на Kotyuk за зимата на
+/// 2024 г. (28.I Лк. 91, 4.II Лк. 93, 11.II Мат. 62, 18.II Лк. 94):
+///
+///   ЕСЕН — напред. Неделята след Въздвижение взима от таблицата (както
+///   досега). Следващата е 18-та (Лк. 5:1-11), и нататък по ред, НЕЗАВИСИМО
+///   от номера на неделята след Петдесетница.
+///   • 28-то (Лк. 76) е на Неделята на св. Праотци (11–17.XII ц.). Падне ли
+///     се редът на 28 в неделя ПРЕДИ нея, там се чете 30-о; в Праотците —
+///     28 и 29 заедно; 30 после се прескача. (2026: 20.XII Лк. 91, 27.XII
+///     Лк. 85 + Лк. 76, 10.I Лк. 93.)
+///   • Неделята на св. Отци (18–24.XII ц.) и самото Рождество — само
+///     празничното, редът не брои. Неделята след Рождество чете и редово.
+///   ЗИМА — назад от Закхей, в неделите след отправната неделя около
+///   Богоявление ([winterReferenceSunday]): последната е 32 (Закхей), преди
+///   нея 17 (хананейката), после 31, 30, 29… — при по-малко недели само
+///   32, 31. Какво е прочетено наесен, не се гледа (повторенията са законни).
+({int? number})? sundayGospelAfterExaltation(DateTime date,
+    {required bool oldStyle}) {
+  final d = DateTime.utc(date.year, date.month, date.day);
+  if (d.weekday != DateTime.sunday) return null;
+  final paschaYear = d.isBefore(paschaOf(d.year)) ? d.year - 1 : d.year;
+  final sae = sundayAfterExaltation(paschaYear, oldStyle: oldStyle);
+  final zacchaeus =
+      publicanSunday(paschaYear + 1).subtract(const Duration(days: 7));
+  if (!d.isAfter(sae) || d.isAfter(zacchaeus)) return null;
+
+  // ── ЗИМА: назад от Закхей ────────────────────────────────────────────
+  final ref = winterReferenceSunday(paschaYear + 1, oldStyle: oldStyle);
+  if (ref != null && d.isAfter(ref)) {
+    final total = zacchaeus.difference(ref).inDays ~/ 7;
+    final back = zacchaeus.difference(d).inDays ~/ 7; // 0 = самият Закхей
+    final seq = total >= 3
+        ? [32, 17, for (var k = 31; k >= 18; k--) k]
+        : [for (var k = 32; k >= 18; k--) k];
+    return (number: back < seq.length ? seq[back] : null);
+  }
+  if (d == zacchaeus) return (number: kZacchaeusSunday);
+
+  // ── ЕСЕН: напред ─────────────────────────────────────────────────────
+  // Църковната дата: при нов стил тя Е гражданската; при стар — 13 дни по-рано
+  // (1900–2099). ⚠ Тук, а не през style_dates.dart: файлът е чист Dart.
+  (int, int) church(DateTime s) {
+    final c = oldStyle ? s.subtract(const Duration(days: 13)) : s;
+    return (c.month, c.day);
+  }
+
+  bool isForefathers(DateTime s) {
+    final (m, dd) = church(s);
+    return m == 12 && dd >= 11 && dd <= 17;
+  }
+
+  // Праотците от тази есен — за да се знае дали една неделя е ПРЕДИ тях.
+  var forefathers = sae;
+  while (!isForefathers(forefathers)) {
+    forefathers = forefathers.add(const Duration(days: 7));
+  }
+
+  var next = kExaltationWeek;
+  var used30 = false, used28 = false;
+  int? result;
+  for (var s = sae.add(const Duration(days: 7));
+      !s.isAfter(d);
+      s = s.add(const Duration(days: 7))) {
+    final (m, dd) = church(s);
+    if (m == 12 && dd >= 18 && dd <= 25) {
+      result = null; // св. Отци / Рождество — редът не брои
+      continue;
+    }
+    while ((next == 28 && used28) || (next == 30 && used30)) {
+      next++;
+    }
+    if (isForefathers(s)) {
+      // Лк. 76 е евангелието на самия празник; редовото е поредното.
+      used28 = true;
+      result = next++;
+    } else if (next == 28 && s.isBefore(forefathers)) {
+      // 28 се пази за Праотците — тук 30, и редът продължава с 29.
+      used28 = used30 = true;
+      result = 30;
+      next = 29;
+    } else {
+      result = next++;
+    }
+  }
+  if (result != null && result > 31) result = null;
+  return (number: result);
+}
+
 /// Неделята на митаря и фарисея — началото на Триода.
 DateTime publicanSunday(int year) =>
     paschaOf(year).subtract(const Duration(days: 70));
@@ -404,7 +518,16 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
   }
 
   take(kReadingsApostle, apostleKey, 'apostle');
-  take(kReadingsGospel, gospelKey, 'gospel');
+  // ⚠⚠ НЕДЕЛНОТО ЕВАНГЕЛИЕ СЛЕД ВЪЗДВИЖЕНИЕ — по свое правило, не по
+  // таблицата: виж [sundayGospelAfterExaltation].
+  final sunday = addr.cycle == ReadingCycle.afterPentecost
+      ? sundayGospelAfterExaltation(date, oldStyle: oldStyle)
+      : null;
+  if (sunday == null) {
+    take(kReadingsGospel, gospelKey, 'gospel');
+  } else if (sunday.number != null) {
+    out.add(R('gospel', kSundayGospels[sunday.number]!));
+  }
 
   final fixed = kReadingsFixed[churchMonthDay];
   if (fixed != null) out.addAll(fixed);
