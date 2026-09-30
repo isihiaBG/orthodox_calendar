@@ -72,6 +72,13 @@ class MolitvoslovReader extends StatefulWidget {
 
   bool get inService => !embedded && (section.book != null || serviceMode);
 
+  /// „Назад" води направо в табовете ([popToMolitvoslovTabs]) — само за
+  /// книга, отворена от книгите (съдържанието или плаващото копче).
+  /// ⚠ ЦИТАТ (и всичко, отворено със `openAtQuote`) НЕ: оттам „назад"
+  /// връща в списъка, откъдето е дошъл (указание на потребителя).
+  bool get backToTabs =>
+      inService && openAtQuote == null && bookKeyOf(section) != null;
+
   @override
   State<MolitvoslovReader> createState() => _MolitvoslovReaderState();
 }
@@ -1107,7 +1114,21 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
       child: _searchOpen
           ? _searchBar(fg)
           : Row(children: [
-              readerBackButton(context),
+              if (widget.backToTabs)
+                IconButton(
+                  icon: Icon(Icons.arrow_back, color: fg),
+                  tooltip: 'Назад',
+                  onPressed: () {
+                    final nav = Navigator.of(context);
+                    if (!popToMolitvoslovTabs(nav)) nav.maybePop();
+                  },
+                )
+              else
+                readerBackButton(context),
+              // Съдържанието на текущата книга — и оттук, не само от
+              // плаващото копче (указание на потребителя).
+              if (widget.backToTabs)
+                readerContentsButton(context: context, onTap: _openBookContents),
               Expanded(
                 child: Text(
                   widget.section.titleBg,
@@ -1512,7 +1533,9 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     // ⚠ Скелетът е с цвета на лентата, а фонът на страницата е ВЪТРЕ в
     // SafeArea — инак ивицата на системната лента светва кремава в светла
     // тема (виж „Ивицата на системната лента" в CLAUDE.md).
-    return AnnotatedRegion<SystemUiOverlayStyle>(
+    return backToMolitvoslovTabs(
+      enabled: widget.backToTabs,
+      child: AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(
         backgroundColor: AppColors.toolbar,
@@ -1557,7 +1580,19 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         _bookSpine(),
         ]),
       ),
+    ),
     );
+  }
+
+  /// Съдържанието на текущата книга — от копчето в лентата.
+  Future<void> _openBookContents() async {
+    final nav = Navigator.of(context);
+    final book = bookKeyOf(widget.section);
+    if (book == null) return;
+    final all = await MolitvoslovDb.sections();
+    if (!mounted) return;
+    nav.push(MaterialPageRoute(
+        builder: (_) => MolitvoslovBook(book: book, sections: all, service: true)));
   }
 
   /// Коя книга е отворена — за всеки таб: в богослужебните се сменя книга

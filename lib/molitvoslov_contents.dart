@@ -103,8 +103,19 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   ScrollController _scrollerFor(String code) =>
       _scrollers.putIfAbsent(code, ScrollController.new);
 
+  // ⚠ Маршрутът се пази в поле: в dispose контекстът вече не бива да се пита.
+  Route<dynamic>? _myRoute;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _myRoute = ModalRoute.of(context);
+    molitvoslovTabsRoute = _myRoute;
+  }
+
   @override
   void dispose() {
+    if (molitvoslovTabsRoute == _myRoute) molitvoslovTabsRoute = null;
     _ctrl?.dispose();
     for (final c in _scrollers.values) {
       c.dispose();

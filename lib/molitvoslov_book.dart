@@ -10,6 +10,7 @@
 // връща там, където е спрял в нея (MolitvoslovBookLast).
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'app_theme.dart';
 import 'edit_icon.dart';
@@ -114,6 +115,38 @@ List<String> switcherCandidates(List<MolSection> all) {
   return out;
 }
 
+/// Маршрутът на екрана с табовете на Молитвослова — пише го самият екран.
+Route<dynamic>? molitvoslovTabsRoute;
+
+/// „Назад" в богослужебните книги: право в табовете, през колкото и книги да
+/// е минал човекът с плаващото копче (указание на потребителя). Междинните
+/// четци и съдържания се затварят. `false` — табовете не са в стека (напр.
+/// четивото е отворено по връзка) и се връща по обичайния път.
+bool popToMolitvoslovTabs(NavigatorState nav) {
+  final tabs = molitvoslovTabsRoute;
+  if (tabs == null || !tabs.isActive) return false;
+  nav.popUntil((r) => r == tabs || r.isFirst);
+  return true;
+}
+
+/// Спира системното „назад" и го праща в табовете — само докато табовете са
+/// в стека; иначе „назад" си е обикновен.
+Widget backToMolitvoslovTabs({required Widget child, bool enabled = true}) {
+  final tabs = molitvoslovTabsRoute;
+  if (!enabled || tabs == null || !tabs.isActive) return child;
+  return Builder(
+    builder: (context) => PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        final nav = Navigator.of(context);
+        if (!popToMolitvoslovTabs(nav)) SystemNavigator.pop();
+      },
+      child: child,
+    ),
+  );
+}
+
 /// Отваря раздел от богослужебна книга и го запомня — общо място за
 /// съдържанието на книгата и за плаващото копче.
 void openBookSection(NavigatorState nav, MolSection s,
@@ -214,9 +247,15 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
       rows.add(_groupHeader(g, open));
       if (open) rows.addAll(items.map(_row));
     }
-    return Scaffold(
+    return backToMolitvoslovTabs(child: Scaffold(
       backgroundColor: AppColors.background,
-      appBar: AppBar(title: Text(widget.book)),
+      appBar: AppBar(
+        title: Text(widget.book),
+        leading: BackButton(onPressed: () {
+          final nav = Navigator.of(context);
+          if (!popToMolitvoslovTabs(nav)) nav.maybePop();
+        }),
+      ),
       // ⚠ Отстъп отстрани от изреза (в легнало камерата е на единия ръб и
       // текстът се пъхаше под нея). Горе/долу се пазят от лентата и системата.
       body: SafeArea(
@@ -228,7 +267,7 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
           children: rows,
         ),
       ),
-    );
+    ));
   }
 
   Widget _groupHeader(String g, bool open) {
