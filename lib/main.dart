@@ -136,6 +136,14 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     // Връзка „day://…" в четиво отваря календара на този ден (open_day.dart).
     openCalendarAtDate = (d) => _navigateToDate(d, flash: true);
     super.initState();
+    // ⚠ Логото в менюто се зарежда предварително: иначе при първо отваряне
+    // на менюто то изникваше със закъснение, а в браузъра — след секунди.
+    // (Забелязано при проверката на уеб версията, 30.09.2026.)
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        precacheImage(const AssetImage('assets/icon_drawer.png'), context);
+      }
+    });
     final today = DateTime.now();
 
     // Точни временни граници за мигновен старт, преди реалните данни

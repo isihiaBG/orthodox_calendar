@@ -121,6 +121,7 @@ flutter:
     - assets/lives_images/
     - assets/icon.png
     - assets/icon_trans.png
+    - assets/icon_drawer.png
     - assets/icon_WHT.png
     - assets/icon_BLK.png
     - assets/icons/

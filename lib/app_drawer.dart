@@ -167,7 +167,10 @@ class AppDrawer extends StatelessWidget {
             child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
-                Image.asset('assets/icon_trans.png', width: 100, height: 100),
+                // ⚠ Отделно малко копие (300×300, 112 KB): оригиналът е
+                // 1024×1024 и 766 KB, а тук стои на 100 точки. Оригиналът
+                // остава за „За приложението", където логото е едро.
+                Image.asset('assets/icon_drawer.png', width: 100, height: 100),
                 const SizedBox(height: 0),
                 const Text(
                   'Православен календар',
