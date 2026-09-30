@@ -1462,10 +1462,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 child: FloatingActionButton.small(
                   heroTag: null,
                   tooltip: 'Богослужебни книги',
-                  // ⚠ Цветовете на изскачащите прозорчета (`palette.sheet`,
-                  // както подканата за връщане при отметките): сиво и в двете
-                  // теми. Закованото тъмно се сливаше с тъмната страница.
-                  backgroundColor: p.sheet,
+                  // ⚠ Свой цвят (`palette.fab`) — по-светъл от страницата в
+                  // тъмна тема и по-тъмен в светла. Закованото тъмно се
+                  // сливаше с тъмната страница, а `sheet` — със светлата.
+                  backgroundColor: p.fab,
                   foregroundColor: p.ink,
                   onPressed: () {
                     // ⚠ Мястото се взима СЕГА — скролът може още да не е
