@@ -390,6 +390,10 @@ Map<String, Style> readerStyles({
       padding: HtmlPaddings.only(right: 16),
       margin: Margins.only(top: 2, bottom: 16),
     ),
+    // Няколко реда, слети с <br/> в един центриран блок (адресът на обителта
+    // в „Разговори…"): плътно, както в оригинала. Стои ЗАЕДНО с
+    // `centernote`, тъй че PDF-ът го чете като центриран коментар.
+    '.centerblock': Style(lineHeight: const LineHeight(1.2)),
     '.centernote': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize - 1),

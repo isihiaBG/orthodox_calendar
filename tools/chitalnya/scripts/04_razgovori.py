@@ -388,6 +388,22 @@ def main():
         else:
             cur.append(f'<p>{text}</p>')
 
+    # ── Заглавната страница: адресът на обителта — ЕДИН блок ───────
+    # В оригинала трите реда („Свещено Исихастирио", името, „с.Якимово…")
+    # стоят плътно един под друг. Като три абзаца всеки носеше свой отстъп
+    # и се четяха разредени (указание на автора). Сливат се с <br/>, а
+    # `centerblock` сгъстява междуредието.
+    tp = chapters[0][1]
+    for k in range(len(tp) - 2):
+        if 'Исихастирио' in tp[k] and 'Якимово' in tp[k + 2]:
+            lines = [re.sub(r'^<p class="centernote">|</p>$', '', x)
+                     for x in tp[k:k + 3]]
+            tp[k:k + 3] = ['<p class="centernote centerblock">'
+                           + '<br/>'.join(lines) + '</p>']
+            break
+    else:
+        raise SystemExit('Адресът на обителта не е намерен на заглавната')
+
     # ── Заглавната страница: въздух преди иконата ──────────────────
     # Иначе „с.Якимово, Видинска епархия" и иконата „Всецарица" се четат
     # като едно (указание на автора).
@@ -452,6 +468,29 @@ def main():
         ch[1] = [linkify.link(x, table, stats) for x in ch[1]]
     doc.notes = [(n, linkify.link(t, table, stats)) for n, t in doc.notes]
     print('  препратки към Писанието:', stats)
+
+    # ── Външните адреси в бележките — действащи ────────────────────
+    # В .docx са гол текст. Адресът на беседата на прот. Олег Стеняев се
+    # подменя с дадения от автора. ⚠ В изворите (.docx, PDF, връзката в
+    # Word) стои НУЛА — „BR0-…", не буква О; разликата е в опашката
+    # (`si=` срещу `is=`). Подменя се само в четеца — PDF-ът е оригиналът
+    # и остава какъвто е.
+    URL_FIX = {
+        'https://youtu.be/BR0-FDcidMs?si=Px8xap9LnYFiB1Yh':
+            'https://youtu.be/BR0-FDcidMs?is=wuPW4JnKfwaUqUzO',
+    }
+    def url_link(t):
+        for old, new in URL_FIX.items():
+            t = t.replace(old, new)
+        # Само адреси в гол текст — не пипа вече поставени href-ове.
+        return re.sub(r'(?<!["=>])(https?://[^\s<>"]+[^\s<>".,;:)\]])',
+                      lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', t)
+    doc.notes = [(n, url_link(t)) for n, t in doc.notes]
+    for ch in chapters:
+        ch[1] = [url_link(x) for x in ch[1]]
+    if not any(URL_FIX[k] in t for k in URL_FIX for _, t in doc.notes) \
+            and not any(URL_FIX[k] in x for k in URL_FIX for _, p in chapters for x in p):
+        sys.exit('⚠ адресът на беседата на прот. Олег Стеняев не е намерен')
 
     # ── PDF: целият оригинал и всяка беседа, изрязана от него ──────
     # ⚠ Страницата, на която почва беседата, се НАМИРА по заглавието ѝ в
