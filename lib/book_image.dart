@@ -69,19 +69,15 @@ class BookImageExtension extends HtmlExtension {
     final image = paint(Image.memory(bytes, fit: BoxFit.scaleDown));
     // Корицата (`data-cover`) — от край до край, без въздух около нея
     // (указание на автора). Полетата на страницата ги маха book_reader
-    // (`_pageGroups`); тук — само собственият отстъп на картинката. В
-    // легнало ширината би я направила висока няколко екрана, затова там
-    // таванът е височината на екрана — пропорцията се пази и в двата случая.
-    if (context.attributes['data-cover'] == '1' && bc != null) {
-      final mq = MediaQuery.of(bc);
+    // (`_pageGroups`); тук — само собственият отстъп на картинката.
+    // ⚠ И в ЛЕГНАЛО — цялата ширина, макар корицата да става по-висока от
+    // екрана и да се превърта (изрично от автора; таванът по височината
+    // на екрана беше пробван и отхвърлен). Пропорцията се пази.
+    if (context.attributes['data-cover'] == '1') {
       return WidgetSpan(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(
-              maxHeight: mq.size.height - mq.padding.vertical),
-          child: SizedBox(
-            width: double.infinity,
-            child: Image.memory(bytes, fit: BoxFit.contain),
-          ),
+        child: SizedBox(
+          width: double.infinity,
+          child: Image.memory(bytes, fit: BoxFit.fitWidth),
         ),
       );
     }
