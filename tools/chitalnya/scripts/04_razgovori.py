@@ -465,6 +465,12 @@ def main():
     tp.insert(k + 1, PB)                                   # → иконата
     k = at(lambda x: 'group1.webp' in x, 'орнаментът пред посвещението')
     tp.insert(k, PB)                                       # → посвещението
+    # „+ + +" над посвещението — плътно до орнамента (`dedhead`); иначе
+    # носи отстъпите на заглавие на глава.
+    if '+ + +' in tp[k + 2]:
+        tp[k + 2] = tp[k + 2].replace('<h3>', '<h3 class="dedhead">', 1)
+    else:
+        raise SystemExit('Заглавната: „+ + +" не е под орнамента')
     k = at(lambda x: '<h1' in x, 'заглавието')
     k0 = max(i for i in range(k) if '<img ' in tp[i] and 'data-tint' not in tp[i])
     tp.insert(k0 + 1, PB)                                  # корица → заглавие
