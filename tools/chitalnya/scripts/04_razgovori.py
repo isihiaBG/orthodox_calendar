@@ -429,6 +429,12 @@ def main():
 
     # ── Препратките към Писанието — действащи (общият модул) ───────
     # Отварят се ВЪТРЕ в приложението, както в житията и справочника.
+    # ⚠ „(Кор. 15:55)" е без номера на посланието — пропуск в книгата,
+    # потвърден от автора; само 1 Коринтяни има 15 глави. Поправя се и
+    # ВИДИМИЯТ текст, после връзката се хваща от общия модул.
+    for ch in chapters:
+        ch[1] = [re.sub(r'\(Кор\.([\s\xa0])15:55\)', '(1\xa0Кор.\\g<1>15:55)', x)
+                 for x in ch[1]]
     sys.path.insert(0, str(HERE.parents[1] / 'bible_refs'))
     import linkify
     table = linkify.abbreviations()
@@ -436,13 +442,6 @@ def main():
     for ch in chapters:
         ch[1] = [linkify.link(x, table, stats) for x in ch[1]]
     doc.notes = [(n, linkify.link(t, table, stats)) for n, t in doc.notes]
-    # ⚠ „(Кор. 15:55)" е без номер на посланието и общият модул нарочно не
-    # гадае. Само 1 Коринтяни има 15 глави — свързва се там; видимият текст
-    # остава както е в книгата.
-    for ch in chapters:
-        ch[1] = [re.sub(r'\((Кор\.[\s\xa0]15:55)\)',
-                        r'(<a href="https://azbyka.ru/biblia/?1Cor.15:55&amp;bg~utfcs">\1</a>)',
-                        x) for x in ch[1]]
     print('  препратки към Писанието:', stats)
 
     # ── PDF: целият оригинал и всяка беседа, изрязана от него ──────

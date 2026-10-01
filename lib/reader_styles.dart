@@ -77,12 +77,13 @@ Map<String, Style> readerStyles({
       fontStyle: FontStyle.italic,
       color: dim,
       textAlign: TextAlign.right,
-      margin: Margins.only(top: 0, bottom: 4),
+      margin: Margins.only(top: 10, bottom: 6),
     ),
-    // Орнаментът между сентенциите — с въздух отгоре и отдолу.
+    // Орнаментът между сентенциите — с щедър въздух отгоре и отдолу: всяка
+    // мисъл е самостоятелна и трябва да диша (указание на потребителя).
     '.saydivider': Style(
       textAlign: TextAlign.center,
-      margin: Margins.only(top: 14, bottom: 18),
+      margin: Margins.only(top: 26, bottom: 30),
     ),
     // Празен ред-разделител (Читалня): въздух между два блока, които иначе
     // се четат като едно — напр. издателят и иконата на заглавната страница.

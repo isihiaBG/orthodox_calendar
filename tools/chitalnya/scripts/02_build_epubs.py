@@ -220,26 +220,26 @@ def divider_webp():
     тъмно злато; в тъмна тема четецът го оцветява (`data-tint`)."""
     import io
     from PIL import Image, ImageDraw
-    SS, W, H = 4, 600, 40
+    SS, W, H = 4, 640, 56
     im = Image.new('RGBA', (W * SS, H * SS), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     col = (122, 100, 64)
     cy, cx = H * SS // 2, W * SS // 2
-    gap, half = 26 * SS, 270 * SS
+    gap, half = 34 * SS, 286 * SS
     for side in (-1, 1):
         # Черта, която изтънява навън: поредица отсечки с намаляваща дебелина.
         steps = 60
         for k in range(steps):
             a = gap + (half - gap) * k / steps
             b = gap + (half - gap) * (k + 1) / steps
-            wdt = max(1, round(3 * SS * (1 - k / steps) + SS))
+            wdt = max(1, round(4.5 * SS * (1 - k / steps) + 1.3 * SS))
             d.line([(cx + side * a, cy), (cx + side * b, cy)], fill=col + (255,), width=wdt)
         # точица на края
         ex = cx + side * (half + 8 * SS)
-        d.ellipse([ex - 3 * SS, cy - 3 * SS, ex + 3 * SS, cy + 3 * SS], fill=col + (255,))
-    r = 9 * SS
+        d.ellipse([ex - 4 * SS, cy - 4 * SS, ex + 4 * SS, cy + 4 * SS], fill=col + (255,))
+    r = 14 * SS
     d.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=col + (255,))
-    r2 = 4 * SS
+    r2 = 6 * SS
     d.polygon([(cx, cy - r2), (cx + r2, cy), (cx, cy + r2), (cx - r2, cy)], fill=(0, 0, 0, 0))
     im = im.resize((W, H), Image.LANCZOS)
     buf = io.BytesIO()
@@ -247,7 +247,7 @@ def divider_webp():
     return buf.getvalue()
 
 
-DIVIDER = ('<p class="saydivider"><img src="../Images/divider.webp" data-w="0.45" '
+DIVIDER = ('<p class="saydivider"><img src="../Images/divider.webp" data-w="0.62" '
            'data-tint="1" alt=""/></p>')
 
 

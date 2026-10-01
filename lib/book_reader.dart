@@ -1971,6 +1971,15 @@ class _BookReaderState extends State<BookReader>
     //
     // Там заглавието е едро и с обичайното междуредие на четеца двата му
     // реда се разкъсват на две отделни надписа.
+    // ⚠ Книгите от „Читалня" дишат по-широко: въздух под заглавието на
+    // главата, преди първия абзац (указание на потребителя — „всичко
+    // изглежда сбито"). Свойство на четеца, тъй че важи за ВСИЧКИ книги
+    // оттам, а томовете на „Месецослов" остават както са.
+    if (widget.book.assetPath.contains('/chitalnya/') && body.contains('<p')) {
+      styles['h3'] = styles['h3']!.copyWith(
+        margin: Margins.only(top: 18, bottom: 18),
+      );
+    }
     if (!body.contains('<p')) {
       styles['h3'] = styles['h3']!.copyWith(
         lineHeight: const LineHeight(0.9),
