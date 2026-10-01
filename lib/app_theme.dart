@@ -29,7 +29,9 @@ class AppColors {
 
   static const drawerBackground  = Color(0xFF1A1A1A);
   static const drawerIcon        = Color(0xFF8A8A8A);
-  static const drawerDivider     = Color(0xFF2A2A2A);
+  // ⚠ По-светла от sectionDivider: #2A2A2A върху фона на менюто (#1A1A1A)
+  // почти не личи, а там чертата е ЕДИНСТВЕНОТО, което дели групите.
+  static const drawerDivider     = Color(0xFF3A3A3A);
 
   // Текст
   static const textPrimary        = Color(0xA0FFFFFF);

@@ -185,12 +185,17 @@ class AppDrawer extends StatelessWidget {
               ],
             ),
           ),
-          _groupTitle('ОСНОВНИ', top: 8),
-          _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
-          // ⚠ Малко въздух между ГРУПИТЕ — календарът, четците (Молитвослов
-          // … Читалня) и справочните (Празници …) — без заглавия, за да не
-          // натежи менюто (указание на потребителя). Само няколко точки.
+          // ⚠ Групите НЯМАТ надписи — само черта (указание на потребителя).
+          // Имаше „ОСНОВНИ" и „ДРУГИ", но щом се появиха черти и между
+          // четците и справочните, „ОСНОВНИ" остана да стои над един-
+          // единствен ред и надписите станаха по-скоро шум.
           const SizedBox(height: 10),
+          _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
+          // ⚠ Между ГРУПИТЕ — календарът, четците (Молитвослов … Читалня) и
+          // справочните (Празници …) — черта с въздух, без заглавия, за да не
+          // натежи менюто (указание на потребителя). Само въздух (10 точки)
+          // беше пробвано и не стигаше — групите не личаха.
+          _groupRule,
           _item(Icons.auto_stories, 'Молитвослов', () {
             Navigator.of(context).pop();
             _openMolitvoslov(context);
@@ -207,7 +212,7 @@ class AppDrawer extends StatelessWidget {
           // „Месецослов" и преди справочните: и двете са кътове за четене.
           _item(Icons.local_library, 'Читалня',
               () => _openScreen(context, (_) => const ChitalnyaScreen())),
-          const SizedBox(height: 10),
+          _groupRule,
           // Четирите справочни секции живеят в ОБЩ екран с плъзгане
           // настрани (reference_pager.dart). Менюто само посочва коя да е
           // отгоре; ако екранът вече е отворен, ReferencePager.open просто
@@ -221,8 +226,7 @@ class AppDrawer extends StatelessWidget {
               () => _openSection(context, ReferenceSection.fasts)),
           _item(Icons.info_outline, 'Справочник',
               () => _openSection(context, ReferenceSection.book)),
-          const Divider(color: AppColors.drawerDivider),
-          _groupTitle('ДРУГИ', top: 4),
+          _groupRule,
           _item(Icons.settings, 'Настройки', () {
             _openScreen(
               context,
@@ -253,19 +257,24 @@ class AppDrawer extends StatelessWidget {
     );
   }
 
-  /// Заглавие на група. ⚠ В `SafeArea` отстрани, защото редовете под него
-  /// са `ListTile`, а той сам отстъпва от изреза на камерата в легнало
-  /// положение — без това заглавието стоеше по-вляво от редовете си.
-  Widget _groupTitle(String text, {required double top}) => SafeArea(
-        top: false,
-        bottom: false,
-        child: Padding(
-          padding: EdgeInsets.only(left: 16, top: top, bottom: 4),
-          child: Text(text,
-              style: const TextStyle(
-                  color: AppColors.textMuted, fontSize: 11, letterSpacing: 1.5)),
-        ),
-      );
+  /// Черта между групите — ЕДНА И СЪЩА на трите места, за да има менюто
+  /// един ритъм. Отстъпва по 16 от двата края — колкото и редовете, тъй
+  /// че започва точно под иконите и се чете като типографска черта, а не
+  /// като рамка. Дебела 1 точка: тънката линия по подразбиране (1 пиксел)
+  /// на плътен екран почти изчезва. 32 = по 16 въздух над и под нея.
+  /// ⚠ В `SafeArea` отстрани — редовете са `ListTile` и сами отстъпват от
+  /// изреза на камерата в легнало; без това чертата тръгва по-вляво от тях.
+  static const Widget _groupRule = SafeArea(
+    top: false,
+    bottom: false,
+    child: Divider(
+      height: 32,
+      thickness: 1,
+      indent: 16,
+      endIndent: 16,
+      color: AppColors.drawerDivider,
+    ),
+  );
 
   Widget _item(IconData icon, String title, VoidCallback onTap) {
     return ListTile(
