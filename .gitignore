@@ -409,3 +409,6 @@ tools/bible_refs/backups/
 # „Читалня" — .epub-ите носят пълните текстове (като базите в assets/db/);
 # сглобяват се от tools/chitalnya/scripts/02_build_epubs.py.
 assets/chitalnya/
+
+# Изворите за „Читалня" (напр. .docx на потребителя) — не в публичното хранилище.
+tools/chitalnya/input/
