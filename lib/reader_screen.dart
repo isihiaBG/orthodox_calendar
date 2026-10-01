@@ -66,6 +66,7 @@ import 'reader_search.dart';
 import 'reader_styles.dart';
 import 'floating_illustration.dart';
 import 'lives_image.dart';
+import 'reader_abbr_extension.dart';
 import 'reader_sup_extension.dart';
 import 'reader_text_utils.dart';
 import 'reader_theme.dart';
@@ -3647,6 +3648,8 @@ class _ReaderScreenState extends State<ReaderScreen>
         // Горният индекс — общ с четеца на книги, за да не подскача
         // номерът на бележка между двата начина на рисуване.
         const ReaderSupExtension(),
+        // Колоната със съкращенията в „Справочник" → „Съкращения".
+        const ReaderAbbrExtension(),
         // Илюстрациите към житията на българските светии. ⚠ Без него
         // flutter_html подкарва `<img src="assets/…">` като МРЕЖОВ адрес и
         // рисува счупена иконка — а приложението чете офлайн.

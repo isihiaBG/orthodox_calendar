@@ -165,13 +165,23 @@ def main():
     db = sqlite3.connect(out)
     db.executescript(SCHEMA)
 
-    # Ръчните — най-отгоре, после групите от превода.
-    for pos, m in enumerate(manual, start=1):
+    # Ръчните — най-отгоре, после групите от превода. С `"at_end": true`
+    # ръчната отива НАЙ-ОТДОЛУ, след превода („Съкращения" — потребителят).
+    top = [m for m in manual if not m.get("at_end")]
+    end = [m for m in manual if m.get("at_end")]
+    gpos = {}
+    for m in top:
+        gpos[m["id"]] = len(gpos) + 1
+    for gid in used_groups:
+        gpos[gid] = len(gpos) + 1
+    for m in end:
+        gpos[m["id"]] = len(gpos) + 1
+    for k, m in enumerate(manual, start=1):
         db.execute("INSERT INTO ref_groups (id, title, position) VALUES (?,?,?)",
-                   (MANUAL_ID0 + pos, m["title"], pos))
-    for pos, gid in enumerate(used_groups, start=len(manual) + 1):
+                   (MANUAL_ID0 + k, m["title"], gpos[m["id"]]))
+    for gid in used_groups:
         db.execute("INSERT INTO ref_groups (id, title, position) VALUES (?,?,?)",
-                   (gid, GROUP_TITLES[gid], pos))
+                   (gid, GROUP_TITLES[gid], gpos[gid]))
 
     counts = {}
     for i, a in enumerate(articles, start=1):

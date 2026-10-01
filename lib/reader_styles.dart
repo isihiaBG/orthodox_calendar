@@ -49,6 +49,15 @@ Map<String, Style> readerStyles({
     // списък биха изчезнали от него МЪЛЧАЛИВО. Сбит и подравнен вляво,
     // за да се чете като списък, а не като поредица абзаци. (Първо ползван
     // в „Дни, в които се разрешава тайнството брак", 27.09.2026.)
+    // Ред от „Съкращения" — съкращението в колона (reader_abbr_extension).
+    '.abbr': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      lineHeight: const LineHeight(kReaderLineHeight),
+      margin: Margins.only(top: 1, bottom: 1),
+      textAlign: TextAlign.left,
+      color: ink,
+    ),
     '.item': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize),
