@@ -2826,7 +2826,7 @@ class _TocSheetState extends State<_TocSheet> {
     double y = 0;
     for (int i = 0; i < _rows.length; i++) {
       final (entry, depth) = _rows[i];
-      final isDay = depth == 0;
+      final isDay = _isGroup(entry, depth);
       final painter = TextPainter(
         text: TextSpan(text: entry.title, style: _styleOf(isDay)),
         textDirection: TextDirection.ltr,
@@ -3008,6 +3008,14 @@ class _TocSheetState extends State<_TocSheet> {
     });
   }
 
+  /// Ред, оформен като раздел (получер, синьо, повече въздух над него) —
+  /// само ГРУПА: запис от първо ниво С ПОДЗАПИСИ (денят в „Месецослов",
+  /// дялът у Дебольски). В плоски книги (Златоуст, Оптинските) всеки ред е
+  /// на първо ниво и иначе целият списък излизаше като заглавия
+  /// (докладвано от потребителя).
+  static bool _isGroup(EpubTocEntry e, int depth) =>
+      depth == 0 && e.children.isNotEmpty;
+
   bool _hasToggle(EpubTocEntry e) =>
       widget.collapsible && _query.isEmpty && e.children.isNotEmpty;
 
@@ -3110,7 +3118,7 @@ class _TocSheetState extends State<_TocSheet> {
   /// Заглавието на реда, с маркирани съвпадения.
   InlineSpan _spanFor(int i) {
     final (entry, depth) = _rows[i];
-    final base = _styleOf(depth == 0);
+    final base = _styleOf(_isGroup(entry, depth));
     if (_query.isEmpty) return TextSpan(text: entry.title, style: base);
 
     final parts = <InlineSpan>[];
@@ -3142,7 +3150,7 @@ class _TocSheetState extends State<_TocSheet> {
     final at = widget.chapters.indexWhere(
         (c) => c.href == entry.href && c.anchor == entry.anchor);
     final isCurrent = at == widget.current;
-    final isDay = depth == 0;
+    final isDay = _isGroup(entry, depth);
     return InkWell(
       onTap: at < 0 ? null : () => Navigator.of(context).pop(at),
       child: Container(
