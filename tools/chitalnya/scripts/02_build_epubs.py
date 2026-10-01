@@ -165,16 +165,37 @@ def zlatoust():
     b = Book('zlatoust', 'Похвални слова за светиите', 'Свт. Йоан Златоуст')
     b.titlepage('Беседи за мъченици, светители и праведници')
     con = sqlite3.connect(DB / 'lives_plus.db')
+    # ⚠ И словото за вмц. Дросида (`zlat`) — преведено отделно от автора на
+    # приложението (tools/slova_bg/), затова е друга „книга" в базата. В
+    # оригинала то е № 6 (azbyka.ru/…/svyatii/6) и застава там — подредбата
+    # е по номера на страницата в azbyka, после по id.
     rows = con.execute("SELECT id, title_bg, body, source FROM slova "
-                       "WHERE book='zl-svyatii'").fetchall()
-    rows.sort(key=lambda r: int(r[0].split('-')[1]))
+                       "WHERE book IN ('zl-svyatii', 'zlat')").fetchall()
+
+    def num(r):
+        m = re.search(r'svyatii/(\d+)', r[3] or '')
+        return int(m.group(1)) if m else 999
+
+    rows.sort(key=lambda r: (num(r), r[0]))
+    notes = []
     for id_, title, body, src in rows:
+        # Бележките на словата идват като `note://N` с текста в `title` —
+        # четецът на книги ги иска като отделни файлове (както Теофан).
+        def note(m):
+            notes.append(html.unescape(m.group(1)))
+            n = len(notes)
+            return f'<a href="note{n}.xhtml#note{n}">'
+
+        body = re.sub(r'<a href="note://[^"]*" title="([^"]*)">', note, body)
         body = re.sub(r'^<h3>', '<h1>', body)
         body = re.sub(r'^(<h1>.*?)</h3>', r'\1</h1>', body, flags=re.S)
         if not body.startswith('<h1>'):
             body = f'<h1>{E(title)}</h1>' + body
         f = b.add(f'{id_}.xhtml', title, body + (source_line(src) if src else ''))
         b.toc.append((title, f, []))
+    for n, t in enumerate(notes, 1):
+        b.files.append((f'note{n}.xhtml',
+                        xhtml(str(n), f'<h1 id="note{n}">{n}</h1><p>{E(t)}</p>')))
     b.write()
 
 
