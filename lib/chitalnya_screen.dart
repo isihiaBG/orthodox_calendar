@@ -213,7 +213,7 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
           Text(
             b.about,
             textAlign: TextAlign.center,
-            maxLines: 3,
+            maxLines: 5,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
           ),
