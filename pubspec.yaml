@@ -108,6 +108,9 @@ flutter:
     - assets/bible_covers/
     # Кориците на петте дяла на „Молитвослов" (molitvoslov_welcome_screen.dart).
     - assets/prayer_covers/
+    # „Читалня" — книгите (.epub, tools/chitalnya/) и кориците им.
+    - assets/chitalnya/
+    - assets/chitalnya_covers/
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #

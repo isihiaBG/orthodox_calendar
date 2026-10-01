@@ -405,3 +405,7 @@ tools/Molitvoslov/scripts/__pycache__/
 
 # Резервните копия от tools/bible_refs/link_dbs.py
 tools/bible_refs/backups/
+
+# „Читалня" — .epub-ите носят пълните текстове (като базите в assets/db/);
+# сглобяват се от tools/chitalnya/scripts/02_build_epubs.py.
+assets/chitalnya/

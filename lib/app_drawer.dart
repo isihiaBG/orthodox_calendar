@@ -16,6 +16,7 @@ import 'rate_app.dart';
 import 'bible_contents.dart';
 import 'bible_welcome_screen.dart';
 import 'bible_settings.dart';
+import 'chitalnya_screen.dart';
 import 'library_screen.dart';
 import 'molitvoslov_settings.dart';
 import 'molitvoslov_welcome_screen.dart';
@@ -198,6 +199,10 @@ class AppDrawer extends StatelessWidget {
           // разлиства (library_screen.dart).
           _item(Icons.menu_book, 'Месецослов',
               () => _openScreen(context, (_) => const LibraryScreen())),
+          // „Читалня" — отделни книги, цели (chitalnya_screen.dart). След
+          // „Месецослов" и преди справочните: и двете са кътове за четене.
+          _item(Icons.local_library, 'Читалня',
+              () => _openScreen(context, (_) => const ChitalnyaScreen())),
           // Четирите справочни секции живеят в ОБЩ екран с плъзгане
           // настрани (reference_pager.dart). Менюто само посочва коя да е
           // отгоре; ако екранът вече е отворен, ReferencePager.open просто
