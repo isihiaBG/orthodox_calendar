@@ -104,6 +104,14 @@ const ReaderMenuItem kSharePdfMenuItem = ReaderMenuItem(
   value: kSharePdfValue,
 );
 
+/// Целият оригинален PDF на книгата — само в книги, които го носят
+/// (виж [EpubBook.bookPdf]); добавя се от четеца на книги.
+const ReaderMenuItem kShareBookPdfMenuItem = ReaderMenuItem(
+  icon: Icon(Icons.menu_book_outlined, size: 24, color: AppColors.textSecondary),
+  label: 'Сподели книгата като PDF',
+  value: 'share_book_pdf',
+);
+
 /// Пълното меню на четеца. Ползва се и от двата.
 final List<ReaderMenuItem> kReaderMenuItems = [
   kReaderSettingsMenuItem,

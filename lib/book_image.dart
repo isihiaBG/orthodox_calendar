@@ -37,6 +37,11 @@ class BookImageExtension extends HtmlExtension {
     final bytes = book.readBytes(_resolve(chapterHref, src));
     if (bytes == null) return const TextSpan(text: '');
 
+    // `data-w` — колко от реда заема картинката в ОРИГИНАЛА (книгите от
+    // .docx в „Читалня"). Без него — естествената ширина, но никога
+    // по-широка от страницата (томовете на „Месецослов").
+    final frac = double.tryParse(context.attributes['data-w'] ?? '');
+    final image = Image.memory(bytes, fit: BoxFit.scaleDown);
     return WidgetSpan(
       // Орнаментите в тези томове са разделители — стоят на собствен ред и
       // по средата.
@@ -44,8 +49,14 @@ class BookImageExtension extends HtmlExtension {
         alignment: Alignment.center,
         child: Padding(
           padding: const EdgeInsets.symmetric(vertical: 8),
-          // Естествената ѝ ширина, но никога по-широка от страницата.
-          child: Image.memory(bytes, fit: BoxFit.scaleDown),
+          child: frac == null
+              ? image
+              // ⚠ НЕ LayoutBuilder — вътре в реда на текста той гърми при
+              // мерене (не дава вградени размери).
+              : FractionallySizedBox(
+                  widthFactor: frac.clamp(0.05, 1.0),
+                  child: Image.memory(bytes, fit: BoxFit.contain),
+                ),
         ),
       ),
     );

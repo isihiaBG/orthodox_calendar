@@ -97,6 +97,23 @@ class EpubBook {
     return utf8.decode(f.content as List<int>, allowMalformed: true);
   }
 
+  /// Оригиналният PDF на ГЛАВАТА — изрязан от печатната книга и сложен до
+  /// нея като `pdf/<името на главата>.pdf` (tools/chitalnya/04_razgovori.py).
+  /// null, ако книгата не носи такъв.
+  Uint8List? chapterPdf(String chapterHref) {
+    final dir = p.dirname(p.dirname(chapterHref));
+    final name = p.basenameWithoutExtension(chapterHref);
+    return readBytes(p.join(dir, 'pdf', '$name.pdf'));
+  }
+
+  /// Целият оригинален PDF на книгата (`pdf/book.pdf`), ако го има.
+  Uint8List? get bookPdf {
+    final f = _archive.files
+        .where((f) => f.name.endsWith('/pdf/book.pdf') || f.name == 'pdf/book.pdf')
+        .firstOrNull;
+    return f == null ? null : Uint8List.fromList(f.content as List<int>);
+  }
+
   /// Байтовете на файл (за изображения).
   Uint8List? readBytes(String path) {
     final f = _archive.findFile(path);

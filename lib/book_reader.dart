@@ -23,6 +23,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
@@ -1608,7 +1609,12 @@ class _BookReaderState extends State<BookReader>
   Future<void> _showMoreMenu() async {
     // СЪЩОТО меню като в четеца на жития — точките живеят в
     // reader_more_menu.dart (kReaderMenuItems), за да не се разминат.
-    final choice = await showReaderMoreMenu(context, items: kReaderMenuItems);
+    // Книга с оригинален PDF получава и точка за цялата книга.
+    final items = [...kReaderMenuItems];
+    if (widget.book.bookPdf != null) {
+      items.insert(items.indexOf(kSharePdfMenuItem) + 1, kShareBookPdfMenuItem);
+    }
+    final choice = await showReaderMoreMenu(context, items: items);
     if (!mounted || choice == null) return;
     if (choice == kReaderSettingsMenuItem.value) {
       // Локална настройка — drawer, СЪЩИЯТ принцип като в календара; цял
@@ -1633,6 +1639,12 @@ class _BookReaderState extends State<BookReader>
       );
     } else if (choice == kSharePdfMenuItem.value) {
       _shareAsPdf();
+    } else if (choice == kShareBookPdfMenuItem.value) {
+      final bytes = widget.book.bookPdf;
+      if (bytes != null) {
+        await Printing.sharePdf(
+            bytes: bytes, filename: '${_fileSafe(widget.book.title)}.pdf');
+      }
     }
   }
 
@@ -1646,6 +1658,18 @@ class _BookReaderState extends State<BookReader>
   /// `hasOwnTitle` и пропуска своето — инак излизат две заглавия едно под
   /// друго. При житията е обратното: там името идва отвън.
   Future<void> _shareAsPdf() async {
+    // ⚠ Книга, която носи СВОЯ PDF на главата (изрязан от печатния
+    // оригинал), споделя него — оформлението е точно като на хартия
+    // (искане на автора). От заглавната страница — цялата книга.
+    final own = _index == 0
+        ? widget.book.bookPdf
+        : widget.book.chapterPdf(_current.href);
+    if (own != null) {
+      await Printing.sharePdf(
+          bytes: own,
+          filename: '${_fileSafe(_index == 0 ? widget.book.title : _current.title)}.pdf');
+      return;
+    }
     final raw = _currentRaw();
     if (raw == null) return;
     await shareReaderPdf(

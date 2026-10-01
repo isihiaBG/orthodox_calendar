@@ -13,6 +13,7 @@
 // томовете: така и книгите за сваляне, когато дойдат, минават по същия път.
 
 import 'package:flutter/material.dart';
+import 'package:printing/printing.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
@@ -29,7 +30,12 @@ class ChitalnyaBook {
   final String author;
   final String about; // едно-две изречения
 
-  const ChitalnyaBook(this.code, this.title, this.author, this.about);
+  /// Книгата носи оригиналния си PDF (виж EpubBook.bookPdf) — тогава в
+  /// панела има и копче за споделянето му.
+  final bool hasPdf;
+
+  const ChitalnyaBook(this.code, this.title, this.author, this.about,
+      {this.hasPdf = false});
 
   String get epub => 'assets/chitalnya/$code.epub';
   String get cover => 'assets/chitalnya_covers/$code.jpg';
@@ -63,6 +69,15 @@ const List<ChitalnyaBook> kChitalnyaBooks = [
     'Прпп. Оптински старци',
     'Всички наставления на преподобните старци, подредени по темите на '
         '„Симфонията", както в оригинала.',
+  ),
+  // ⚠ Сглобява се от .docx-а на автора — tools/chitalnya/scripts/04_razgovori.py.
+  ChitalnyaBook(
+    'razgovori',
+    'Разговори за Божествения промисъл, последните времена и вътрешния духовен живот',
+    'Свещено Исихастирио „Св. Великомъченик и Целител Пантелеймон"',
+    'Разговори на монах с духовни чеда — за последните времена, '
+        'Божия промисъл и вътрешния живот на християнина.',
+    hasPdf: true,
   ),
 ];
 
@@ -153,6 +168,19 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
     }
   }
 
+  /// Целият оригинален PDF на книгата — за изпращане на приятел или за
+  /// запазване (искане на автора).
+  Future<void> _sharePdf(ChitalnyaBook b) async {
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final bytes = (await EpubBook.open(b.epub)).bookPdf;
+      if (bytes == null) return;
+      await Printing.sharePdf(bytes: bytes, filename: '${b.title}.pdf');
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('PDF-ът не се сподели: $e')));
+    }
+  }
+
   /// Долният панел: заглавие, автор, кратко описание.
   Widget _info() {
     final b = kChitalnyaBooks[_index];
@@ -171,10 +199,14 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
           Text(
             b.title,
             textAlign: TextAlign.center,
-            style: const TextStyle(
+            maxLines: 3,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
                 color: AppColors.textPrimary,
-                fontSize: 24,
-                fontWeight: FontWeight.w600),
+                // Дългото заглавие — по-дребно, за да не избута копчетата.
+                fontSize: b.title.length > 40 ? 19 : 24,
+                fontWeight: FontWeight.w600,
+                height: 1.2),
           ),
           const SizedBox(height: 8),
           Text(
@@ -201,6 +233,13 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
             ),
           ),
+          if (b.hasPdf)
+            TextButton.icon(
+              onPressed: _opening ? null : () => _sharePdf(b),
+              icon: const Icon(Icons.picture_as_pdf_outlined, size: 18),
+              label: const Text('Сподели като PDF'),
+              style: TextButton.styleFrom(foregroundColor: AppColors.textSecondary),
+            ),
         ],
       ),
     );
