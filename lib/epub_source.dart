@@ -97,13 +97,24 @@ class EpubBook {
     return utf8.decode(f.content as List<int>, allowMalformed: true);
   }
 
-  /// Оригиналният PDF на ГЛАВАТА — изрязан от печатната книга и сложен до
-  /// нея като `pdf/<името на главата>.pdf` (tools/chitalnya/04_razgovori.py).
-  /// null, ако книгата не носи такъв.
+  /// Оригиналният PDF на ГЛАВАТА, изрязан от печатната книга. null, ако
+  /// книгата не носи такъв.
+  ///
+  /// ⚠ Книгата пази само ЦЕЛИЯ PDF (`pdf/book.pdf`) и за всяка глава
+  /// „опашка" — `pdf/<глава>.tail`, допълнение към края на оригинала
+  /// (incremental update), което оставя само страниците на главата. Двете
+  /// долепени са валиден PDF — тук нищо не се разчита, само се съединяват
+  /// байтове (tools/chitalnya/scripts/04_razgovori.py). Цял PDF за глава
+  /// (`pdf/<глава>.pdf`) също се приема, ако някоя книга го носи.
   Uint8List? chapterPdf(String chapterHref) {
     final dir = p.dirname(p.dirname(chapterHref));
     final name = p.basenameWithoutExtension(chapterHref);
-    return readBytes(p.join(dir, 'pdf', '$name.pdf'));
+    final whole = readBytes(p.join(dir, 'pdf', '$name.pdf'));
+    if (whole != null) return whole;
+    final tail = readBytes(p.join(dir, 'pdf', '$name.tail'));
+    final book = bookPdf;
+    if (tail == null || book == null) return null;
+    return Uint8List.fromList([...book, ...tail]);
   }
 
   /// Целият оригинален PDF на книгата (`pdf/book.pdf`), ако го има.

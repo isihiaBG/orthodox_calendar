@@ -277,13 +277,29 @@ def main():
         starts.append(at)
         at += 1
     last = len(src) - 2          # без задната корица
-    pdfs = {'book.pdf': pdf_src.read_bytes()}
+    # ⚠ ОТДЕЛНИТЕ БЕСЕДИ НЕ СЕ ПАЗЯТ КАТО ЦЕЛИ PDF-И (те носеха по копие от
+    # шрифтовете — 8 MB). Пази се само „опашка" — допълнение към края на
+    # оригинала (incremental update), което казва „страниците са само
+    # тези". Оригинал + опашка = валиден PDF само с беседата (сверено с
+    # poppler и Ghostscript). Опашката е няколко KB; долепя я приложението
+    # (EpubBook.chapterPdf), без да разчита нищо в PDF-а.
+    import tempfile
+    orig = pdf_src.read_bytes()
+    pdfs = {'book.pdf': orig}
     for k, a in enumerate(starts):
         b = (starts[k + 1] - 1) if k + 1 < len(starts) else last
-        part = fitz.open()
-        part.insert_pdf(src, from_page=a, to_page=b)
-        pdfs[f'c{k + 1:02d}.pdf'] = part.tobytes(garbage=4, deflate=True)
-        print(f'  c{k + 1:02d}: стр. {a + 1}–{b + 1}')
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td) / 'x.pdf'
+            tmp.write_bytes(orig)
+            part = fitz.open(tmp)
+            part.select(list(range(a, b + 1)))
+            part.save(tmp, incremental=True, encryption=fitz.PDF_ENCRYPT_KEEP)
+            part.close()
+            full = tmp.read_bytes()
+        if full[:len(orig)] != orig:
+            sys.exit('⚠ опашката не е чисто допълнение към оригинала')
+        pdfs[f'c{k + 1:02d}.tail'] = full[len(orig):]
+        print(f'  c{k + 1:02d}: стр. {a + 1}–{b + 1} (опашка {len(full) - len(orig)} B)')
 
     # ── .epub ──────────────────────────────────────────────────────
     files, toc = [], []
