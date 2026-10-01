@@ -69,6 +69,21 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.justify,
       margin: Margins.only(top: 4, bottom: 10),
     ),
+    // Подписът под сентенция (Оптинските старци в Читалнята): вдясно, плътно
+    // под текста — той е ЕГОВ подпис, не начало на следващата мисъл.
+    '.saysource': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 2),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      textAlign: TextAlign.right,
+      margin: Margins.only(top: 0, bottom: 4),
+    ),
+    // Орнаментът между сентенциите — с въздух отгоре и отдолу.
+    '.saydivider': Style(
+      textAlign: TextAlign.center,
+      margin: Margins.only(top: 14, bottom: 18),
+    ),
     // Празен ред-разделител (Читалня): въздух между два блока, които иначе
     // се четат като едно — напр. издателят и иконата на заглавната страница.
     '.gaptop': Style(margin: Margins.only(top: 28, bottom: 0)),

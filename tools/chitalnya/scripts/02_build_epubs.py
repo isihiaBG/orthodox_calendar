@@ -59,6 +59,7 @@ class Book:
         # Съдържанието със сгънати групи — виж EpubBook.collapsibleToc.
         self.collapsible = collapsible
         self.files = []      # (име, xhtml)
+        self.extras = {}     # 'Images/x.webp' → байтове (орнаменти)
         self.toc = []        # [(заглавие, файл, [деца])]
 
     def add(self, name, title, body):
@@ -73,6 +74,9 @@ class Book:
         manifest = ''.join(
             f'<item id="f{i}" href="Text/{n}" media-type="application/xhtml+xml"/>'
             for i, (n, _) in enumerate(self.files))
+        manifest += ''.join(
+            f'<item id="x{i}" href="{n}" media-type="image/webp"/>'
+            for i, n in enumerate(self.extras))
         if cover.exists():
             manifest += '<item id="cover" href="Images/cover.jpg" media-type="image/jpeg"/>'
         spine = ''.join(f'<itemref idref="f{i}"/>' for i in range(len(self.files)))
@@ -115,6 +119,8 @@ class Book:
                 z.writestr(f'OEBPS/Text/{n}', x, compress_type=zipfile.ZIP_DEFLATED)
             if cover.exists():
                 z.write(cover, 'OEBPS/Images/cover.jpg', compress_type=zipfile.ZIP_STORED)
+            for name, data in self.extras.items():
+                z.writestr(f'OEBPS/{name}', data, compress_type=zipfile.ZIP_STORED)
         n = len(self.files) - 1
         print(f'  {path.name}: {n} глави, {path.stat().st_size // 1024} KB')
 
@@ -208,6 +214,43 @@ def teofan():
     b.write()
 
 
+def divider_webp():
+    """Разделителят между сентенциите — в стила на кориците: две тънки
+    черти, които изтъняват към краищата, и ромбче в средата. Прозрачен фон,
+    тъмно злато; в тъмна тема четецът го оцветява (`data-tint`)."""
+    import io
+    from PIL import Image, ImageDraw
+    SS, W, H = 4, 600, 40
+    im = Image.new('RGBA', (W * SS, H * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(im)
+    col = (122, 100, 64)
+    cy, cx = H * SS // 2, W * SS // 2
+    gap, half = 26 * SS, 270 * SS
+    for side in (-1, 1):
+        # Черта, която изтънява навън: поредица отсечки с намаляваща дебелина.
+        steps = 60
+        for k in range(steps):
+            a = gap + (half - gap) * k / steps
+            b = gap + (half - gap) * (k + 1) / steps
+            wdt = max(1, round(3 * SS * (1 - k / steps) + SS))
+            d.line([(cx + side * a, cy), (cx + side * b, cy)], fill=col + (255,), width=wdt)
+        # точица на края
+        ex = cx + side * (half + 8 * SS)
+        d.ellipse([ex - 3 * SS, cy - 3 * SS, ex + 3 * SS, cy + 3 * SS], fill=col + (255,))
+    r = 9 * SS
+    d.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=col + (255,))
+    r2 = 4 * SS
+    d.polygon([(cx, cy - r2), (cx + r2, cy), (cx, cy + r2), (cx - r2, cy)], fill=(0, 0, 0, 0))
+    im = im.resize((W, H), Image.LANCZOS)
+    buf = io.BytesIO()
+    im.save(buf, 'WEBP', lossless=True)
+    return buf.getvalue()
+
+
+DIVIDER = ('<p class="saydivider"><img src="../Images/divider.webp" data-w="0.45" '
+           'data-tint="1" alt=""/></p>')
+
+
 def optina():
     b = Book('optina', 'Изречения от Оптинските старци', 'Прпп. Оптински старци')
     b.titlepage('По темите на „Симфония по творенията на преподобните Оптински старци"')
@@ -219,9 +262,15 @@ def optina():
         if not topics or topics[-1][0] != topic_ru:
             topics.append((topic_ru, []))
         topics[-1][1].append(body)
+    b.extras['Images/divider.webp'] = divider_webp()
     for i, (topic_ru, bodies) in enumerate(topics, 1):
         title = tr(topic_ru)
-        f = b.add(f'o{i:03d}.xhtml', title, f'<h1>{E(title)}</h1>' + ''.join(bodies))
+        # Подписът на стареца — `saysource` (вдясно, плътно под текста), а
+        # между сентенциите — орнамент; иначе името се четеше и към
+        # следващата мисъл (указание на потребителя).
+        parts = [x.replace('<p class="source">', '<p class="saysource">') for x in bodies]
+        f = b.add(f'o{i:03d}.xhtml', title,
+                  f'<h1>{E(title)}</h1>' + DIVIDER.join(parts))
         b.toc.append((title, f, []))
     b.write()
 

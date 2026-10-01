@@ -14,6 +14,7 @@
 
 import 'package:flutter/material.dart';
 import 'package:printing/printing.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
@@ -82,6 +83,27 @@ const List<ChitalnyaBook> kChitalnyaBooks = [
   ),
 ];
 
+/// Последно отворената книга в Читалнята — тестето застава на нея при
+/// следващо влизане (както в другите секции с корици). По КОДА на книгата:
+/// прибавят ли се нови, мястото се мести, а кодът не.
+class ChitalnyaLast {
+  ChitalnyaLast._();
+  static const String _key = 'chitalnya_last_book';
+  static String? value;
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    value = (await SharedPreferences.getInstance()).getString(_key);
+  }
+
+  static Future<void> set(String code) async {
+    value = code;
+    await (await SharedPreferences.getInstance()).setString(_key, code);
+  }
+}
+
 class ChitalnyaScreen extends StatefulWidget {
   /// Корицата, на която да се отвори тестето — по КОДА на книгата, не по
   /// място в списъка: прибавят ли се книги, мястото се мести, а кодът не
@@ -100,11 +122,28 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
   late final List<ImageProvider> _covers = kChitalnyaBooks
       .map<ImageProvider>((b) => AssetImage(b.cover))
       .toList();
-  late int _index = () {
-    final i = kChitalnyaBooks.indexWhere((b) => b.code == widget.initialCode);
-    return i < 0 ? 0 : i;
-  }();
+  int _index = 0;
+
+  /// Тестето се строи чак когато е ясно на коя корица да застане —
+  /// иначе за миг стои на първата и после подскача.
+  bool _ready = false;
   bool _opening = false;
+
+  @override
+  void initState() {
+    super.initState();
+    ChitalnyaLast.loadOnce().then((_) {
+      if (!mounted) return;
+      // Изрично поискана книга (връзката в „За приложението") печели пред
+      // запомнената.
+      final want = widget.initialCode ?? ChitalnyaLast.value;
+      final i = kChitalnyaBooks.indexWhere((b) => b.code == want);
+      setState(() {
+        _index = i < 0 ? 0 : i;
+        _ready = true;
+      });
+    });
+  }
 
   late final AnimationController _launch =
       AnimationController(vsync: this, duration: kCoverLaunchDuration);
@@ -132,6 +171,7 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
   Future<void> _open(int i) async {
     if (_opening) return;
     setState(() => _opening = true);
+    ChitalnyaLast.set(kChitalnyaBooks[i].code);
     final loading = EpubBook.open(kChitalnyaBooks[i].epub);
     final rect = _flow.currentState?.centerCoverRect();
     OverlayEntry? flying;
@@ -256,6 +296,9 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (!_ready) {
+      return const Scaffold(backgroundColor: Color(0xFF0A0A0C)); // фонът на кориците
+    }
     return CoverPickerScaffold(
       title: 'Читалня',
       covers: _covers,
