@@ -616,7 +616,13 @@ class _BookReaderState extends State<BookReader>
       isScrollControlled: true,
       useSafeArea: true,
       builder: (_) => _NoteSheet(
-          html: body, palette: palette, extensions: _htmlExtensions),
+          html: body,
+          palette: palette,
+          extensions: _htmlExtensions,
+          // ⚠ Връзките в бележката минават по СЪЩИЯ път като в текста
+          // (Писание вътре, външните — с питане). Дотук не се подаваше нищо
+          // и връзката беше синя, но мъртва (докладвано от потребителя).
+          onLinkTap: _onLinkTap),
     );
   }
 
@@ -2108,9 +2114,54 @@ class _BookReaderState extends State<BookReader>
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: children,
+        children: _pageGroups(regions, children),
       ),
     );
+  }
+
+  /// Заглавната част на книга от „Читалня" е от няколко ЛИСТА (корица,
+  /// заглавие, икона, посвещение), разделени с `<p class="pagebreak">`.
+  /// Всеки лист получава поне цял екран и съдържанието му стои в средата —
+  /// инак се четат нагъчкани един в друг (указание на автора).
+  ///
+  /// ⚠ Регионите остават ЕДИН КЪМ ЕДИН със своите widget-и и ключове —
+  /// само се увиват в групи, тъй че позиционирането по ключ не се чупи.
+  /// Самата граница остава като празен регион (със своя ключ).
+  /// Глава без граница минава непроменена.
+  List<Widget> _pageGroups(List<ReaderRegion> regions, List<Widget> children) {
+    bool isBreak(int i) =>
+        regions[i].isHtml && regions[i].content.contains('class="pagebreak"');
+    if (!List.generate(regions.length, isBreak).contains(true)) {
+      return children;
+    }
+    final mq = MediaQuery.of(context);
+    // Видимата височина: без системните ленти и без отстъпа на главата.
+    final pageH = mq.size.height - mq.padding.top - mq.padding.bottom - 36;
+    final out = <Widget>[];
+    var page = <Widget>[];
+    void flush() {
+      if (page.isEmpty) return;
+      out.add(ConstrainedBox(
+        constraints: BoxConstraints(minHeight: pageH),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: page,
+        ),
+      ));
+      page = <Widget>[];
+    }
+
+    for (int i = 0; i < children.length; i++) {
+      if (isBreak(i)) {
+        flush();
+        out.add(KeyedSubtree(key: _regionKeys[i], child: const SizedBox.shrink()));
+      } else {
+        page.add(children[i]);
+      }
+    }
+    flush();
+    return out;
   }
 
   /// Привежда разметката на книгата към тази на останалите четива.
@@ -3257,11 +3308,13 @@ class _NoteSheet extends StatelessWidget {
   final String html;
   final ReaderPalette palette;
   final List<HtmlExtension> extensions;
+  final void Function(String url) onLinkTap;
 
   const _NoteSheet(
       {required this.html,
       required this.palette,
-      required this.extensions});
+      required this.extensions,
+      required this.onLinkTap});
 
   @override
   Widget build(BuildContext context) {
@@ -3280,9 +3333,23 @@ class _NoteSheet extends StatelessWidget {
         Flexible(
           child: SingleChildScrollView(
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 28),
+            // ⚠ И маркирането — бележката е текст като всеки друг и човек
+            // иска да копира адрес или име от нея. Цветовете са тези на
+            // четеца, за да изглежда селекцията еднакво.
+            child: Theme(
+              data: Theme.of(context).copyWith(
+                textSelectionTheme: TextSelectionThemeData(
+                  selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                  selectionHandleColor: AppColors.sectionTitle,
+                ),
+              ),
+              child: SelectionArea(
             child: Html(
               data: html,
               extensions: extensions,
+              onLinkTap: (u, _, __) {
+                if (u != null) onLinkTap(u);
+              },
               // Бележката е пояснение, не част от разказа: една степен
               // по-дребна и в курсив, за да се различава от текста, от
               // който току-що е дошъл читателят.
@@ -3292,6 +3359,8 @@ class _NoteSheet extends StatelessWidget {
                 s['p'] = s['p']!.copyWith(fontStyle: FontStyle.italic);
                 return s;
               }(),
+            ),
+              ),
             ),
           ),
         ),

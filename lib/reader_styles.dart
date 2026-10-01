@@ -119,6 +119,14 @@ Map<String, Style> readerStyles({
     // Празен ред-разделител (Читалня): въздух между два блока, които иначе
     // се четат като едно — напр. издателят и иконата на заглавната страница.
     '.gaptop': Style(margin: Margins.only(top: 56, bottom: 0)),
+    // По-малко въздух — около орнаментите на посвещението (Читалня).
+    '.gapmid': Style(
+        margin: Margins.only(top: 20, bottom: 0),
+        lineHeight: const LineHeight(0.5)),
+    // Граница между ЛИСТОВЕ в заглавната част на книга (Читалня). Самата тя
+    // не се рисува — book_reader.dart групира регионите между две такива и
+    // дава на всяка група поне цял екран (`_pageGroups`).
+    '.pagebreak': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
     // Надпис под илюстрация в книгите на Читалнята — с три степени по-дребно
     // от текста и центриран под картинката; еднакъв за всички (автора).
     '.figcaption': Style(
@@ -137,7 +145,8 @@ Map<String, Style> readerStyles({
       fontStyle: FontStyle.italic,
       color: ink,
       textAlign: TextAlign.justify,
-      margin: Margins.only(left: 24, right: 24, top: 4, bottom: 4),
+      // 10 между двата абзаца — посвещението иска простор (автора).
+      margin: Margins.only(left: 24, right: 24, top: 4, bottom: 10),
     ),
     '.dedicationright': Style(
       fontFamily: kBodyFamily,

@@ -185,14 +185,15 @@ class Doc:
         sd = (sum((v - mean) ** 2 for v in lum) / len(lum)) ** 0.5
         return sd < 28
 
-    def image(self, rid, cx_emu, src_rect=None):
+    def image(self, rid, cx_emu, src_rect=None, flip=(False, False)):
         target = self.rels.get(rid)
         if not target or not target.startswith('media/') or target.endswith('.wdp'):
             return ''
+        key = target
         if src_rect is not None:
-            key = target + '#' + ','.join(src_rect.get(k, '0') for k in 'ltrb')
-        else:
-            key = target
+            key += '#' + ','.join(src_rect.get(k, '0') for k in 'ltrb')
+        if any(flip):
+            key += '#flip' + ''.join('HV'[i] for i in range(2) if flip[i])
         if key not in self.images:
             data = self.z.read('word/' + target)
             try:
@@ -209,6 +210,13 @@ class Doc:
                 a = im.convert('RGBA').getchannel('A')
                 alpha = a.getextrema()[0] < 250
             im = self.crop(im, src_rect)
+            # ⚠ Огледалното обръщане от Word (`a:xfrm flipH/flipV`) е
+            # свойство на ПОСТАВЯНЕТО, не на файла — без него снимката в
+            # беседата за Каруля излизаше обърната (докладвано от автора).
+            if flip[0]:
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+            if flip[1]:
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
             if max(im.size) > 1400:
                 im.thumbnail((1400, 1400))
             if self.is_ornament(im.convert('RGBA') if im.mode in ('RGBA', 'LA', 'P') else im):
@@ -319,11 +327,14 @@ class Doc:
             cx = int(ext.get('cx')) if ext is not None else 0
             seen = set()
             src_rect = d.find('.//{%s}srcRect' % NS['a'])
+            xf = d.find('.//{%s}xfrm' % NS['a'])
+            flip = ((xf is not None and xf.get('flipH') == '1'),
+                    (xf is not None and xf.get('flipV') == '1'))
             for blip in d.iter('{%s}blip' % NS['a']):
                 rid = blip.get('{%s}embed' % R_NS)
                 if rid and rid not in seen:
                     seen.add(rid)
-                    out.append(self.image(rid, cx, src_rect))
+                    out.append(self.image(rid, cx, src_rect, flip))
         return [x for x in out if x]
 
 
@@ -404,15 +415,6 @@ def main():
     else:
         raise SystemExit('Адресът на обителта не е намерен на заглавната')
 
-    # ── Заглавната страница: въздух преди иконата ──────────────────
-    # Иначе „с.Якимово, Видинска епархия" и иконата „Всецарица" се четат
-    # като едно (указание на автора).
-    tp = chapters[0][1]
-    for k, x in enumerate(tp):
-        if '<img ' in x and k > 0 and 'Якимово' in tp[k - 1]:
-            tp.insert(k, '<p class="gaptop">&#160;</p>')
-            break
-
     # ── Надписите към илюстрациите ─────────────────────────────────
     # Текстова кутия ДО картинка е надпис към нея: по-дребен шрифт и ПОД
     # нея (в книгата някои са отвесни и в подредбата излизаха преди нея —
@@ -443,14 +445,30 @@ def main():
                     parts[i] = parts[i].replace('class="boxtext"', 'class="epigraph"')
             i += 1
 
-    # ── Посвещението — отделено от иконата ─────────────────────────
-    # В книгата иконата и посвещението са на ОТДЕЛНИ страници; тук ги дели
-    # празно място пред орнамента (указание на автора).
+    # ── Заглавната част: ЛИСТОВЕ ───────────────────────────────────
+    # В книгата това са четири отделни страници: корица; заглавие с
+    # адреса на обителта; иконата „Всецарица"; посвещението. Слети в един
+    # поток, те се четяха нагъчкани (указание на автора) — затова между тях
+    # стои `pagebreak`, а четецът (book_reader.dart, `_pageGroups`) дава на
+    # всеки лист поне цял екран и центрира съдържанието му.
+    # Посвещението получава и свой въздух около орнаментите (`gapmid`).
     tp = chapters[0][1]
-    for k, x in enumerate(tp):
-        if 'group1.webp' in x:
-            tp.insert(k, '<p class="gaptop">&#160;</p>')
-            break
+    PB = '<p class="pagebreak">&#160;</p>'
+    def at(pred, what):
+        for k, x in enumerate(tp):
+            if pred(x):
+                return k
+        raise SystemExit(f'Заглавната: не е намерено {what}')
+    k = at(lambda x: 'Исихастирио' in x, 'адресът на обителта')
+    tp.insert(k + 1, PB)                                   # → иконата
+    k = at(lambda x: 'group1.webp' in x, 'орнаментът пред посвещението')
+    tp.insert(k, PB)                                       # → посвещението
+    tp.insert(k + 2, '<p class="gapmid">&#160;</p>')       # орнамент · + + +
+    k = at(lambda x: 'group2.webp' in x, 'орнаментът след посвещението')
+    tp.insert(k, '<p class="gapmid">&#160;</p>')           # „От автора" · орнамент
+    k = at(lambda x: '<h1' in x, 'заглавието')
+    k0 = max(i for i in range(k) if '<img ' in tp[i] and 'data-tint' not in tp[i])
+    tp.insert(k0 + 1, PB)                                  # корица → заглавие
 
     # ── Препратките към Писанието — действащи (общият модул) ───────
     # Отварят се ВЪТРЕ в приложението, както в житията и справочника.
