@@ -83,7 +83,12 @@ const List<ChitalnyaBook> kChitalnyaBooks = [
 ];
 
 class ChitalnyaScreen extends StatefulWidget {
-  const ChitalnyaScreen({super.key});
+  /// Корицата, на която да се отвори тестето — по КОДА на книгата, не по
+  /// място в списъка: прибавят ли се книги, мястото се мести, а кодът не
+  /// (връзката „Виж повече за автора" в „За приложението").
+  final String? initialCode;
+
+  const ChitalnyaScreen({super.key, this.initialCode});
 
   @override
   State<ChitalnyaScreen> createState() => _ChitalnyaScreenState();
@@ -95,7 +100,10 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
   late final List<ImageProvider> _covers = kChitalnyaBooks
       .map<ImageProvider>((b) => AssetImage(b.cover))
       .toList();
-  int _index = 0;
+  late int _index = () {
+    final i = kChitalnyaBooks.indexWhere((b) => b.code == widget.initialCode);
+    return i < 0 ? 0 : i;
+  }();
   bool _opening = false;
 
   late final AnimationController _launch =

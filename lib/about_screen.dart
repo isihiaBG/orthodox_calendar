@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'chitalnya_screen.dart';
 
 const String _titleFamily = 'TamburinModern';
 const String _dropCapFamily = 'Bukvica';
@@ -115,6 +116,7 @@ class _AboutScreenState extends State<AboutScreen> {
   late final TapGestureRecognizer _pravoslavietoTap;
   late final TapGestureRecognizer _azbykaTap;
   late final TapGestureRecognizer _kotyukTap;
+  late final TapGestureRecognizer _authorBookTap;
 
   @override
   void initState() {
@@ -124,6 +126,9 @@ class _AboutScreenState extends State<AboutScreen> {
     _pravoslavietoTap = TapGestureRecognizer()..onTap = () => _openUrl(_pravoslavietoUrl);
     _azbykaTap = TapGestureRecognizer()..onTap = () => _openUrl(_azbykaUrl);
     _kotyukTap = TapGestureRecognizer()..onTap = () => _openUrl(_kotyukUrl);
+    _authorBookTap = TapGestureRecognizer()
+      ..onTap = () => Navigator.of(context).push(MaterialPageRoute(
+          builder: (_) => const ChitalnyaScreen(initialCode: 'razgovori')));
   }
 
   @override
@@ -133,6 +138,7 @@ class _AboutScreenState extends State<AboutScreen> {
     _pravoslavietoTap.dispose();
     _azbykaTap.dispose();
     _kotyukTap.dispose();
+    _authorBookTap.dispose();
     super.dispose();
   }
 
@@ -343,6 +349,18 @@ class _AboutScreenState extends State<AboutScreen> {
                     ],
                   ),
                   textAlign: TextAlign.justify,
+                ),
+                const SizedBox(height: 10),
+                // Към книгата на автора в „Читалня" — по КОДА ѝ, не по място
+                // в списъка: нови книги не бива да я изместват.
+                Text.rich(
+                  TextSpan(
+                    style: smallItalicStyle,
+                    children: [
+                      _firstLineIndent,
+                      _linkSpan('Виж повече за автора', _authorBookTap),
+                    ],
+                  ),
                 ),
                 const SizedBox(height: 24),
                 RichText(
