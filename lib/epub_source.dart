@@ -73,6 +73,12 @@ class EpubBook {
 
   final List<EpubTocEntry> toc;
 
+  /// Съдържанието се показва със СГЪНАТИ групи (разгъват се с копче).
+  /// Казва го самата книга — `<meta name="toc-collapsible" content="true"/>`
+  /// в .opf, — за да не се засягат томовете на „Месецослов", където дните и
+  /// житията под тях стоят разгърнати нарочно.
+  final bool collapsibleToc;
+
   final Archive _archive;
 
   EpubBook._({
@@ -81,6 +87,7 @@ class EpubBook {
     required this.spine,
     required this.toc,
     required Archive archive,
+    this.collapsibleToc = false,
   }) : _archive = archive;
 
   /// Суровият XHTML на една глава. null, ако пътят го няма в архива.
@@ -180,6 +187,8 @@ class EpubBook {
       spine: spine,
       toc: toc,
       archive: archive,
+      collapsibleToc: RegExp(r'<meta\s+name="toc-collapsible"\s+content="true"')
+          .hasMatch(opf),
     );
   }
 

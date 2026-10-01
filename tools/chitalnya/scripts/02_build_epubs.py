@@ -54,8 +54,10 @@ def source_line(url, label='azbyka.ru'):
 class Book:
     """Един .epub: глави (с вложени точки в съдържанието) и бележки."""
 
-    def __init__(self, code, title, author):
+    def __init__(self, code, title, author, collapsible=False):
         self.code, self.title, self.author = code, title, author
+        # Съдържанието със сгънати групи — виж EpubBook.collapsibleToc.
+        self.collapsible = collapsible
         self.files = []      # (име, xhtml)
         self.toc = []        # [(заглавие, файл, [деца])]
 
@@ -79,7 +81,8 @@ class Book:
                '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
                f'<dc:title>{E(self.title)}</dc:title><dc:creator>{E(self.author)}</dc:creator>'
                f'<dc:language>bg</dc:language><dc:identifier id="uid">{uid}</dc:identifier>'
-               + ('<meta name="cover" content="cover"/>' if cover.exists() else '') +
+               + ('<meta name="cover" content="cover"/>' if cover.exists() else '')
+               + ('<meta name="toc-collapsible" content="true"/>' if self.collapsible else '') +
                f'</metadata><manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>'
                f'{manifest}</manifest><spine toc="ncx">{spine}</spine></package>')
         order = [0]
@@ -130,8 +133,10 @@ def tr(ru):
 
 
 def debolsky():
-    b = Book('debolsky', 'Дни на богослужението на Православната Католическа '
-             'Източна Църква', 'Прот. Григорий Дебольски')
+    # ⚠ Не „…на Православната Католическа Източна Църква" (буквално по
+    # оригинала) — „католическа" смущава българския читател (потребителят).
+    b = Book('debolsky', 'Дни на богослужението в Православната Църква',
+             'Прот. Григорий Дебольски')
     b.titlepage('Пояснения за дните на богослужението през годината')
     con = sqlite3.connect(DB / 'lives_plus.db')
     part, kids = None, None
@@ -167,8 +172,12 @@ def zlatoust():
     b.write()
 
 
+RE_WEEKDAY = re.compile(r'^(Понеделник|Вторник|Сряда|Четвъртък|Петък|Събота)\b')
+
+
 def teofan():
-    b = Book('teofan', 'Мисли за всеки ден от годината', 'Свт. Теофан Затворник')
+    b = Book('teofan', 'Мисли за всеки ден от годината', 'Свт. Теофан Затворник',
+             collapsible=True)
     b.titlepage('По църковните четива от Словото Божие')
     con = sqlite3.connect(DB / 'teofan.db')
     notes = dict(con.execute('SELECT key, body FROM notes'))
@@ -185,7 +194,13 @@ def teofan():
         body = re.sub(r'<a href="teofan-note://([^"]+)">\s*<sup[^>]*>[^<]*</sup>\s*</a>',
                       note, body)
         f = b.add(f't{id_:03d}.xhtml', title, f'<h1>{E(title)}</h1>{body}')
-        b.toc.append((title, f, []))
+        # ⚠ Делниците отиват ПОД предходната неделя или празник — иначе
+        # съдържанието е безкрайна редица „Вторник, Сряда, Четвъртък…"
+        # (потребителят). Групите се показват сгънати (`toc-collapsible`).
+        if RE_WEEKDAY.match(title) and len(b.toc) > 1:
+            b.toc[-1][2].append((title, f, []))
+        else:
+            b.toc.append((title, f, []))
     # Бележките — отделни файлове, извън съдържанието (както в томовете).
     for k, n in used.items():
         b.files.append((f'note{n}.xhtml', xhtml(k, f'<h1 id="note{n}">{E(k)}</h1>'

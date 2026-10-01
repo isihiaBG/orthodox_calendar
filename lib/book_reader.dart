@@ -442,7 +442,14 @@ class _BookReaderState extends State<BookReader>
     var i = _index + direction;
     while (i >= 0 && i < _chapters.length) {
       final e = _chapters[i];
-      final isDay = e.children.isNotEmpty;
+      // ⚠ В сгъваемото съдържание (Теофан в „Читалня") групата е САМА
+      // ЧЕТИВО — неделята, под която стоят делниците — и не се прескача.
+      // Прескача се само чисто групиращ запис, сочещ страницата на първото
+      // си дете. В томовете на „Месецослов" поведението е старото.
+      final isDay = e.children.isNotEmpty &&
+          (!widget.book.collapsibleToc ||
+              (e.children.first.href == e.href &&
+                  e.children.first.anchor == e.anchor));
       final sameAsCurrent = e.href == cur.href && e.anchor == cur.anchor;
       if (!isDay && !sameAsCurrent) return i;
       i += direction;
@@ -1695,6 +1702,7 @@ class _BookReaderState extends State<BookReader>
         current: _index == 0 ? (_lastRead?.chapter ?? 0) : _index,
         palette: palette,
         autofocusSearch: focusSearch,
+        collapsible: widget.book.collapsibleToc,
       ),
     );
     if (chosen != null) _goTo(chosen);
@@ -2641,12 +2649,18 @@ class _TocSheet extends StatefulWidget {
   /// клавиатурата излиза сама. Вдига се от лупата на заглавната страница.
   final bool autofocusSearch;
 
+  /// Групите (записите с деца) са СГЪНАТИ и се разгъват с копче отдясно —
+  /// виж [EpubBook.collapsibleToc]. Отворена е само групата на маркирания
+  /// ред; при търсене се показва всичко.
+  final bool collapsible;
+
   const _TocSheet({
     required this.toc,
     required this.chapters,
     required this.current,
     required this.palette,
     this.autofocusSearch = false,
+    this.collapsible = false,
   });
 
   @override
@@ -2665,8 +2679,42 @@ class _TocSheetState extends State<_TocSheet> {
   static const double _padRight = 16.0;
   static const double _indent = 16.0;
 
-  /// Съдържанието, разгънато в плосък списък: (запис, дълбочина).
-  late final List<(EpubTocEntry, int)> _rows;
+  /// Съдържанието, разгънато в плосък списък: (запис, дълбочина). При
+  /// сгъваемо съдържание — само ВИДИМИТЕ редове (виж [_rebuildRows]).
+  List<(EpubTocEntry, int)> _rows = const [];
+
+  /// Разгънатите групи (при [_TocSheet.collapsible]).
+  final Set<EpubTocEntry> _openGroups = {};
+
+  /// Мястото отдясно за копчето на групата — пази се и при мерене, инак
+  /// заглавие на два реда се мери по-широко, отколкото се рисува.
+  static const double _toggleW = 40.0;
+
+  bool _isMarked(EpubTocEntry e) =>
+      widget.chapters.indexWhere((c) => c.href == e.href && c.anchor == e.anchor) ==
+      widget.current;
+
+  void _rebuildRows() {
+    final rows = <(EpubTocEntry, int)>[];
+    final all = !widget.collapsible || _query.isNotEmpty;
+    void walk(List<EpubTocEntry> list, int depth) {
+      for (final e in list) {
+        rows.add((e, depth));
+        if (all || _openGroups.contains(e)) walk(e.children, depth + 1);
+      }
+    }
+
+    walk(widget.toc, 0);
+    _rows = rows;
+    _measuredWidth = -1; // редовете са други — меренето е остаряло
+  }
+
+  void _toggleGroup(EpubTocEntry e) {
+    setState(() {
+      if (!_openGroups.remove(e)) _openGroups.add(e);
+      _rebuildRows();
+    });
+  }
 
   final ScrollController _scroll = ScrollController();
   final TextEditingController _searchCtrl = TextEditingController();
@@ -2689,16 +2737,15 @@ class _TocSheetState extends State<_TocSheet> {
   @override
   void initState() {
     super.initState();
-    final rows = <(EpubTocEntry, int)>[];
-    void walk(List<EpubTocEntry> list, int depth) {
-      for (final e in list) {
-        rows.add((e, depth));
-        walk(e.children, depth + 1);
+    // Отворена е групата, в която е маркираният ред (или самата тя).
+    if (widget.collapsible) {
+      for (final g in widget.toc) {
+        if (_isMarked(g) || g.children.any((c) => c.flattened().any(_isMarked))) {
+          _openGroups.add(g);
+        }
       }
     }
-
-    walk(widget.toc, 0);
-    _rows = rows;
+    _rebuildRows();
     TocFontSize.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
@@ -2744,7 +2791,9 @@ class _TocSheetState extends State<_TocSheet> {
       final painter = TextPainter(
         text: TextSpan(text: entry.title, style: _styleOf(isDay)),
         textDirection: TextDirection.ltr,
-      )..layout(maxWidth: width - (_padLeft + depth * _indent) - _padRight);
+      )..layout(
+          maxWidth: width - (_padLeft + depth * _indent) - _padRight -
+              (_hasToggle(entry) ? _toggleW : 0));
       tops[i] = y;
       y += painter.height + (isDay && i > 0 ? _gapDay : _gapLife) + _gapLife;
       painter.dispose();
@@ -2776,6 +2825,12 @@ class _TocSheetState extends State<_TocSheet> {
 
   void _runSearch(String raw) {
     final q = fold(raw.trim()).text;
+    // При сгъваемо съдържание търсенето вижда ВСИЧКО — номерата на
+    // редовете в намереното трябва да са на редовете, които се рисуват.
+    if (widget.collapsible && q.isEmpty != _query.isEmpty) {
+      _query = q;
+      _rebuildRows();
+    }
     final hits = <_TocHit>[];
     if (q.isNotEmpty) {
       for (int i = 0; i < _rows.length; i++) {
@@ -2910,8 +2965,12 @@ class _TocSheetState extends State<_TocSheet> {
       _query = '';
       _hits = const [];
       _currentHit = -1;
+      if (widget.collapsible) _rebuildRows();
     });
   }
+
+  bool _hasToggle(EpubTocEntry e) =>
+      widget.collapsible && _query.isEmpty && e.children.isNotEmpty;
 
   // ── Видът ───────────────────────────────────────────────────────────
 
@@ -3056,7 +3115,26 @@ class _TocSheetState extends State<_TocSheet> {
           _padRight,
           _gapLife,
         ),
-        child: RichText(text: _spanFor(i)),
+        child: _hasToggle(entry)
+            ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Expanded(child: RichText(text: _spanFor(i))),
+                // Тапът по ЗАГЛАВИЕТО отваря четивото, а по стрелката —
+                // само разгъва групата.
+                SizedBox(
+                  width: _toggleW,
+                  child: InkWell(
+                    onTap: () => _toggleGroup(entry),
+                    customBorder: const CircleBorder(),
+                    child: Icon(
+                      _openGroups.contains(entry)
+                          ? Icons.expand_less
+                          : Icons.expand_more,
+                      color: AppColors.sectionTitle,
+                    ),
+                  ),
+                ),
+              ])
+            : RichText(text: _spanFor(i)),
       ),
     );
   }
