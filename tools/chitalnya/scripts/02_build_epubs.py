@@ -194,7 +194,7 @@ def teofan():
 
 
 def optina():
-    b = Book('optina', 'Мисли на Оптинските старци', 'Прпп. Оптински старци')
+    b = Book('optina', 'Изречения от Оптинските старци', 'Прпп. Оптински старци')
     b.titlepage('По темите на „Симфония по творенията на преподобните Оптински старци"')
     con = sqlite3.connect(DB / 'optina.db')
     rows = con.execute('SELECT src_id, src_topic_ru, body FROM sayings').fetchall()
