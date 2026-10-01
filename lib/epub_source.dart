@@ -79,6 +79,12 @@ class EpubBook {
   /// житията под тях стоят разгърнати нарочно.
   final bool collapsibleToc;
 
+  /// Главите БЕЗ буквица — `<meta name="no-dropcap" content="true"/>`. За
+  /// книга, чиито абзаци почват с „К:", „И: ВЪПРОС –" (диалози): буквица
+  /// върху буквата на събеседника озадачава и отдалечава от оригинала
+  /// (указание на автора).
+  final bool noDropCap;
+
   final Archive _archive;
 
   EpubBook._({
@@ -88,6 +94,7 @@ class EpubBook {
     required this.toc,
     required Archive archive,
     this.collapsibleToc = false,
+    this.noDropCap = false,
   }) : _archive = archive;
 
   /// Суровият XHTML на една глава. null, ако пътят го няма в архива.
@@ -217,6 +224,8 @@ class EpubBook {
       archive: archive,
       collapsibleToc: RegExp(r'<meta\s+name="toc-collapsible"\s+content="true"')
           .hasMatch(opf),
+      noDropCap:
+          RegExp(r'<meta\s+name="no-dropcap"\s+content="true"').hasMatch(opf),
     );
   }
 

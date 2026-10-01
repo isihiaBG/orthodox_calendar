@@ -1236,9 +1236,14 @@ class _BookReaderState extends State<BookReader>
     if (_cachedDropCap != null && _cachedHref == _current.href) {
       return _cachedDropCap!;
     }
-    final (_, _, cap, _, _) = splitDropCap(_currentBody());
+    final (_, _, cap, _, _) = _splitDropCap(_currentBody());
     return _cachedDropCap = cap;
   }
+
+  /// [splitDropCap], освен ако книгата не иска БЕЗ буквица
+  /// ([EpubBook.noDropCap]) — тогава всичко е обикновен текст.
+  (String, String, String, String, String) _splitDropCap(String body) =>
+      widget.book.noDropCap ? (body, '', '', '', '') : splitDropCap(body);
 
   List<ReaderRegion> _currentRegions() {
     if (_cachedRegions != null && _cachedHref == _current.href) {
@@ -1250,7 +1255,7 @@ class _BookReaderState extends State<BookReader>
     // на региони), затова е "_" и не се подава на computeRegions: тя строи
     // региони от текст (beforeHtml/firstP/afterHtml), не от глифа на
     // буквицата — той се подава директно на DropCapParagraph по-долу.
-    final (beforeHtml, _, dropCap, firstP, afterHtml) = splitDropCap(body);
+    final (beforeHtml, _, dropCap, firstP, afterHtml) = _splitDropCap(body);
     return _cachedRegions =
         computeRegions(beforeHtml, dropCap, firstP, afterHtml);
   }
@@ -1677,8 +1682,9 @@ class _BookReaderState extends State<BookReader>
       title: _current.title,
       bodyHtml: _chapterHtml(raw),
       fileName: '${_fileSafe(_current.title)}.pdf',
-      // Главите започват с буквица, както житията.
-      withDropCap: true,
+      // Главите започват с буквица, както житията — освен в книга, която
+      // иска без нея (EpubBook.noDropCap).
+      withDropCap: !widget.book.noDropCap,
     );
   }
 
@@ -1926,7 +1932,7 @@ class _BookReaderState extends State<BookReader>
     // Маркирането се нанася ПО РЕГИОНИ, с текущо отместване на броя, за да
     // остане номерацията на съвпаденията същата като преди.
     final (beforeHtml, leadingQuote, dropCap, firstP, afterHtml) =
-        splitDropCap(body);
+        _splitDropCap(body);
     final regions = computeRegions(beforeHtml, dropCap, firstP, afterHtml);
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());

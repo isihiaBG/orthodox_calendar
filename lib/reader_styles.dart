@@ -58,6 +58,35 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.left,
       color: ink,
     ),
+    // Църковнославянски текст в книгите на Читалнята — със същия шрифт като
+    // Молитвослова и Библията (Triodion, резерв Monomakh).
+    '.cs': Style(fontFamily: 'Triodion', fontFamilyFallback: const ['Monomakh']),
+    // Цял абзац-цитат на църковнославянски: водещата буква е червена
+    // (`.rubric` вътре), останалото — мастилено.
+    '.csq': Style(
+      fontSize: FontSize(fontSize + 1),
+      color: ink,
+      textAlign: TextAlign.justify,
+      margin: Margins.only(top: 4, bottom: 10),
+    ),
+    // Посвещение в началото на книга (Читалня) — курсив с цвета на текста,
+    // двустранно подравнено и стеснено от двете страни, като в оригинала.
+    '.dedication': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      fontStyle: FontStyle.italic,
+      color: ink,
+      textAlign: TextAlign.justify,
+      margin: Margins.only(left: 24, right: 24, top: 4, bottom: 4),
+    ),
+    '.dedicationright': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize),
+      fontStyle: FontStyle.italic,
+      color: ink,
+      textAlign: TextAlign.right,
+      margin: Margins.only(left: 24, right: 24, top: 4, bottom: 12),
+    ),
     '.item': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize),

@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 
 import 'epub_source.dart';
+import 'reader_theme.dart';
 
 class BookImageExtension extends HtmlExtension {
   final EpubBook book;
@@ -40,8 +41,28 @@ class BookImageExtension extends HtmlExtension {
     // `data-w` — колко от реда заема картинката в ОРИГИНАЛА (книгите от
     // .docx в „Читалня"). Без него — естествената ширина, но никога
     // по-широка от страницата (томовете на „Месецослов").
-    final frac = double.tryParse(context.attributes['data-w'] ?? '');
-    final image = Image.memory(bytes, fit: BoxFit.scaleDown);
+    var frac = double.tryParse(context.attributes['data-w'] ?? '');
+    // В ИЗПРАВЕНО илюстрациите заемат цялата ширина (указание на автора) —
+    // телефонът е тесен и дялът от оригиналния ред ги правеше дребни.
+    // Орнаментите (`data-tint`) пазят пропорцията си; в легнало — всички.
+    final bc = context.buildContext;
+    if (frac != null &&
+        context.attributes['data-tint'] != '1' &&
+        bc != null &&
+        MediaQuery.orientationOf(bc) == Orientation.portrait) {
+      frac = 1.0;
+    }
+    // `data-tint` — едноцветен орнамент. В тъмна тема кафявото му се губи
+    // върху почти черната страница, затова се оцветява в топло светло злато;
+    // в светла остава оригиналът.
+    final tint = context.attributes['data-tint'] == '1' && ReaderTheme.dark;
+    Widget paint(Widget child) => tint
+        ? ColorFiltered(
+            colorFilter:
+                const ColorFilter.mode(Color(0xFFC9B48A), BlendMode.srcIn),
+            child: child)
+        : child;
+    final image = paint(Image.memory(bytes, fit: BoxFit.scaleDown));
     return WidgetSpan(
       // Орнаментите в тези томове са разделители — стоят на собствен ред и
       // по средата.
@@ -55,7 +76,7 @@ class BookImageExtension extends HtmlExtension {
               // мерене (не дава вградени размери).
               : FractionallySizedBox(
                   widthFactor: frac.clamp(0.05, 1.0),
-                  child: Image.memory(bytes, fit: BoxFit.contain),
+                  child: paint(Image.memory(bytes, fit: BoxFit.contain)),
                 ),
         ),
       ),

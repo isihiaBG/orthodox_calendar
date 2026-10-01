@@ -54,6 +54,8 @@ R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 NS = {'w': W_NS, 'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing',
       'a': 'http://schemas.openxmlformats.org/drawingml/2006/main', 'r': R_NS}
 w = lambda t: '{%s}%s' % (W_NS, t)
+WPG = 'http://schemas.microsoft.com/office/word/2010/wordprocessingGroup'
+PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
 
 E = lambda s: html.escape(s, quote=False)
 
@@ -76,6 +78,7 @@ class Doc:
             self.fnotes[f.get(w('id'))] = ' '.join(
                 self.runs(p) for p in f.findall('w:p', NS)).strip()
         self.images = {}     # media/… → име в .epub
+        self.ornaments = set()  # едноцветните — оцветяват се според темата
         self.notes = []      # (номер, html)
         self.note_of = {}
 
@@ -83,24 +86,33 @@ class Doc:
     def runs(self, p):
         """Текстът на абзаца (без картинките и кутиите) → html."""
         out = []
+        st = p.find('w:pPr/w:pStyle', NS)
+        # ⚠ В „Цитат_ЦС" (a0) шрифтът Ucs идва от СТИЛА НА АБЗАЦА, не от
+        # самия текст — проверката само по текста го пропускаше и цитатът
+        # излизаше неразчетен („Покаsніz tвeрзи…", докладвано).
+        cs = st is not None and st.get(w('val')) == 'a0'
         for ch in p:
             if ch.tag == w('r'):
-                out.append(self.run(ch))
+                out.append(self.run(ch, cs))
             elif ch.tag == w('hyperlink'):
                 href = self.rels.get(ch.get('{%s}id' % R_NS), '')
-                inner = ''.join(self.run(r) for r in ch.findall('w:r', NS))
+                inner = ''.join(self.run(r, cs) for r in ch.findall('w:r', NS))
                 out.append(f'<a href="{E(href)}">{inner}</a>' if href.startswith('http')
                            else inner)
             elif ch.tag in (w('ins'), w('smartTag'), w('fldSimple')):
-                out.append(''.join(self.run(r) for r in ch.iter(w('r'))))
+                out.append(''.join(self.run(r, cs) for r in ch.iter(w('r'))))
         s = ''.join(out)
         # Съседни еднакви тагове се слепват („<i>а</i><i>б</i>" → „<i>аб</i>").
-        for t in ('i', 'b', 'span class="rubric"'):
+        for t in ('i', 'b', 'span class="rubric"', 'span class="cs"'):
             close = t.split()[0]
             s = s.replace(f'</{close}><{t}>', '')
-        return s
+        # Цс откъс: ВОДЕЩАТА буква червена, останалото мастилено (както в
+        # богослужебните книги) — и в цели цитати, и вмъкнат в изречение.
+        return re.sub(
+            r'(<span class="cs">[„"«(\s]*)([^\W\d_][\u0300-\u036f\u0483-\u0489\u2de0-\u2dff\ua66f-\ua67f]*)',
+            r'\1<span class="rubric">\2</span>', s)
 
-    def run(self, r):
+    def run(self, r, para_cs=False):
         rpr = r.find('w:rPr', NS)
         def has(tag):
             e = rpr.find(f'w:{tag}', NS) if rpr is not None else None
@@ -120,14 +132,27 @@ class Doc:
         if not t:
             return ''
         font = rpr.find('w:rFonts', NS) if rpr is not None else None
-        if font is not None and 'Ucs' in (font.get(w('ascii')) or ''):
+        fname = (font.get(w('ascii')) or '') if font is not None else ''
+        rst = rpr.find('w:rStyle', NS) if rpr is not None else None
+        # Църковнославянско е: шрифт Ucs на текста, знаков стил „Цитат_ЦС"
+        # (Char0), или абзац „Цитат_ЦС", без текстът да сменя шрифта на друг
+        # (препратката „(Иов 40:14)" е с Cambria).
+        rsv = rst.get(w('val')) if rst is not None else ''
+        # ⚠ Знаковият стил QuoteChar носи СВОЙ шрифт (Cambria) — така е
+        # набрана препратката „(Иов 40:14)" вътре в цс цитат.
+        cs = 'Ucs' in fname or rsv == 'Char0' \
+            or (para_cs and not fname and not has('i')
+                and rsv not in ('QuoteChar', 'IntenseEmphasis', 'Emphasis', 'Hyperlink'))
+        if cs:
             t = ucs.decode(t)
         t = E(t).replace('\n', '<br/>')
-        rst = rpr.find('w:rStyle', NS) if rpr is not None else None
+        if cs:
+            t = f'<span class="cs">{t}</span>'
         ital = has('i') or (rst is not None and rst.get(w('val')) in
                             ('QuoteChar', 'IntenseEmphasis', 'Emphasis'))
         col = rpr.find('w:color', NS) if rpr is not None else None
-        red = col is not None and col.get(w('val')) in ('EE0000', 'FF0000', 'C00000')
+        red = (col is not None and col.get(w('val')) in ('EE0000', 'FF0000', 'C00000')
+               and not cs)
         if ital:
             t = f'<i>{t}</i>'
         if has('b'):
@@ -145,6 +170,21 @@ class Doc:
         return f'<a href="note{n}.xhtml#note{n}"><sup>{n}</sup></a>'
 
     # ── картинки ───────────────────────────────────────────────────
+    @staticmethod
+    def is_ornament(im):
+        """Едноцветна прозрачна графика (орнамент) — четецът я оцветява
+        според темата (`data-tint`), иначе в тъмна тема кафявото се губи."""
+        if im.mode != 'RGBA':
+            return False
+        px = [p for p in im.resize((120, max(1, 120 * im.height // im.width))).getdata()
+              if p[3] > 128]
+        if len(px) < 20:
+            return False
+        lum = [0.3 * r + 0.59 * g + 0.11 * b for r, g, b, _ in px]
+        mean = sum(lum) / len(lum)
+        sd = (sum((v - mean) ** 2 for v in lum) / len(lum)) ** 0.5
+        return sd < 28
+
     def image(self, rid, cx_emu):
         target = self.rels.get(rid)
         if not target or not target.startswith('media/') or target.endswith('.wdp'):
@@ -166,6 +206,8 @@ class Doc:
                 alpha = a.getextrema()[0] < 250
             if max(im.size) > 1400:
                 im.thumbnail((1400, 1400))
+            if self.is_ornament(im.convert('RGBA') if im.mode in ('RGBA', 'LA', 'P') else im):
+                self.ornaments.add(target)
             buf = io.BytesIO()
             if alpha:
                 # WebP пази прозрачността и е в пъти по-лек от PNG (Flutter
@@ -179,18 +221,78 @@ class Doc:
             self.images[target] = (name, buf.getvalue())
         name = self.images[target][0]
         frac = min(1.0, (cx_emu / 360000) / TEXT_W_CM) if cx_emu else 1.0
-        return f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}" alt=""/></p>'
+        tint = ' data-tint="1"' if target in self.ornaments else ''
+        return (f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}"'
+                f'{tint} alt=""/></p>')
+
+    def group(self, g, cx):
+        """Група картинки (орнаментът от три части, двойката илюстрации)
+        → ЕДНА картинка, сглобена по координатите от Word.
+
+        ⚠ Поотделно частите губят мястото си едни спрямо други — излизаха
+        разхвърляни и непълни (докладвано от потребителя). Завъртане на 180°
+        (rot="10800000") се прави и на всяка част, и на цялата група.
+        """
+        A = NS['a']
+        gx = g.find('{%s}grpSpPr/{%s}xfrm' % (WPG, A))
+        ch_off = gx.find('{%s}chOff' % A).attrib
+        ch_ext = gx.find('{%s}chExt' % A).attrib
+        ox, oy = int(ch_off['x']), int(ch_off['y'])
+        W_, H_ = int(ch_ext['cx']), int(ch_ext['cy'])
+        PX = 1400 / W_                      # широчината на сглобеното
+        canvas = Image.new('RGBA', (1400, max(1, round(H_ * PX))), (0, 0, 0, 0))
+        for pic in g.iter('{%s}pic' % PIC):
+            blip = pic.find('.//{%s}blip' % A)
+            x = pic.find('.//{%s}xfrm' % A)
+            if blip is None or x is None:
+                continue
+            target = self.rels.get(blip.get('{%s}embed' % R_NS), '')
+            try:
+                im = Image.open(io.BytesIO(self.z.read('word/' + target))).convert('RGBA')
+            except Exception:
+                continue
+            off, ext = x.find('{%s}off' % A).attrib, x.find('{%s}ext' % A).attrib
+            w_ = max(1, round(int(ext['cx']) * PX))
+            h_ = max(1, round(int(ext['cy']) * PX))
+            im = im.resize((w_, h_), Image.LANCZOS)
+            if x.get('flipH') == '1':
+                im = im.transpose(Image.FLIP_LEFT_RIGHT)
+            if x.get('flipV') == '1':
+                im = im.transpose(Image.FLIP_TOP_BOTTOM)
+            rot = int(x.get('rot', '0')) / 60000
+            if rot:
+                im = im.rotate(-rot, expand=False)
+            canvas.alpha_composite(im, (round((int(off['x']) - ox) * PX),
+                                        round((int(off['y']) - oy) * PX)))
+        grot = int(gx.get('rot', '0')) / 60000
+        if grot:
+            canvas = canvas.rotate(-grot, expand=False)
+        canvas = canvas.crop(canvas.getbbox() or (0, 0, 1, 1))
+        self.groups = getattr(self, 'groups', 0) + 1
+        name = f'group{self.groups}.webp'
+        buf = io.BytesIO()
+        canvas.save(buf, 'WEBP', quality=88, method=6)
+        self.images[f'group{self.groups}'] = (name, buf.getvalue())
+        frac = min(1.0, (cx / 360000) / TEXT_W_CM) if cx else 1.0
+        tint = ' data-tint="1"' if self.is_ornament(canvas) else ''
+        return (f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}"'
+                f'{tint} alt=""/></p>')
 
     def drawings(self, p):
         """Картинките и текстовите кутии в абзаца — в реда, в който стоят."""
         out = []
         for d in p.iter(w('drawing')):
+            g = d.find('.//{%s}wgp' % WPG)
+            if g is not None:
+                ext = d.find('.//wp:extent', NS)
+                out.append(self.group(g, int(ext.get('cx')) if ext is not None else 0))
+                continue
             box = d.find('.//w:txbxContent', NS)
             if box is not None:
                 lines = [self.runs(x) for x in box.findall('w:p', NS)]
                 lines = [x for x in lines if x.strip()]
                 if lines:
-                    out.append('<p class="epigraph">' + '<br/>'.join(lines) + '</p>')
+                    out.append('<p class="boxtext">' + '<br/>'.join(lines) + '</p>')
                 continue
             ext = d.find('.//wp:extent', NS)
             cx = int(ext.get('cx')) if ext is not None else 0
@@ -219,7 +321,9 @@ def main():
         jc = ppr.find('w:jc', NS) if ppr is not None else None
         jc = jc.get(w('val')) if jc is not None else ''
         text = doc.runs(p).strip()
-        plain = re.sub(r'<[^>]+>', '', text)
+        # ⚠ NBSP → интервал: „+ + +" е разделено с непрекъсваеми интервали
+        # и иначе не се разпознаваше като кръстчета.
+        plain = re.sub(r'<[^>]+>', '', text).replace('\xa0', ' ')
         if st == 'TOC2' or plain.strip() == 'Съдържание':
             continue                 # съдържанието го прави четецът
         cur = chapters[-1][1]
@@ -234,18 +338,25 @@ def main():
             cur.append(f'<p class="centernote"><b>{re.sub(r"</?i>", "", text)}</b></p>')
         elif st == 'a2':
             if plain.strip('+ ') == '':
-                cur.append(f'<p class="centernote">{text}</p>')
+                # „+ + +" — кръстчетата са в Tamburin, като в оригинала;
+                # <h3> е стилът, който четецът рисува с него.
+                cur.append(f'<h3>{plain.strip()}</h3>')
             else:
                 title_lines.append(text)
                 if len(title_lines) == 4:
                     cur.append('<h1>' + '<br/>'.join(title_lines) + '</h1>')
         elif st == 'a1':
-            cls = 'epigraphnote' if jc == 'right' else 'centernote'
+            # Посвещението: курсив, двустранно подравнено, с цвета на текста;
+            # „От автора" — вдясно.
+            cls = 'dedicationright' if jc == 'right' else 'dedication'
             cur.append(f'<p class="{cls}">{text}</p>')
         elif st == 'a':
-            cur.append(f'<p class="epigraph">{re.sub(r"</?i>", "", text)}</p>')
+            # Цитатите са в КУРСИВ, както в книгата (указание на автора).
+            cur.append(f'<p class="epigraph"><i>{re.sub(r"</?i>", "", text)}</i></p>')
         elif st == 'a0':
-            cur.append(f'<p class="csl"><span class="rubric">{re.sub(r"<[^>]+>", "", text)}</span></p>')
+            # Цс цитат: ВОДЕЩАТА буква червена, останалото мастилено (както в
+            # богослужебните книги) — указание на автора.
+            cur.append(f'<p class="csq">{text}</p>')
         elif st == 'ListParagraph':
             cur.append(f'<p class="item">• {text}</p>')
         elif st == 'NoSpacing':
@@ -254,6 +365,34 @@ def main():
             cur.append(f'<p class="centernote">{text}</p>')
         else:
             cur.append(f'<p>{text}</p>')
+
+    # ── Надписите към илюстрациите ─────────────────────────────────
+    # Текстова кутия ДО картинка е надпис към нея: по-дребен шрифт и ПОД
+    # нея (в книгата някои са отвесни и в подредбата излизаха преди нея —
+    # указание на автора). Кутия без картинка до себе си (анекдотът в „За
+    # Каруля") остава рамкиран откъс.
+    img = lambda x: '<img ' in x
+    for _, parts in chapters:
+        i = 0
+        while i < len(parts):
+            if parts[i].startswith('<p class="boxtext">'):
+                cap = parts[i].replace('class="boxtext"', 'class="caption"')
+                cap = re.sub(r'</?i>', '', cap)
+                # Надписът е КРАТЪК; анекдотът в „За Каруля" стои в същия абзац
+                # като снимката, но е самостоятелен откъс.
+                if len(re.sub(r'<[^>]+>', '', cap)) > 180:
+                    parts[i] = parts[i].replace('class="boxtext"', 'class="epigraph"')
+                    i += 1
+                    continue
+                if i + 1 < len(parts) and img(parts[i + 1]):
+                    parts[i], parts[i + 1] = parts[i + 1], cap
+                    i += 2
+                    continue
+                if i > 0 and img(parts[i - 1]):
+                    parts[i] = cap
+                else:
+                    parts[i] = parts[i].replace('class="boxtext"', 'class="epigraph"')
+            i += 1
 
     # ── PDF: целият оригинал и всяка беседа, изрязана от него ──────
     # ⚠ Страницата, на която почва беседата, се НАМИРА по заглавието ѝ в
@@ -321,7 +460,9 @@ def main():
     opf = ('<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" '
            'version="2.0" unique-identifier="uid"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
            '<dc:title>Разговори за Божествения промисъл, последните времена и вътрешния духовен живот</dc:title>'
-           f'<dc:language>bg</dc:language><dc:identifier id="uid">{uid}</dc:identifier></metadata>'
+           f'<dc:language>bg</dc:language><dc:identifier id="uid">{uid}</dc:identifier>'
+           # Без буквица — абзаците почват с „К:", „И: ВЪПРОС –" (автора).
+           '<meta name="no-dropcap" content="true"/></metadata>'
            f'<manifest><item id="ncx" href="toc.ncx" media-type="application/x-dtbncx+xml"/>{man}</manifest>'
            f'<spine toc="ncx">{spine}</spine></package>')
     nav = ''.join(f'<navPoint id="n{i}" playOrder="{i + 1}"><navLabel><text>{E(t)}</text></navLabel>'
