@@ -69,6 +69,19 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.justify,
       margin: Margins.only(top: 4, bottom: 10),
     ),
+    // Празен ред-разделител (Читалня): въздух между два блока, които иначе
+    // се четат като едно — напр. издателят и иконата на заглавната страница.
+    '.gaptop': Style(margin: Margins.only(top: 28, bottom: 0)),
+    // Надпис под илюстрация в книгите на Читалнята — с три степени по-дребно
+    // от текста и центриран под картинката; еднакъв за всички (автора).
+    '.figcaption': Style(
+      fontFamily: kBodyFamily,
+      fontSize: FontSize(fontSize - 3),
+      fontStyle: FontStyle.italic,
+      color: dim,
+      textAlign: TextAlign.center,
+      margin: Margins.only(top: 0, bottom: 14),
+    ),
     // Посвещение в началото на книга (Читалня) — курсив с цвета на текста,
     // двустранно подравнено и стеснено от двете страни, като в оригинала.
     '.dedication': Style(

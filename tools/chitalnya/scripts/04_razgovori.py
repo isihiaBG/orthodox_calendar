@@ -185,11 +185,15 @@ class Doc:
         sd = (sum((v - mean) ** 2 for v in lum) / len(lum)) ** 0.5
         return sd < 28
 
-    def image(self, rid, cx_emu):
+    def image(self, rid, cx_emu, src_rect=None):
         target = self.rels.get(rid)
         if not target or not target.startswith('media/') or target.endswith('.wdp'):
             return ''
-        if target not in self.images:
+        if src_rect is not None:
+            key = target + '#' + ','.join(src_rect.get(k, '0') for k in 'ltrb')
+        else:
+            key = target
+        if key not in self.images:
             data = self.z.read('word/' + target)
             try:
                 im = Image.open(io.BytesIO(data))
@@ -204,26 +208,42 @@ class Doc:
             if im.mode in ('RGBA', 'LA', 'P') or 'transparency' in im.info:
                 a = im.convert('RGBA').getchannel('A')
                 alpha = a.getextrema()[0] < 250
+            im = self.crop(im, src_rect)
             if max(im.size) > 1400:
                 im.thumbnail((1400, 1400))
             if self.is_ornament(im.convert('RGBA') if im.mode in ('RGBA', 'LA', 'P') else im):
-                self.ornaments.add(target)
+                self.ornaments.add(key)
             buf = io.BytesIO()
+            stem = Path(target).stem + ('' if key == target else
+                                        '_' + str(abs(hash(key)) % 10000))
             if alpha:
                 # WebP пази прозрачността и е в пъти по-лек от PNG (Flutter
                 # го чете); орнаментите се пазят без загуба.
-                name = Path(target).stem + '.webp'
+                name = stem + '.webp'
                 small = max(im.size) < 600
                 im.save(buf, 'WEBP', lossless=small, quality=86, method=6)
             else:
-                name = Path(target).stem + '.jpg'
+                name = stem + '.jpg'
                 im.convert('RGB').save(buf, 'JPEG', quality=84)
-            self.images[target] = (name, buf.getvalue())
-        name = self.images[target][0]
+            self.images[key] = (name, buf.getvalue())
+        name = self.images[key][0]
         frac = min(1.0, (cx_emu / 360000) / TEXT_W_CM) if cx_emu else 1.0
-        tint = ' data-tint="1"' if target in self.ornaments else ''
+        tint = ' data-tint="1"' if key in self.ornaments else ''
         return (f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}"'
                 f'{tint} alt=""/></p>')
+
+    @staticmethod
+    def crop(im, src_rect):
+        """`a:srcRect` — Word показва само част от картинката (l/t/r/b в
+        стохилядни от размера). ⚠ Без него орнаментите излизаха дребни и
+        разхвърляни: ползваха се целите файлове с прозрачните им полета."""
+        if src_rect is None:
+            return im
+        f = lambda k: int(src_rect.get(k, '0')) / 100000
+        W_, H_ = im.size
+        box = (round(W_ * f('l')), round(H_ * f('t')),
+               round(W_ * (1 - f('r'))), round(H_ * (1 - f('b'))))
+        return im.crop(box) if box[2] > box[0] and box[3] > box[1] else im
 
     def group(self, g, cx):
         """Група картинки (орнаментът от три части, двойката илюстрации)
@@ -251,6 +271,7 @@ class Doc:
                 im = Image.open(io.BytesIO(self.z.read('word/' + target))).convert('RGBA')
             except Exception:
                 continue
+            im = self.crop(im, pic.find('.//{%s}srcRect' % A))
             off, ext = x.find('{%s}off' % A).attrib, x.find('{%s}ext' % A).attrib
             w_ = max(1, round(int(ext['cx']) * PX))
             h_ = max(1, round(int(ext['cy']) * PX))
@@ -297,11 +318,12 @@ class Doc:
             ext = d.find('.//wp:extent', NS)
             cx = int(ext.get('cx')) if ext is not None else 0
             seen = set()
+            src_rect = d.find('.//{%s}srcRect' % NS['a'])
             for blip in d.iter('{%s}blip' % NS['a']):
                 rid = blip.get('{%s}embed' % R_NS)
                 if rid and rid not in seen:
                     seen.add(rid)
-                    out.append(self.image(rid, cx))
+                    out.append(self.image(rid, cx, src_rect))
         return [x for x in out if x]
 
 
@@ -366,6 +388,15 @@ def main():
         else:
             cur.append(f'<p>{text}</p>')
 
+    # ── Заглавната страница: въздух преди иконата ──────────────────
+    # Иначе „с.Якимово, Видинска епархия" и иконата „Всецарица" се четат
+    # като едно (указание на автора).
+    tp = chapters[0][1]
+    for k, x in enumerate(tp):
+        if '<img ' in x and k > 0 and 'Якимово' in tp[k - 1]:
+            tp.insert(k, '<p class="gaptop">&#160;</p>')
+            break
+
     # ── Надписите към илюстрациите ─────────────────────────────────
     # Текстова кутия ДО картинка е надпис към нея: по-дребен шрифт и ПОД
     # нея (в книгата някои са отвесни и в подредбата излизаха преди нея —
@@ -376,7 +407,7 @@ def main():
         i = 0
         while i < len(parts):
             if parts[i].startswith('<p class="boxtext">'):
-                cap = parts[i].replace('class="boxtext"', 'class="caption"')
+                cap = parts[i].replace('class="boxtext"', 'class="figcaption"')
                 cap = re.sub(r'</?i>', '', cap)
                 # Надписът е КРАТЪК; анекдотът в „За Каруля" стои в същия абзац
                 # като снимката, но е самостоятелен откъс.
@@ -384,12 +415,14 @@ def main():
                     parts[i] = parts[i].replace('class="boxtext"', 'class="epigraph"')
                     i += 1
                     continue
-                if i + 1 < len(parts) and img(parts[i + 1]):
+                # ⚠ Първо ПРЕДИШНАТА картинка: подписът под иконата
+                # „Всецарица" иначе се закачаше за следващия орнамент.
+                if i > 0 and img(parts[i - 1]):
+                    parts[i] = cap
+                elif i + 1 < len(parts) and img(parts[i + 1]):
                     parts[i], parts[i + 1] = parts[i + 1], cap
                     i += 2
                     continue
-                if i > 0 and img(parts[i - 1]):
-                    parts[i] = cap
                 else:
                     parts[i] = parts[i].replace('class="boxtext"', 'class="epigraph"')
             i += 1
