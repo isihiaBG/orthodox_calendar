@@ -210,6 +210,13 @@ class Doc:
                 a = im.convert('RGBA').getchannel('A')
                 alpha = a.getextrema()[0] < 250
             im = self.crop(im, src_rect)
+            # Прозрачните полета около рисунката я смаляват на екрана —
+            # изрязват се при илюстрациите от TRIM (указание на автора за
+            # „Приготовлението на престола").
+            if Path(target).stem in TRIM and im.mode == 'RGBA':
+                box = im.getchannel('A').point(lambda v: 255 if v > 40 else 0).getbbox()
+                if box:
+                    im = im.crop(box)
             # ⚠ Огледалното обръщане от Word (`a:xfrm flipH/flipV`) е
             # свойство на ПОСТАВЯНЕТО, не на файла — без него снимката в
             # беседата за Каруля излизаше обърната (докладвано от автора).
@@ -336,6 +343,15 @@ class Doc:
                     seen.add(rid)
                     out.append(self.image(rid, cx, src_rect, flip))
         return [x for x in out if x]
+
+
+# ── Ръчни указания на автора за отделни илюстрации ─────────────────
+# По файла в .docx (word/media/<име>). Всяко е от преглед на готовата
+# книга, не от правило.
+TRIM = {'image8'}                 # приготовлението на престола — без полета
+SCALE = {'image9': 0.8}           # монахът с кръста — малко по-дребен
+BACK_COVER = 'image22'            # задната корица — от край до край
+MOVE_TO_END = {'group3'}          # благославящата ръка — в края на беседата
 
 
 def main():
@@ -467,13 +483,54 @@ def main():
     tp.insert(k, PB)                                       # → посвещението
     # „+ + +" над посвещението — плътно до орнамента (`dedhead`); иначе
     # носи отстъпите на заглавие на глава.
+    # Орнаментът над „+ + +" — `dedorn`: на 10 от кръстчетата, а празнината
+    # над него (от надписа под иконата) е двойна, 20 — така се чете като
+    # част от посвещението, не от иконата (указание на автора).
+    tp[k + 1] = tp[k + 1].replace('class="centernote"', 'class="centernote dedorn"', 1)
     if '+ + +' in tp[k + 2]:
         tp[k + 2] = tp[k + 2].replace('<h3>', '<h3 class="dedhead">', 1)
     else:
         raise SystemExit('Заглавната: „+ + +" не е под орнамента')
     k = at(lambda x: '<h1' in x, 'заглавието')
+    # Орнаментът ПОД заглавието — `titleorn` (на равно разстояние от
+    # заглавието с онзи отгоре и по-далеч от адреса под него).
+    if '<img ' in tp[k + 1]:
+        tp[k + 1] = tp[k + 1].replace('class="centernote"', 'class="centernote titleorn"', 1)
+    else:
+        raise SystemExit('Заглавната: няма орнамент под заглавието')
+    if '<img ' in tp[k - 1] and 'data-tint' in tp[k - 1]:
+        tp[k - 1] = tp[k - 1].replace('class="centernote"', 'class="centernote titleorn1"', 1)
+    else:
+        raise SystemExit('Заглавната: няма орнамент над заглавието')
     k0 = max(i for i in range(k) if '<img ' in tp[i] and 'data-tint' not in tp[i])
     tp.insert(k0 + 1, PB)                                  # корица → заглавие
+    # Корицата — от край до край, без въздух отгоре (указание на автора):
+    # `data-cover` казва на четеца да я извади извън полетата на страницата.
+    tp[k0] = (tp[k0].replace('class="centernote"', 'class="centernote cover"', 1)
+              .replace('<img ', '<img data-cover="1" ', 1))
+
+    # ── Указанията за отделни илюстрации (виж TRIM/SCALE/…) ────────
+    def img_of(x, stem):
+        return re.search(r'Images/%s[_.]' % stem, x) is not None
+    for _, parts in chapters:
+        for i, x in enumerate(parts):
+            for stem, k in SCALE.items():
+                if img_of(x, stem):
+                    parts[i] = x = x.replace('<img ', f'<img data-scale="{k}" ', 1)
+            if img_of(x, BACK_COVER):
+                parts[i] = (x.replace('class="centernote"', 'class="centernote cover"', 1)
+                            .replace('<img ', '<img data-cover="1" ', 1))
+        for stem in MOVE_TO_END:
+            for i, x in enumerate(parts):
+                if img_of(x, stem):
+                    # В книгата е НАКРАЯ на беседата; в .docx котвата ѝ е
+                    # в предпоследния абзац (плаваща картинка).
+                    parts.append(parts.pop(i))
+                    break
+    for what, stem in [('задната корица', BACK_COVER), *[(s_, s_) for s_ in MOVE_TO_END],
+                       *[(s_, s_) for s_ in SCALE]]:
+        if not any(img_of(x, stem) for _, p_ in chapters for x in p_):
+            raise SystemExit(f'Илюстрацията „{what}" не е намерена')
 
     # ── Препратките към Писанието — действащи (общият модул) ───────
     # Отварят се ВЪТРЕ в приложението, както в житията и справочника.

@@ -52,6 +52,10 @@ class BookImageExtension extends HtmlExtension {
         MediaQuery.orientationOf(bc) == Orientation.portrait) {
       frac = 1.0;
     }
+    // `data-scale` — ръчно указание на автора за отделна илюстрация (по-
+    // дребна или по-едра от правилото) — умножава дела от реда.
+    final scale = double.tryParse(context.attributes['data-scale'] ?? '');
+    if (frac != null && scale != null) frac *= scale;
     // `data-tint` — едноцветен орнамент. В тъмна тема кафявото му се губи
     // върху почти черната страница, затова се оцветява в топло светло злато;
     // в светла остава оригиналът.
@@ -63,6 +67,24 @@ class BookImageExtension extends HtmlExtension {
             child: child)
         : child;
     final image = paint(Image.memory(bytes, fit: BoxFit.scaleDown));
+    // Корицата (`data-cover`) — от край до край, без въздух около нея
+    // (указание на автора). Полетата на страницата ги маха book_reader
+    // (`_pageGroups`); тук — само собственият отстъп на картинката. В
+    // легнало ширината би я направила висока няколко екрана, затова там
+    // таванът е височината на екрана — пропорцията се пази и в двата случая.
+    if (context.attributes['data-cover'] == '1' && bc != null) {
+      final mq = MediaQuery.of(bc);
+      return WidgetSpan(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+              maxHeight: mq.size.height - mq.padding.vertical),
+          child: SizedBox(
+            width: double.infinity,
+            child: Image.memory(bytes, fit: BoxFit.contain),
+          ),
+        ),
+      );
+    }
     return WidgetSpan(
       // Орнаментите в тези томове са разделители — стоят на собствен ред и
       // по средата.

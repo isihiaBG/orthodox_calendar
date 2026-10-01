@@ -2107,15 +2107,48 @@ class _BookReaderState extends State<BookReader>
       }
     }
 
-    return Padding(
+    // Корицата (`data-cover`, предната и задната в „Разговори…") излиза
+    // ИЗВЪН полетата на страницата — от край до край (указание на автора).
+    // Затова главата се реже на парчета: обикновените региони — в
+    // полетата, корицата — сама. Ключът на съдържанието остава на
+    // ВЪНШНАТА обвивка, за да се мери от същия връх.
+    bool isCover(int i) =>
+        regions[i].isHtml && regions[i].content.contains('data-cover="1"');
+    final covers = [for (int i = 0; i < regions.length; i++) if (isCover(i)) i];
+    if (covers.isEmpty) {
+      return Padding(
+        key: _contentKey,
+        // Долният отстъп е само дъх след последния ред — мястото на
+        // системната лента за жестове вече е отнето от SafeArea (виж build).
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: _pageGroups(regions, children, 0, regions.length),
+        ),
+      );
+    }
+    final parts = <Widget>[];
+    var from = 0;
+    for (final c in [...covers, regions.length]) {
+      if (c > from) {
+        parts.add(Padding(
+          // Над корица, която не е първа (задната), остава въздух — тя
+          // идва след текста.
+          padding: EdgeInsets.fromLTRB(
+              16, from == 0 ? 12 : 0, 16, c == regions.length ? 24 : 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: _pageGroups(regions, children, from, c),
+          ),
+        ));
+      }
+      if (c < regions.length) parts.add(children[c]);
+      from = c + 1;
+    }
+    return Column(
       key: _contentKey,
-      // Долният отстъп е само дъх след последния ред — мястото на
-      // системната лента за жестове вече е отнето от SafeArea (виж build).
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: _pageGroups(regions, children),
-      ),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: parts,
     );
   }
 
@@ -2128,11 +2161,12 @@ class _BookReaderState extends State<BookReader>
   /// само се увиват в групи, тъй че позиционирането по ключ не се чупи.
   /// Самата граница остава като празен регион (със своя ключ).
   /// Глава без граница минава непроменена.
-  List<Widget> _pageGroups(List<ReaderRegion> regions, List<Widget> children) {
+  List<Widget> _pageGroups(
+      List<ReaderRegion> regions, List<Widget> children, int from, int to) {
     bool isBreak(int i) =>
         regions[i].isHtml && regions[i].content.contains('class="pagebreak"');
-    if (!List.generate(regions.length, isBreak).contains(true)) {
-      return children;
+    if (![for (int i = from; i < to; i++) isBreak(i)].contains(true)) {
+      return children.sublist(from, to);
     }
     final mq = MediaQuery.of(context);
     // Видимата височина: без системните ленти и без отстъпа на главата.
@@ -2152,7 +2186,7 @@ class _BookReaderState extends State<BookReader>
       page = <Widget>[];
     }
 
-    for (int i = 0; i < children.length; i++) {
+    for (int i = from; i < to; i++) {
       if (isBreak(i)) {
         flush();
         out.add(KeyedSubtree(key: _regionKeys[i], child: const SizedBox.shrink()));
