@@ -85,9 +85,40 @@ Map<String, Style> readerStyles({
       textAlign: TextAlign.center,
       margin: Margins.only(top: 26, bottom: 30),
     ),
+    // Главите-СПИСЪЦИ в справочника (редът на четене на Евангелието през
+    // Великия пост): СИСТЕМЕН шрифт, както дневният изглед — четиво те не
+    // са, а указател. Седмицата — като групите (получер, синьо, главни),
+    // денят — получер, редът — обикновен, с връзка към откъса.
+    '.refgroup': Style(
+      fontFamily: 'Roboto',
+      fontSize: FontSize(fontSize - 2),
+      fontWeight: FontWeight.w700,
+      letterSpacing: 1.2,
+      textTransform: TextTransform.uppercase,
+      // Синьото на групите — нагласено и за светлата тема (palette.heading).
+      color: palette.heading,
+      textAlign: TextAlign.left,
+      margin: Margins.only(top: 22, bottom: 4),
+    ),
+    '.refday': Style(
+      fontFamily: 'Roboto',
+      fontSize: FontSize(fontSize - 3),
+      fontWeight: FontWeight.w700,
+      color: ink,
+      textAlign: TextAlign.left,
+      margin: Margins.only(top: 10, bottom: 2),
+    ),
+    '.refline': Style(
+      fontFamily: 'Roboto',
+      fontSize: FontSize(fontSize - 3),
+      color: ink,
+      textAlign: TextAlign.left,
+      lineHeight: const LineHeight(1.35),
+      margin: Margins.only(top: 1, bottom: 1, left: 12),
+    ),
     // Празен ред-разделител (Читалня): въздух между два блока, които иначе
     // се четат като едно — напр. издателят и иконата на заглавната страница.
-    '.gaptop': Style(margin: Margins.only(top: 28, bottom: 0)),
+    '.gaptop': Style(margin: Margins.only(top: 56, bottom: 0)),
     // Надпис под илюстрация в книгите на Читалнята — с три степени по-дребно
     // от текста и центриран под картинката; еднакъв за всички (автора).
     '.figcaption': Style(

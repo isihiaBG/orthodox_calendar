@@ -187,6 +187,10 @@ class AppDrawer extends StatelessWidget {
           ),
           _groupTitle('ОСНОВНИ', top: 8),
           _item(Icons.calendar_month, 'Календар', () => _backToCalendar(context)),
+          // ⚠ Малко въздух между ГРУПИТЕ — календарът, четците (Молитвослов
+          // … Читалня) и справочните (Празници …) — без заглавия, за да не
+          // натежи менюто (указание на потребителя). Само няколко точки.
+          const SizedBox(height: 10),
           _item(Icons.auto_stories, 'Молитвослов', () {
             Navigator.of(context).pop();
             _openMolitvoslov(context);
@@ -203,6 +207,7 @@ class AppDrawer extends StatelessWidget {
           // „Месецослов" и преди справочните: и двете са кътове за четене.
           _item(Icons.local_library, 'Читалня',
               () => _openScreen(context, (_) => const ChitalnyaScreen())),
+          const SizedBox(height: 10),
           // Четирите справочни секции живеят в ОБЩ екран с плъзгане
           // настрани (reference_pager.dart). Менюто само посочва коя да е
           // отгоре; ако екранът вече е отворен, ReferencePager.open просто

@@ -95,6 +95,46 @@ CREATE INDEX idx_articles_group ON ref_articles(group_id, position);
 RE_ZNAK = re.compile(r"⟦znak([1-5])⟧")
 
 
+# ⚠ Главите-СПИСЪЦИ в „Редът за четене на Евангелието през Великите пости"
+# (указание на потребителя): седмиците — група (получер, синьо, главни),
+# дните — подзаглавие, редовете с четива — системен шрифт и ДЕЙСТВАЩА
+# връзка към целия откъс (и през няколко глави). Обяснителните изречения
+# вътре остават в шрифта за четене. Главите с описания (4-01, 4-05) — не.
+LIST_ARTICLES = {'4-02', '4-03', '4-04', '4-06'}
+_GOSPEL = {'мт': 'Mt', 'мат': 'Mt', 'мф': 'Mt', 'мк': 'Mk', 'марк': 'Mk', 'лк': 'Lk',
+           'лук': 'Lk', 'ин': 'Jn', 'йн': 'Jn', 'йоан': 'Jn'}
+RE_WEEK = re.compile(r'^\d+-\w+ седмица:?$')
+RE_DAY = re.compile(r'^(Пн|Вт|Ср|Чт|Пт|Пет|Сб)\.$|^(Понеделник|Вторник|Сряда|Четвъртък|Петък)$'
+                    r'|^\d+-\w+ ден:?$')
+RE_LINE = re.compile(r'^(.*?–\s*)((\w+)\.,\s*зач\.\s*[\d–-]+\s*\((\d+)\s*[:,]\s*(\d+)\s*[–-]\s*'
+                     r'(?:(\d+)\s*[:,]\s*)?(\d+)\))(\.?)$')
+
+
+def list_html(units):
+    out = []
+    for u in units:
+        t = u.strip()
+        if RE_WEEK.match(t):
+            out.append(f'<p class="refgroup">{html.escape(t.rstrip(":"))}</p>')
+        elif RE_DAY.match(t):
+            out.append(f'<p class="refday">{html.escape(t.rstrip(":"))}</p>')
+        else:
+            # „Мф." — руската форма, останала от превода; съседните редове
+            # казват „Мт.".
+            t = re.sub(r'(–\s*)Мф\.', r'\1Мт.', t)
+            m = RE_LINE.match(t)
+            code = _GOSPEL.get(m.group(3).lower()) if m else None
+            if not code:
+                out.append(f'<p>{html.escape(t)}</p>')   # обяснително изречение
+                continue
+            c1, v1, c2, v2 = m.group(4), m.group(5), m.group(6), m.group(7)
+            rng = f'{c1}:{v1}-{v2}' if not c2 or c2 == c1 else f'{c1}:{v1}-{c2}:{v2}'
+            href = f'https://azbyka.ru/biblia/?{code}.{rng}&amp;bg~utfcs'
+            out.append(f'<p class="refline">{html.escape(m.group(1))}'
+                       f'<a href="{href}">{html.escape(m.group(2))}</a>{m.group(8)}</p>')
+    return ''.join(out)
+
+
 def bg_html(units):
     """Българският текст: като to_html, плюс ДЕЙСТВАЩИ библейски връзки.
 
@@ -192,7 +232,8 @@ def main():
             " (id, group_id, title, title_ru, body, body_ru, position)"
             " VALUES (?,?,?,?,?,?,?)",
             (i, gid, a["title_bg"], a["title_ru"],
-             bg_html(a["units_bg"]), to_html(a["units"]), counts[gid]))
+             list_html(a["units_bg"]) if a["id"] in LIST_ARTICLES else bg_html(a["units_bg"]),
+             to_html(a["units"]), counts[gid]))
 
     # ⚠ Id-то на статията е и слъгът ѝ (`ref-<id>`) — в отметките и в
     # споделените линкове. Затова ръчните имат ПОСТОЯНЕН номер — изричното
