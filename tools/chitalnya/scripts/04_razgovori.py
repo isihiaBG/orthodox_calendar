@@ -24,6 +24,8 @@
 mc:Fallback) — взима се само първият вариант.
 """
 import html
+import subprocess
+import tempfile
 import io
 import re
 import sys
@@ -35,7 +37,7 @@ import xml.etree.ElementTree as ET
 
 from PIL import Image, ImageFile
 
-# ⚠ image21.png е с повредена контролна сума в цветовия профил (iCCP) —
+# ⚠ image22.png (бивш image21) е с повредена контролна сума в цветовия профил (iCCP) —
 # самата картинка е цяла; без това Pillow отказва да я отвори.
 ImageFile.LOAD_TRUNCATED_IMAGES = True
 
@@ -57,6 +59,21 @@ NS = {'w': W_NS, 'wp': 'http://schemas.openxmlformats.org/drawingml/2006/wordpro
 w = lambda t: '{%s}%s' % (W_NS, t)
 WPG = 'http://schemas.microsoft.com/office/word/2010/wordprocessingGroup'
 PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
+ASVG = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main'
+SVG_PX = 1200          # широчина, до която се растеризира SVG (Inkscape)
+
+
+def svg_to_png(data):
+    """SVG от .docx → PNG с прозрачност. ⚠ Word държи до SVG-то и PNG
+    резерв (`a:blip`), но той е дребен (592 px) — орнаментите се виждаха
+    размити. Растеризира се от самото SVG."""
+    with tempfile.TemporaryDirectory() as d:
+        src, dst = Path(d) / 'in.svg', Path(d) / 'out.png'
+        src.write_bytes(data)
+        subprocess.run(['inkscape', str(src), '--export-type=png',
+                        f'--export-filename={dst}', f'--export-width={SVG_PX}'],
+                       check=True, capture_output=True)
+        return dst.read_bytes()
 
 E = lambda s: html.escape(s, quote=False)
 
@@ -172,12 +189,14 @@ class Doc:
 
     # ── картинки ───────────────────────────────────────────────────
     @staticmethod
-    def is_ornament(im):
+    def is_ornament(im, probe=300):
         """Едноцветна прозрачна графика (орнамент) — четецът я оцветява
         според темата (`data-tint`), иначе в тъмна тема кафявото се губи."""
         if im.mode != 'RGBA':
             return False
-        px = [p for p in im.resize((120, max(1, 120 * im.height // im.width))).getdata()
+        # ⚠ 300, не 120: тънък орнамент (SVG-то под заглавието) даваше
+        # под 20 плътни точки и губеше оцветяването в тъмна тема.
+        px = [p for p in im.resize((probe, max(1, probe * im.height // im.width))).getdata()
               if p[3] > 128]
         if len(px) < 20:
             return False
@@ -186,8 +205,9 @@ class Doc:
         sd = (sum((v - mean) ** 2 for v in lum) / len(lum)) ** 0.5
         return sd < 28
 
-    def image(self, rid, cx_emu, src_rect=None, flip=(False, False)):
+    def image(self, rid, cx_emu, src_rect=None, flip=(False, False), svg_rid=None):
         target = self.rels.get(rid)
+        svg = self.rels.get(svg_rid) if svg_rid else None
         if not target or not target.startswith('media/') or target.endswith('.wdp'):
             return ''
         key = target
@@ -197,6 +217,8 @@ class Doc:
             key += '#flip' + ''.join('HV'[i] for i in range(2) if flip[i])
         if key not in self.images:
             data = self.z.read('word/' + target)
+            if svg:
+                data = svg_to_png(self.z.read('word/' + svg))
             try:
                 im = Image.open(io.BytesIO(data))
             except Exception:
@@ -313,7 +335,10 @@ class Doc:
         canvas.save(buf, 'WEBP', quality=88, method=6)
         self.images[f'group{self.groups}'] = (name, buf.getvalue())
         frac = min(1.0, (cx / 360000) / TEXT_W_CM) if cx else 1.0
-        tint = ' data-tint="1"' if self.is_ornament(canvas) else ''
+        # ⚠ Групите (орнаментите на посвещението) — със старата проба 120:
+        # оцветени, те губят разпъването на цяла ширина в изправено и видът
+        # на одобреното посвещение би се сменил.
+        tint = ' data-tint="1"' if self.is_ornament(canvas, 120) else ''
         return (f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}"'
                 f'{tint} alt=""/></p>')
 
@@ -344,16 +369,21 @@ class Doc:
                 rid = blip.get('{%s}embed' % R_NS)
                 if rid and rid not in seen:
                     seen.add(rid)
-                    out.append(self.image(rid, cx, src_rect, flip))
+                    sb = blip.find('.//{%s}svgBlip' % ASVG)
+                    out.append(self.image(rid, cx, src_rect, flip,
+                                          sb.get('{%s}embed' % R_NS) if sb is not None else None))
         return [x for x in out if x]
 
 
 # ── Ръчни указания на автора за отделни илюстрации ─────────────────
 # По файла в .docx (word/media/<име>). Всяко е от преглед на готовата
 # книга, не от правило.
-TRIM = {'image8'}                 # приготовлението на престола — без полета
-SCALE = {'image9': 0.8}           # монахът с кръста — малко по-дребен
-BACK_COVER = 'image22'            # задната корица — от край до край
+# ⚠ Word ПРЕНОМЕРИРА картинките при всяка подмяна (03.10.2026 всички от
+# престола нататък се изместиха с едно). Затова всяко име се проверява и
+# скриптът спира, ако не го намери — но смяна в .docx иска поглед тук.
+TRIM = {'image9'}                 # приготовлението на престола — без полета
+SCALE = {'image10': 0.65}         # монахът с кръста — по-дребен (0.8 беше малко)
+BACK_COVER = 'image23'            # задната корица — от край до край
 MOVE_TO_END = {'group3'}          # благославящата ръка — в края на беседата
 
 
@@ -531,7 +561,7 @@ def main():
                     parts.append(parts.pop(i))
                     break
     for what, stem in [('задната корица', BACK_COVER), *[(s_, s_) for s_ in MOVE_TO_END],
-                       *[(s_, s_) for s_ in SCALE]]:
+                       *[(s_, s_) for s_ in SCALE], *[(s_, s_) for s_ in TRIM]]:
         if not any(img_of(x, stem) for _, p_ in chapters for x in p_):
             raise SystemExit(f'Илюстрацията „{what}" не е намерена')
 
