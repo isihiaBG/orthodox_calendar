@@ -28,6 +28,7 @@ import io
 import re
 import sys
 import zipfile
+import zlib
 from pathlib import Path
 
 import xml.etree.ElementTree as ET
@@ -230,7 +231,9 @@ class Doc:
                 self.ornaments.add(key)
             buf = io.BytesIO()
             stem = Path(target).stem + ('' if key == target else
-                                        '_' + str(abs(hash(key)) % 10000))
+                                        '_' + str(zlib.crc32(key.encode()) % 10000))
+            # ⚠ crc32, НЕ hash(): той е случаен при всяко пускане на Python
+            # и имената на картинките се меняха без нужда.
             if alpha:
                 # WebP пази прозрачността и е в пъти по-лек от PNG (Flutter
                 # го чете); орнаментите се пазят без загуба.
@@ -550,26 +553,20 @@ def main():
     print('  препратки към Писанието:', stats)
 
     # ── Външните адреси в бележките — действащи ────────────────────
-    # В .docx са гол текст. Адресът на беседата на прот. Олег Стеняев се
-    # подменя с дадения от автора. ⚠ В изворите (.docx, PDF, връзката в
-    # Word) стои НУЛА — „BR0-…", не буква О; разликата е в опашката
-    # (`si=` срещу `is=`). Подменя се само в четеца — PDF-ът е оригиналът
-    # и остава какъвто е.
-    URL_FIX = {
-        'https://youtu.be/BR0-FDcidMs?si=Px8xap9LnYFiB1Yh':
-            'https://youtu.be/BR0-FDcidMs?is=wuPW4JnKfwaUqUzO',
-    }
+    # В .docx са гол текст. ⚠ Адресът на беседата на прот. Олег Стеняев
+    # (5-та бележка) авторът поправи В САМИТЕ ИЗВОРИ (.docx и PDF,
+    # 02.10.2026) — старият вече не работеше. Затова подмяна няма, а само
+    # проверка, че верният стои. ⚠ В адреса е НУЛА — „BR0-…", не буква О.
+    STENYAEV_URL = 'https://youtu.be/BR0-FDcidMs?is=dRF56Gq7BTinDyZK'
     def url_link(t):
-        for old, new in URL_FIX.items():
-            t = t.replace(old, new)
         # Само адреси в гол текст — не пипа вече поставени href-ове.
         return re.sub(r'(?<!["=>])(https?://[^\s<>"]+[^\s<>".,;:)\]])',
                       lambda m: f'<a href="{m.group(1)}">{m.group(1)}</a>', t)
     doc.notes = [(n, url_link(t)) for n, t in doc.notes]
     for ch in chapters:
         ch[1] = [url_link(x) for x in ch[1]]
-    if not any(URL_FIX[k] in t for k in URL_FIX for _, t in doc.notes) \
-            and not any(URL_FIX[k] in x for k in URL_FIX for _, p in chapters for x in p):
+    if not any(STENYAEV_URL in t for _, t in doc.notes) \
+            and not any(STENYAEV_URL in x for _, p in chapters for x in p):
         sys.exit('⚠ адресът на беседата на прот. Олег Стеняев не е намерен')
 
     # ── PDF: целият оригинал и всяка беседа, изрязана от него ──────
