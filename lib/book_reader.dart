@@ -1226,6 +1226,11 @@ class _BookReaderState extends State<BookReader>
   /// какъв ВИД четиво става дума. Разпознава се по името на тома — то е
   /// единственото, което го знае, а всичките дванайсет го носят.
   String _readingTitle() {
+    // ⚠ Заглавната страница носи в съдържанието кратко име („Начало" в
+    // „Разговори…") — при споделяне оттам се казва заглавието на книгата.
+    if (_index == 0 && _isChitalnya && widget.book.title.isNotEmpty) {
+      return widget.book.title;
+    }
     final e = _current;
     final base = e.children.isEmpty ? e.title : e.children.first.title;
     return widget.book.assetPath.contains('Димитрий Ростовски')

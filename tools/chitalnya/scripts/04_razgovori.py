@@ -676,7 +676,7 @@ def main():
     for i, (title, parts) in enumerate(chapters):
         name = 'title.xhtml' if i == 0 else f'c{i:02d}.xhtml'
         files.append((name, xhtml(title, ''.join(parts))))
-        toc.append((title if i else 'Разговори за Божествения промисъл', name))
+        toc.append((title if i else 'Начало', name))
     for n, t in doc.notes:
         files.append((f'note{n}.xhtml', xhtml(str(n), f'<h1 id="note{n}">{n}</h1><p>{t}</p>')))
 
