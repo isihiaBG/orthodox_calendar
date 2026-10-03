@@ -123,11 +123,12 @@ class LineLocator {
       final folded = fold(_runs[i].text);
       var from = 0;
       while (true) {
-        final at = folded.text.indexOf(foldedQuery, from);
-        if (at < 0) break;
+        final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+        if (mm == null) break;
+        final at = mm.$1, len = mm.$2;
         if (seen == ordinal) return _runStarts[i] + folded.origIndex[at];
         seen++;
-        from = at + foldedQuery.length;
+        from = at + len;
       }
     }
     return null;
@@ -152,10 +153,11 @@ class LineLocator {
       final folded = fold(_runs[i].text);
       var from = 0;
       while (true) {
-        final at = folded.text.indexOf(foldedQuery, from);
-        if (at < 0) break;
+        final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+        if (mm == null) break;
+        final at = mm.$1, len = mm.$2;
         out.add(_runStarts[i] + folded.origIndex[at]);
-        from = at + foldedQuery.length;
+        from = at + len;
       }
     }
     return out;
@@ -169,10 +171,11 @@ class LineLocator {
       final folded = fold(r.text);
       var from = 0;
       while (true) {
-        final at = folded.text.indexOf(foldedQuery, from);
-        if (at < 0) break;
+        final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+        if (mm == null) break;
+        final at = mm.$1, len = mm.$2;
         n++;
-        from = at + foldedQuery.length;
+        from = at + len;
       }
     }
     return n;

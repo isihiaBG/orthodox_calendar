@@ -77,3 +77,53 @@ Folded fold(String s) {
   }
   return Folded(buf.toString(), idx);
 }
+
+// ── Търсене с алтернативи („|") ─────────────────────────────────────────
+//
+// Заявката в четците е ЦЯЛА ФРАЗА (изгладена с [fold]). Знакът „|" дели
+// няколко фрази, свързани с логическо ИЛИ: „отче наш|богородице" намира и
+// двете. Както в Молитвослова.
+//
+// ⚠⚠ ВСЯКО търсене в четците минава през [nextFoldedMatch] — броенето,
+// маркирането, позиционирането по ред, буквицата и съдържанието. Остане ли
+// някъде голо `indexOf(заявка)`, при „|" там броят и маркираното се
+// разминават и стрелките сочат празно място.
+
+String _altKey = '';
+List<String> _altList = const [];
+
+/// Фразите в заявката — разделени по „|", изчистени, без празните.
+List<String> queryAlternatives(String foldedQuery) {
+  if (identical(foldedQuery, _altKey) || foldedQuery == _altKey) return _altList;
+  _altKey = foldedQuery;
+  return _altList = [
+    for (final a in foldedQuery.split('|'))
+      if (a.trim().isNotEmpty) a.trim()
+  ];
+}
+
+/// Следващото съвпадение в изгладения [hay] от позиция [from]:
+/// (начало, дължина), или null.
+///
+/// Печели НАЙ-РАННОТО; при еднакво начало — по-дългото („отче|отче наш"
+/// маркира цялото „отче наш").
+(int, int)? nextFoldedMatch(String hay, String foldedQuery, int from) {
+  if (!foldedQuery.contains('|')) {
+    if (foldedQuery.isEmpty) return null;
+    final at = hay.indexOf(foldedQuery, from);
+    return at < 0 ? null : (at, foldedQuery.length);
+  }
+  (int, int)? best;
+  for (final a in queryAlternatives(foldedQuery)) {
+    final at = hay.indexOf(a, from);
+    if (at < 0) continue;
+    if (best == null || at < best.$1 || (at == best.$1 && a.length > best.$2)) {
+      best = (at, a.length);
+    }
+  }
+  return best;
+}
+
+/// Има ли в заявката поне една истинска фраза („|" сам не търси нищо).
+bool hasSearchText(String foldedQuery) =>
+    queryAlternatives(foldedQuery).isNotEmpty;

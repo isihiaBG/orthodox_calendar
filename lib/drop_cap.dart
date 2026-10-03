@@ -250,9 +250,10 @@ List<(int, int)> _matchRanges(String text, String foldedQuery) {
   final out = <(int, int)>[];
   var from = 0;
   while (true) {
-    final at = folded.text.indexOf(foldedQuery, from);
-    if (at < 0) break;
-    final endIdx = at + foldedQuery.length - 1;
+    final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+    if (mm == null) break;
+    final at = mm.$1, len = mm.$2;
+    final endIdx = at + len - 1;
     out.add((folded.origIndex[at], folded.origIndex[endIdx] + 1));
     from = endIdx + 1;
   }

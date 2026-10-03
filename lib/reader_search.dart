@@ -46,10 +46,11 @@ String highlightHtml(
       final folded = fold(piece);
       int from = 0, lastEnd = 0;
       while (true) {
-        final at = folded.text.indexOf(foldedQuery, from);
-        if (at < 0) break;
+        final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+        if (mm == null) break;
+        final at = mm.$1, len = mm.$2;
         final origStart = folded.origIndex[at];
-        final endFoldedIdx = at + foldedQuery.length - 1;
+        final endFoldedIdx = at + len - 1;
         final origEnd = folded.origIndex[endFoldedIdx] + 1;
         buf.write(piece.substring(lastEnd, origStart));
         final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
@@ -109,10 +110,11 @@ int _anchorText(
   final folded = fold(innerText);
   int from = 0, lastEnd = 0, local = localStart;
   while (true) {
-    final at = folded.text.indexOf(foldedQuery, from);
-    if (at < 0) break;
+    final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+    if (mm == null) break;
+    final at = mm.$1, len = mm.$2;
     final origStart = folded.origIndex[at];
-    final endFoldedIdx = at + foldedQuery.length - 1;
+    final endFoldedIdx = at + len - 1;
     final origEnd = folded.origIndex[endFoldedIdx] + 1;
     if (origStart > lastEnd) {
       buf.write('<a $hrefAttr>');

@@ -91,10 +91,11 @@ int _countMatchesPlain(String text, String foldedQuery) {
   final f = fold(text).text;
   int count = 0, from = 0;
   while (true) {
-    final at = f.indexOf(foldedQuery, from);
-    if (at < 0) break;
+    final mm = nextFoldedMatch(f, foldedQuery, from);
+    if (mm == null) break;
+    final at = mm.$1, len = mm.$2;
     count++;
-    from = at + foldedQuery.length;
+    from = at + len;
   }
   return count;
 }

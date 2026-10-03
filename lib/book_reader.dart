@@ -34,6 +34,7 @@ import 'app_theme.dart';
 import 'book_image.dart';
 import 'book_last_read_store.dart';
 import 'book_position_store.dart';
+import 'book_search.dart';
 import 'book_title_extension.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
@@ -66,6 +67,13 @@ import 'reader_theme.dart';
 import 'round_icon_button.dart';
 import 'reader_toolbar.dart';
 import 'selection_toolbar.dart';
+
+/// Чистият текст на едно четиво, както го вижда търсенето в четеца —
+/// за търсенето в ЦЕЛИЯ ТОМ ([searchBook]). ⚠ Минава през СЪЩАТА
+/// нормализация, тъй че броят и поредността на съвпаденията в списъка
+/// съвпадат с тези в отвореното четиво. Чиста функция — вика се в изолат.
+String bookReadingPlain(String raw) =>
+    _BookReaderState._plainOf(_BookReaderState._normalize(raw));
 
 class BookReader extends StatefulWidget {
   final EpubBook book;
@@ -156,6 +164,33 @@ class _BookReaderState extends State<BookReader>
 
   /// Изгладеният низ за сравнение — без ударения и регистър (виж fold()).
   String _query = '';
+
+  // ── Търсене в целия том (виж book_search.dart) ─────────────────────
+  /// Запомненият резултат — Enter в същото поле връща списъка веднага.
+  BookSearchResult? _bookSearchCache;
+
+  /// Подготвеният текст на тома — веднъж за целия том (виж [BookTexts]).
+  Future<BookTexts>? _bookTexts;
+
+  /// Подготовката тръгва във фон още щом търсенето „в целия том" стане
+  /// възможно — при отваряне на полето или при избор в панела, — тъй че
+  /// докато човек пише, тя обикновено вече е готова.
+  Future<BookTexts> _prepareBookTexts() =>
+      _bookTexts ??= prepareBookTexts(_bookSearchJobs());
+
+  void _prewarmBookSearch() {
+    if (BookSearchSettings.where == BookSearchWhere.book) _prepareBookTexts();
+  }
+
+  /// Четивото, отворено последно от списъка — там той се връща.
+  int _lastBookHitChapter = -1;
+
+  /// Кое поред съвпадение да стане текущо след следващото преброяване —
+  /// мястото, избрано в списъка. null = първото.
+  int? _pendingHit;
+
+  /// Тече търсене в тома — колелото в лентата става въртележка.
+  bool _bookSearching = false;
 
   /// Делът от височината на текста, на който стои всяко съвпадение (0..1).
   /// По тях се рисуват чертичките по скролбара.
@@ -279,6 +314,7 @@ class _BookReaderState extends State<BookReader>
     );
     // Темата и размерът се четат заедно — за човека това е един
     // четец и настройките му са общи (виж ReaderTheme.loadOnce).
+    BookSearchSettings.loadOnce();
     ReaderTheme.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
@@ -948,12 +984,114 @@ class _BookReaderState extends State<BookReader>
       }
       _reanchorScroll();
     });
-    if (_searchOpen) _searchFocus.requestFocus();
+    if (_searchOpen) {
+      _searchFocus.requestFocus();
+      _prewarmBookSearch();
+    }
     if (at != null) {
       final extraOffset = wasOpen ? -_kSearchChromeHeight : _kSearchChromeHeight;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _jumpToLine(at.$1, at.$2, extraOffset: extraOffset);
       });
+    }
+  }
+
+  /// Книга от „Читалня" (за надписите: „в цялата книга" / „в целия том").
+  bool get _isChitalnya => widget.book.assetPath.contains('/chitalnya/');
+
+  /// Enter в полето: при „в целия том" — списък с намерените места.
+  void _onSearchSubmit(String raw) {
+    if (BookSearchSettings.where == BookSearchWhere.book) _runBookSearch(raw);
+  }
+
+  Future<void> _openSearchPanel() =>
+      showBookSearchPanel(context, wholeBook: _isChitalnya).then((_) {
+        if (!mounted) return;
+        setState(() {});
+        _prewarmBookSearch();
+      });
+
+  /// Главите за търсене в тома: (индекс, заглавие, група, суров html).
+  ///
+  /// ⚠ ПО ЕДИН ЗАПИС НА ФАЙЛ. Денят и първото му четиво сочат СЪЩИЯ файл
+  /// (виж [chapterForHref]) — без това всяко първо четиво излизаше два пъти.
+  /// Предпочита се листът (самото четиво), не дневният възел.
+  List<(int, String, String, String)> _bookSearchJobs() {
+    final parent = <EpubTocEntry, String>{};
+    void walk(List<EpubTocEntry> list, String group) {
+      for (final e in list) {
+        if (group.isNotEmpty) parent[e] = group;
+        walk(e.children, e.title);
+      }
+    }
+
+    walk(widget.book.toc, '');
+    final byHref = <String, int>{};
+    for (int i = 0; i < _chapters.length; i++) {
+      final e = _chapters[i];
+      if (e.href.isEmpty) continue;
+      final prev = byHref[e.href];
+      if (prev == null ||
+          (_chapters[prev].children.isNotEmpty && e.children.isEmpty)) {
+        byHref[e.href] = i;
+      }
+    }
+    final idx = byHref.values.toList()..sort();
+    return [
+      for (final i in idx)
+        (
+          i,
+          _chapters[i].title,
+          parent[_chapters[i]] ?? '',
+          widget.book.readFile(_chapters[i].href) ?? ''
+        )
+    ];
+  }
+
+  Future<void> _runBookSearch(String raw) async {
+    final q = fold(raw.trim()).text;
+    if (!hasSearchText(q) || _bookSearching) return;
+    _searchFocus.unfocus();
+    var res = _bookSearchCache?.query == q ? _bookSearchCache : null;
+    if (res == null) {
+      setState(() => _bookSearching = true);
+      try {
+        res = searchBook(q, await _prepareBookTexts());
+      } finally {
+        if (mounted) setState(() => _bookSearching = false);
+      }
+      _bookSearchCache = res;
+    }
+    if (!mounted) return;
+    final picked = await Navigator.of(context).push<(int, int)>(
+      MaterialPageRoute(
+        builder: (_) => BookSearchResultsScreen(
+          result: res!,
+          shownQuery: raw.trim(),
+          lastChapter: _lastBookHitChapter,
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    _openFoundPlace(raw.trim(), picked.$1, picked.$2);
+  }
+
+  /// Отваря четиво [chapter] с включено търсене на [raw] и прави текущо
+  /// [ordinal]-тото съвпадение — мястото, избрано в списъка.
+  void _openFoundPlace(String raw, int chapter, int ordinal) {
+    _lastBookHitChapter = chapter;
+    _pendingHit = ordinal;
+    if (!_searchOpen) {
+      setState(() {
+        _searchOpen = true;
+        _reanchorScroll();
+      });
+    }
+    if (_searchCtrl.text != raw) _searchCtrl.text = raw;
+    if (chapter == _index) {
+      _runSearch(raw);
+    } else {
+      _goTo(chapter); // той сам преброява наново в новото четиво
     }
   }
 
@@ -1014,17 +1152,19 @@ class _BookReaderState extends State<BookReader>
       final cap = r.kind == RegionKind.dropCap ? capForCount : '';
       total += _countIn(cap + r.content, q) + _countInList(r.rest, q);
     }
+    final want = _pendingHit;
+    _pendingHit = null;
     setState(() {
       _query = q;
       _total = total;
-      _currentHit = total == 0 ? -1 : 0;
+      _currentHit = total == 0 ? -1 : (want ?? 0).clamp(0, total - 1);
       _hitYs = const [];
     });
     // Позициите искат построена геометрия — смятат се след кадъра.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _recomputeHitYs();
-      if (_total > 0) _scrollToHit(0);
+      if (_total > 0) _scrollToHit(_currentHit);
     });
   }
 
@@ -1271,10 +1411,11 @@ class _BookReaderState extends State<BookReader>
     final folded = fold(_plainOf(html));
     var n = 0, from = 0;
     while (true) {
-      final at = folded.text.indexOf(foldedQuery, from);
-      if (at < 0) break;
+      final mm = nextFoldedMatch(folded.text, foldedQuery, from);
+      if (mm == null) break;
+      final at = mm.$1, len = mm.$2;
       n++;
-      from = at + foldedQuery.length;
+      from = at + len;
     }
     return n;
   }
@@ -1338,10 +1479,11 @@ class _BookReaderState extends State<BookReader>
     final folded = fold(_plainOf(html));
     var n = 0, from = 0;
     while (true) {
-      final at = folded.text.indexOf(_query, from);
-      if (at < 0) break;
+      final mm = nextFoldedMatch(folded.text, _query, from);
+      if (mm == null) break;
+      final at = mm.$1, len = mm.$2;
       n++;
-      from = at + _query.length;
+      from = at + len;
     }
     return n;
   }
@@ -1722,7 +1864,8 @@ class _BookReaderState extends State<BookReader>
   /// отведе другаде, а дотогава няма причина списъкът да стои на началото.
   Future<void> _showToc({bool focusSearch = false}) async {
     final palette = ReaderTheme.palette;
-    final chosen = await showModalBottomSheet<int>(
+    _prewarmBookSearch();
+    final chosen = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
@@ -1739,9 +1882,13 @@ class _BookReaderState extends State<BookReader>
         palette: palette,
         autofocusSearch: focusSearch,
         collapsible: widget.book.collapsibleToc,
+        wholeBook: _isChitalnya,
       ),
     );
-    if (chosen != null) _goTo(chosen);
+    // Число — избрано четиво; низ — Enter при „в целия том" (виж
+    // _TocSheetState._submit): търсенето се пуска оттук, от четеца.
+    if (chosen is int) _goTo(chosen);
+    if (chosen is String) _runBookSearch(chosen);
   }
 
   @override
@@ -2384,9 +2531,12 @@ class _BookReaderState extends State<BookReader>
                 style: TextStyle(color: fg, fontSize: 16),
                 textInputAction: TextInputAction.search,
                 onChanged: _runSearch,
+                onSubmitted: _onSearchSubmit,
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: 'Търсене в текста…',
+                  hintText: BookSearchSettings.where == BookSearchWhere.book
+                      ? 'В цял${_isChitalnya ? "ата книга" : "ия том"} (Enter)…'
+                      : 'Търсене в текста…',
                   hintStyle: TextStyle(color: fg.withValues(alpha: 0.5)),
                   contentPadding: const EdgeInsets.symmetric(
                       vertical: 8, horizontal: 10),
@@ -2421,6 +2571,23 @@ class _BookReaderState extends State<BookReader>
               maxLines: 1,
               softWrap: false,
               style: TextStyle(color: fg, fontSize: 13),
+            ),
+            const SizedBox(width: 8),
+            // Разширеното търсене — като зъбното колело в Библията.
+            SizedBox(
+              width: 36,
+              child: _bookSearching
+                  ? Center(
+                      child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2, color: fg)))
+                  : InkResponse(
+                      onTap: _openSearchPanel,
+                      radius: 20,
+                      child: Icon(Icons.tune, size: 24, color: fg),
+                    ),
             ),
           ],
         ),
@@ -2791,7 +2958,11 @@ class _TocSheet extends StatefulWidget {
     required this.palette,
     this.autofocusSearch = false,
     this.collapsible = false,
+    this.wholeBook = false,
   });
+
+  /// Книга от „Читалня" — само за надписите на разширеното търсене.
+  final bool wholeBook;
 
   @override
   State<_TocSheet> createState() => _TocSheetState();
@@ -2967,14 +3138,15 @@ class _TocSheetState extends State<_TocSheet> {
         final folded = fold(_rows[i].$1.title);
         int from = 0;
         while (true) {
-          final at = folded.text.indexOf(q, from);
-          if (at < 0) break;
+          final mm = nextFoldedMatch(folded.text, q, from);
+          if (mm == null) break;
+          final at = mm.$1, len = mm.$2;
           hits.add(_TocHit(
             i,
             folded.origIndex[at],
-            folded.origIndex[at + q.length - 1] + 1,
+            folded.origIndex[at + len - 1] + 1,
           ));
-          from = at + q.length;
+          from = at + len;
         }
       }
     }
@@ -2987,6 +3159,14 @@ class _TocSheetState extends State<_TocSheet> {
       // Геометрията се строи с кадъра — скачаме след него.
       WidgetsBinding.instance.addPostFrameCallback((_) => _revealHit());
     }
+  }
+
+  /// Enter: при „в целия том" листът се затваря и връща заявката на
+  /// четеца, който пуска търсенето и показва списъка.
+  void _submit(String raw) {
+    if (BookSearchSettings.where != BookSearchWhere.book) return;
+    if (!hasSearchText(fold(raw.trim()).text)) return;
+    Navigator.pop(context, raw.trim());
   }
 
   void _stepHit(int delta) {
@@ -3162,9 +3342,12 @@ class _TocSheetState extends State<_TocSheet> {
               style: TextStyle(color: fg, fontSize: 15),
               textInputAction: TextInputAction.search,
               onChanged: _runSearch,
+              onSubmitted: _submit,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: 'търси заглавие',
+                hintText: BookSearchSettings.where == BookSearchWhere.book
+                    ? 'в цял${widget.wholeBook ? "ата книга" : "ия том"} (Enter)'
+                    : 'търси заглавие',
                 hintStyle:
                     TextStyle(color: fg.withValues(alpha: 0.45), fontSize: 13),
                 contentPadding:
@@ -3200,6 +3383,14 @@ class _TocSheetState extends State<_TocSheet> {
                 ? _stepHit(1)
                 : setState(() => TocFontSize.nudge(TocFontSize.step)),
             size: kReaderBtnSize,
+          ),
+          const SizedBox(width: 12),
+          // Разширеното търсене — като зъбното колело в Библията.
+          InkResponse(
+            onTap: () => showBookSearchPanel(context, wholeBook: widget.wholeBook)
+                .then((_) => mounted ? setState(() {}) : null),
+            radius: 20,
+            child: Icon(Icons.tune, size: 24, color: fg),
           ),
         ],
       ),
