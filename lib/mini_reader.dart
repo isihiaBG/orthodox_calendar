@@ -26,6 +26,7 @@ import 'external_link.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
 import 'saint_expandable_tile.dart' show lookupBySlug;
+import 'selection_toolbar.dart';
 
 /// Схемата, с която 03_build_db.py бележи препратките към бележки под линия
 /// в мислите на свт. Теофан. Държи се тук, до мястото, което я разпознава.
@@ -151,10 +152,27 @@ class _MiniReaderState extends State<MiniReader> {
             ),
           );
         }
-        return Html(
-          data: body,
-          style: _styles(),
-          onLinkTap: (url, attributes, element) => _onLinkTap(url),
+        // Маркиране и копиране — с ОБЩОТО контекстно меню на приложението
+        // (иконки, както в четците). Без „Запази цитат": тези четива още
+        // нямат адрес, на който цитатът да се отвори после.
+        return Theme(
+          data: Theme.of(context).copyWith(
+            textSelectionTheme: TextSelectionThemeData(
+              selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
+              selectionHandleColor: AppColors.sectionTitle,
+            ),
+          ),
+          child: SelectionArea(
+            contextMenuBuilder: (context, region) => IconSelectionToolbar(
+              anchors: region.contextMenuAnchors,
+              items: region.contextMenuButtonItems,
+            ),
+            child: Html(
+              data: body,
+              style: _styles(),
+              onLinkTap: (url, attributes, element) => _onLinkTap(url),
+            ),
+          ),
         );
       },
     );
