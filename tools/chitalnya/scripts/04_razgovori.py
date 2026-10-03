@@ -478,7 +478,7 @@ def main():
         if 'Исихастирио' in tp[k] and 'Якимово' in tp[k + 2]:
             lines = [re.sub(r'^<p class="centernote">|</p>$', '', x)
                      for x in tp[k:k + 3]]
-            tp[k:k + 3] = ['<p class="centernote centerblock">'
+            tp[k:k + 3] = ['<p class="centernote centerblock addrblock">'
                            + '<br/>'.join(lines) + '</p>']
             break
     else:
