@@ -183,7 +183,7 @@ class _SlovaVolumeState extends State<SlovaVolume> {
     }
     return ListView(
       controller: _scroll,
-      padding: const EdgeInsets.only(top: 8, bottom: 40),
+      padding: const EdgeInsets.only(top: 8, bottom: 72),
       children: rows,
     );
   }

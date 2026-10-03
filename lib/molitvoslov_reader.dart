@@ -327,7 +327,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     // парчето помни адреса си и се рисува подчертано. С `class="rubric"` —
     // и винено: препратка насред указание в обикновен абзац.
     final re = RegExp(
-        r'<span class="rubric">(.*?)</span>|<a href="(mol:[^"]+)"( class="rubric")?>(.*?)</a>',
+        r'<span class="rubric">(.*?)</span>|<a href="((?:mol|molgo):[^"]+)"( class="rubric")?>(.*?)</a>',
         dotAll: true);
     var at = 0;
     for (final m in re.allMatches(html)) {
@@ -406,7 +406,10 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
           text: r.text.substring(a - pos, b - pos),
           recognizer: href == null
               ? null
-              : (TapGestureRecognizer()..onTap = () => showRefSheet(context, href)),
+              : (TapGestureRecognizer()
+                ..onTap = () => href.startsWith('molgo:') && !widget.embedded
+                    ? openRefInPlace(context, href, serviceMode: widget.serviceMode)
+                    : showRefSheet(context, href.replaceFirst('molgo:', 'mol:'))),
           style: (r.wine || bg != null || href != null)
               ? TextStyle(
                   color: r.wine ? p.wine : null,
@@ -1470,7 +1473,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    if (!_titleRepeatedInside(units))
+                    if (!widget.section.notitle && !_titleRepeatedInside(units))
                       _header(p, only ?? (landscape ? _left : null)),
                     for (var ui = 0; ui < units.length; ui++)
                       KeyedSubtree(
@@ -1692,6 +1695,24 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
 /// Адресът: `mol:<книга>/<заглавие на раздела>[#<начало на абзац>]` —
 /// по ИМЕ и по ТЕКСТ, не по номер: номерата на разделите се разместват при
 /// пресглобяване на базата (виж `pruneBookLast`).
+/// Препратка `molgo:` → целевият раздел СЕ ОТВАРЯ НА МЯСТОТО на текущия.
+///
+/// ⚠ За препратки, след които читателят ПРОДЪЛЖАВА там, а не се връща —
+/// катавасиите за 8.IX са само „гледай по-долу на 14 септември" (указание
+/// на потребителя, 03.10.2026). Панелът отдолу би го върнал в празен раздел.
+/// Адресът е същият като при [showRefSheet], само с друга схема.
+Future<void> openRefInPlace(BuildContext context, String href,
+    {bool serviceMode = false}) async {
+  final m = RegExp(r'^molgo:([^/]+)/(.+)$').firstMatch(href);
+  if (m == null) return;
+  final nav = Navigator.of(context);
+  final all = await MolitvoslovDb.sections();
+  final sec = all.where((s) => s.book == m.group(1) && s.titleBg == m.group(2)).firstOrNull;
+  if (sec == null) return;
+  nav.pushReplacement(MaterialPageRoute(
+      builder: (_) => MolitvoslovReader(section: sec, serviceMode: serviceMode)));
+}
+
 Future<void> showRefSheet(BuildContext context, String href) async {
   final m = RegExp(r'^mol:([^/]+)/([^#]+)(?:#(.+))?$').firstMatch(href);
   if (m == null) return;

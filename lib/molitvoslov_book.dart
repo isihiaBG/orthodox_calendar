@@ -263,7 +263,8 @@ class _MolitvoslovBookState extends State<MolitvoslovBook> {
         bottom: false,
         child: ListView(
           controller: _scroll,
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          // Въздух под последния ред — да не е забит в долния ръб.
+          padding: const EdgeInsets.only(top: 8, bottom: 72),
           children: rows,
         ),
       ),

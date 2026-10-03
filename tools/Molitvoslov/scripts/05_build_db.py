@@ -60,7 +60,8 @@ CREATE TABLE sections (id INTEGER PRIMARY KEY, tab TEXT NOT NULL, ord INTEGER NO
     title_bg TEXT NOT NULL, title_csl TEXT, source_csl TEXT, source_csr TEXT,
     book TEXT,   -- „Богослужебни": книгата (Часослов, Минеи…) — първото ниво
     grp TEXT,    -- подгрупа в книгата (месецът на Минеята, гласът в Октоиха)
-    langs TEXT); -- наличните езици („bg,csl,csr") — за етикета в съдържанието
+    langs TEXT,  -- наличните езици („bg,csl,csr") — за етикета в съдържанието
+    notitle INTEGER);  -- 1 = без горно заглавие (заглавието е в самия текст)
 CREATE TABLE units (section_id INTEGER NOT NULL, n INTEGER NOT NULL,
     title_bg TEXT, title_csl TEXT, source_bg TEXT,
     title_cs TEXT,   -- заглавието в ЦС ШРИФТ, където цс текстът е отделен от
@@ -166,7 +167,7 @@ def main():
     n_units = n_blocks = 0
     for ord_, s in enumerate(aligned, 1):
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL)',
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)',
                    (sid, 'molitvi', ord_, SECTION_BG[sid], s['title_csl'],
                     'https://azbyka.ru/molitvoslov/molitvoslov-cerkovnoslavjanskim-shriftom.html',
                     None, None, None))
@@ -190,6 +191,7 @@ def main():
     # „Богослужебни" СЛЕД книгите от bogosluzhebni.json — номериран отначало,
     # той би се вмъкнал между тях.
     extra = []
+    notitle = []
     for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json',
                  'parimii.json', 'irmologii.json', 'katavasiinik.json'):
         path = os.path.join(W, name)
@@ -198,7 +200,8 @@ def main():
                       enumerate(json.load(open(path, encoding='utf-8')), 1)]
     for ord_, s in extra:
         sid = s['sec']
-        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL)',
+        notitle.append(sid) if s.get('notitle') else None
+        db.execute('INSERT INTO sections VALUES (?,?,?,?,?,?,?,?,?,NULL,NULL)',
                    (sid, s['tab'], ord_, s['title_bg'], s['title_csl'],
                     s.get('csl_source'), s['csr_source'], s.get('book'), s.get('grp')))
         for u in s['units']:
@@ -234,6 +237,10 @@ def main():
         db.execute("UPDATE blocks SET kind = 'refrain', html = ? WHERE rowid = ?",
                    ('<span class="rubric">%s</span> %s' % (m.group(1), h[m.end():]),
                     rowid))
+    # Раздели без горно заглавие — „Молитви след ставане" в Часослова, където
+    # „ЧАСОСЛО́ВЪ" е заглавие на самия текст (виж 09_bogosluzhebni.py).
+    db.executemany('UPDATE sections SET notitle = 1 WHERE id = ?',
+                   [(x,) for x in notitle])
     # Наличните езици по раздел — изведени от САМИТЕ блокове, за да не се
     # разминат с текста (ред: бг, цс, цс гр.).
     db.execute("""UPDATE sections SET langs = (

@@ -296,6 +296,40 @@ def ps142_csl():
     return ' '.join(vs).replace('\u1c82у', 'ѹ')
 
 
+def split_morning_prayers(out):
+    """Началото на Часослова → СВОЙ раздел „Молитви след ставане".
+
+    ⚠ В извора то е част от Полунощницата: „ЧАСОСЛО́ВЪ", изданието,
+    посвещението и последованието след ставане от сън, и чак тогава
+    „Нача́ло полꙋ́нощницы". (Указание на потребителя, 03.10.2026.)
+      • новият раздел е БЕЗ горно заглавие (`notitle`) — „ЧАСОСЛО́ВЪ" е
+        заглавие на самия текст: това е началото на книгата;
+      • Полунощницата започва с „Нача́ло полꙋ́нощницы".
+    ⚠ Номерът е 1000 — свободен (номерацията почва от 1001). Така номерата
+    на всички останали раздели не се местят и отметките остават верни.
+    ⚠ Вътрешните препратки сочат Полунощницата по ИМЕ и ТЕКСТ, тъй че не се
+    пипат (броят им се проверява в [fix_small_compline]).
+    """
+    i = next(k for k, s in enumerate(out)
+             if s['book'] == 'Часослов' and s['title_bg'] == 'Полунощница')
+    sec = out[i]
+    if len(sec['units']) != 1:
+        sys.exit('⚠ Полунощница: очаквана една единица, има %d' % len(sec['units']))
+    u = sec['units'][0]
+    plain = lambda b: html.unescape(re.sub(r'<[^>]+>', '', b['html'])).strip()
+    k = next((j for j, b in enumerate(u['csl'])
+              if plain(b).startswith('Нача́ло полꙋ́нощницы')), None)
+    if k is None or plain(u['csl'][0]) != 'ЧАСОСЛО́ВЪ':
+        sys.exit('⚠ Полунощница: не е намерено „ЧАСОСЛО́ВЪ"/„Нача́ло полꙋ́нощницы"')
+    head = {'n': 0, 'title_csl': None, 'title_bg': None,
+            'title_cs': plain(u['csl'][0]),
+            'csr': [], 'bg': [], 'csl': u['csl'][1:k], 'sources': []}
+    u['csl'] = u['csl'][k:]
+    out.insert(i, {**{x: sec[x] for x in sec if x != 'units'},
+                   'sec': 1000, 'title_bg': 'Молитви след ставане',
+                   'notitle': True, 'units': [head]})
+
+
 def fix_small_compline(out):
     n = 0
     for s in out:
@@ -451,6 +485,7 @@ def main():
         out.append({'sec': sid, 'tab': 'bogosluzhebni', 'book': bname,
                     'grp': grp_of(book, label, fname), 'title_bg': tbg, 'title_csl': None,
                     'csr_source': None, 'csl_source': SRC, 'units': us})
+    split_morning_prayers(out)
     fix_small_compline(out)
     expand_page_refs(out)
     (W / 'bogosluzhebni.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),

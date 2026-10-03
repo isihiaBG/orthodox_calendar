@@ -1260,7 +1260,7 @@ class _BibleContentsState extends State<BibleContents>
               ),
             ],
           ),
-        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+        const SliverToBoxAdapter(child: SizedBox(height: 72)),
       ],
     );
   }
@@ -1373,7 +1373,7 @@ class _BibleContentsState extends State<BibleContents>
 
     return ListView(
       controller: _scrollerFor(2),
-      padding: const EdgeInsets.only(bottom: 32),
+      padding: const EdgeInsets.only(bottom: 72),
       children: [
         for (final k in kKathismata)
           _kathismaSection(

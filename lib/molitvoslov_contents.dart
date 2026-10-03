@@ -181,7 +181,8 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
     if (list.any((s) => s.book != null)) return _booksBody(list, tab.code);
     return ListView.separated(
       controller: _scrollerFor(tab.code),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      // Въздух под последния ред — да не е забит в долния ръб (потребителят).
+      padding: const EdgeInsets.only(top: 8, bottom: 72),
       itemCount: list.length,
       separatorBuilder: (_, _) =>
           const Divider(height: 1, color: AppColors.sectionDivider),
@@ -238,7 +239,8 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
     final books = bookOrder(list);
     return ListView.separated(
       controller: _scrollerFor(code),
-      padding: const EdgeInsets.symmetric(vertical: 8),
+      // Въздух под последния ред — да не е забит в долния ръб (потребителят).
+      padding: const EdgeInsets.only(top: 8, bottom: 72),
       itemCount: books.length,
       separatorBuilder: (_, _) =>
           const Divider(height: 1, color: AppColors.sectionDivider),

@@ -58,8 +58,13 @@ class MolSection {
 
   /// Наличните езици, в реда бг, цс, цс гр. — за етикета в съдържанието.
   final List<String> langs;
+
+  /// Без горно заглавие — заглавието стои в самия текст („Молитви след
+  /// ставане" в Часослова започва с „ЧАСОСЛО́ВЪ", началото на книгата).
+  final bool notitle;
   const MolSection(this.id, this.tab, this.titleBg, this.titleCsl,
-      [this.sourceCsl, this.sourceCsr, this.book, this.grp, this.langs = const []]);
+      [this.sourceCsl, this.sourceCsr, this.book, this.grp, this.langs = const [],
+      this.notitle = false]);
 }
 
 /// Един абзац: указание (винено) или текст.
@@ -180,7 +185,8 @@ class MolitvoslovDb {
             r['title_bg'] as String, r['title_csl'] as String?,
             r['source_csl'] as String?, r['source_csr'] as String?,
             r['book'] as String?, r['grp'] as String?,
-            ((r['langs'] as String?) ?? '').split(',').where((x) => x.isNotEmpty).toList()),
+            ((r['langs'] as String?) ?? '').split(',').where((x) => x.isNotEmpty).toList(),
+            r['notitle'] == 1),
     ];
   }
 

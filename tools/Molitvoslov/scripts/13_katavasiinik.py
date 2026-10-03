@@ -185,6 +185,27 @@ def verse_html(h):
         m.group(2), head, tail)
 
 
+def link_next_feast(out):
+    """„гледай по-долу на 14 септември" (8.IX) → връзка, която ОТВАРЯ
+    раздела за Въздвижение на мястото на текущия (`molgo:`), а не в панел
+    отдолу: читателят продължава там и в 8.IX няма какво да се връща.
+    (Указание на потребителя, 03.10.2026.) Адресът е по ИМЕ — както
+    вътрешните препратки в Часослова."""
+    target = next(s for s in out if s['title_bg'].startswith('14 септември'))
+    n = 0
+    for s in out:
+        for u in s['units']:
+            for b in u['csl']:
+                h = re.sub(r'(гледай по-долу на 14 септември)',
+                           r'<a href="molgo:%s/%s" class="rubric">\1</a>'
+                           % (BOOK, target['title_bg']), b['html'])
+                if h != b['html']:
+                    b['html'] = h
+                    n += 1
+    if n != 1:
+        sys.exit('⚠ Катавасийник: очаквана 1 препратка към 14 септември, има %d' % n)
+
+
 def main():
     doc = pymupdf.open(PDF)
     ls = page_lines(doc)
@@ -292,6 +313,7 @@ def main():
                                'title_cs': None, 'csl': u['blocks'], 'csr': [], 'bg': [],
                                'sources': []}
                               for j, u in enumerate(units)]})
+    link_next_feast(out)
     if UNKNOWN:
         print('  ⚠ непознати означения', UNKNOWN)
     (W / 'katavasiinik.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
