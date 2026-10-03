@@ -966,7 +966,7 @@ class _BookReaderState extends State<BookReader>
     //
     // ⚠ Самото подравняване към alignment 0.0 е пиксел-точно спрямо
     // ГОРНИЯ РЪБ НА СКРОЛИРУЕМАТА ЗОНА — но тя РАСТЕ точно с
-    // _kSearchChromeHeight при затваряне (двете ленти изчезват), тъй че
+    // _kSearchChromeHeight при затваряне (лентата изчезва), тъй че
     // редът каца пиксел-точно на новия връх, а окото го вижда изместен
     // нагоре точно с толкова (докладвано 22.08.2026: ~3.5 реда).
     // extraOffset компенсира — спира скрола толкова по-рано (при
@@ -1095,13 +1095,12 @@ class _BookReaderState extends State<BookReader>
     }
   }
 
-  /// Лентата с инструменти + лентата за търсене — заедно изчезват при
-  /// затваряне на търсенето (и заедно се появяват при отваряне). Смятана
-  /// от СЪЩИТЕ кръстени константи, с които се строят самите ленти
-  /// (reader_toolbar.dart) — не голи числа тук, за да не могат корекцията
-  /// и реалната височина да се разминат при промяна.
-  static const double _kSearchChromeHeight =
-      kReaderToolbarHeight + kSearchBarHeight;
+  /// Неподвижната лента над скрола при търсене — изчезва при затваряне
+  /// (и се появява при отваряне). От 03.10.2026 тя е ЕДНА, на мястото на
+  /// обикновената (като в Библията); дотогава бяха две — инструментите
+  /// плюс 58 точки поле за търсене. Смятана от кръстената константа, не
+  /// голо число, за да не се разминат корекцията и реалната височина.
+  static const double _kSearchChromeHeight = kReaderToolbarHeight;
 
   /// Преброява съвпаденията и смята дела им от височината на текста.
   ///
@@ -1735,9 +1734,9 @@ class _BookReaderState extends State<BookReader>
     return (matchY / content).clamp(0.0, 1.0);
   }
 
-  /// Отстъпът отгоре на лентата с чертичките: лентата с инструменти (44)
-  /// плюс тази за търсене (58) плюс луфта на скролбара.
-  static const double _ticksLaneTop = 44 + 58 + 4;
+  /// Отстъпът отгоре на лентата с чертичките: лентата за търсене (тя е на
+  /// мястото на обикновената, със същата височина) плюс луфта на скролбара.
+  static const double _ticksLaneTop = kReaderToolbarHeight + 4;
 
   /// Колко от височината на екрана да остане НАД намереното.
   static const double _hitAlignment = 0.30;
@@ -1932,20 +1931,7 @@ class _BookReaderState extends State<BookReader>
               ? Column(children: [
                   // AppBar като дете на Column не получава височина отвън —
                   // затова е в SizedBox (същото и в четеца на жития).
-                  SizedBox(
-                    height: 44 + 58,
-                    child: AppBar(
-                      primary: false,
-                      backgroundColor: AppColors.toolbar,
-                      toolbarHeight: kReaderToolbarHeight,
-                      leading: _toolbarLeading(),
-                      leadingWidth: _leadingWidth,
-                      titleSpacing: 8,
-                      title: _toolbarTitle(),
-                      actions: _toolbarActions(),
-                      bottom: _searchBar(),
-                    ),
-                  ),
+                  _searchBar(),
                   Expanded(
                       child: _scrollBody(palette, raw, withHeader: false)),
                 ])
@@ -2512,85 +2498,135 @@ class _BookReaderState extends State<BookReader>
   /// Лентата за търсене — ЕДНАКВА с тази в четеца на жития: същата
   /// височина, същите отстояния, същото поле със заоблен тъмен фон и същите
   /// кръгли бутони. За потребителя двата екрана са един и същи четец.
-  PreferredSizeWidget _searchBar() {
-    final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
-    return PreferredSize(
-      preferredSize: const Size.fromHeight(kSearchBarHeight),
-      child: Container(
-        height: 58,
-        // Дясната страна е по-широка — броячът иначе се залепва за
-        // чертичките по скролбара, които стоят точно в тази зона.
-        padding: const EdgeInsets.fromLTRB(12, 6, 17, 6),
-        color: AppColors.toolbar,
-        child: Row(
-          children: [
-            Expanded(
+  /// Лентата в режим ТЪРСЕНЕ — НА МЯСТОТО на обикновената, със същата
+  /// височина.
+  ///
+  /// ⚠⚠ ЕДНО КЪМ ЕДНО С БИБЛИЯТА (`_searchBar` в bible_reader.dart): ✕ за
+  /// изход, полето с брояча вътре, ‹ › и зъбното колело — същите копчета,
+  /// размери и отстояния. За човека това е една търсачка, срещната на
+  /// няколко места; различен вид кара окото да търси наново.
+  /// Дотук тук стоеше ВТОРА лента под обикновената (58 точки).
+  Widget _searchBar() {
+    const fg = Colors.white;
+    final stepping = _total > 0;
+    final inBook = BookSearchSettings.where == BookSearchWhere.book;
+    return Container(
+      color: AppColors.toolbar,
+      height: kReaderToolbarHeight,
+      child: Row(
+        children: [
+          IconButton(
+            icon: const Icon(Icons.close, color: fg),
+            tooltip: 'Затвори търсенето',
+            onPressed: _toggleSearch,
+          ),
+          Expanded(
+            child: SizedBox(
+              height: 38,
               child: TextField(
                 controller: _searchCtrl,
                 focusNode: _searchFocus,
-                style: TextStyle(color: fg, fontSize: 16),
+                style: const TextStyle(color: fg, fontSize: 15),
                 textInputAction: TextInputAction.search,
                 onChanged: _runSearch,
                 onSubmitted: _onSearchSubmit,
                 decoration: InputDecoration(
                   isDense: true,
-                  hintText: BookSearchSettings.where == BookSearchWhere.book
-                      ? 'В цял${_isChitalnya ? "ата книга" : "ия том"} (Enter)…'
-                      : 'Търсене в текста…',
-                  hintStyle: TextStyle(color: fg.withValues(alpha: 0.5)),
-                  contentPadding: const EdgeInsets.symmetric(
-                      vertical: 8, horizontal: 10),
+                  hintText: inBook
+                      ? 'в цял${_isChitalnya ? "ата книга" : "ия том"} — Enter'
+                      : 'търси в четивото',
+                  hintStyle: TextStyle(
+                      color: fg.withValues(alpha: 0.45), fontSize: 13),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 8, horizontal: 10),
                   filled: true,
                   fillColor: Colors.black.withValues(alpha: 0.15),
                   border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(8),
                     borderSide: BorderSide.none,
                   ),
+                  suffixIcon: _searchFieldSuffix(fg),
+                  suffixIconConstraints:
+                      const BoxConstraints(minWidth: 0, minHeight: 0),
                 ),
               ),
             ),
-            const SizedBox(width: 12),
-            RoundIconButton(
-              icon: Icons.chevron_left,
-              tooltip: 'Предишно съвпадение',
-              enabled: _total > 0,
-              onTap: () => _stepHit(-1),
-              size: kReaderBtnSize + 6,
+          ),
+          const SizedBox(width: 10),
+          RoundIconButton(
+            icon: Icons.chevron_left,
+            tooltip: 'Предишно съвпадение',
+            enabled: stepping,
+            size: kReaderBtnSize,
+            onTap: () => _stepHit(-1),
+          ),
+          const SizedBox(width: 14),
+          RoundIconButton(
+            icon: Icons.chevron_right,
+            tooltip: 'Следващо съвпадение',
+            enabled: stepping,
+            size: kReaderBtnSize,
+            onTap: () => _stepHit(1),
+          ),
+          const SizedBox(width: 8),
+          Tooltip(
+            message: 'Настройки на търсенето',
+            child: InkWell(
+              onTap: _openSearchPanel,
+              customBorder: const CircleBorder(),
+              child: const Padding(
+                padding: EdgeInsets.all(6),
+                child: Icon(Icons.tune, size: 24, color: fg),
+              ),
             ),
-            const SizedBox(width: 16),
-            RoundIconButton(
-              icon: Icons.chevron_right,
-              tooltip: 'Следващо съвпадение',
-              enabled: _total > 0,
-              onTap: () => _stepHit(1),
-              size: kReaderBtnSize + 6,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              _total > 0 ? '${_currentHit + 1}/$_total' : '0/0',
-              maxLines: 1,
-              softWrap: false,
-              style: TextStyle(color: fg, fontSize: 13),
-            ),
-            const SizedBox(width: 8),
-            // Разширеното търсене — като зъбното колело в Библията.
-            SizedBox(
-              width: 36,
-              child: _bookSearching
-                  ? Center(
-                      child: SizedBox(
-                          width: 20,
-                          height: 20,
-                          child: CircularProgressIndicator(
-                              strokeWidth: 2, color: fg)))
-                  : InkResponse(
-                      onTap: _openSearchPanel,
-                      radius: 20,
-                      child: Icon(Icons.tune, size: 24, color: fg),
-                    ),
-            ),
-          ],
+          ),
+          const SizedBox(width: 2),
+        ],
+      ),
+    );
+  }
+
+  /// Десният край на полето — като в Библията: кръгче при търсене в тома,
+  /// лупа при празно, брояч с ✕ при писане.
+  Widget _searchFieldSuffix(Color fg) {
+    if (_bookSearching) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 12, left: 8),
+        child: SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+              strokeWidth: 2, color: fg.withValues(alpha: 0.6)),
         ),
+      );
+    }
+    if (_searchCtrl.text.trim().isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.only(right: 10, left: 6),
+        child: Icon(Icons.search, size: 18, color: fg.withValues(alpha: 0.45)),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.only(right: 8, left: 6),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            _total > 0 ? '${_currentHit + 1}/$_total' : '0/0',
+            style: TextStyle(color: fg.withValues(alpha: 0.7), fontSize: 12),
+          ),
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: () {
+              _searchCtrl.clear();
+              _runSearch('');
+              _searchFocus.requestFocus();
+            },
+            customBorder: const CircleBorder(),
+            child:
+                Icon(Icons.close, size: 18, color: fg.withValues(alpha: 0.75)),
+          ),
+        ],
       ),
     );
   }
@@ -3330,7 +3366,8 @@ class _TocSheetState extends State<_TocSheet> {
     final stepping = _hits.isNotEmpty;
     return Container(
       color: AppColors.toolbar,
-      padding: const EdgeInsets.fromLTRB(12, 6, 14, 8),
+      // Отдясно 0 — последно е зъбното колело с отстъпите си (виж там).
+      padding: const EdgeInsets.fromLTRB(12, 6, 0, 8),
       child: Row(
         children: [
           Expanded(
@@ -3346,7 +3383,7 @@ class _TocSheetState extends State<_TocSheet> {
               decoration: InputDecoration(
                 isDense: true,
                 hintText: BookSearchSettings.where == BookSearchWhere.book
-                    ? 'в цял${widget.wholeBook ? "ата книга" : "ия том"} (Enter)'
+                    ? 'в цял${widget.wholeBook ? "ата книга" : "ия том"} — Enter'
                     : 'търси заглавие',
                 hintStyle:
                     TextStyle(color: fg.withValues(alpha: 0.45), fontSize: 13),
@@ -3364,7 +3401,7 @@ class _TocSheetState extends State<_TocSheet> {
               ),
             ),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 10),
           RoundIconButton(
             icon: stepping ? Icons.chevron_left : Icons.remove,
             tooltip: stepping ? 'Предишно съвпадение' : 'По-дребен шрифт',
@@ -3384,14 +3421,23 @@ class _TocSheetState extends State<_TocSheet> {
                 : setState(() => TocFontSize.nudge(TocFontSize.step)),
             size: kReaderBtnSize,
           ),
-          const SizedBox(width: 12),
-          // Разширеното търсене — като зъбното колело в Библията.
-          InkResponse(
-            onTap: () => showBookSearchPanel(context, wholeBook: widget.wholeBook)
-                .then((_) => mounted ? setState(() {}) : null),
-            radius: 20,
-            child: Icon(Icons.tune, size: 24, color: fg),
+          // Зъбното колело — ЕДНО КЪМ ЕДНО с указателя на Библията: 10 до
+          // двойката, иконка 24 в кутия с по 6 отстъп, 2 до ръба.
+          const SizedBox(width: 10),
+          Tooltip(
+            message: 'Настройки на търсенето',
+            child: InkWell(
+              onTap: () =>
+                  showBookSearchPanel(context, wholeBook: widget.wholeBook)
+                      .then((_) => mounted ? setState(() {}) : null),
+              customBorder: const CircleBorder(),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(Icons.tune, size: 24, color: fg),
+              ),
+            ),
           ),
+          const SizedBox(width: 2),
         ],
       ),
     );
