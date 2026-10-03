@@ -69,7 +69,7 @@
 
 ### Автор
 
-Разработва се като личен проект с отворен код от иером. Калиник (Василев) - православен монах, клирик на Българската Православна Църква.
+Разработва се като личен проект с отворен код от иером. Калиник (Пецев) - православен монах, клирик на Българската Православна Църква.
 Предложения и забележки са добре дошли през Issues.
 
 ---
@@ -144,5 +144,5 @@ interface are subject to change.
 
 ### Author
 
-Developed as a personal open-source project by Hieromonk Kalinik (Vasilev), an Orthodox monk and cleric of the Bulgarian Orthodox Church.
+Developed as a personal open-source project by Hieromonk Kalinik (Petsev), an Orthodox monk and cleric of the Bulgarian Orthodox Church.
 Suggestions and feedback are welcome via Issues.
