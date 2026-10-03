@@ -149,7 +149,10 @@ class _MolitvoslovWelcomeScreenState extends State<MolitvoslovWelcomeScreen>
                   fontSize: 30,
                   fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
+          // ⚠ Изрично центриране: на един ред `Column` го центрира сам, но
+          // описание на няколко реда (Псалтирът) се подравняваше вляво.
           Text(p.detail,
+              textAlign: TextAlign.center,
               style: const TextStyle(
                   color: AppColors.textSecondary, fontSize: 14)),
           const SizedBox(height: 18),
