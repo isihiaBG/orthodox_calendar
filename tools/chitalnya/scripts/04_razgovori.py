@@ -60,6 +60,7 @@ w = lambda t: '{%s}%s' % (W_NS, t)
 WPG = 'http://schemas.microsoft.com/office/word/2010/wordprocessingGroup'
 PIC = 'http://schemas.openxmlformats.org/drawingml/2006/picture'
 ASVG = 'http://schemas.microsoft.com/office/drawing/2016/SVG/main'
+A14 = 'http://schemas.microsoft.com/office/drawing/2010/main'
 SVG_PX = 1200          # широчина, до която се растеризира SVG (Inkscape)
 
 
@@ -96,6 +97,7 @@ class Doc:
             self.fnotes[f.get(w('id'))] = ' '.join(
                 self.runs(p) for p in f.findall('w:p', NS)).strip()
         self.images = {}     # media/… → име в .epub
+        self.hd_png = {}     # оригинал (.wdp) → PNG от първото срещане
         self.ornaments = set()  # едноцветните — оцветяват се според темата
         self.notes = []      # (номер, html)
         self.note_of = {}
@@ -307,6 +309,15 @@ class Doc:
             if blip is None or x is None:
                 continue
             target = self.rels.get(blip.get('{%s}embed' % R_NS), '')
+            # ⚠ Word рисува частта от ОРИГИНАЛА (`.wdp`, a14:imgLayer), а
+            # PNG-то до него е кеш, който може да е СГРЕШЕН: в .docx от
+            # 03.10.2026 долният орнамент на посвещението носеше средната
+            # завъртулка на мястото на линиите. Части с един и същ
+            # оригинал → една и съща картинка (от първото срещане).
+            layer = pic.find('.//{%s}imgLayer' % A14)
+            hd = self.rels.get(layer.get('{%s}embed' % R_NS), '') if layer is not None else ''
+            if hd:
+                target = self.hd_png.setdefault(hd, target)
             try:
                 im = Image.open(io.BytesIO(self.z.read('word/' + target))).convert('RGBA')
             except Exception:
