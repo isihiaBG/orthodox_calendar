@@ -488,10 +488,18 @@ Map<String, Style> readerStyles({
     '.titleorn1': Style(margin: Margins.only(top: 6, bottom: 0)),
     // Долният — и с повече въздух към адреса на обителта: заглавието,
     // заградено с орнаментите, е едно цяло, а адресът стои отделно.
-    '.titleorn': Style(margin: Margins.only(top: 0, bottom: 46)),
+    '.titleorn': Style(margin: Margins.only(top: 0, bottom: 72)),
     // Корицата — без никакъв отстъп; ширината я дава book_reader
     // (`_pageGroups` я изважда извън полетата на страницата).
     '.cover': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
+    // Надписът под иконата на заглавната страница — по-сбит от общия
+    // `figcaption`: четири реда, всеки на един ред при шрифта по
+    // подразбиране, като в оригинала (указание на автора). ⚠ Стои СЛЕД
+    // `.figcaption`, за да го надделее.
+    '.titlecap': Style(
+      fontSize: FontSize(fontSize - 7.5),
+      lineHeight: const LineHeight(1.35),
+    ),
     // Орнаментът над посвещението: двойно повече въздух към надписа на
     // иконата (отгоре), отколкото към „+ + +" (отдолу) — така се чете като
     // част от посвещението.

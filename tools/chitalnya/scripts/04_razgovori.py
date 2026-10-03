@@ -553,6 +553,9 @@ def main():
         raise SystemExit('Заглавната: няма орнамент над заглавието')
     k0 = max(i for i in range(k) if '<img ' in tp[i] and 'data-tint' not in tp[i])
     tp.insert(k0 + 1, PB)                                  # корица → заглавие
+    # Надписът под иконата „Всецарица" — по-ситен (`titlecap`), за да
+    # легне на четирите си реда като в оригинала (указание на автора).
+    tp[:] = [x.replace('class="figcaption"', 'class="figcaption titlecap"') for x in tp]
     # Корицата — от край до край, без въздух отгоре (указание на автора):
     # `data-cover` казва на четеца да я извади извън полетата на страницата.
     tp[k0] = (tp[k0].replace('class="centernote"', 'class="centernote cover"', 1)
