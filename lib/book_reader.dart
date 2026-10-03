@@ -2171,6 +2171,11 @@ class _BookReaderState extends State<BookReader>
     final mq = MediaQuery.of(context);
     // Видимата височина: без системните ленти и без отстъпа на главата.
     final pageH = mq.size.height - mq.padding.top - mq.padding.bottom - 36;
+    // ⚠ В ЛЕГНАЛО листът е по-висок от екрана, тъй че „поне цял екран"
+    // не дава въздух и листовете се долепят: адресът на обителта се четеше
+    // като надпис над иконата (указание на автора). Затова там границата
+    // носи явна празнина; в изправено — нищо, видът там е одобрен.
+    final breakGap = mq.size.width > mq.size.height ? 72.0 : 0.0;
     final out = <Widget>[];
     var page = <Widget>[];
     void flush() {
@@ -2189,7 +2194,8 @@ class _BookReaderState extends State<BookReader>
     for (int i = from; i < to; i++) {
       if (isBreak(i)) {
         flush();
-        out.add(KeyedSubtree(key: _regionKeys[i], child: const SizedBox.shrink()));
+        out.add(KeyedSubtree(
+            key: _regionKeys[i], child: SizedBox(height: breakGap)));
       } else {
         page.add(children[i]);
       }
