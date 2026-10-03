@@ -17,15 +17,8 @@ import 'reader_text_utils.dart';
 
 /// Маркира съвпаденията в HTML — обвива всяко в <span class="hit(-current)">.
 ///
-/// <a href="...">...</a> се третира като ЦЯЛОСТЕН блок, обработван ОТДЕЛНО
-/// от _anchorText — flutter_html принудително презаписва стила на
-/// ВСЕКИ вложен span вътре в котва със собствения стил на котвата (виж
-/// InteractiveElementBuiltIn._processInteractableChild в пакета), затова
-/// <span class="hit"> вътре в <a> губи жълтия си фон и изчезва визуално.
-/// Вместо да вмъкваме span, разделяме самата котва на съседни <a> тагове
-/// със същия href — само фрагментът със съвпадението носи class="hit",
-/// получавайки собствен смесен стил (синьо + жълт фон). Всичко останало
-/// продължава по старата таг/текст логика, непроменена.
+/// Вътре във връзка намереното също се увива в span, а самата връзка остава
+/// цяла — виж бележката при `anchorRe` защо не обратното.
 String highlightHtml(
   String html,
   String foldedQuery,
@@ -65,8 +58,15 @@ String highlightHtml(
     }
   }
 
+  // ⚠⚠ Връзката остава ЦЯЛА, а намереното вътре в нея се увива в
+  // <span class="hit">, както навсякъде другаде. Дотук котвата се цепеше
+  // на няколко <a>, а класът се слагаше върху самото <a> — и flutter_html
+  // (3.0.0-beta.2) НЕ рисува фона на такъв клас: намереното във връзка се
+  // броеше и обхождаше, но не светеше (докладвано от потребителя,
+  // 03.10.2026). Измерено с тест по пикселите: `<a class="hit">` — 0 жълти
+  // пиксела, `<a><span class="hit">` — 669.
   final anchorRe = RegExp(
-    r'<a\b[^>]*?href="([^"]*)"[^>]*>(.*?)</a>',
+    r'(<a\b[^>]*>)(.*?)</a>',
     caseSensitive: false,
     dotAll: true,
   );
@@ -75,15 +75,9 @@ String highlightHtml(
     if (am.start > cursor) {
       highlightPlainSegment(html.substring(cursor, am.start));
     }
-    local = _anchorText(
-      am.group(1)!,
-      am.group(2)!,
-      foldedQuery,
-      firstGlobalIndex,
-      local,
-      currentGlobalIndex,
-      buf,
-    );
+    buf.write(am.group(1));
+    highlightPlainSegment(am.group(2)!);
+    buf.write('</a>');
     cursor = am.end;
   }
   if (cursor < html.length) {
@@ -92,52 +86,3 @@ String highlightHtml(
   return buf.toString();
 }
 
-/// Маркиране на съвпадение ВЪТРЕ в линк (виж коментара на highlightHtml).
-/// Приема, че вътрешността на <a> е чист текст (важи за всички линкове в
-/// това приложение — saint:// и източник-атрибуцията, без вложено
-/// форматиране). Връща новата стойност на local (брояча за "текущо"
-/// съвпадение), за да продължи броенето непрекъснато след котвата.
-int _anchorText(
-  String href,
-  String innerText,
-  String foldedQuery,
-  int firstGlobalIndex,
-  int localStart,
-  int currentGlobalIndex,
-  StringBuffer buf,
-) {
-  final hrefAttr = 'href="$href"';
-  final folded = fold(innerText);
-  int from = 0, lastEnd = 0, local = localStart;
-  while (true) {
-    final mm = nextFoldedMatch(folded.text, foldedQuery, from);
-    if (mm == null) break;
-    final at = mm.$1, len = mm.$2;
-    final origStart = folded.origIndex[at];
-    final endFoldedIdx = at + len - 1;
-    final origEnd = folded.origIndex[endFoldedIdx] + 1;
-    if (origStart > lastEnd) {
-      buf.write('<a $hrefAttr>');
-      buf.write(innerText.substring(lastEnd, origStart));
-      buf.write('</a>');
-    }
-    final isCurrent = (firstGlobalIndex + local) == currentGlobalIndex;
-    buf.write('<a $hrefAttr class="${isCurrent ? 'hit-current' : 'hit'}">');
-    buf.write(innerText.substring(origStart, origEnd));
-    buf.write('</a>');
-    lastEnd = origEnd;
-    local++;
-    from = endFoldedIdx + 1;
-  }
-  if (lastEnd < innerText.length) {
-    buf.write('<a $hrefAttr>');
-    buf.write(innerText.substring(lastEnd));
-    buf.write('</a>');
-  } else if (lastEnd == 0) {
-    // Няма съвпадение в тази котва — оставяме я непроменена (един таг).
-    buf.write('<a $hrefAttr>');
-    buf.write(innerText);
-    buf.write('</a>');
-  }
-  return local;
-}
