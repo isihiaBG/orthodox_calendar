@@ -44,7 +44,9 @@ class BookImageExtension extends HtmlExtension {
     var frac = double.tryParse(context.attributes['data-w'] ?? '');
     // В ИЗПРАВЕНО илюстрациите заемат цялата ширина (указание на автора) —
     // телефонът е тесен и дялът от оригиналния ред ги правеше дребни.
-    // Орнаментите (`data-tint`) пазят пропорцията си; в легнало — всички.
+    // Орнаментите (`data-tint="1"`) пазят пропорцията си; в легнало — всички.
+    // ⚠ `data-tint="wide"` (орнаментите на посвещението) се оцветява, но се
+    // РАЗПЪВА като илюстрация — такъв е одобреният им вид в изправено.
     final bc = context.buildContext;
     if (frac != null &&
         context.attributes['data-tint'] != '1' &&
@@ -59,7 +61,9 @@ class BookImageExtension extends HtmlExtension {
     // `data-tint` — едноцветен орнамент. В тъмна тема кафявото му се губи
     // върху почти черната страница, затова се оцветява в топло светло злато;
     // в светла остава оригиналът.
-    final tint = context.attributes['data-tint'] == '1' && ReaderTheme.dark;
+    final tint = (context.attributes['data-tint'] == '1' ||
+            context.attributes['data-tint'] == 'wide') &&
+        ReaderTheme.dark;
     Widget paint(Widget child) => tint
         ? ColorFiltered(
             colorFilter:

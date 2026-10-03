@@ -349,7 +349,11 @@ class Doc:
         # ⚠ Групите (орнаментите на посвещението) — със старата проба 120:
         # оцветени, те губят разпъването на цяла ширина в изправено и видът
         # на одобреното посвещение би се сменил.
-        tint = ' data-tint="1"' if self.is_ornament(canvas, 120) else ''
+        tint = (' data-tint="1"' if self.is_ornament(canvas, 120) else
+                # ⚠ „wide": оцветява се в тъмна тема като орнаментите около
+                # заглавието, но пази разпъването на цял ред (указание на
+                # автора, 03.10.2026: в тъмна тема бяха твърде тъмни).
+                ' data-tint="wide"' if self.is_ornament(canvas) else '')
         return (f'<p class="centernote"><img src="../Images/{name}" data-w="{frac:.2f}"'
                 f'{tint} alt=""/></p>')
 

@@ -488,7 +488,9 @@ Map<String, Style> readerStyles({
     '.titleorn1': Style(margin: Margins.only(top: 6, bottom: 0)),
     // Долният — и с повече въздух към адреса на обителта: заглавието,
     // заградено с орнаментите, е едно цяло, а адресът стои отделно.
-    '.titleorn': Style(margin: Margins.only(top: 0, bottom: 72)),
+    // ⚠ 177 = 72 + още ТРИ РЕДА (3 × 35, редът при шрифта по подразбиране)
+    // — указание на автора, за да не се чете адресът като част от заглавието.
+    '.titleorn': Style(margin: Margins.only(top: 0, bottom: 177)),
     // Корицата — без никакъв отстъп; ширината я дава book_reader
     // (`_pageGroups` я изважда извън полетата на страницата).
     '.cover': Style(margin: Margins.zero, padding: HtmlPaddings.zero),
