@@ -437,6 +437,75 @@ def _spodobi_black(b):
     b['kind'], b['html'] = 'text', ''.join(parts)
 
 
+# ⚠ СЛУЖЕБНИКЪТ — изрази, червени навсякъде, където се срещнат (указание на
+# потребителя, 04.10.2026). Сравнението е в NFD — ударението в извора е ту
+# готова буква („ѝ"), ту отделен знак.
+SLUJ_RED = [
+    r'Та́же глаго́лемъ шестоѱа́лмїе, со всѧ́кимъ внима́нїемъ и҆ стра́хомъ бж҃їимъ, ꙗ҆́кѡ '
+    r'самомꙋ̀ собесѣ́дꙋюще хрⷭ҇тꙋ̀ бг҃ꙋ на́шемꙋ неви́димѡ, и҆ молѧ́ще ѡ҆ грѣсѣ́хъ на́шихъ\. '
+    r'По трїе́хъ же ѱалмѣ́хъ і҆ере́й глаго́летъ мл҃твы ѹ҆́трєннїѧ, стоѧ́й непокрове́нъ '
+    r'пред̾ ст҃ы́ми две́рьми\.',
+    r'Си́це въ ко́емждо проше́нїи два̀, и҆лѝ трѝ и҆́мени глаго́лати\.',
+    r'А҆́ще под̾ митрополі́томъ, приглаго́летъ:',
+    r'а҆́ще въ монастырѣ̀:', r'а҆́ще є҆́сть:', r'а҆́ще ли ѻ҆би́тель,',
+    r'Та́же глаго́летъ:', r'Та́же, тропарѝ:', r'И҆ глаго́лемъ:', r'Возгла́съ:',
+    r'Сла́ва:', r'И҆ ны́нѣ:', r'та́же,', r'и҆́мⷬ҇къ:?', r'\[', r'\]',
+]
+# В „Сла́ва, ст҃а́гѡ: И҆ ны́нѣ, бг҃оро́диченъ." червени са САМО „Сла́ва," и
+# „И҆ ны́нѣ," — останалото е черно.
+SLUJ_ONLY = re.compile(unicodedata.normalize(
+    'NFD', r'(Сла́ва,)( ст҃а́гѡ: )(И҆ ны́нѣ,)( бг҃оро́диченъ\.)'))
+SLUJ_RE = re.compile('|'.join(unicodedata.normalize('NFD', x) for x in SLUJ_RED))
+
+
+def _nfd_map(t):
+    out, idx = [], []
+    for i, ch in enumerate(t):
+        for c in unicodedata.normalize('NFD', ch):
+            out.append(c)
+            idx.append(i)
+    return ''.join(out), idx
+
+
+def _runs_html(plain, mask):
+    parts, i = [], 0
+    while i < len(plain):
+        j = i
+        while j < len(plain) and mask[j] == mask[i]:
+            j += 1
+        seg = html.escape(plain[i:j], quote=False)
+        parts.append('<span class="rubric">%s</span>' % seg if mask[i] else seg)
+        i = j
+    return ''.join(parts)
+
+
+def slujebnik_phrases(units):
+    for u in units:
+        for b in u['blocks']:
+            if b['kind'] not in ('text', 'rubric'):
+                continue
+            runs = _runs_of(b)
+            plain = ''.join(t for _, t in runs)
+            mask = [r for r, t in runs for _ in t]
+            nfd, idx = _nfd_map(plain)
+            hit = False
+            for m in SLUJ_ONLY.finditer(nfd):
+                for g, red in ((1, True), (2, False), (3, True), (4, False)):
+                    for k in range(m.start(g), m.end(g)):
+                        mask[idx[k]] = red
+                hit = True
+            for m in SLUJ_RE.finditer(nfd):
+                for k in range(m.start(), m.end()):
+                    mask[idx[k]] = True
+                hit = True
+            if not hit:
+                continue
+            if all(mask):
+                b['kind'], b['html'] = 'rubric', html.escape(plain, quote=False)
+            else:
+                b['kind'], b['html'] = 'text', _runs_html(plain, mask)
+
+
 def oktoih_instructions(units, appendix=False):
     for ui, u in enumerate(units):
         # Заглавните редове в НАЧАЛОТО на приложение („Нача́ло воскре́сныхъ
@@ -887,6 +956,8 @@ def main():
             us = chapter_units(body, fix)
             if book == 'oktoih':
                 oktoih_instructions(us, appendix=not label.startswith('Глас'))
+            if book == 'slujebnik':
+                slujebnik_phrases(us)
             raw.append((fname, book, bname, label, us))
         if book == 'slujebnik':
             (W / 'sluzhebnik_red_missed.txt').write_text('\n'.join(model.missed), encoding='utf-8')
