@@ -26,6 +26,7 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(__file__))
 import pdf_ucs  # noqa: E402
+import sluzhebnik_bg  # noqa: E402
 import ucs  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -942,6 +943,7 @@ def main():
         # изданието на azbyka.ru (виж [RedTransfer]).
         if book == 'slujebnik':
             model = RedTransfer(SLUJ_ONLINE)
+            bg_log = []
         for label, body in chs:
             # ⚠ „Без червено" = под 20 означения: петъкът на глас 6 има ЕДНО
             # и с проверка „няма нито едно" оставаше цял ден черен.
@@ -958,8 +960,12 @@ def main():
                 oktoih_instructions(us, appendix=not label.startswith('Глас'))
             if book == 'slujebnik':
                 slujebnik_phrases(us)
+                if 'Яков' not in label:   # литургиите на ап. Яков са друго издание
+                    sluzhebnik_bg.apply(us, bg_log)
             raw.append((fname, book, bname, label, us))
         if book == 'slujebnik':
+            (W / 'sluzhebnik_bg_log.txt').write_text(
+                '\n'.join('%s\t%s' % x for x in bg_log), encoding='utf-8')
             (W / 'sluzhebnik_red_missed.txt').write_text('\n'.join(model.missed), encoding='utf-8')
             print('Служебник: червеното от онлайн изданието; без съответствие %d абзаца'
                   ' → work/sluzhebnik_red_missed.txt' % len(model.missed))
