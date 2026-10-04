@@ -237,6 +237,27 @@ def main():
         db.execute("UPDATE blocks SET kind = 'refrain', html = ? WHERE rowid = ?",
                    ('<span class="rubric">%s</span> %s' % (m.group(1), h[m.end():]),
                     rowid))
+    # „пРⷣте́чи", „сРⷣце", „ПРⷣте́чꙋ" — изворите пишат ГЛАВНО Р пред
+    # надредното „д" (1660 места, всичките точно „Рⷣ"). Следва ли малка
+    # буква, то е малко: „прⷣте́чи", „Прⷣте́чꙋ". Голям надпис („ПРЕДТЕЧИ")
+    # не се засяга — там и следващата буква е главна.
+    LOWER = 'а-яѐ-џѡѣѥѧѩѫѭѯѱѳѵѹѻѽѿꙁꙃꙅꙇꙉꙋꙍꙏꙑꙓꙕꙗ'
+    small_r = re.compile(r'Р(?=\u2de3[\u0300-\u036f\u0483-\u0489]*[%s])' % LOWER)
+    for rowid, h in db.execute(
+            "SELECT rowid, html FROM blocks WHERE html LIKE '%Р' || char(11747) || '%'"
+            ).fetchall():
+        db.execute('UPDATE blocks SET html = ? WHERE rowid = ?',
+                   (small_r.sub('р', h), rowid))
+    for col in ('title_csl', 'title_bg'):
+        for sid, t in db.execute('SELECT id, %s FROM sections WHERE %s LIKE ?' % (col, col),
+                                 ('%Рⷣ%',)).fetchall():
+            db.execute('UPDATE sections SET %s = ? WHERE id = ?' % col,
+                       (small_r.sub('р', t), sid))
+    for col in ('title_cs', 'title_csl'):
+        for rowid, t in db.execute('SELECT rowid, %s FROM units WHERE %s LIKE ?' % (col, col),
+                                   ('%Рⷣ%',)).fetchall():
+            db.execute('UPDATE units SET %s = ? WHERE rowid = ?' % col,
+                       (small_r.sub('р', t), rowid))
     # Раздели без горно заглавие — „Молитви след ставане" в Часослова, където
     # „ЧАСОСЛО́ВЪ" е заглавие на самия текст (виж 09_bogosluzhebni.py).
     db.executemany('UPDATE sections SET notitle = 1 WHERE id = ?',
