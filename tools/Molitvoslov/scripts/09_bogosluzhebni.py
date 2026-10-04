@@ -260,6 +260,49 @@ APP_LABEL = re.compile(
     r'Въ пѧто́къ|Въ сꙋббѡ́тꙋ|Во второ́мъ же|Въ пе́рвомъ ѹ҆́бѡ):)(\s)')
 
 
+# ⚠ „Сподо́би гдⷭ҇и въ ве́черъ се́й:" насред червено указание е ЧЕРЕН текст
+# с червена първа буква: това е началото на молитвата, която се чете от
+# Часослова, и без това окото я прескача заедно с указанието около нея
+# (указание на потребителя, 04.10.2026).
+SPODOBI = re.compile(r'Сподо́би гдⷭ҇и(?:,? въ ве́черъ(?: се́й)?)?:?')
+
+
+def _runs_of(b):
+    """Блокът → [(червено, текст)] (rubric = изцяло червен)."""
+    if b['kind'] == 'rubric':
+        return [(True, html.unescape(b['html']))]
+    out = []
+    for m in re.finditer(r'<span class="rubric">(.*?)</span>|([^<]+)', b['html']):
+        if m.group(1) is not None:
+            out.append((True, html.unescape(m.group(1))))
+        elif m.group(2):
+            out.append((False, html.unescape(m.group(2))))
+    return out
+
+
+def _spodobi_black(b):
+    runs = _runs_of(b)
+    plain = ''.join(t for _, t in runs)
+    m = SPODOBI.search(plain)
+    if not m:
+        return
+    mask = []
+    for r, t in runs:
+        mask += [r] * len(t)
+    for i in range(m.start() + 1, m.end()):
+        mask[i] = False
+    mask[m.start()] = True                     # червената буква
+    parts, i = [], 0
+    while i < len(plain):
+        j = i
+        while j < len(plain) and mask[j] == mask[i]:
+            j += 1
+        seg = html.escape(plain[i:j], quote=False)
+        parts.append('<span class="rubric">%s</span>' % seg if mask[i] else seg)
+        i = j
+    b['kind'], b['html'] = 'text', ''.join(parts)
+
+
 def oktoih_instructions(units, appendix=False):
     for ui, u in enumerate(units):
         # Заглавните редове в НАЧАЛОТО на приложение („Нача́ло воскре́сныхъ
@@ -309,6 +352,9 @@ def oktoih_instructions(units, appendix=False):
                     r'((?:А҆нтїфѡ́нъ \S+?|Прокі́менъ,? гла́съ \S+?|Сті́хъ(?: \S{1,3}?)?):)',
                     r'<span class="rubric">\1</span>', parts[i])
             b['html'] = ''.join(parts)
+        for b in u['blocks']:
+            if b['kind'] in ('text', 'rubric'):
+                _spodobi_black(b)
 
 
 def chapter_units(body, model=None):
