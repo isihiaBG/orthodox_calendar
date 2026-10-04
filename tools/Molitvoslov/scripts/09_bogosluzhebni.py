@@ -117,9 +117,205 @@ RE_UNIT = re.compile(r'^(?:(?:Въ?|Во|На)\s.{0,60}(?:вечер|ѹтр|ут
                      r'|(?:Гласъ \S+ )?Пѣснь\s|Канѡнъ|Послѣдованїе|Чинъ|Часъ\s)')
 
 
-def chapter_units(body):
+class RubricModel:
+    """Червеното в Октоиха, научено от главите, които го имат.
+
+    ⚠⚠ В .epub-а от azbyka.ru червеният шрифт (`kinovar`) СВЪРШВА насред
+    книгата — от сряда на глас 4 до края, включително приложенията, няма
+    нито едно означение (03.10.2026). HIP изданието от orthlib.ru също е без
+    червено (OCR). Затова се учи от изрядната част (глас 1–3 и неделя–вторник
+    на глас 4, 26 глави): Октоихът е строго успореден по гласове и
+    указанията са едни и същи думи, различава се само номерът на гласа.
+
+        FULL  — абзаци, изцяло червени            → целият абзац червен
+        LAB   — червено начало до „:" / „," / „." → само етикетът червен
+        общо  — кратък ред-указание (виж [generic]), САМО ако няма етикет
+
+    Проверено: учено от глас 1–3, мерено на неделя–вторник на глас 4 — от
+    787 абзаца 0 оцветени погрешно химни; разминават се ~17, почти все
+    частично (по-къс етикет). Сравнението е без ударения, без надредни знаци
+    и без пунктуацията вътре; гласът и поредните числа са заместители.
+    """
+    KW = re.compile(r'^(въ|во|на|по|таже|посемъ|ины|инъ|другій|канѡнъ|степенна|'
+                    r'ѵпакои|вонми|аще)\b')
+
+    @staticmethod
+    def norm(t):
+        t = pdf_ucs.bare(t).replace('҆', '').lower()
+        t = re.sub(r'гласъ\s+[^\s:.,]+', 'гласъ #', t)
+        t = re.sub(r'(?<![^\s])[а-ѳ]{1,2}-(мъ|ю|я|е)', '#-\\1', t)
+        t = re.sub(r'[.,:;\[\]]', ' ', t)
+        return re.sub(r'\s+', ' ', t).strip()
+
+    def __init__(self, chs):
+        self.full, self.lab = set(), set()
+        for _, body in chs:
+            if 'kinovar' not in body:
+                continue
+            p = ParaParser()
+            p.feed(body)
+            for runs3 in p.paras:
+                runs = [(r, t) for r, t, _ in runs3]
+                text = ''.join(t for _, t in runs).strip()
+                if not text:
+                    continue
+                if all(r for r, t in runs if t.strip()):
+                    self.full.add(self.norm(text))
+                    continue
+                lead = ''
+                for r, t in runs:
+                    if not r:
+                        break
+                    lead += t
+                i = max(lead.rfind(':'), lead.rfind(','))
+                if i >= 0 and len(pdf_ucs.bare(lead[:i]).strip()) > 1:
+                    self.lab.add(self.norm(lead[:i + 1]))
+
+    def generic(self, text):
+        s = text.strip()
+        n = self.norm(s)
+        # „И҆́нъ канѡ́нъ прест҃ѣ́й бцⷣѣ [є҆го́же краестро́чїе: …]." — заглавие
+        # на канон, колкото и дълго да е краестрочието.
+        if len(s) <= 220 and re.match(r'^(инъ |другій )?канѡнъ\b', n):
+            return True
+        if len(s) > 140 or not self.KW.match(n):
+            return False
+        return s.endswith((':', ',')) or ' гласъ ' in ' ' + n + ' ' or \
+            (s.endswith('.') and len(s) < 70)
+
+    def only_black(self, runs3):
+        return self.apply(runs3) if not any(r for r, t, _ in runs3 if t.strip()) else runs3
+
+    def apply(self, runs3):
+        """Абзацът без червено → със червено, по научените указания."""
+        text = ''.join(t for _, t, _ in runs3)
+        s = text.strip()
+        if not s:
+            return runs3
+        if self.norm(s) in self.full:
+            return [(True, t, b) for _, t, b in runs3]
+        lead = len(text) - len(text.lstrip())
+        best = 0
+        for m in re.finditer(r'[:,.]', s[:160]):
+            if self.norm(s[:m.end()]) in self.lab:
+                best = m.end()
+        if not best:
+            if self.generic(s):
+                return [(True, t, b) for _, t, b in runs3]
+            return runs3
+        cut, out, pos = lead + best, [], 0
+        for _, t, b in runs3:
+            a, z = pos, pos + len(t)
+            if z <= cut:
+                out.append((True, t, b))
+            elif a >= cut:
+                out.append((False, t, b))
+            else:
+                out.append((True, t[:cut - a], b))
+                out.append((False, t[cut - a:], b))
+            pos = z
+        return out
+
+
+# ⚠ РЕДОВЕ-УКАЗАНИЯ В ОКТОИХА — изцяло червени, във ВСИЧКИ гласове.
+# Изворът и в изрядната си част ги дава само отчасти червени („Та́же," в
+# червено, „Ны́нѣ ѿпꙋща́еши: Трист҃о́е…" в черно), а те са указание от край
+# до край (указание на потребителя, 04.10.2026). Черно остава само онова,
+# което се ЧЕТЕ: началото на подобника след „Подо́бенъ:" и стихът след
+# „Сті́хъ:" в прокимена.
+INSTR_START = re.compile(
+    r'^(Та́же|Посе́мъ|Вхо́дъ|І҆ере́й|Степє́нна|Гдⷭ҇и поми́лꙋй, три́жды|'
+    r'Сла́ва, и҆ ны́нѣ, бг҃оро́диченъ, не сѣдѧ́ще|По катава́сїи|По непоро́чныхъ)')
+INSTR_MAX = 260
+
+
+def _instr_html(plain):
+    e = lambda t: html.escape(t, quote=False)
+    red = lambda t: '<span class="rubric">%s</span>' % e(t) if t.strip() else e(t)
+    i = plain.find('Подо́бенъ:')
+    if i >= 0:
+        j = i + len('Подо́бенъ:')
+        return 'text', red(plain[:j]) + e(plain[j:])
+    i = plain.find('Сті́хъ:')
+    if i >= 0:
+        j = i + len('Сті́хъ:')
+        k = plain.find('Та́же', j)
+        k = len(plain) if k < 0 else k
+        return 'text', red(plain[:j]) + e(plain[j:k]) + red(plain[k:])
+    return 'rubric', e(plain)
+
+
+# ⚠ ПРИЛОЖЕНИЯТА В КРАЯ НА ОКТОИХА имат свои указания — моделът ги няма,
+# защото в седмичните служби не се срещат (указание на потребителя,
+# 04.10.2026). Цели червени редове и червени етикети отпред:
+APP_FULL = re.compile(
+    r'^(Ѹ҆́треннѧѧ стїхи́ра, гла́съ|Пѣ̑сни трⷪ҇чны\.|Е҆ѵⷢ҇лїе воскрⷭ҇но |Е҆ѵⷢ҇лїе ѿ |'
+    r'А҆пⷭ҇лъ (?:къ|ѿ) |Свѣти́ленъ, гла́съ|Свѣти́льны подо́бнѣ|И҆ мл҃тва глаго́летсѧ|'
+    r'И҆ ѿпꙋ́стъ, и҆ проще́нїе|А҆ллилꙋ́їа, три́жды|Прокі́мены, и҆ а҆по́стѡлы|'
+    r'И҆ по ко́емждо стїсѣ̀)')
+APP_LABEL = re.compile(
+    r'^((?:Е҆ѯапостїла́рїй \S+?|Прича́стенъ|Крⷭ҇тобг҃оро́диченъ|Подо́бенъ|Подо́бны|'
+    r'Дрꙋгі́й|Гла́съ \S+?|А҆ллилꙋ́їа, гла́съ \S+?|И҆ ѹ҆ме́ршымъ, гла́съ \S+?|'
+    r'Въ понедѣ́льникъ(?: ѹ҆́бѡ)?|Во вто́рникъ|Въ сре́дꙋ(?: и҆ пѧто́къ)?|Въ четверто́къ|'
+    r'Въ пѧто́къ|Въ сꙋббѡ́тꙋ|Во второ́мъ же|Въ пе́рвомъ ѹ҆́бѡ):)(\s)')
+
+
+def oktoih_instructions(units, appendix=False):
+    for ui, u in enumerate(units):
+        # Заглавните редове в НАЧАЛОТО на приложение („Нача́ло воскре́сныхъ
+        # є҆ѯапостїла̑рїй, и҆ ѹ҆́треннихъ…", „Трⷪ҇чны сїѧ̑ григо́рїѧ сїнаи́та,
+        # пѣва́емы…") — до първия ред, който вече е съдържание.
+        if appendix and ui == 0:
+            for b in u['blocks']:
+                plain = html.unescape(re.sub(r'<[^>]+>', '', b['html'])).strip()
+                if b['kind'] == 'rubric':
+                    continue
+                if b['kind'] != 'text' or APP_LABEL.match(plain + ' ') or \
+                        APP_FULL.match(plain) or len(plain) > 220 or \
+                        b['html'].startswith('<span class="rubric">'):
+                    break
+                b['kind'], b['html'] = 'rubric', html.escape(plain, quote=False)
+        for b in u['blocks']:
+            if b['kind'] != 'text':
+                continue
+            plain = html.unescape(re.sub(r'<[^>]+>', '', b['html'])).strip()
+            if appendix and len(plain) <= 160 and APP_FULL.match(plain):
+                b['kind'], b['html'] = 'rubric', html.escape(plain, quote=False)
+                continue
+            if appendix and not b['html'].startswith('<span class="rubric">'):
+                b['html'] = APP_LABEL.sub(r'<span class="rubric">\1</span>\2', b['html'], count=1)
+            if len(plain) <= INSTR_MAX and INSTR_START.match(plain):
+                b['kind'], b['html'] = _instr_html(plain)
+                continue
+            # „Гла́съ и҃, бг҃оро́диченъ:" — кратък ред-указание (не химн като
+            # „Гла́съ тѝ прино́симъ разбо́йничь…").
+            if len(plain) < 60 and re.match(r'^Гла́съ \S+?[,.:]', plain):
+                b['kind'], b['html'] = 'rubric', html.escape(plain, quote=False)
+                continue
+            h = b['html']
+            # „І҆рмо́съ то́йже." / „И҆́нъ. І҆рмо́съ:" в началото — етикет.
+            h = re.sub(r'^((?:И҆́нъ\.? )?І҆рмо́съ(?: то́йже)?[.:])',
+                       r'<span class="rubric">\1</span>', h)
+            # „[Два́жды.]" в края на химна — указание.
+            h = re.sub(r'(\[(?:Два́жды|Три́жды)\.?\])', r'<span class="rubric">\1</span>', h)
+            # „И҆ ны́нѣ, то́йже." — „то́йже" е част от етикета.
+            h = re.sub(r'<span class="rubric">((?:И҆ ны́нѣ|Сла́ва),)</span> (то́йже[.:,])',
+                       r'<span class="rubric">\1 \2</span>', h)
+            # Указания НАСРЕД реда, вън от червен откъс: „А҆нтїфѡ́нъ в҃:",
+            # „Прокі́менъ, гла́съ ѕ҃:", „Сті́хъ:".
+            parts = re.split(r'(<span class="rubric">.*?</span>)', h)
+            for i in range(0, len(parts), 2):
+                parts[i] = re.sub(
+                    r'((?:А҆нтїфѡ́нъ \S+?|Прокі́менъ,? гла́съ \S+?|Сті́хъ(?: \S{1,3}?)?):)',
+                    r'<span class="rubric">\1</span>', parts[i])
+            b['html'] = ''.join(parts)
+
+
+def chapter_units(body, model=None):
     p = ParaParser()
     p.feed(body)
+    if model:
+        p.paras = [model(r) if callable(model) else model.apply(r) for r in p.paras]
     units = [{'title': None, 'blocks': []}]
     for runs3 in p.paras:
         runs = [(r, t) for r, t, _ in runs3]
@@ -159,6 +355,26 @@ def chapter_units(body):
         units[-1]['blocks'].append({'kind': kind, 'html': h})
     for u in units:
         u.pop('label', None)
+        # ⚠ „І҆рмо́съ:" на ОТДЕЛЕН ред → етикет пред текста на ирмоса под
+        # него. Четецът смалява ирмоса само ако блокът му ПОЧВА с червен
+        # етикет „…рмо́съ…" (`MolBlock.isIrmos`); отделен, етикетът оставяше
+        # ирмоса с размера на тропарите (указание на потребителя, 04.10.2026).
+        bl = u['blocks']
+        k = 0
+        while k < len(bl) - 1:
+            lab = bl[k]['html']
+            # ⚠ Буквицата (`<span>Ѿ</span>` отпред) НЕ пречи — без това 55
+            # ирмоса в Минеите („И҆́нъ. І҆рмо́съ:" + буквица) оставаха едри.
+            nxt = bl[k + 1]['html'] if k + 1 < len(bl) else ''
+            lead = re.match(r'<span class="rubric">(.*?)</span>', nxt)
+            if (bl[k]['kind'] == 'rubric' and len(lab) <= 80
+                    and re.search(r'рмо́съ(?: то́йже|, гла́съ \S+)?[.:]?$', lab)
+                    and bl[k + 1]['kind'] == 'text'
+                    and (not lead or len(lead.group(1).strip()) <= 2)):
+                bl[k + 1]['html'] = '<span class="rubric">%s</span> %s' % (
+                    lab, bl[k + 1]['html'])
+                del bl[k]
+            k += 1
     return [u for u in units if u['blocks'] or u['title']]
 
 
@@ -469,8 +685,22 @@ def expand_vespers_psalms(out):
 def main():
     raw = []
     for fname, book, bname in BOOKS:
-        for label, body in chapters(IN / fname):
-            raw.append((fname, book, bname, label, chapter_units(body)))
+        chs = list(chapters(IN / fname))
+        # ⚠ Октоихът: от сряда на глас 4 нататък изворът е БЕЗ червено —
+        # учи се от главите, които го имат (виж [RubricModel]).
+        model = RubricModel(chs) if book == 'oktoih' else None
+        for label, body in chs:
+            # ⚠ „Без червено" = под 20 означения: петъкът на глас 6 има ЕДНО
+            # и с проверка „няма нито едно" оставаше цял ден черен.
+            fix = model.apply if model and body.count('kinovar') < 20 else None
+            # В изрядните глави — само на абзаци БЕЗ НИТО ЕДНО червено:
+            # изворът и там е изпускал по някой ред („Бг҃оро́диченъ:Ли́къ…").
+            if model and not fix:
+                fix = model.only_black
+            us = chapter_units(body, fix)
+            if book == 'oktoih':
+                oktoih_instructions(us, appendix=not label.startswith('Глас'))
+            raw.append((fname, book, bname, label, us))
     titles = translate_titles([r[3] for r in raw])
     out, sid = [], 1000
     for fname, book, bname, label, units in raw:

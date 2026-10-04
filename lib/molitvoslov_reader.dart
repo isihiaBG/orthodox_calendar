@@ -344,15 +344,22 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
     // ⚠ Червената ПЪРВА БУКВА на всеки абзац (указание на потребителя) —
     // рубрикацията на славянските богослужебни книги. Само ако парчето е
     // обикновен текст и буквата е главна.
-    if (redFirst && out.isNotEmpty && !out.first.wine) {
-      final t = out.first.text;
+    // ⚠ И СЛЕД ВОДЕЩ ЕТИКЕТ („Сла́ва:", „І҆рмо́съ:", „Сті́хъ:") — текстът
+    // след него също почва с червена буква (указание на потребителя,
+    // 04.10.2026). Дотук етикетът отменяше буквицата изобщо.
+    var fi = 0;
+    while (fi < out.length && out[fi].wine && out[fi].href == null) {
+      fi++;
+    }
+    if (redFirst && fi < out.length && !out[fi].wine && out[fi].href == null) {
+      final t = out[fi].text;
       final trimmed = t.trimLeft();
       if (trimmed.isNotEmpty) {
         final lead = t.substring(0, t.length - trimmed.length);
         final ch = trimmed.characters.first;
         final isCap = ch.toUpperCase() == ch && ch.toLowerCase() != ch;
         if (isCap) {
-          out.replaceRange(0, 1, [
+          out.replaceRange(fi, fi + 1, [
             if (lead.isNotEmpty) _Run(lead, false),
             _Run(ch, true),
             _Run(trimmed.characters.skip(1).toString(), false),
