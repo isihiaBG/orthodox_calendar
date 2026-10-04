@@ -19,6 +19,8 @@ import os
 import re
 import sys
 import zipfile
+import difflib
+import unicodedata
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -115,6 +117,138 @@ class ParaParser(HTMLParser):
 
 RE_UNIT = re.compile(r'^(?:(?:Въ?|Во|На)\s.{0,60}(?:вечер|ѹтр|утр|лїтꙋрг|повечер|полꙋнощ|часѣ|часъ)'
                      r'|(?:Гласъ \S+ )?Пѣснь\s|Канѡнъ|Послѣдованїе|Чинъ|Часъ\s)')
+
+
+SLUJ_ONLINE = IN.parent / 'newBooks2' / 'sluzhebnik_azbyka_1896.html'
+
+
+class RedTransfer:
+    """Червеното на Служебника — от ОНЛАЙН изданието на azbyka.ru.
+
+    ⚠⚠ В .epub-а (book_1860, 2011) червено няма: 4 означения в 20 глави.
+    Онлайн изданието „Служебник на церковнославянском языке (1896 г.)"
+    (https://azbyka.ru/otechnik/Pravoslavnoe_Bogosluzhenie/sluzhebnik-na-tserkovnoslavjanskom-jazyke/,
+    свалено в input/newBooks2/) е СЪЩАТА книга с `color-red` — 1788 откъса.
+    ⚠ ТЕКСТЪТ остава този от .epub-а; оттам се взима САМО кое е червено:
+    абзацът се търси в онлайн текста напред от последния намерен (с малко
+    връщане назад), после се подравнява знак по знак. Сравнението е без
+    надредни знаци, ѐ = е, ѹ = оу = у и т.н. Ненамереното остава черно и
+    влиза в `self.missed` (за отчета). Литургиите на ап. Яков ги няма онлайн.
+    Мерено: 2515 от 2642 абзаца намерени, ~20 от ненамерените са заглавия.
+    """
+    MAP = str.maketrans({'ᲂ': '', 'ꙋ': 'у', 'ѹ': 'у', 'ѡ': 'о', 'ѿ': 'от', 'ꙗ': 'я',
+                         'ѧ': 'я', 'є': 'е', 'ѕ': 'з', 'і': 'и', 'ї': 'и', 'ѻ': 'о',
+                         'ѳ': 'ф', 'ѵ': 'и', 'ꙁ': 'з', 'ѣ': 'е', 'ꙑ': 'ы', 'ѽ': 'о',
+                         'ꙍ': 'о', 'ѯ': 'кс', 'ѱ': 'пс'})
+
+    @classmethod
+    def fold(cls, t):
+        out, idx = [], []
+        for i, ch0 in enumerate(t):
+            ch = unicodedata.normalize('NFD', ch0)[0]
+            if unicodedata.category(ch).startswith('M'):
+                continue
+            for cc in ch.lower().translate(cls.MAP):
+                if cc.isalpha():
+                    if cc == 'у' and out and out[-1] == 'о':      # „оу" = „у"
+                        out.pop()
+                        idx.pop()
+                    out.append(cc)
+                    idx.append(i)
+        return ''.join(out), idx
+
+    def __init__(self, path):
+        t = path.read_text(encoding='utf-8')
+        F, M = [], []
+        for m in re.finditer(r'<p class="ponomar">(.*?)</p>', t, re.S):
+            for mm in re.finditer(r'<span class="color-red">(.*?)</span>|([^<]+)', m.group(1), re.S):
+                red = mm.group(1) is not None
+                f, _ = self.fold(html.unescape(re.sub(r'<[^>]+>', '', mm.group(1) if red else mm.group(2))))
+                F.append(f)
+                M.extend([red] * len(f))
+        self.F, self.M, self.cur, self.missed = ''.join(F), M, 0, []
+
+    # ⚠ РЕЗЕРВНИ ПРАВИЛА — за абзаците без съответствие онлайн: заглавията
+    # (там са в <h2>), редовете, които онлайн изданието съкращава („И҆
+    # про́чее по чи́нꙋ"), и литургиите на ап. Яков, които ги няма онлайн.
+    HEAD = re.compile(r'^(Послѣ́дованїе|Чи́нъ|Бж҃е́ственнаѧ слꙋ́жба|Ѹ҆ка́зъ|Ѿпꙋ́сты|'
+                      r'во ст҃ы́х[ьъ] |быва́емыѧ|глаго́лемїи|сі́есть|во всю̀|начина́етсѧ)')
+    INSTR = re.compile(r'^(Та́же|И҆ па́ки|Сщ҃е́нникъ|Свѧще́нникъ|І҆ере́й|Іере́й|Архїере́й|Дїа́конъ|Дїа́кони|Ли́къ|Лю́дїе|'
+                       r'Чте́цъ|Возглаша́етъ|Возглаше́нїе|Возгла́съ|Мл҃тва|Моли́тва|'
+                       r'И҆ пое́тсѧ|По |Прокі́менъ|Дрꙋгі́й|И҆ про́чее)')
+    ROLE = re.compile(r'^((?:И҆ )?(?:Дїа́конъ|Дїа́кони|Ли́къ|Сщ҃е́нникъ|Свѧще́нникъ|І҆ере́й|Іере́й|'
+                      r'Архїере́й|Лю́дїе|Чте́цъ|Возгла́съ|Возглаше́нїе|Дрꙋгі́й)(?:,? [^:]{0,40})?:)')
+
+    def rules(self, runs3):
+        text = ''.join(t for _, t, _ in runs3)
+        s = text.strip()
+        if len(s) <= 160 and (self.HEAD.match(s) or (s.endswith(':') and self.INSTR.match(s))):
+            return [(True, t, b) for _, t, b in runs3]
+        m = self.ROLE.match(text.lstrip())
+        if not m:
+            return runs3
+        cut, out, pos = len(text) - len(text.lstrip()) + m.end(), [], 0
+        for _, t, b in runs3:
+            a, z = pos, pos + len(t)
+            if z <= cut:
+                out.append((True, t, b))
+            elif a >= cut:
+                out.append((False, t, b))
+            else:
+                out += [(True, t[:cut - a], b), (False, t[cut - a:], b)]
+            pos = z
+        return out
+
+    def apply(self, runs3):
+        text = ''.join(t for _, t, _ in runs3)
+        f, idx = self.fold(text)
+        if len(f) < 3:
+            return self.rules(runs3)
+        F, cur = self.F, self.cur
+        seed, lo = f[:20], max(0, cur - 3000)
+        pos = F.find(seed, lo, cur + 20000)
+        if pos < 0 and len(f) >= 10:
+            pos = F.find(seed[:10], lo, cur + 20000)
+        if pos >= 0 and len(f) < 25 and pos - cur > 1500:
+            pos = -1                      # къс абзац не мести показалеца далеч
+        if pos < 0:
+            self.missed.append(text.strip()[:80])
+            return self.rules(runs3)
+        win = F[pos:pos + int(len(f) * 1.3) + 20]
+        sm = difflib.SequenceMatcher(None, f, win, autojunk=False)
+        blocks = [bl for bl in sm.get_matching_blocks() if bl.size]
+        if sum(bl.size for bl in blocks) < 0.8 * len(f):
+            self.missed.append(text.strip()[:80])
+            return self.rules(runs3)
+        fm = [None] * len(f)
+        for bl in blocks:
+            for k in range(bl.size):
+                fm[bl.a + k] = self.M[pos + bl.b + k]
+        for k in range(len(fm)):                 # несъвпаднали — от съседа
+            if fm[k] is None:
+                fm[k] = fm[k - 1] if k else next((x for x in fm if x is not None), False)
+        self.cur = pos + blocks[-1].b + blocks[-1].size
+        # знак по знак: буквите по маската, останалото — като буквата преди
+        cm, li = [], 0
+        first = fm[0]
+        for i in range(len(text)):
+            while li < len(idx) and idx[li] < i:
+                li += 1
+            if li < len(idx) and idx[li] == i:
+                cm.append(fm[li])
+            else:
+                cm.append(cm[-1] if cm else first)
+        out, pos2 = [], 0
+        for _, t, bld in runs3:
+            seg_start = pos2
+            for i in range(len(t)):
+                r = cm[seg_start + i]
+                if out and out[-1][0] == r and out[-1][2] == bld and i:
+                    out[-1] = (r, out[-1][1] + t[i], bld)
+                else:
+                    out.append((r, t[i], bld))
+            pos2 += len(t)
+        return out
 
 
 class RubricModel:
@@ -735,18 +869,29 @@ def main():
         # ⚠ Октоихът: от сряда на глас 4 нататък изворът е БЕЗ червено —
         # учи се от главите, които го имат (виж [RubricModel]).
         model = RubricModel(chs) if book == 'oktoih' else None
+        # ⚠ Служебникът: в .epub-а няма червено — то се пренася от онлайн
+        # изданието на azbyka.ru (виж [RedTransfer]).
+        if book == 'slujebnik':
+            model = RedTransfer(SLUJ_ONLINE)
         for label, body in chs:
             # ⚠ „Без червено" = под 20 означения: петъкът на глас 6 има ЕДНО
             # и с проверка „няма нито едно" оставаше цял ден черен.
-            fix = model.apply if model and body.count('kinovar') < 20 else None
-            # В изрядните глави — само на абзаци БЕЗ НИТО ЕДНО червено:
-            # изворът и там е изпускал по някой ред („Бг҃оро́диченъ:Ли́къ…").
-            if model and not fix:
-                fix = model.only_black
+            if book == 'slujebnik':
+                fix = model.apply
+            else:
+                fix = model.apply if model and body.count('kinovar') < 20 else None
+                # В изрядните глави — само на абзаци БЕЗ НИТО ЕДНО червено:
+                # изворът и там е изпускал по някой ред („Бг҃оро́диченъ:Ли́къ…").
+                if model and not fix:
+                    fix = model.only_black
             us = chapter_units(body, fix)
             if book == 'oktoih':
                 oktoih_instructions(us, appendix=not label.startswith('Глас'))
             raw.append((fname, book, bname, label, us))
+        if book == 'slujebnik':
+            (W / 'sluzhebnik_red_missed.txt').write_text('\n'.join(model.missed), encoding='utf-8')
+            print('Служебник: червеното от онлайн изданието; без съответствие %d абзаца'
+                  ' → work/sluzhebnik_red_missed.txt' % len(model.missed))
     titles = translate_titles([r[3] for r in raw])
     out, sid = [], 1000
     for fname, book, bname, label, units in raw:
