@@ -480,6 +480,38 @@ def _runs_html(plain, mask):
     return ''.join(parts)
 
 
+SLUJ_INSTR_END = re.compile(
+    r'(глаго́лѧ|глаго́летъ|гл҃етъ|гл҃ѧ|возглаша́етъ|си́це|мо́литсѧ)[^:]{0,15}:$')
+
+
+def slujebnik_instructions(units):
+    """Указанията към свещеника и дякона — изцяло червени.
+
+    Онлайн изданието оцветява често само първата дума („Та́же покро́вцы ѹ҆́бѡ
+    взе́мъ… глаго́лѧ:"), а в .epub-а някои са изцяло черни. Признакът е
+    СТРУКТУРЕН: абзац, който свършва с „глаго́лѧ:"/„глаго́летъ:" и подобни, и
+    е или изцяло черен, или с ЕДИН къс червен етикет отпред (потребителят,
+    05.10.2026). Не важи за „Учително известие" — там е проза.
+    """
+    for u in units:
+        for b in u['blocks']:
+            if b['kind'] != 'text':
+                continue
+            h = b['html']
+            m = re.match(r'^<span class="rubric">([^<]{1,25})</span>(.*)$', h, re.S)
+            rest = m.group(2) if m else h
+            if '<' in rest:
+                continue
+            # „Сщ҃е́нникъ та́йнѡ: Подо́бнѣ и҆ ча́шꙋ по ве́чери, глаго́лѧ:" — след
+            # етикет „та́йнѡ:" иде САМАТА молитва, не указание
+            if m and m.group(1).rstrip().endswith('та́йнѡ:'):
+                continue
+            plain = html.unescape(re.sub(r'<[^>]+>', '', h)).strip()
+            if len(plain) > 40 and SLUJ_INSTR_END.search(plain):
+                b['kind'] = 'rubric'
+                b['html'] = html.escape(plain, quote=False)
+
+
 def slujebnik_phrases(units):
     for u in units:
         for b in u['blocks']:
@@ -960,7 +992,11 @@ def main():
                 oktoih_instructions(us, appendix=not label.startswith('Глас'))
             if book == 'slujebnik':
                 slujebnik_phrases(us)
-                if 'Яков' not in label:   # литургиите на ап. Яков са друго издание
+                if 'учительное' not in label:   # то е проза, не служба
+                    slujebnik_instructions(us)
+                # ⚠ етикетите са РУСКИТЕ от .epub-а („Литургия апостола Иакова",
+                # „Известие учительное"), не българските заглавия
+                if 'Иакова' not in label:   # литургиите на ап. Яков са друго издание
                     sluzhebnik_bg.apply(us, bg_log)
             raw.append((fname, book, bname, label, us))
         if book == 'slujebnik':
