@@ -9063,7 +9063,8 @@ build НЕ се повтаря при движението му — плъзне
   се рисува пред стиха, но го няма в `_quoteBlocks`, тъй че маркиране
   заедно с него не се улавяше („Маркирай откъс в рамките на един абзац").
   Сега `QuotableSelectionArea.cleanSelection` го маха ПРЕДИ търсенето
-  (`_stripZachaloLabels` в bible_reader.dart), а цитатът получава
+  (`stripZachaloLabels` в quote_capture.dart — ⚠ и ЧАСТ от етикет в началото
+  или края на селекцията, „10] Видя…“: плъзгачът спира насред него), а цитатът получава
   `QuoteAnchor.zachala` (в любимите `'z': true`, в адреса — `+z` накрая:
   `Mt.5:1-12@utfcs+z`, `kZachalaSuffix`). Отворен такъв цитат показва
   зачалата през `_zachalaShown`, БЕЗ запис в `BibleZachala` — както

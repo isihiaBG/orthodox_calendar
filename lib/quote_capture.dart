@@ -300,3 +300,39 @@ bool _noLetters(List<String> blocks, int block, int from, int to) {
   }
   return true;
 }
+
+
+/// Маха етикетите на зачалата от маркиран библейски текст и казва дали ги е
+/// имало. Етикетът („[Зач. 122] ", „[Заⷱ҇ 122] ") се рисува пред стиха, но
+/// го няма в текста, по който се търси цитатът.
+///
+/// ⚠ Хваща и ЧАСТ от етикет в началото или в края на селекцията — плъзгачът
+/// често спира насред него („10] Видя…", „…ученици. [За"). Иначе улавянето
+/// се отказва с „Маркирай откъс в рамките на един абзац". (Докладвано от
+/// потребителя, 05.10.2026.) Частта се приема само ако се състои от знаците
+/// на етикет — квадратните скоби се срещат и в самия текст („[Сыновья же]").
+(String, bool) stripZachaloLabels(String text) {
+  var t = text;
+  var had = false;
+  if (_zachaloFull.hasMatch(t)) {
+    had = true;
+    t = t.replaceAll(_zachaloFull, '');
+  }
+  final head = _zachaloHead.firstMatch(t);
+  if (head != null) {
+    had = true;
+    t = t.substring(head.end);
+  }
+  final tail = _zachaloTail.firstMatch(t);
+  if (tail != null) {
+    had = true;
+    t = t.substring(0, tail.start);
+  }
+  return (t, had);
+}
+
+final RegExp _zachaloFull = RegExp(r'\[(?:Зач\.|Заⷱ҇) [0-9А-ЯA-Z]{1,6}\]\s*');
+// Опашката на етикет в началото: „ⷱ҇ 10] ", „10] ", „] ".
+final RegExp _zachaloHead = RegExp(r'^([Зач\.ⷱ҇\s0-9]{0,10}[А-ЯA-Z]?)\]\s*');
+// Началото на етикет в края: „[", „[За", „[Зач. 1".
+final RegExp _zachaloTail = RegExp(r'\s*\[(?:З(?:а(?:ⷱ҇?|ч\.?)?)?)?\s*[0-9]{0,6}[А-ЯA-Z]?$');

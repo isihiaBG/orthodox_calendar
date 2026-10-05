@@ -4352,16 +4352,15 @@ class _BibleReaderState extends State<BibleReader>
         zachala: _selectionHadZachalo,
       );
 
-  /// Етикетите на зачалата („[Зач. 122] ", „[Заⷱ҇ 122] ") — рисуват се пред
-  /// стиха ([_rubricatedSpans]), но ги няма в [_quoteBlocks]. Маркирани
-  /// заедно с текста, те се махат, а цитатът запомня, че е бил със зачало
-  /// ([QuoteAnchor.zachala]). (Поискано от потребителя, 05.10.2026.)
-  static final RegExp _zachaloLabelRe = RegExp(r'\[(?:Зач\.|Заⷱ҇) [^\]]{1,10}\]\s*');
+  /// Етикетите на зачалата се махат от маркираното, а цитатът запомня, че
+  /// ги е имало ([QuoteAnchor.zachala]) — виж [stripZachaloLabels].
+  /// (Поискано от потребителя, 05.10.2026.)
   bool _selectionHadZachalo = false;
 
   String _stripZachaloLabels(String text) {
-    _selectionHadZachalo = _zachaloLabelRe.hasMatch(text);
-    return text.replaceAll(_zachaloLabelRe, '');
+    final (t, had) = stripZachaloLabels(text);
+    _selectionHadZachalo = had;
+    return t;
   }
 
   /// Плоският текст на стиховете — за цитатите.
