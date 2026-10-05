@@ -39,6 +39,11 @@ def fast_period(date: datetime.date, year: int, old_style: bool) -> int:
     free_ranges = [
         (civil_from_church(year - 1, 12, 25, old_style),
          civil_from_church(year, 1, 4, old_style)),
+        # ⚠ И Светките В КРАЯ на годината (25–31.XII). Без този обхват
+        # сряда и петък там излизаха постни — 31.XII без олио, а 26.XII
+        # (Събор на Богородица) риба. (Открито 05.10.2026.)
+        (civil_from_church(year, 12, 25, old_style),
+         civil_from_church(year + 1, 1, 4, old_style)),
         (p + datetime.timedelta(days=-69), p + datetime.timedelta(days=-63)),
         (p + datetime.timedelta(days=-55), p + datetime.timedelta(days=-49)),
         (p + datetime.timedelta(days=1), p + datetime.timedelta(days=7)),
