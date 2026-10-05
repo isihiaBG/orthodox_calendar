@@ -194,7 +194,7 @@ def main():
     notitle = []
     for name in ('akatisti.json', 'kanonnik.json', 'psaltir.json', 'bogosluzhebni.json',
                  'parimii.json', 'irmologii.json', 'katavasiinik.json',
-                 # Миней празничен, Миней общ, Следована псалтир (14_hip_books.py).
+                 # Миней празничен, Миней общ, Псалтир с последования (14_hip_books.py).
                  # ⚠ Той чете справката за червеното ОТ ТАЗИ база — затова
                  # сглобяването е два пъти: 05 → 14 → 05.
                  'hip_books.json'):

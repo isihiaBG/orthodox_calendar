@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Миней празничен, Миней общ и Следована псалтир (HIP, orthlib.ru) →
+"""Миней празничен, Миней общ и Псалтир с последования (HIP, orthlib.ru) →
 work/hip_books.json.
 
     python3 14_hip_books.py        # после 05_build_db.py
@@ -8,11 +8,11 @@ work/hip_books.json.
 разархивират в work/ при всяко пускане. Преобразуването е в `hip.py`.
 
 Двата минея влизат в книгата „Минеи" като групи СЛЕД месеците, а
-Следованата псалтир — като своя книга най-отдолу (решение на потребителя,
+Псалтирът с последования — като своя книга най-отдолу (решение на потребителя,
 05.10.2026).
 
 ⚠⚠ ЧЕРВЕНОТО. Общият миней го носи сам (`%<…%>`). Празничният и
-Следованата псалтир — НЕ (нито един знак). Там то се ПРЕНАСЯ ПО СЪДЪРЖАНИЕ
+Псалтирът с последования — НЕ (нито един знак). Там то се ПРЕНАСЯ ПО СЪДЪРЖАНИЕ
 от вече оцветените цс текстове в molitvoslov.db (месечните Минеи носят
 същите празнични служби, Часословът и Канонникът — молитвите и
 последованията): абзацът се търси по началото си, подравнява се знак по знак
@@ -479,7 +479,7 @@ def main():
             sys.exit('⚠ липсва ' + str(p))
         bl = blocks_of(paragraphs(p), ref, stats, False)
         if title:
-            out.append(section(sid, 'Следована псалтир', None, title, units_of(bl), SRC['sp']))
+            out.append(section(sid, 'Псалтир с последования', None, title, units_of(bl), SRC['sp']))
             sid += 1
             continue
         # Псалтирът: начало / 20 катизми / тропарите и молитвите / уставът
@@ -496,9 +496,9 @@ def main():
         parts.append(('Устав за пеенето на Псалтира през годината', bl[rule:], None))
         for t, b, head in parts:
             us = units_by(b, head) if head else units_of(b)
-            out.append(section(sid, 'Следована псалтир', None, t, us, SRC['sp']))
+            out.append(section(sid, 'Псалтир с последования', None, t, us, SRC['sp']))
             sid += 1
-    report.append('Следована псалтир: пренесено %(ref)d, по правила %(rules)d' % stats)
+    report.append('Псалтир с последования: пренесено %(ref)d, по правила %(rules)d' % stats)
 
     (W / 'hip_books.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
                                       encoding='utf-8')
