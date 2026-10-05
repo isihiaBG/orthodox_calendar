@@ -235,15 +235,15 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   /// книгата. Под името — последно четеното в нея (синьо, ако е и
   /// последно отвореното изобщо).
   Widget _booksBody(List<MolSection> tabList, String code) {
-    // Псалтирът — и като ред тук, между Минеите и Триода постен (указание на
-    // потребителя, 05.10.2026). Същите раздели като в таба „Псалтир", не
+    // Псалтирът — и като ред тук, веднага след Часослова, както в плаващото
+    // копче ([switcherCandidates]) — указание на потребителя, 05.10.2026. Същите раздели като в таба „Псалтир", не
     // копие; отворен оттук — с плаващото копче (`service`).
     final list = [...tabList, ..._sections.where((s) => s.tab == 'psaltir')];
     final byId = {for (final s in list) s.id: s};
     final books = bookOrder(tabList);
     if (list.length > tabList.length) {
-      final at = books.indexOf('Триод постен');
-      books.insert(at < 0 ? books.length : at, kPsalterBook);
+      final at = books.indexOf('Часослов');
+      books.insert(at < 0 ? 0 : at + 1, kPsalterBook);
     }
     return ListView.separated(
       controller: _scrollerFor(code),
