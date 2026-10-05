@@ -541,6 +541,12 @@ class _BibleReaderState extends State<BibleReader>
 
   bool get _quoteMode => widget.openAtQuote != null;
 
+  /// Показват ли се зачалата. Цитат, маркиран ЗАЕДНО със зачалото
+  /// ([QuoteAnchor.zachala]), ги показва и при изключена настройка — само
+  /// тук, без запис в [BibleZachala] (както [_localPair] за наредбата).
+  bool get _zachalaShown =>
+      (widget.openAtQuote?.anchor.zachala ?? false) || BibleZachala.value;
+
   /// Езикът на цитата, който още НЕ Е СВАЛЕН — или `null`.
   ///
   /// ⚠ Човек, дошъл по линк към цитат на език, който няма, не бива да вижда
@@ -1519,6 +1525,7 @@ class _BibleReaderState extends State<BibleReader>
             i >= 0 && i < _rows.length ? _keyFor(_rows[i].verse) : null,
         anchorOf: _bibleAnchor,
         titleOf: _bibleCitation,
+        cleanSelection: _stripZachaloLabels,
         child: Scrollbar(
         controller: _scroll,
         // ⚠ Палецът се ХВАЩА С ПРЪСТ и се влачи — иначе скролбарът е само
@@ -2880,7 +2887,7 @@ class _BibleReaderState extends State<BibleReader>
   /// църковнославянски, само буквите са граждански, тъй че съкращението му
   /// подобава.
   String? _zachaloLabel(String lang, BibleRow row) {
-    if (!BibleZachala.value) return null;
+    if (!_zachalaShown) return null;
     final n = _zachala[row.verse];
     if (n == null) return null;
     final l = _languageOf(lang);
@@ -4342,7 +4349,20 @@ class _BibleReaderState extends State<BibleReader>
         lang: _shownCode(_pair, null),
         book: widget.bookCode,
         chapter: widget.chapter,
+        zachala: _selectionHadZachalo,
       );
+
+  /// Етикетите на зачалата („[Зач. 122] ", „[Заⷱ҇ 122] ") — рисуват се пред
+  /// стиха ([_rubricatedSpans]), но ги няма в [_quoteBlocks]. Маркирани
+  /// заедно с текста, те се махат, а цитатът запомня, че е бил със зачало
+  /// ([QuoteAnchor.zachala]). (Поискано от потребителя, 05.10.2026.)
+  static final RegExp _zachaloLabelRe = RegExp(r'\[(?:Зач\.|Заⷱ҇) [^\]]{1,10}\]\s*');
+  bool _selectionHadZachalo = false;
+
+  String _stripZachaloLabels(String text) {
+    _selectionHadZachalo = _zachaloLabelRe.hasMatch(text);
+    return text.replaceAll(_zachaloLabelRe, '');
+  }
 
   /// Плоският текст на стиховете — за цитатите.
   ///

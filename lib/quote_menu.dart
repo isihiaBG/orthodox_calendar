@@ -75,6 +75,12 @@ class QuotableSelectionArea extends StatefulWidget {
   /// нещо, което [title] няма откъде да разбере, защото се вика без данни.
   final String Function(CapturedSpot spot, List<String> blocks)? titleOf;
 
+  /// Почиства маркирания текст ПРЕДИ търсенето му в блоковете — за неща,
+  /// които се рисуват пред текста, но ги няма в [blocks]. Библията маха
+  /// етикета на зачалото („[Зач. 122]") и запомня, че го е имало (виж
+  /// [QuoteAnchor.zachala]). Без това улавянето честно се отказваше.
+  final String Function(String text)? cleanSelection;
+
   const QuotableSelectionArea({
     super.key,
     required this.child,
@@ -86,6 +92,7 @@ class QuotableSelectionArea extends StatefulWidget {
     this.blockKey,
     this.anchorOf,
     this.titleOf,
+    this.cleanSelection,
   });
 
   @override
@@ -95,9 +102,16 @@ class QuotableSelectionArea extends StatefulWidget {
 class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
   String? _selected;
 
+  /// Маркираното, минало през [QuotableSelectionArea.cleanSelection].
+  String? _selectedText() {
+    final t = _selected?.trim();
+    final clean = widget.cleanSelection;
+    return t == null || clean == null ? t : clean(t).trim();
+  }
+
   /// Сглобява цитат от текущата селекция, или `null`, ако не се улови.
   Quote? _quoteFromSelection(SelectableRegionState region) {
-    final text = _selected?.trim();
+    final text = _selectedText();
     if (text == null || text.isEmpty) return null;
     final blocks = widget.blocks();
     final spot = captureSelection(blocks, text,
@@ -176,7 +190,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
   }
 
   Future<void> _save(SelectableRegionState region) async {
-    final text = _selected?.trim();
+    final text = _selectedText();
     if (text == null || text.isEmpty) {
       region.hideToolbar();
       return;

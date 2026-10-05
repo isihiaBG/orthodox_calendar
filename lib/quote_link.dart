@@ -335,8 +335,15 @@ String? buildBibleQuoteLink(QuoteAnchor a) {
     b.write('(${a.charStart};${a.charEnd})');
   }
   if (lang.isNotEmpty) b.write('@$lang');
+  // ⚠ Маркирано заедно със зачалото — получателят го вижда, без това да се
+  // записва в настройките му. Най-накрая, след езика, и по избор.
+  if (a.zachala) b.write(kZachalaSuffix);
   return 'https://$kQuoteLinkHost$kQuotePath/$b';
 }
+
+/// Добавката за „със зачалото" в края на библейския адрес: `…@utfcs+z`.
+/// ⚠ „+" минава непроменен в път (RFC 3986), за разлика от скобите `[]<>`.
+const String kZachalaSuffix = '+z';
 
 /// Обратното на [buildBibleQuoteLink]. `null`, ако не е такъв адрес.
 ///
@@ -346,6 +353,8 @@ String? buildBibleQuoteLink(QuoteAnchor a) {
 ParsedQuoteLink? parseBibleQuoteLink(String tail) {
   var body = tail;
   var lang = '';
+  final zachala = body.endsWith(kZachalaSuffix);
+  if (zachala) body = body.substring(0, body.length - kZachalaSuffix.length);
   var trimStart = 0, trimEnd = 0;
 
   final at = body.lastIndexOf('@');
@@ -384,6 +393,7 @@ ParsedQuoteLink? parseBibleQuoteLink(String tail) {
       charLength: 0,
       blockEnd: to < from ? from : to,
       charEnd: trimEnd,
+      zachala: zachala,
     ),
     // Отпечатък не трябва: стихът е точният адрес и не се мени.
     fingerprint: '',

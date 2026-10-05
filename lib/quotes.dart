@@ -171,6 +171,12 @@ class QuoteAnchor {
   /// координатите" — старото, изпитано правило.
   final int occurrenceTotal;
 
+  /// Цитатът е маркиран ЗАЕДНО със зачалото пред стиха („[Зач. 122]") —
+  /// само за [QuoteSource.bible]. Който го отвори, вижда зачалата, без това
+  /// да се записва в неговите настройки (както наредбата на преводите при
+  /// преглед на цитат). Поискано от потребителя, 05.10.2026.
+  final bool zachala;
+
   const QuoteAnchor({
     required this.source,
     required this.locator,
@@ -181,6 +187,7 @@ class QuoteAnchor {
     int? charEnd,
     this.occurrence = 0,
     this.occurrenceTotal = 0,
+    this.zachala = false,
   })  : blockEnd = blockEnd ?? block,
         charEnd = charEnd ?? (charStart + charLength);
 
@@ -215,6 +222,7 @@ class QuoteAnchor {
         // нула, която после изглежда като истинска стойност.
         if (occurrence > 0) 'o': occurrence,
         if (occurrenceTotal > 0) 'ot': occurrenceTotal,
+        if (zachala) 'z': true,
       };
 
   static QuoteAnchor fromJson(Map<String, dynamic> j) => QuoteAnchor(
@@ -230,6 +238,7 @@ class QuoteAnchor {
         charEnd: (j['ce'] as num?)?.toInt(),
         occurrence: (j['o'] as num?)?.toInt() ?? 0,
         occurrenceTotal: (j['ot'] as num?)?.toInt() ?? 0,
+        zachala: j['z'] == true,
       );
 }
 

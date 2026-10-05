@@ -78,6 +78,8 @@ function splitFields(s) {
 // „Mt.2:3-5(9;15)@bg" → четим надпис, или null.
 function readableRef(tail) {
   let body = tail, m;
+  // „+z" накрая — маркирано заедно със зачалото (само за приложението).
+  if (body.endsWith('+z')) body = body.slice(0, -2);
   const at = body.lastIndexOf('@');
   if (at >= 0) body = body.slice(0, at);
   const open = body.indexOf('(');

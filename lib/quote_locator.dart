@@ -47,6 +47,7 @@ Future<QuoteAnchor> resolveQuoteLocator(QuoteAnchor a) async {
     charEnd: a.charEnd,
     occurrence: a.occurrence,
     occurrenceTotal: a.occurrenceTotal,
+    zachala: a.zachala,
   );
 }
 

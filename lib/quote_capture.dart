@@ -251,6 +251,7 @@ QuoteAnchor bibleAnchorFromSpot({
   required String lang,
   required String book,
   required int chapter,
+  bool zachala = false,
 }) {
   int verseAt(int row) =>
       row >= 0 && row < verses.length ? (int.tryParse(verses[row]) ?? 0) : 0;
@@ -286,6 +287,7 @@ QuoteAnchor bibleAnchorFromSpot({
     charLength: 0,
     blockEnd: verseAt(spot.blockEnd),
     charEnd: trimEnd,
+    zachala: zachala,
   );
 }
 
