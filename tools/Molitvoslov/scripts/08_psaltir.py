@@ -46,18 +46,23 @@ CS_T = ['', 'і', 'к', 'л', 'м', 'н', 'ѯ', 'ѻ', 'п', 'ч']
 
 
 def cs_num(n):
-    """Число с цс букви и титла: 11 → а҃і, 21 → к҃а, 118 → р҃иі."""
+    """Число с цс букви и титла: 11 → а҃і, 21 → к҃а, 118 → ри҃і.
+    ⚠ Титлата е над ПРЕДПОСЛЕДНАТА буква (сверено в Минеите и Октоиха:
+    рл҃а, рг҃і, ри҃і); при една буква — над нея."""
     h, t, u = n // 100, n // 10 % 10, n % 10
     s = ('р' if h else '')
     if t == 1:
         s += CS_D[u] + 'і'
     else:
         s += CS_T[t] + CS_D[u]
-    return s[0] + '҃' + s[1:] if s else ''
+    return (s[:-1] + '҃' + s[-1] if len(s) > 1 else s + '҃') if s else ''
 
 
-def verse_html(n, text):
-    return '<span class="rubric">%d</span> %s' % (n, html.escape(text, quote=False))
+def verse_html(n, text, cs=False):
+    """Стих с червен номер. В цс колоната — с цс букви („в҃і"), в бг —
+    арабски цифри (указание на потребителя, 05.10.2026)."""
+    num = cs_num(n) if cs else str(n)
+    return '<span class="rubric">%s</span> %s' % (num, html.escape(text, quote=False))
 
 
 def cs_verses(db, ps):
@@ -95,7 +100,7 @@ def psalm_unit(db, ps, p):
         if head:
             csl.append({'kind': 'rubric', 'html': html.escape(t, quote=False)})
         else:
-            csl.append({'kind': 'verse', 'html': verse_html(v, t)})
+            csl.append({'kind': 'verse', 'html': verse_html(v, t, cs=True)})
         # ⚠ Същите прекъсвания и в цс — след СЪЩИЯ стих (номерацията е обща).
         # Прекъсване след ПОСЛЕДНИЯ бг стих отива след последния цс стих:
         # номерацията в края на псалма понякога се разминава с един.

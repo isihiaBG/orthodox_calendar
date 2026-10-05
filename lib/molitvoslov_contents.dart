@@ -234,9 +234,17 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
   /// „Богослужебни": първото ниво са КНИГИТЕ; тап отваря съдържанието на
   /// книгата. Под името — последно четеното в нея (синьо, ако е и
   /// последно отвореното изобщо).
-  Widget _booksBody(List<MolSection> list, String code) {
+  Widget _booksBody(List<MolSection> tabList, String code) {
+    // Псалтирът — и като ред тук, между Минеите и Триода постен (указание на
+    // потребителя, 05.10.2026). Същите раздели като в таба „Псалтир", не
+    // копие; отворен оттук — с плаващото копче (`service`).
+    final list = [...tabList, ..._sections.where((s) => s.tab == 'psaltir')];
     final byId = {for (final s in list) s.id: s};
-    final books = bookOrder(list);
+    final books = bookOrder(tabList);
+    if (list.length > tabList.length) {
+      final at = books.indexOf('Триод постен');
+      books.insert(at < 0 ? books.length : at, kPsalterBook);
+    }
     return ListView.separated(
       controller: _scrollerFor(code),
       // Въздух под последния ред — да не е забит в долния ръб (потребителят).
@@ -254,7 +262,8 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
           child: InkWell(
             onTap: () async {
               await Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => MolitvoslovBook(book: b, sections: list)));
+                  builder: (_) => MolitvoslovBook(
+                      book: b, sections: list, service: b == kPsalterBook)));
               if (mounted) setState(() {});
             },
             child: Padding(
@@ -295,7 +304,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
 
   /// Езиците на книгата — сборът от езиците на разделите ѝ.
   static List<String> _bookLangs(List<MolSection> list, String book) {
-    final all = {for (final s in list) if (s.book == book) ...s.langs};
+    final all = {for (final s in list) if (bookKeyOf(s) == book) ...s.langs};
     return [for (final l in const ['bg', 'csl', 'csr']) if (all.contains(l)) l];
   }
 }

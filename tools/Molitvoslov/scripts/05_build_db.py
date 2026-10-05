@@ -262,6 +262,23 @@ def main():
                                    ('%Рⷣ%',)).fetchall():
             db.execute('UPDATE units SET %s = ? WHERE rowid = ?' % col,
                        (small_r.sub('р', t), rowid))
+    # Раздели, преместени СЛЕД друг (`after`, 14_hip_books.py): редът се
+    # пренарежда наново, за да остане `ord` цяло число.
+    moves = [(s['sec'], s['after']) for _, s in extra if s.get('after')]
+    if moves:
+        ids = [r[0] for r in db.execute('SELECT id FROM sections ORDER BY ord')]
+        moved = {a for a, _ in moves}
+        ids = [x for x in ids if x not in moved]
+        for a, after in moves:
+            if after not in ids:
+                raise SystemExit('⚠ няма раздел %d, след който да застане %d' % (after, a))
+            # след `after` и след вече сложените там (пазят реда си)
+            i = ids.index(after) + 1
+            while i < len(ids) and ids[i] in moved:
+                i += 1
+            ids.insert(i, a)
+        db.executemany('UPDATE sections SET ord = ? WHERE id = ?',
+                       [(k, x) for k, x in enumerate(ids, 1)])
     # Раздели без горно заглавие — „Молитви след ставане" в Часослова, където
     # „ЧАСОСЛО́ВЪ" е заглавие на самия текст (виж 09_bogosluzhebni.py).
     db.executemany('UPDATE sections SET notitle = 1 WHERE id = ?',

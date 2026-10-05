@@ -154,6 +154,16 @@ SP = [
     ('17ko_prich', 'Последование за Светото Причастие'),
     ('18po_prich', 'Молитви след Светото Причастие'),
 ]
+# Какво остава от „Псалтир с последования": номер → (таб, след кой раздел,
+# заглавие). Седмичните служби — СЛЕД едноименната от Канонника (указание
+# на потребителя); заглавията следват вида „Понеделник: …" от там.
+KEEP = {
+    5224: ('molitvi', 8, 'Последование при изход на душата от тялото'),
+    5230: ('kanonnik', 206, 'Молебен канон към Ангела пазител (друг)'),
+    5233: ('kanonnik', 213, 'Сряда: стихири и канон на Пресвета Богородица Одигитрия'),
+    5234: ('kanonnik', 214, 'Четвъртък: стихири и канони на апостолите и на св. Николай'),
+    5236: ('kanonnik', 215, 'Събота: стихири и канон на всички светии'),
+}
 NUM = ['', 'първа', 'втора', 'трета', 'четвърта', 'пета', 'шеста', 'седма', 'осма',
        'девета', 'десета', 'единадесета', 'дванадесета', 'тринадесета', 'четиринадесета',
        'петнадесета', 'шестнадесета', 'седемнадесета', 'осемнадесета', 'деветнадесета',
@@ -471,33 +481,28 @@ def main():
         out.append(section(5101 + k, 'Минеи', 'Миней общ', title,
                            units_of(blocks_of(paragraphs(p), ref, None, True)), SRC['om']))
 
+    # „Псалтир с последования" НЕ е отделна книга (решение на потребителя,
+    # 05.10.2026): почти всичко в нея вече го има — Псалтирът в таба
+    # „Псалтир", молитвите в Молитвеника, каноните в Канонника, службите в
+    # Минеите и Триода (мерено по съдържание). Остават само петте раздела,
+    # които ги няма никъде, всеки в своя таб, СЛЕД сродния си раздел (`after`).
+    # ⚠ Номерата (5224…) са старите — заради отметките; махнатите просто
+    # не се пишат.
     stats = defaultdict(int)
-    sid = 5201
+    sid = 5201 + 23        # Псалтирът заемаше 5201…5223
     for f, title in SP:
-        p = W / 'sp_hip' / 'sledpsalt' / (f + '.hip')
-        if not p.exists():
-            sys.exit('⚠ липсва ' + str(p))
-        bl = blocks_of(paragraphs(p), ref, stats, False)
-        if title:
-            out.append(section(sid, 'Псалтир с последования', None, title, units_of(bl), SRC['sp']))
-            sid += 1
+        if title is None:
             continue
-        # Псалтирът: начало / 20 катизми / тропарите и молитвите / уставът
-        plain = [html.unescape(re.sub(r'<[^>]+>', '', b['html'])) for b in bl]
-        cuts = [i for i, t in enumerate(plain) if re.match(r'^Каѳі́сма \S+\.?$', t)]
-        tail = next(i for i, t in enumerate(plain) if t.startswith('Ѹ҆ста́въ ст҃ы́хъ ѻ҆тє́цъ'))
-        rule = next(i for i, t in enumerate(plain) if t.startswith('Ѹ҆ста́въ ѡ҆ ѱалти́ри'))
-        if len(cuts) != 20:
-            sys.exit('⚠ Псалтирът: %d катизми вместо 20' % len(cuts))
-        parts = [('Молитви преди четене на Псалтира', bl[:cuts[0]], None)]
-        for n, (a, z) in enumerate(zip(cuts, cuts[1:] + [tail]), 1):
-            parts.append(('Катизма %s' % NUM[n], bl[a + 1:z], 'Ѱало́мъ'))
-        parts.append(('Тропари и молитви след катизмите', bl[tail:rule], None))
-        parts.append(('Устав за пеенето на Псалтира през годината', bl[rule:], None))
-        for t, b, head in parts:
-            us = units_by(b, head) if head else units_of(b)
-            out.append(section(sid, 'Псалтир с последования', None, t, us, SRC['sp']))
-            sid += 1
+        if sid in KEEP:
+            p = W / 'sp_hip' / 'sledpsalt' / (f + '.hip')
+            if not p.exists():
+                sys.exit('⚠ липсва ' + str(p))
+            tab, after, new_title = KEEP[sid]
+            sec = section(sid, None, None, new_title,
+                          units_of(blocks_of(paragraphs(p), ref, stats, False)), SRC['sp'])
+            sec.update(tab=tab, after=after)
+            out.append(sec)
+        sid += 1
     report.append('Псалтир с последования: пренесено %(ref)d, по правила %(rules)d' % stats)
 
     (W / 'hip_books.json').write_text(json.dumps(out, ensure_ascii=False, indent=1),
