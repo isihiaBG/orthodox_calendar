@@ -366,7 +366,7 @@ class _BookSwitcher extends StatefulWidget {
 
 /// Книгите, добавени СЛЕД първите записани списъци на плаващото копче —
 /// виж [MolitvoslovSwitcherBooks.known].
-const _kAddedLater = {'Паримии', 'Ирмологий', 'Катавасийник'};
+const _kAddedLater = {'Паримии', 'Ирмологий', 'Катавасийник', 'Следована псалтир'};
 
 class _BookSwitcherState extends State<_BookSwitcher> {
   late final List<String> _candidates = switcherCandidates(widget.all);

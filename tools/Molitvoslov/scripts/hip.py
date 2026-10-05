@@ -146,7 +146,7 @@ def convert(src, unknown=None):
             emit(c)
             i += 1
             continue
-        low = s[i:i + 4].translate(LOOKALIKE)
+        low = s[i:i + 6].translate(LOOKALIKE)
         hit = next((k for k in MULTI_KEYS if low.lower().startswith(k.lower())), None)
         if hit:
             raw = s[i:i + len(hit)]
