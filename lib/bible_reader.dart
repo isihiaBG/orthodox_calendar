@@ -3210,7 +3210,10 @@ class _BibleReaderState extends State<BibleReader>
       // ⚠ Фонът на ЦИТАТА ляга ПЪРВИ, а маркирането от търсенето — върху
       // него. „Намерено сега" побеждава „това поиска да видиш", както и в
       // другите два четеца.
-      final withQuote = _rowInQuote(row, lang) ? _quoteSpans(rub) : rub;
+      final z = _zachaloLabel(lang, row);
+      final withQuote = _rowInQuote(row, lang)
+          ? _quoteSpans(rub, labelLen: z == null ? 0 : '[$z] '.length)
+          : rub;
       body = Text.rich(
         TextSpan(
             style: style,
@@ -4148,7 +4151,13 @@ class _BibleReaderState extends State<BibleReader>
   /// ⚠ Не се ли намери нищо (текстът се е разминал), се връща ЦЕЛИЯТ стих
   /// оцветен — старото поведение. По-добре твърде много, отколкото нищо:
   /// човекът е дошъл по линк точно за това място.
-  List<TextSpan> _quoteSpans(List<TextSpan> src) {
+  ///
+  /// ⚠ [labelLen] — дължината на етикета на зачалото пред стиха (0, ако няма).
+  /// Маркиран ли е цитатът ЗАЕДНО със зачалото ([QuoteAnchor.zachala]) и
+  /// започва ли в този стих от самото начало на текста, етикетът също се
+  /// оцветява — иначе свети само текстът, а „[Зач. N]" пред него остава
+  /// бял, макар да е бил маркиран. (Докладвано от потребителя, 05.10.2026.)
+  List<TextSpan> _quoteSpans(List<TextSpan> src, {int labelLen = 0}) {
     List<TextSpan> whole() => [
           for (final sp in src)
             TextSpan(
@@ -4173,6 +4182,12 @@ class _BibleReaderState extends State<BibleReader>
       if (hit != null) ranges.add(hit);
     }
     if (ranges.isEmpty) return whole();
+    if (labelLen > 0 && (widget.openAtQuote?.anchor.zachala ?? false)) {
+      for (var k = 0; k < ranges.length; k++) {
+        final (a, b) = ranges[k];
+        if (a <= labelLen + 1) ranges[k] = (0, b);
+      }
+    }
 
     final cuts = <int>{0, full.length};
     var at = 0;
