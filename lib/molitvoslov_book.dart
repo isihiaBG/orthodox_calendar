@@ -12,6 +12,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'day_reference_sheet.dart';
+
 import 'app_theme.dart';
 import 'edit_icon.dart';
 import 'molitvoslov_db.dart';
@@ -506,11 +508,15 @@ class _BookSwitcherState extends State<_BookSwitcher> {
   // ─── списъците ───
 
   Widget _viewList() {
-    if (_books.isEmpty) return _empty();
     return ListView(
       shrinkWrap: true,
       padding: const EdgeInsets.symmetric(vertical: 4),
-      children: [for (final b in _books) _viewRow(b)],
+      children: [
+        // „Справка за деня" — винаги първа, извън подредбата на книгите.
+        DayReferenceRow(beforeOpen: () => Navigator.of(context).pop()),
+        const Divider(height: 1, color: AppColors.sectionDivider),
+        for (final b in _books) _viewRow(b),
+      ],
     );
   }
 

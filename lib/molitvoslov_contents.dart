@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'molitvoslov_book.dart';
+import 'day_reference_sheet.dart';
 import 'molitvoslov_db.dart';
 import 'molitvoslov_lang_chip.dart';
 import 'molitvoslov_reader.dart';
@@ -86,7 +87,7 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
     if (list.any((s) => s.book != null)) {
       final bi = bookOrder(list).indexOf(list[i].book ?? '');
       if (bi < 0) return;
-      y = 8 + bi * 67.0;
+      y = 8 + (bi + 1) * 67.0; // +1 — „Справка за деня" отгоре
     } else {
       y = 8 + i * 51.0;
     }
@@ -249,11 +250,13 @@ class _MolitvoslovContentsState extends State<MolitvoslovContents>
       controller: _scrollerFor(code),
       // Въздух под последния ред — да не е забит в долния ръб (потребителят).
       padding: const EdgeInsets.only(top: 8, bottom: 72),
-      itemCount: books.length,
+      // Най-отгоре — „Справка за деня" (виж day_reference_sheet.dart).
+      itemCount: books.length + 1,
       separatorBuilder: (_, _) =>
           const Divider(height: 1, color: AppColors.sectionDivider),
       itemBuilder: (context, i) {
-        final b = books[i];
+        if (i == 0) return const DayReferenceRow();
+        final b = books[i - 1];
         final last = byId[MolitvoslovBookLast.value[b]];
         final isLast = last != null && last.id == MolitvoslovLastSection.value;
         return Material(

@@ -18,6 +18,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'search_screen.dart';
 import 'welcome_screen.dart';
 import 'day_screen.dart';
+import 'day_reference_sheet.dart' show pickCalendarDate;
 import 'month_screen.dart';
 
 void main() async {
@@ -512,42 +513,14 @@ class _CalendarPageViewState extends State<CalendarPageView> {
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
             icon: const Icon(Icons.calendar_month, color: AppColors.textPrimary, size: 24),
             onPressed: () async {
-              final picked = await showDatePicker(
-                context: context,
-                helpText: AppSettings.isOldStyle && AppSettings.oldStyleFirst
-                    ? 'Изберете дата по нов стил'
-                    : null,
-                initialDate: _currentDate,
-                // initialDate: _isMonthView
-                //     ? (_monthScreenKey.currentState?.currentDate ?? _dateForPage(_currentPage))
-                //     : _dateForPage(_currentPage),
-                firstDate: _startDate,
-                lastDate: _startDate.add(Duration(days: _totalDays - 1)),
-                builder: (context, child) {
-                  return Theme(
-                    data: Theme.of(context).copyWith(
-                      colorScheme: ColorScheme.dark(
-                        primary: AppColors.datePickerPrimary,
-                        onPrimary: AppColors.datePickerOnPrimary,
-                        surface: AppColors.datePickerSurface,
-                        onSurface: AppColors.datePickerOnSurface,
-                        secondary: AppColors.datePickerPrimary,
-                      ),
-                      dialogBackgroundColor: AppColors.datePickerBackground,
-                      textButtonTheme: TextButtonThemeData(
-                        style: TextButton.styleFrom(
-                          foregroundColor: AppColors.datePickerButtons, // цвят на ОТКАЗ и ОК
-                        ),
-                      ),
-                    ),
-                    child: child!,
-                  );
-                },
-              );
+              // Общо с „Справка за деня" (day_reference_sheet.dart).
+              final picked = await pickCalendarDate(context,
+                  initial: _currentDate,
+                  first: _startDate,
+                  last: _startDate.add(Duration(days: _totalDays - 1)));
               if (picked != null) {
-                final pickedDate = DateTime(picked.year, picked.month, picked.day);
                 // Централизирана навигация — обновява _currentDate автоматично
-                _navigateToDate(pickedDate, flash: true);
+                _navigateToDate(picked, flash: true);
               }
             },
           ),
