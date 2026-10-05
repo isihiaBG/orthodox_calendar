@@ -494,6 +494,12 @@ Map<String, Style> readerStyles({
     // ⚠ 177 = 72 + още ТРИ РЕДА (3 × 35, редът при шрифта по подразбиране)
     // — указание на автора, за да не се чете адресът като част от заглавието.
     '.titleorn': Style(margin: Margins.only(top: 0, bottom: 177)),
+    // Заглавието на „Разговори…": „Разговори за" е отделено от останалите
+    // три реда с въздух, по аналогия с корицата (там празнината е ~0,4 от
+    // реда). Двата `<h1>` идват от 04_razgovori.py (указание на автора,
+    // 05.10.2026).
+    '.titletop': Style(margin: Margins.only(top: 18, bottom: 14)),
+    '.titlerest': Style(margin: Margins.only(top: 0, bottom: 18)),
     // Корицата — без никакъв отстъп; ширината я дава book_reader
     // (`_pageGroups` я изважда извън полетата на страницата).
     '.cover': Style(margin: Margins.zero, padding: HtmlPaddings.zero),

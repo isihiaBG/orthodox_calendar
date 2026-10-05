@@ -2465,8 +2465,15 @@ class _BookReaderState extends State<BookReader>
     // края на всеки <h1> и той добавя цял празен ред между заглавието и
     // реда с паметта под него.
     body = body.replaceAllMapped(
-      RegExp(r'<h1\b[^>]*>(.*?)</h1>', dotAll: true),
-      (m) => '<h3>${m.group(1)!.replaceAll(RegExp(r'(<br\b[^>]*/?>\s*)+$'), '').trim()}</h3>',
+      RegExp(r'<h1\b([^>]*)>(.*?)</h1>', dotAll: true),
+      (m) {
+        // Пази се САМО клас `title…` (заглавната на „Разговори…": първият
+        // ред „Разговори за" е отделен с въздух, като на корицата). Класът
+        // `calibre9` и подобните от томовете отпада, както досега.
+        final cls = RegExp(r'class="(title\w*)"').firstMatch(m.group(1)!);
+        final open = cls == null ? '<h3>' : '<h3 class="${cls.group(1)}">';
+        return '$open${m.group(2)!.replaceAll(RegExp(r'(<br\b[^>]*/?>\s*)+$'), '').trim()}</h3>';
+      },
     );
     // Инлайн междуредието на calibre — маха се, но САМО когато е с мерна
     // единица.
