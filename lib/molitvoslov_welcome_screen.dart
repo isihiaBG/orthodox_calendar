@@ -34,7 +34,7 @@ const List<_Part> _parts = [
   _Part('$_kCovers/01_Molitvenik.jpg', 'Молитви', 'утринни, вечерни, за причастие'),
   _Part('$_kCovers/02_Kanonnik.jpg', 'Канонник', 'канони и седмични служби'),
   _Part('$_kCovers/03_Akatisti.jpg', 'Акатисти', 'към Господ, Богородица, св. Николай и др.'),
-  _Part('$_kCovers/04_Psaltir.jpg', 'Псалтир', 'българският превод е по Септуагинта, паралелно с църковнославянски, и молитвите след катизмите'),
+  _Part('$_kCovers/04_Psaltir.jpg', 'Псалтир', 'Българският превод е по Септуагинта, паралелно с църковнославянски, и молитвите след катизмите'),
   _Part('$_kCovers/05_Bogosluzhebni.jpg', 'Богослужебни', 'Часослов, Октоих, Минеи, Триоди и др.'),
 ];
 
@@ -137,12 +137,6 @@ class _MolitvoslovWelcomeScreenState extends State<MolitvoslovWelcomeScreen>
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Православен молитвослов',
-              style: TextStyle(
-                  color: AppColors.textSecondary,
-                  fontSize: 13,
-                  letterSpacing: 1.2)),
-          const SizedBox(height: 6),
           Text(p.name,
               style: const TextStyle(
                   color: AppColors.textPrimary,

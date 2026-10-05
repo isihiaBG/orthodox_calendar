@@ -60,8 +60,16 @@ SINGLE = {
 # визуално еднакви латински → кирилски (HIP ги смята за един и същ знак)
 LOOKALIKE = str.maketrans('AaBEeKkMHOoPpCcTXxYy', 'АаВЕеКкМНОоРрСсТХхУу')
 PUNCT = {'<->': '–', '<?>': '?', '<.>': '·', '<_>': '', '<>': '\n\n', '__': '', '_/': '\n\n',
-         '<|>': '', '#': '҂', '@': '', '<*>': '*', '<,>': ','}
+         '<|>': '', '#': '҂', '@': '', '<*>': '*', '<,>': ',',
+         # Знаците на празниците (hip9slav.html); цветът идва от киновара
+         # около тях — червените три точки са славословие, черните шестерична.
+         # Шрифтът Triodion ги има (U+1F540…1F544).
+         '<(+)>': '\U0001F540', '<\\+/>': '\U0001F541', '<+>': '\U0001F542',
+         '<(:.>': '\U0001F543', '<.:)>': '\U0001F544'}
 MULTI_KEYS = sorted(list(MULTI) + list(PUNCT), key=len, reverse=True)
+
+
+_MODE = re.compile(r'<::(\w+)>')
 
 
 def _case(key, s):
@@ -108,10 +116,10 @@ def convert(src, unknown=None):
 
     while i < len(s):
         c = s[i]
-        m = re.match(r'<::(\w+)>', s[i:])
+        m = _MODE.match(s, i)
         if m:
             mode = m.group(1)
-            i += m.end()
+            i = m.end()
             continue
         if c == '%' and i + 1 < len(s):
             k = s[i + 1]

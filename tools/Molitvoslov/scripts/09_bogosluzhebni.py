@@ -481,7 +481,7 @@ def _runs_html(plain, mask):
 
 
 SLUJ_INSTR_END = re.compile(
-    r'(глаго́лѧ|глаго́летъ|гл҃етъ|гл҃ѧ|возглаша́етъ|си́це|мо́литсѧ)[^:]{0,15}:$')
+    r'(глаго́лѧ|глаго́летъ|глаго́ли|гл҃етъ|гл҃ѧ|возглаша́етъ|си́це|мо́литсѧ)[^:]{0,15}:$')
 
 
 def slujebnik_instructions(units):
@@ -507,7 +507,11 @@ def slujebnik_instructions(units):
             if m and m.group(1).rstrip().endswith('та́йнѡ:'):
                 continue
             plain = html.unescape(re.sub(r'<[^>]+>', '', h)).strip()
-            if len(plain) > 40 and SLUJ_INSTR_END.search(plain):
+            # „Та́же бл҃года́рственнꙋю сїю̀ мл҃твꙋ:" — кратко указание, водено от
+            # „Та́же"/„Посе́мъ", без глагол накрая (потребителят, 05.10.2026)
+            short = (m and m.group(1).strip() in ('Та́же', 'Посе́мъ', 'Та́же же')
+                     and len(plain) < 70 and plain.endswith(':'))
+            if short or (len(plain) > 40 and SLUJ_INSTR_END.search(plain)):
                 b['kind'] = 'rubric'
                 b['html'] = html.escape(plain, quote=False)
 
