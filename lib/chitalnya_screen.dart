@@ -20,69 +20,12 @@ import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'book_open_transition.dart';
 import 'book_reader.dart';
+import 'chitalnya_books.dart';
 import 'cover_flow.dart';
 import 'cover_picker.dart';
 import 'epub_source.dart';
 
 /// Една книга в Читалнята.
-class ChitalnyaBook {
-  final String code; // името на .epub-а и на корицата
-  final String title;
-  final String author;
-  final String about; // едно-две изречения
-
-  /// Книгата носи оригиналния си PDF (виж EpubBook.bookPdf) — тогава в
-  /// панела има и копче за споделянето му.
-  final bool hasPdf;
-
-  const ChitalnyaBook(this.code, this.title, this.author, this.about,
-      {this.hasPdf = false});
-
-  String get epub => 'assets/chitalnya/$code.epub';
-  String get cover => 'assets/chitalnya_covers/$code.jpg';
-}
-
-const List<ChitalnyaBook> kChitalnyaBooks = [
-  ChitalnyaBook(
-    'debolsky',
-    'Дни на богослужението',
-    'Прот. Григорий Дебольски',
-    'Поясненията за постите, празниците, неделите и дните от седмицата — '
-        'какво се възпоменава и защо.',
-  ),
-  ChitalnyaBook(
-    'zlatoust',
-    'Похвални слова за светиите',
-    'Свт. Йоан Златоуст',
-    'Двадесет и пет беседи за мъченици, светители и праведници, '
-        'произнесени в деня на паметта им.',
-  ),
-  ChitalnyaBook(
-    'teofan',
-    'Мисли за всеки ден от годината',
-    'Свт. Теофан Затворник',
-    'Кратки поучения върху църковните четива от Словото Божие — '
-        'за всеки ден от годината.',
-  ),
-  ChitalnyaBook(
-    'optina',
-    'Изречения от Оптинските старци',
-    'Прпп. Оптински старци',
-    'Всички наставления на преподобните старци, подредени по темите на '
-        '„Симфонията", както в оригинала.',
-  ),
-  // ⚠ Сглобява се от .docx-а на автора — tools/chitalnya/scripts/04_razgovori.py.
-  ChitalnyaBook(
-    'razgovori',
-    'Разговори за Божествения промисъл, последните времена и вътрешния духовен живот',
-    'Йеромонах Калиник (Пецев)',
-    'Разговори на о.Калиник (православен монах) с двама от духовните чеда '
-        'на архим. Евгений (техния общ старец) — на теми от разнороден '
-        'духовен характер.',
-    hasPdf: true,
-  ),
-];
-
 /// Последно отворената книга в Читалнята — тестето застава на нея при
 /// следващо влизане (както в другите секции с корици). По КОДА на книгата:
 /// прибавят ли се нови, мястото се мести, а кодът не.

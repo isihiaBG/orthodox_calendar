@@ -15,6 +15,7 @@ import 'package:flutter/material.dart';
 import 'book_position_store.dart';
 import 'book_reader.dart';
 import 'bookmarks.dart';
+import 'chitalnya_books.dart';
 import 'epub_source.dart';
 import 'reader_screen.dart';
 import 'saint_expandable_tile.dart' show SaintLookup;
@@ -27,6 +28,11 @@ String bookTitleFromPath(String assetPath) {
   var name = assetPath.split('/').last;
   if (name.endsWith('.epub')) {
     name = name.substring(0, name.length - '.epub'.length);
+  }
+  // Книгите от „Читалня" са с латински имена на файловете („razgovori") —
+  // над групата стои краткото им име.
+  for (final b in kChitalnyaBooks) {
+    if (b.epub == assetPath) return b.short;
   }
   return name.replaceAll(' - Димитрий Ростовски', '');
 }

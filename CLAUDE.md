@@ -6963,6 +6963,10 @@ orthlib.ru (`input/newBooks2/oktoih_hip/`) също е без червено (OC
 са .epub в `assets/chitalnya/` и се четат в СЪЩИЯ четец (`book_reader.dart`).
 ⚠ Списъкът е `kChitalnyaBooks` — нова книга иска ред там.
 
+⚠ **Списъкът с книгите е в [chitalnya_books.dart](lib/chitalnya_books.dart)**
+(само данни): `short` е краткото име над групата в списъка с отметки —
+дотук там стоеше ИМЕТО НА ФАЙЛА („razgovori"). Изнесен е от екрана, за да го
+внесе `bookmarks_all.dart` без кръг с четеца (08.10.2026).
 ⚠⚠ **.epub-ите НЕ са в git** (`assets/chitalnya/` в .gitignore) — носят
 пълните текстове, както базите в `assets/db/`. Сглобяват се:
 ```bash
