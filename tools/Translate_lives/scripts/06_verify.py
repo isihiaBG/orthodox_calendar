@@ -129,6 +129,26 @@ def check(path):
     want(broken == 0, "препратки към бележки: %d файла, счупени %d"
          % (len(notes), broken))
 
+    # ⚠ ВИДИМИЯТ номер на бележката трябва да е ТОЧНО номерът от адреса.
+    # Машинният превод понякога го изпуска, преиначава („1367 г.", „на 3091",
+    # „(бележка под линия)") или слага на мястото му измислена фраза — а
+    # сглобяването честно я слага в горния индекс. Проверката по-горе гледа
+    # само дали препратката СОЧИ някъде. (Открито от потребителя, 08.10.2026:
+    # 14 такива от 8922.)
+    wrong = []
+    for n in xhtml:
+        if re.search(r"/note\d+\.xhtml$", n):
+            continue
+        for num, inner in re.findall(
+                r'<a href="[^"]*note(\d+)\.xhtml#note\d+"[^>]*>(.*?)</a>',
+                z.read(n).decode("utf-8", "replace"), re.S):
+            if RE_TAG.sub("", inner).strip() != num or "<sup" not in inner:
+                wrong.append("%s:%s" % (n.split("/")[-1], num))
+    want(not wrong, "видимият номер на всяка бележка съвпада с адреса (грешни: %d)"
+         % len(wrong))
+    if wrong:
+        print("      %s" % ", ".join(wrong[:6]))
+
     fonts = sorted(n.split("/")[-1] for n in names if "/Fonts/" in n)
     want("CharisSIL-Regular.ttf" in fonts and "CharisSIL-Italic.ttf" in fonts,
          "шрифтове: %s" % ", ".join(fonts))
