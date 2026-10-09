@@ -149,6 +149,19 @@ def check(path):
     if wrong:
         print("      %s" % ", ".join(wrong[:6]))
 
+    # ⚠ Дума със СМЕСЕНИ букви — латинско „e"/„o"/„a" насред кирилска дума
+    # („старeца" — 61 пъти), или изобщо чужда дума („samtidigt"). Изглеждат
+    # нормално, но не се намират при търсене. Машинният превод ги ражда.
+    # (Открито 09.10.2026 — 123 блока в 12-те тома.) Римските цифри трябва да
+    # са ИЗЦЯЛО латински — „ІV" с кирилско І също се хваща.
+    raw = "".join(z.read(n).decode("utf-8", "replace") for n in xhtml)
+    mixed = sorted({w for w in re.findall(r"[A-Za-zА-Яа-яЀ-ӿ]+", raw)
+                    if re.search(r"[A-Za-z]", w) and re.search(r"[А-Яа-яЀ-ӿ]", w)})
+    want(not mixed, "няма думи със смесени кирилски и латински букви (%d)"
+         % len(mixed))
+    if mixed:
+        print("      %s" % ", ".join(mixed[:8]))
+
     fonts = sorted(n.split("/")[-1] for n in names if "/Fonts/" in n)
     want("CharisSIL-Regular.ttf" in fonts and "CharisSIL-Italic.ttf" in fonts,
          "шрифтове: %s" % ", ".join(fonts))

@@ -896,7 +896,9 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                   style: hitBg == null
                       ? style
                       : style.copyWith(backgroundColor: hitBg),
-                  textScaler: TextScaler.noScaling);
+                  // ⚠ СЪЩИЯТ мащаб като на мерещия TextPainter — иначе при
+                  // системно уголемен шрифт номерът е по-тесен от мереното.
+                  textScaler: scaler);
               out.add(WidgetSpan(
                 alignment: PlaceholderAlignment.baseline,
                 baseline: TextBaseline.alphabetic,
@@ -909,14 +911,20 @@ class DropCapParagraphState extends State<DropCapParagraph> {
                   //
                   // Зоната за докосване се разширява, защото повдигнатият
                   // номер е дребен — иначе иска прицелване.
+                  //
+                  // ⚠⚠ САМО ВЕРТИКАЛНО. Мерещият брои номера като смален
+                  // текст БЕЗ отстъпи; два пиксела отляво и отдясно правеха
+                  // нарисувания ред по-тесен с 4 px, той се пренасяше по-рано
+                  // от мереното и думите между двете места ИЗЧЕЗВАХА — „живеел
+                  // един Филип" вместо „…един благочестив мъж на име Филип"
+                  // (прп. Никандър Псковски, докладвано 09.10.2026).
                   child: run.href == null || run.href!.isEmpty
                       ? label
                       : GestureDetector(
                           behavior: HitTestBehavior.opaque,
                           onTap: () => widget.onLinkTap(run.href),
                           child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 2, vertical: 4),
+                            padding: const EdgeInsets.symmetric(vertical: 4),
                             child: label,
                           ),
                         ),
