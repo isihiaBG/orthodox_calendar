@@ -21,6 +21,9 @@ import argparse
 import html
 import os
 import re
+
+from bible_speak import bible_text
+from numbers_bg import years_text
 import subprocess
 import sys
 import tempfile
@@ -106,6 +109,9 @@ SV_MALE = {'исаия', 'сава', 'фока', 'мина', 'варипсава
 def expand_abbr(txt):
     """Съкращенията — с думи: гласът чете „св." като „света" (10.10.2026,
     „чудеса на св. Йоан"). „св." става „свети"/„света" по името след него."""
+    # Препратките към Писанието — с думи, ПРЕДИ „св. ап." в имената на книгите.
+    txt = bible_text(txt)
+
     def sv(m):
         low = m.group(3).lower()
         w = 'света' if low[-1] in 'ая' and low not in SV_MALE else 'свети'
@@ -113,6 +119,8 @@ def expand_abbr(txt):
             w = w.capitalize()
         return w + (m.group(2) or ' ') + m.group(3)
     txt = re.sub(r'(?<![А-Яа-я])([Сс]в)\.(\s+)?([А-Яа-я]+)', sv, txt)
+    # Годините и вековете — с думи, ПРЕДИ „г." да стане „година" (numbers_bg).
+    txt = years_text(txt)
     txt = re.sub(r'(\d)\s*гг\.', r'\1 години', txt)
     txt = re.sub(r'(\d)\s*г\.', r'\1 година', txt)
     txt = re.sub(r'([IVXLC])\s*вв\.', r'\1 век', txt)
@@ -121,6 +129,8 @@ def expand_abbr(txt):
     txt = re.sub(r'(?<![А-Яа-я])ап\.', 'апостол', txt)
     txt = re.sub(r'(?<![А-Яа-я])и сл\.', 'и следващите', txt)
     txt = re.sub(r'(?<![А-Яа-я])и др\.', 'и други', txt)
+    txt = re.sub(r'(?<![А-Яа-я])([Вв])ж\.', lambda m: 'Виж' if m.group(1) == 'В' else 'виж', txt)
+    txt = re.sub(r'(?<![А-Яа-я])([Сс])рв\.', lambda m: m.group(1) + 'равни', txt)
     txt = re.sub(r'(\d)\s*гл\.', r'\1 глава', txt)
     return txt
 
