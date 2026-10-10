@@ -97,6 +97,34 @@ def _doubled(w):
     return w[:i].lower() + v + v + w[i + 1:].lower()
 
 
+# Мъжки имена (и думи) на -а/-я след „св." — инак окончанието значи „света".
+SV_MALE = {'исаия', 'сава', 'фока', 'мина', 'варипсава', 'крестителя', 'кръстителя',
+           'илия', 'лука', 'никита', 'иеремия', 'захария', 'йона', 'иона', 'фома',
+           'сила', 'акила', 'тайнства', 'отци', 'апостоли'}
+
+
+def expand_abbr(txt):
+    """Съкращенията — с думи: гласът чете „св." като „света" (10.10.2026,
+    „чудеса на св. Йоан"). „св." става „свети"/„света" по името след него."""
+    def sv(m):
+        low = m.group(3).lower()
+        w = 'света' if low[-1] in 'ая' and low not in SV_MALE else 'свети'
+        if m.group(1)[0] == 'С':
+            w = w.capitalize()
+        return w + (m.group(2) or ' ') + m.group(3)
+    txt = re.sub(r'(?<![А-Яа-я])([Сс]в)\.(\s+)?([А-Яа-я]+)', sv, txt)
+    txt = re.sub(r'(\d)\s*гг\.', r'\1 години', txt)
+    txt = re.sub(r'(\d)\s*г\.', r'\1 година', txt)
+    txt = re.sub(r'([IVXLC])\s*вв\.', r'\1 век', txt)
+    txt = re.sub(r'([IVXLC])\s*в\.', r'\1 век', txt)
+    txt = re.sub(r'(?<![А-Яа-я])т\.\s?е\.', 'тоест', txt)
+    txt = re.sub(r'(?<![А-Яа-я])ап\.', 'апостол', txt)
+    txt = re.sub(r'(?<![А-Яа-я])и сл\.', 'и следващите', txt)
+    txt = re.sub(r'(?<![А-Яа-я])и др\.', 'и други', txt)
+    txt = re.sub(r'(\d)\s*гл\.', r'\1 глава', txt)
+    return txt
+
+
 def load_lexicon():
     """Ръчният речник: (израз в малки букви, изписване за гласа).
 
@@ -275,7 +303,7 @@ def main():
         lex = load_lexicon()
         if a.dict:
             lex = load_dict(lex)
-        parts = [(k, apply_lexicon(t, lex)) for k, t in parts]
+        parts = [(k, apply_lexicon(expand_abbr(t), lex)) for k, t in parts]
         tag = '_пълен_речник' if a.dict else ''
     if a.chars:
         tag = f'_откъс{tag}'
