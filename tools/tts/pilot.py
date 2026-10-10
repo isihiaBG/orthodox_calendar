@@ -150,7 +150,12 @@ def apply_lexicon(txt, lex):
             continue  # отделните думи — по-долу
         # Изрази и думи с тире („по-късно") — като израз.
         pat = r'(?<!\w)' + r'\s+'.join(map(re.escape, key.split())) + r'(?!\w)'
-        txt = re.sub(pat, lambda m: keep_case(m.group(0), new), txt, flags=re.I)
+        def phrase(m, new=new):
+            o, n = m.group(0).split(), new.split()
+            if len(o) != len(n):
+                return keep_case(m.group(0), new)
+            return ' '.join(keep_case(a, b) for a, b in zip(o, n))
+        txt = re.sub(pat, phrase, txt, flags=re.I)
 
     def sub(m):
         word = m.group(0)
