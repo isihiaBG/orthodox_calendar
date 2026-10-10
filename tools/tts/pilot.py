@@ -4,6 +4,9 @@
     python3 pilot.py                     # житието на прп. Никандър Псковски, двата гласа
     python3 pilot.py --voices Kalina     # само единия
     python3 pilot.py --stress-test       # кратък запис: дали гласът спазва ударение в текста
+    python3 pilot.py --chars 3500        # само началото на житието
+
+Думите, които гласът бърка, се поправят в stress.txt (прилага се винаги).
 
 Ключът се чете от ~/.config/azure_speech.env (AZURE_SPEECH_KEY,
 AZURE_SPEECH_REGION) и НИКЪДЕ не се изписва. Изходът — в tools/tts/out/.
@@ -189,8 +192,10 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--voices', nargs='+', default=list(VOICES), choices=list(VOICES))
     ap.add_argument('--stress-test', action='store_true')
-    ap.add_argument('--lexicon', action='store_true', help='прилага stress.txt')
-    ap.add_argument('--dict', action='store_true', help='и общия речник (work/stress_dict.tsv)')
+    ap.add_argument('--no-lexicon', dest='lexicon', action='store_false',
+                    help='без stress.txt (по подразбиране се прилага)')
+    ap.add_argument('--dict', action='store_true',
+                    help='и общия речник (work/stress_dict.tsv) — ⚠ звучи по-зле, само за опити')
     ap.add_argument('--chars', type=int, help='само началото на житието, толкова знака')
     a = ap.parse_args()
     key, region = creds()
@@ -212,7 +217,7 @@ def main():
         if a.dict:
             lex = load_dict(lex)
         parts = [(k, apply_lexicon(t, lex)) for k, t in parts]
-        tag = '_пълен_речник' if a.dict else '_речник'
+        tag = '_пълен_речник' if a.dict else ''
     if a.chars:
         tag = f'_откъс{tag}'
     print(f'{len(parts)} блока, {sum(len(t) for _, t in parts)} знака')
