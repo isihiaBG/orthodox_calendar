@@ -142,9 +142,10 @@ def apply_lexicon(txt, lex):
     def keep_case(orig, new):
         return new[0].upper() + new[1:] if orig[0].isupper() else new
     for key, new in lex.items():
-        if ' ' not in key:
-            continue
-        pat = r'\b' + r'\s+'.join(map(re.escape, key.split())) + r'\b'
+        if re.fullmatch(r'\w+', key):
+            continue  # отделните думи — по-долу
+        # Изрази и думи с тире („по-късно") — като израз.
+        pat = r'(?<!\w)' + r'\s+'.join(map(re.escape, key.split())) + r'(?!\w)'
         txt = re.sub(pat, lambda m: keep_case(m.group(0), new), txt, flags=re.I)
 
     def sub(m):
