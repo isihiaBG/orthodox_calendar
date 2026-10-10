@@ -414,3 +414,6 @@ assets/chitalnya/
 tools/chitalnya/input/
 assets/chitalnya_covers/razgovori.jpg
 tools/chitalnya/images_edit/
+
+# Четене на глас — изходът (MP3) не е в git
+tools/tts/out/
