@@ -140,7 +140,11 @@ def load_dict(lex):
 
 def apply_lexicon(txt, lex):
     def keep_case(orig, new):
-        return new[0].upper() + new[1:] if orig[0].isupper() else new
+        if not orig[0].isupper():
+            return new
+        # Първата БУКВА — изписването може да почва със запетая.
+        m = re.search(r'\w', new)
+        return new[:m.start()] + new[m.start()].upper() + new[m.start() + 1:] if m else new
     for key, new in lex.items():
         if re.fullmatch(r'\w+', key):
             continue  # отделните думи — по-долу
