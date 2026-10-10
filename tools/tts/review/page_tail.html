@@ -1,0 +1,136 @@
+</script>
+<script>
+const WORDS = JSON.parse(document.getElementById('data').textContent);
+const VOW = /[аъоуеиюяАЪОУЕИЮЯ]/;
+let dec = {}, db = null, filter = 'todo', shown = 60;
+const $ = id => document.getElementById(id);
+const fmt = (w, i) => i < 0 ? '?' : w.slice(0, i) + w[i] + '́' + w.slice(i + 1);
+
+function isDone(r){ return !!dec[r.id]; }
+function visible(){
+  return WORDS.filter(r => filter === 'all' ? true : filter === 'amb' ? r.amb : !isDone(r));
+}
+function stats(){
+  const done = WORDS.filter(isDone).length;
+  const fixed = WORDS.filter(r => dec[r.id] && dec[r.id].fix).length;
+  $('prog').style.width = (100 * done / WORDS.length) + '%';
+  $('stats').innerHTML = `<span>Прегледани ${done} от ${WORDS.length}</span><span>Поправени ${fixed}</span><span>Двузначни ${WORDS.filter(r=>r.amb).length}</span>`;
+}
+function chosen(r){
+  const d = dec[r.id];
+  if (d && d.mode === 'fixed') return d.i;
+  if (d && d.mode === 'context') return null;
+  const top = r.f[0][0];
+  return top;
+}
+function exHtml(ex){
+  const esc = s => s.replace(/[&<>]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+  return '…' + esc(ex[0]) + '<mark>' + esc(ex[1]) + '</mark>' + esc(ex[2]) + '…';
+}
+function row(r){
+  const li = document.createElement('li');
+  li.className = 'row' + (isDone(r) && filter !== 'all' ? '' : '') + (isDone(r) ? ' done' : '');
+  const cur = chosen(r);
+  const d = dec[r.id];
+  const top = document.createElement('div'); top.className = 'top';
+  const w = document.createElement('div'); w.className = 'word';
+  [...r.w].forEach((ch, i) => {
+    if (VOW.test(ch)) {
+      const b = document.createElement('button');
+      b.textContent = ch; b.type = 'button';
+      b.setAttribute('aria-label', 'ударение на ' + ch);
+      if (i === cur) b.classList.add('on');
+      b.onclick = () => save(r, {mode: 'fixed', i, fix: i !== r.f[0][0] || r.amb || r.f.length > 1});
+      w.append(b);
+    } else { const s = document.createElement('span'); s.textContent = ch; w.append(s); }
+  });
+  top.append(w);
+  const n = document.createElement('span'); n.className = 'n'; n.textContent = '×' + r.n; top.append(n);
+  if (r.amb) { const t = document.createElement('span'); t.className = 'tag'; t.textContent = 'двузначна'; top.append(t); }
+  const st = document.createElement('span'); st.className = 'state';
+  if (d) { st.classList.add(d.fix ? 'fix' : 'ok');
+    st.textContent = d.mode === 'context' ? 'по смисъла' : d.fix ? 'поправена' : 'вярно'; }
+  top.append(st);
+  li.append(top);
+  const many = r.amb || r.f.length > 1;
+  r.f.slice(0, many ? 3 : 1).forEach(([i, c, ex]) => {
+    const p = document.createElement('p'); p.className = 'ex';
+    p.innerHTML = (many ? `<span class="lbl">${fmt(r.w, i)} ×${c}</span>` : '') + exHtml(ex);
+    li.append(p);
+  });
+  const acts = document.createElement('div'); acts.className = 'acts';
+  const top0 = r.f[0][0];
+  if (top0 >= 0 && !(r.amb)) {
+    const y = document.createElement('button'); y.className = 'yes'; y.type = 'button';
+    y.textContent = '✓ Вярно: ' + fmt(r.w, top0);
+    y.onclick = () => save(r, {mode: 'fixed', i: top0, fix: false});
+    acts.append(y);
+  }
+  if (r.amb) {
+    const c = document.createElement('button'); c.className = 'yes'; c.type = 'button';
+    c.textContent = '✓ Според смисъла, както е';
+    c.onclick = () => save(r, {mode: 'context', fix: false});
+    acts.append(c);
+  }
+  if (d) {
+    const u = document.createElement('button'); u.type = 'button'; u.textContent = 'Отмени';
+    u.onclick = () => save(r, null);
+    acts.append(u);
+  }
+  li.append(acts);
+  return li;
+}
+function render(){
+  const v = visible();
+  const list = $('list'); list.replaceChildren(...v.slice(0, shown).map(row));
+  $('more').hidden = v.length <= shown;
+  $('more').textContent = `Покажи още (${v.length - shown})`;
+  stats();
+}
+const IDX = Object.fromEntries(WORDS.map((r, k) => [r.id, k]));
+const bucketOf = id => 'b' + String(Math.floor(IDX[id] / 100)).padStart(2, '0');
+const chains = {};
+function queue(b, fn){ // един запис наведнъж в документ
+  const p = (chains[b] || Promise.resolve()).catch(() => {}).then(fn);
+  chains[b] = p; return p;
+}
+async function save(r, val){
+  const prev = dec[r.id];
+  if (val) dec[r.id] = Object.assign({w: r.w}, val); else delete dec[r.id];
+  render();
+  if (!db) return;
+  // По 100 думи в документ — колекцията остава малка (23 документа).
+  const b = bucketOf(r.id);
+  const body = {};
+  WORDS.forEach(x => { if (bucketOf(x.id) === b && dec[x.id]) body[x.id] = dec[x.id]; });
+  try {
+    await queue(b, () => db.doc('decisions/' + b).set(body));
+  } catch (e) {
+    if (prev) dec[r.id] = prev; else delete dec[r.id];
+    $('dbnote').hidden = false;
+    $('dbnote').textContent = 'Решението не се записа. Провери връзката и опитай пак.';
+    render();
+  }
+}
+['todo','amb','all'].forEach(k => $('t-' + k).onclick = () => {
+  filter = k; shown = 60;
+  ['todo','amb','all'].forEach(j => $('t-' + j).setAttribute('aria-pressed', j === k));
+  render();
+});
+$('more').onclick = () => { shown += 60; render(); };
+render();
+(async () => {
+  db = await window.claude?.use?.('db') ?? null;
+  if (!db) {
+    $('dbnote').hidden = false;
+    $('dbnote').textContent = 'Записът не е достъпен в този изглед — решенията няма да се запазят.';
+    return;
+  }
+  db.collection('decisions').onSnapshot(s => {
+    const next = {};
+    s.docs.forEach(d => { if (d.exists) Object.assign(next, d.data()); });
+    dec = next;
+    render();
+  }, () => {});
+})();
+</script>

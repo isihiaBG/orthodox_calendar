@@ -14,6 +14,7 @@ ElevenLabs СПАЗВА знака за ударение (U+0301 след уда
     python3 accent.py razgovori --llm        # и с модела
 """
 import argparse
+from collections import Counter
 import hashlib
 import html
 import json
@@ -248,6 +249,35 @@ def bid_of(text):
     return hashlib.sha1(text.encode()).hexdigest()[:16]
 
 
+def consensus(chapters, dic, llm):
+    """Една и съща дума — едно и също ударение (11.10.2026).
+
+    Моделът решава всеки абзац поотделно и се разминава сам със себе си:
+    „коЕто" ×120, „кОето" ×38. За дума, която я НЯМА в речника (тоест не е
+    двузначна), печели най-честото му решение и се налага навсякъде.
+    Двузначните („Образ"/„обрАз") остават по смисъла на изречението."""
+    votes = {}
+    for _, blocks in chapters:
+        for b in blocks:
+            text = b['text']
+            for st, i in (llm.get(bid_of(text)) or {}).items():
+                w = WORD.match(text, st)
+                if w and w.group(0).lower() not in dic:
+                    votes.setdefault(w.group(0).lower(), Counter())[i] += 1
+    best = {w: c.most_common(1)[0][0] for w, c in votes.items()}
+    changed = 0
+    for _, blocks in chapters:
+        for b in blocks:
+            text = b['text']
+            d = llm.get(bid_of(text))
+            for st in list(d or ()):
+                w = WORD.match(text, st)
+                if w and w.group(0).lower() in best and d[st] != best[w.group(0).lower()]:
+                    d[st] = best[w.group(0).lower()]
+                    changed += 1
+    print(f'уеднаквени решения на модела: {changed}')
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('book', choices=list(BOOKS))
@@ -296,8 +326,9 @@ def main():
                 cache_p.write_text(json.dumps(cache, ensure_ascii=False))
                 done += 1
                 print(f'  {done}/{len(batches)}', flush=True)
-        todo, total, words = pass_()
-        print(f'след модела нерешени: {total}')
+    consensus(chapters, dic, llm)
+    todo, total, words = pass_()
+    print(f'след модела нерешени: {total}')
     (WORK / f'{a.book}_marked.json').write_text(json.dumps(
         [{'file': f, 'blocks': bl} for f, bl in chapters], ensure_ascii=False, indent=1))
     report(a.book, chapters, accents, dic, llm)
@@ -314,20 +345,27 @@ def report(book, chapters, accents, dic, llm):
                 w = WORD.match(text, s)
                 if not w:
                     continue
-                w = w.group(0)
-                key = w.lower()[:i] + w.lower()[i].upper() + w.lower()[i + 1:]
-                amb = len(dic.get(w.lower(), ())) > 1
-                e = seen.setdefault(key, {'n': 0, 'amb': amb, 'ex': text[max(0, s - 40):s + 40]})
+                low = w.group(0).lower()
+                form = low[:i] + low[i].upper() + low[i + 1:]
+                e = seen.setdefault(low, {'n': 0, 'amb': len(dic.get(low, ())) > 1,
+                                          'forms': Counter(), 'ex': {}})
                 e['n'] += 1
+                e['forms'][form] += 1
+                e['ex'].setdefault(form, text[max(0, s - 50):s + 50])
             for s, w, amb in mark(text, accents, dic, llm.get(bid))[1]:
-                e = seen.setdefault('? ' + w.lower(), {'n': 0, 'amb': amb, 'ex': text[max(0, s - 40):s + 40]})
+                e = seen.setdefault(w.lower(), {'n': 0, 'amb': amb, 'forms': Counter(), 'ex': {}})
                 e['n'] += 1
+                e['forms']['?'] += 1
+                e['ex'].setdefault('?', text[max(0, s - 50):s + 50])
     lines = ['# Ударения за преглед', '',
              'Решени от езиковия модел (липсват в речника или са двузначни). '
              'Ударената гласна е главна. Грешните — в accents.txt с вярното ударение.', '']
     for k, e in sorted(seen.items(), key=lambda kv: (-kv[1]['n'], kv[0])):
         tag = ' (двузначна)' if e['amb'] else ''
-        lines.append(f'- **{k}** ×{e["n"]}{tag} — …{e["ex"]}…')
+        forms = ', '.join(f'**{f}** ×{n}' for f, n in e['forms'].most_common())
+        lines.append(f'- {forms}{tag}')
+        for f, _ in e['forms'].most_common(3 if e['amb'] else 1):
+            lines.append(f'  - …{e["ex"][f]}…')
     (WORK / f'{book}_review.md').write_text('\n'.join(lines) + '\n')
     print(f'отчет: {WORK / f"{book}_review.md"} ({len(seen)} думи)')
 
