@@ -62,9 +62,9 @@ def creds():
     return key, region
 
 
-def blocks():
+def blocks(book=BOOK, chapter=CHAPTER):
     """(вид, текст) по реда на житието: 'head' за заглавия, 'text' за абзаци."""
-    t = zipfile.ZipFile(BOOK).read(CHAPTER).decode()
+    t = zipfile.ZipFile(book).read(chapter).decode()
     t = re.sub(r'<a [^>]*note\d+[^>]*>.*?</a>', '', t, flags=re.S)
     out = []
     for m in re.finditer(r'<(h\d|p|div)([^>]*)>(.*?)</\1>', t, re.S):
@@ -233,12 +233,20 @@ def main():
     ap.add_argument('--dict', action='store_true',
                     help='и общия речник (work/stress_dict.tsv) — ⚠ звучи по-зле, само за опити')
     ap.add_argument('--chars', type=int, help='само началото на житието, толкова знака')
+    ap.add_argument('--month', type=int, help='друг том: номер на месеца (1–12)')
+    ap.add_argument('--chapter', help='друга глава в тома, напр. Text/index_split_920.xhtml')
+    ap.add_argument('--name', default='Никандър_Псковски', help='име на изходния файл')
     a = ap.parse_args()
     key, region = creds()
     OUT.mkdir(exist_ok=True)
     if a.stress_test:
         return stress_test(key, region, a.voices)
-    parts = blocks()
+    book, chapter = BOOK, CHAPTER
+    if a.month:
+        book = next(ROOT.glob(f'assets/books/*- {a.month:02d}(*.epub'))
+    if a.chapter:
+        chapter = 'OEBPS/' + a.chapter if not a.chapter.startswith('OEBPS/') else a.chapter
+    parts = blocks(book, chapter)
     if a.chars:
         cut, n = [], 0
         for p in parts:
@@ -265,7 +273,7 @@ def main():
                 synth(key, region, ssml(VOICES[name], ch), f)
                 files.append(f)
                 print(f'  {name}: част {i + 1}', flush=True)
-            dest = OUT / f'Никандър_Псковски_{name}{tag}.mp3'
+            dest = OUT / f'{a.name}_{name}{tag}.mp3'
             concat(files, dest)
             print('→', dest)
 
