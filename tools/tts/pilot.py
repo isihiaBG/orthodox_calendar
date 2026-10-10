@@ -79,27 +79,41 @@ def blocks():
     return out
 
 
-def load_lexicon():
-    """дума (малки букви) → изписване за гласа: ударената гласна е удвоена.
+def _doubled(w):
+    """„житиЕ" → „житиее": удвоена ударената (главна) гласна, иначе малки букви.
+    None, ако думата няма главна гласна (в израз — дума без промяна)."""
+    caps = [i for i, c in enumerate(w) if c.isupper() and c in VOWELS]
+    # Главната начална на собствено име не е ударение, ако има и друга.
+    if len(caps) == 2 and caps[0] == 0:
+        caps = caps[1:]
+    if not caps:
+        return None
+    if len(caps) != 1:
+        sys.exit(f'stress.txt: „{w}" — трябва най-много една главна гласна')
+    i = caps[0]
+    v = w[i].lower()
+    return w[:i].lower() + v + v + w[i + 1:].lower()
 
-    В речника ударената гласна е ГЛАВНА буква (житиЕ). Гласът не слуша нито
-    знака за ударение, нито фонетичния запис; удвоената гласна обаче тегли
-    ударението към себе си (проверено на слух с Калина, 10.10.2026)."""
+
+def load_lexicon():
+    """Ръчният речник: (израз в малки букви, изписване за гласа).
+
+    Ред с една дума важи навсякъде; ред с няколко думи — само в този израз
+    (за двузначни думи: „прОсти дрехи", но „простИ ми"). Ударената гласна е
+    ГЛАВНА буква и се удвоява — гласът не слуша нито знака за ударение, нито
+    фонетичния запис; удвоената гласна тегли ударението (проверено на слух
+    с Калина, 10.10.2026). Изразите се прилагат ПРЕДИ отделните думи."""
     lex = {}
     for line in LEXICON.read_text().splitlines():
-        w = line.strip()
-        if not w or w.startswith('#'):
+        line = line.strip()
+        if not line or line.startswith('#'):
             continue
-        caps = [i for i, c in enumerate(w) if c.isupper() and c in VOWELS]
-        # Главната начална на собствено име не е ударение, ако има и друга.
-        if len(caps) == 2 and caps[0] == 0:
-            caps = caps[1:]
-        if len(caps) != 1:
-            sys.exit(f'stress.txt: „{w}" — трябва точно една главна гласна')
-        i = caps[0]
-        v = w[i].lower()
-        lex[w.lower()] = w[:i].lower() + v + v + w[i + 1:].lower()
-    return lex
+        words = line.split()
+        new = [_doubled(w) or w.lower() for w in words]
+        if all(_doubled(w) is None for w in words):
+            sys.exit(f'stress.txt: „{line}" — няма главна (ударена) гласна')
+        lex[' '.join(w.lower() for w in words)] = ' '.join(new)
+    return dict(sorted(lex.items(), key=lambda kv: -kv[0].count(' ')))
 
 
 def load_dict(lex):
@@ -117,12 +131,18 @@ def load_dict(lex):
 
 
 def apply_lexicon(txt, lex):
+    def keep_case(orig, new):
+        return new[0].upper() + new[1:] if orig[0].isupper() else new
+    for key, new in lex.items():
+        if ' ' not in key:
+            continue
+        pat = r'\b' + r'\s+'.join(map(re.escape, key.split())) + r'\b'
+        txt = re.sub(pat, lambda m: keep_case(m.group(0), new), txt, flags=re.I)
+
     def sub(m):
         word = m.group(0)
         new = lex.get(word.lower())
-        if new is None:
-            return word
-        return new[0].upper() + new[1:] if word[0].isupper() else new
+        return word if new is None or ' ' in word else keep_case(word, new)
     return re.sub(r'\w+', sub, txt)
 
 
