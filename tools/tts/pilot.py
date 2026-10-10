@@ -108,6 +108,12 @@ def load_lexicon():
         line = line.strip()
         if not line or line.startswith('#'):
             continue
+        if '=' in line:
+            # Точно изписване — когато ударението е вярно, но гласът бърка
+            # буквите („блатиста = бла-тиста").
+            k, v = (x.strip() for x in line.split('=', 1))
+            lex[k.lower()] = v
+            continue
         words = line.split()
         new = [_doubled(w) or w.lower() for w in words]
         if all(_doubled(w) is None for w in words):
