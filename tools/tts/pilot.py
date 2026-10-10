@@ -152,7 +152,12 @@ def apply_lexicon(txt, lex):
         word = m.group(0)
         new = lex.get(word.lower())
         return word if new is None or ' ' in word else keep_case(word, new)
-    return re.sub(r'\w+', sub, txt)
+    txt = re.sub(r'\w+', sub, txt)
+    # Изписване, започващо със запетая („кожена = , кожена") — кратка пауза
+    # пред думата. Без интервал пред запетаята и без втори знак след друг.
+    txt = re.sub(r'([.,;:!?–—…])\s*,\s*', r'\1 ', txt)
+    txt = re.sub(r'^\s*,\s*', '', txt)
+    return re.sub(r'\s+,', ',', txt)
 
 
 def ssml(voice, parts):
