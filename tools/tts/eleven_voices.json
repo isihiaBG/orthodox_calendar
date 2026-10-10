@@ -1,7 +1,20 @@
 {
   "_note": "Гласовете в ElevenLabs по говорещия в „Разговори…“ (избор на потребителя, 11.10.2026). Ключът е в ~/.config/elevenlabs.env.",
-  "kalinik": {"voice_id": "Aa6nEBJJMKJwJkCx8VU2", "name": "Quentin - Narrator and Educator"},
-  "ivaylo":  {"voice_id": "CstacWqMhJQlnfLPxRG4", "name": "Will - Deep, Smooth and Affectionate"},
-  "tsetso":  {"voice_id": "QAmlwgbPtjxpk7u98Qs9", "name": "Adam - Compelling"},
-  "narrator": null
+  "kalinik": {
+    "voice_id": "Aa6nEBJJMKJwJkCx8VU2",
+    "name": "Quentin - Narrator and Educator"
+  },
+  "ivaylo": {
+    "voice_id": "CstacWqMhJQlnfLPxRG4",
+    "name": "Will - Deep, Smooth and Affectionate"
+  },
+  "tsetso": {
+    "voice_id": "QAmlwgbPtjxpk7u98Qs9",
+    "name": "Adam - Compelling"
+  },
+  "narrator": {
+    "voice_id": "CstacWqMhJQlnfLPxRG4",
+    "name": "Will - Deep, Smooth and Affectionate",
+    "_note": "разказвачът (заглавията) — гласът на Ивайло, решение на потребителя"
+  }
 }
