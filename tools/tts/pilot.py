@@ -33,7 +33,9 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = Path(__file__).resolve().parent / 'out'
 ENV = Path.home() / '.config' / 'azure_speech.env'
 
-VOICES = {'Kalina': 'bg-BG-KalinaNeural', 'Borislav': 'bg-BG-BorislavNeural'}
+VOICES = {'Kalina': 'bg-BG-KalinaNeural', 'Borislav': 'bg-BG-BorislavNeural',
+          # Многоезичен глас — чете български само в <lang xml:lang="bg-BG">.
+          'Seraphina': 'de-DE-SeraphinaMultilingualNeural'}
 BOOK = ROOT / 'assets/books/Жития на светиите - 09(сеп) - Димитрий Ростовски.epub'
 CHAPTER = 'OEBPS/Text/index_split_824.xhtml'
 
@@ -159,8 +161,16 @@ def ssml(voice, parts):
         body.append(f'<break time="{PAUSE_HEAD if kind == "head" else PAUSE_PARA}"/>')
     return ('<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" '
             'xml:lang="bg-BG">'
-            f'<voice name="{voice}"><prosody rate="{RATE}">{"".join(body)}'
-            '</prosody></voice></speak>')
+            f'<voice name="{voice}">{_lang_open(voice)}<prosody rate="{RATE}">{"".join(body)}'
+            f'</prosody>{_lang_close(voice)}</voice></speak>')
+
+
+def _lang_open(voice):
+    return '<lang xml:lang="bg-BG">' if 'Multilingual' in voice else ''
+
+
+def _lang_close(voice):
+    return '</lang>' if 'Multilingual' in voice else ''
 
 
 def chunks(parts):
@@ -216,7 +226,7 @@ def stress_test(key, region, voice_names):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument('--voices', nargs='+', default=list(VOICES), choices=list(VOICES))
+    ap.add_argument('--voices', nargs='+', default=['Kalina', 'Borislav'], choices=list(VOICES))
     ap.add_argument('--stress-test', action='store_true')
     ap.add_argument('--no-lexicon', dest='lexicon', action='store_false',
                     help='без stress.txt (по подразбиране се прилага)')
