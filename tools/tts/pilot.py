@@ -34,6 +34,13 @@ VOICES = {'Kalina': 'bg-BG-KalinaNeural', 'Borislav': 'bg-BG-BorislavNeural'}
 BOOK = ROOT / 'assets/books/Жития на светиите - 09(сеп) - Димитрий Ростовски.epub'
 CHAPTER = 'OEBPS/Text/index_split_824.xhtml'
 
+LEXICON = Path(__file__).resolve().parent / 'stress.txt'
+# Общ речник: словоформа → ударени варианти (прави се от речника на
+# bgospodinov/bulgarian_dictionary, по „Речко", РБЕ и Мурдаров). Двузначните
+# („гОспода"/„господА") НЕ се пипат — ударението там зависи от смисъла.
+DICT = Path(__file__).resolve().parent / 'work' / 'stress_dict.tsv'
+VOWELS = 'аеиоуъюяАЕИОУЪЮЯ'
+
 CHUNK = 2800          # знака на заявка — далеч под 10-те минути звук на заявка
 RATE = '-6%'          # малко по-бавно от подразбиращото — четене, не новини
 PAUSE_PARA = '650ms'
@@ -67,6 +74,53 @@ def blocks():
         head = tag.startswith('h') or 'data-prayer="head"' in attrs or len(out) < 2
         out.append(('head' if head else 'text', txt))
     return out
+
+
+def load_lexicon():
+    """дума (малки букви) → изписване за гласа: ударената гласна е удвоена.
+
+    В речника ударената гласна е ГЛАВНА буква (житиЕ). Гласът не слуша нито
+    знака за ударение, нито фонетичния запис; удвоената гласна обаче тегли
+    ударението към себе си (проверено на слух с Калина, 10.10.2026)."""
+    lex = {}
+    for line in LEXICON.read_text().splitlines():
+        w = line.strip()
+        if not w or w.startswith('#'):
+            continue
+        caps = [i for i, c in enumerate(w) if c.isupper() and c in VOWELS]
+        # Главната начална на собствено име не е ударение, ако има и друга.
+        if len(caps) == 2 and caps[0] == 0:
+            caps = caps[1:]
+        if len(caps) != 1:
+            sys.exit(f'stress.txt: „{w}" — трябва точно една главна гласна')
+        i = caps[0]
+        v = w[i].lower()
+        lex[w.lower()] = w[:i].lower() + v + v + w[i + 1:].lower()
+    return lex
+
+
+def load_dict(lex):
+    """Общият речник, допълнен с ръчния; ръчният има предимство."""
+    out = {}
+    for line in DICT.read_text().splitlines():
+        w, vs = line.split('\t')
+        vs = vs.split('|')
+        if len(vs) != 1 or sum(c in VOWELS for c in w) < 2:
+            continue
+        i = vs[0].index('`') - 1
+        out[w] = w[:i + 1] + w[i] + w[i + 1:]
+    out.update(lex)
+    return out
+
+
+def apply_lexicon(txt, lex):
+    def sub(m):
+        word = m.group(0)
+        new = lex.get(word.lower())
+        if new is None:
+            return word
+        return new[0].upper() + new[1:] if word[0].isupper() else new
+    return re.sub(r'\w+', sub, txt)
 
 
 def ssml(voice, parts):
@@ -135,12 +189,32 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--voices', nargs='+', default=list(VOICES), choices=list(VOICES))
     ap.add_argument('--stress-test', action='store_true')
+    ap.add_argument('--lexicon', action='store_true', help='прилага stress.txt')
+    ap.add_argument('--dict', action='store_true', help='и общия речник (work/stress_dict.tsv)')
+    ap.add_argument('--chars', type=int, help='само началото на житието, толкова знака')
     a = ap.parse_args()
     key, region = creds()
     OUT.mkdir(exist_ok=True)
     if a.stress_test:
         return stress_test(key, region, a.voices)
     parts = blocks()
+    if a.chars:
+        cut, n = [], 0
+        for p in parts:
+            if n >= a.chars:
+                break
+            cut.append(p)
+            n += len(p[1])
+        parts = cut
+    tag = ''
+    if a.lexicon:
+        lex = load_lexicon()
+        if a.dict:
+            lex = load_dict(lex)
+        parts = [(k, apply_lexicon(t, lex)) for k, t in parts]
+        tag = '_пълен_речник' if a.dict else '_речник'
+    if a.chars:
+        tag = f'_откъс{tag}'
     print(f'{len(parts)} блока, {sum(len(t) for _, t in parts)} знака')
     for name in a.voices:
         with tempfile.TemporaryDirectory() as tmp:
@@ -150,7 +224,7 @@ def main():
                 synth(key, region, ssml(VOICES[name], ch), f)
                 files.append(f)
                 print(f'  {name}: част {i + 1}', flush=True)
-            dest = OUT / f'Никандър_Псковски_{name}.mp3'
+            dest = OUT / f'Никандър_Псковски_{name}{tag}.mp3'
             concat(files, dest)
             print('→', dest)
 
