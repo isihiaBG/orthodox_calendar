@@ -40,6 +40,7 @@ VOICES = json.loads((HERE / 'eleven_voices.json').read_text())
 API = 'https://api.elevenlabs.io/v1'
 MODEL = 'eleven_multilingual_v2'
 RATE = 24000                       # pcm_24000: 16 бита, моно
+SEED = 1                          # едно и също зърно — по-малко вариране между генериранията
 CREDITS_PER_CHAR = 0.5             # измерено 0,44 (11.10.2026) — с резерв
 # Абзацът се праща на части от по няколко изречения: в дълъг откъс гласът
 # понякога забързва към края (чуто от потребителя, 11.10.2026). Текстът преди
@@ -65,7 +66,9 @@ def remaining(k):
 
 def settings(speaker):
     v = VOICES[speaker]
-    return {'stability': v.get('stability', 0.5), 'similarity_boost': 0.75,
+    # 0.5 → 0.7 (11.10.2026): при всяко генериране гласът сбъркваше друга дума
+    # („насами́“, „наса́ме“) — по-висока стабилност значи по-малко вариране.
+    return {'stability': v.get('stability', 0.7), 'similarity_boost': 0.75,
             'style': 0.0, 'use_speaker_boost': True, 'speed': v.get('speed', 1.0)}
 
 
@@ -168,7 +171,11 @@ def synth(k, speaker, text, budget, prev='', nxt=''):
     """Един абзац → (pcm байтове, начала и краища на знаците в секунди).
     Пази се на диска; от кеша не се плаща."""
     s = settings(speaker)
-    h = hashlib.sha1(json.dumps([VOICES[speaker]['voice_id'], MODEL, s, text, prev, nxt],
+    # Ключът е САМО абзацът, без съседите (11.10.2026). Със съседите в ключа
+    # поправка в един абзац генерираше наново и двата му съседа, а гласът
+    # всеки път чете малко различно — оправиш една дума, развали се друга.
+    # Съседите пак се пращат: от тях зависи само интонацията.
+    h = hashlib.sha1(json.dumps([VOICES[speaker]['voice_id'], MODEL, s, SEED, text],
                                 ensure_ascii=False).encode()).hexdigest()[:20]
     pcm_p, al_p = CACHE / f'{h}.pcm', CACHE / f'{h}.json'
     if pcm_p.exists() and al_p.exists():
@@ -183,7 +190,7 @@ def synth(k, speaker, text, budget, prev='', nxt=''):
         r = requests.post(f'{API}/text-to-speech/{VOICES[speaker]["voice_id"]}/with-timestamps',
                           params={'output_format': f'pcm_{RATE}'},
                           headers={'xi-api-key': k},
-                          json={'text': text, 'model_id': MODEL, 'voice_settings': s,
+                          json={'text': text, 'model_id': MODEL, 'voice_settings': s, 'seed': SEED,
                                 'previous_text': prev[-1000:], 'next_text': nxt[:1000]},
                           timeout=600)
         if r.status_code == 200:
