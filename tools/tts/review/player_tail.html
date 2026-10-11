@@ -50,8 +50,21 @@ function find(t) {
   while (lo <= hi) { const m = (lo + hi) >> 1; if (S[m].t <= t + 0.05) { r = m; lo = m + 1; } else hi = m - 1; }
   return r;
 }
-function stopNote() { if (!na.paused) na.pause(); }
+// Бележката се пуска в СЪЩИЯ плейър: браузърът не дава на втори плейър да
+// тръгне сам (без докосване), затова той просто спираше.
+let inNote = false;
+function playNote(n, back) {
+  inNote = true; a.pause();
+  a.src = D.notes[n].a;
+  a.onended = () => { a.onended = null; inNote = false; a.src = D.audio;
+    a.addEventListener('loadedmetadata', () => { a.currentTime = back; a.play(); }, {once: true}); };
+  a.play().catch(() => {});
+}
+function stopNote() { if (!na.paused) na.pause();
+  if (inNote) { inNote = false; a.onended = null; const t = S[cur] ? S[cur].e : 0; a.src = D.audio;
+    a.addEventListener('loadedmetadata', () => { a.currentTime = t; }, {once: true}); } }
 a.ontimeupdate = () => {
+  if (inNote) return;
   const t = a.currentTime;
   $('time').textContent = fmt(t) + ' / ' + fmt(C.duration);
   $('prog').style.width = (100 * t / C.duration) + '%';
@@ -59,7 +72,7 @@ a.ontimeupdate = () => {
   if (cur >= 0 && S[cur].n && $('withNotes').checked && t >= S[cur].e && !notePlayed.has(cur)) {
     const n = S[cur].n.find(x => D.notes[x]);
     notePlayed.add(cur);
-    if (n) { a.pause(); na.src = D.notes[n].a; na.onended = () => a.play(); na.play(); return; }
+    if (n) { playNote(n, S[cur].e); return; }
   }
   const i = find(t);
   if (i !== cur) {
