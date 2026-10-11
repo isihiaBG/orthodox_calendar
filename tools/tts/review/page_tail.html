@@ -2,13 +2,16 @@
 <script>
 const WORDS = JSON.parse(document.getElementById('data').textContent);
 const VOW = /[аъоуеиюяАЪОУЕИЮЯ]/;
-let dec = {}, db = null, filter = 'todo', shown = 60;
+let dec = {}, db = null, filter = 'todo', shown = 60, query = '';
 const $ = id => document.getElementById(id);
 const fmt = (w, i) => i < 0 ? '?' : w.slice(0, i) + w[i] + '́' + w.slice(i + 1);
 
 function isDone(r){ return !!dec[r.id]; }
 function visible(){
-  return WORDS.filter(r => filter === 'all' ? true : filter === 'amb' ? r.amb : !isDone(r));
+  // Търсенето гледа ВСИЧКИ думи, независимо от филтъра: иначе вече
+  // прегледана дума не се намира от „Непрегледани“.
+  if (query) return WORDS.filter(r => r.w.startsWith(query)).sort((a, b) => (a.w !== query) - (b.w !== query));
+  return WORDS.filter(r => filter === 'all' ? true : filter === 'amb' ? r.amb : filter === 'done' ? isDone(r) : !isDone(r));
 }
 function stats(){
   const done = WORDS.filter(isDone).length;
@@ -112,11 +115,15 @@ async function save(r, val){
     render();
   }
 }
-['todo','amb','all'].forEach(k => $('t-' + k).onclick = () => {
+['todo','amb','done','all'].forEach(k => $('t-' + k).onclick = () => {
   filter = k; shown = 60;
-  ['todo','amb','all'].forEach(j => $('t-' + j).setAttribute('aria-pressed', j === k));
+  ['todo','amb','done','all'].forEach(j => $('t-' + j).setAttribute('aria-pressed', j === k));
   render();
 });
+$('q').oninput = () => {
+  query = $('q').value.trim().toLowerCase().replace(/\u0301/g, '').replace(/ѝ/g, 'и');
+  shown = 60; render();
+};
 $('more').onclick = () => { shown += 60; render(); };
 render();
 (async () => {

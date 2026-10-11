@@ -26,6 +26,8 @@ h1{font:700 1.45rem/1.2 var(--display);margin:0 0 4px;text-wrap:balance}
 .stats{display:flex;gap:12px;flex-wrap:wrap;font-size:.85rem;color:var(--muted);margin-top:6px;font-variant-numeric:tabular-nums}
 .tabs{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
 .tabs button{font:500 .88rem var(--body);border:1px solid var(--rule);background:transparent;color:var(--ink);border-radius:999px;padding:5px 12px;cursor:pointer}
+.search{display:block;width:100%;box-sizing:border-box;margin-top:10px;font:400 1rem var(--body);color:var(--ink);background:transparent;border:1px solid var(--rule);border-radius:10px;padding:8px 12px}
+.search:focus-visible{outline:2px solid var(--cinnabar);outline-offset:1px}
 .tabs button[aria-pressed="true"]{background:var(--ink);color:var(--paper);border-color:var(--ink)}
 .help{font-size:.9rem;color:var(--muted);margin:14px 0 4px}
 .help b{color:var(--cinnabar);font-weight:700}
@@ -63,8 +65,10 @@ li.row.done{opacity:.55}
   <div class="tabs" role="group" aria-label="Филтър">
     <button id="t-todo" aria-pressed="true">Непрегледани</button>
     <button id="t-amb" aria-pressed="false">Двузначни</button>
+    <button id="t-done" aria-pressed="false">Прегледани</button>
     <button id="t-all" aria-pressed="false">Всички</button>
   </div>
+  <input id="q" class="search" type="search" placeholder="Търси дума…" autocomplete="off" spellcheck="false" aria-label="Търси дума">
   <p class="note" id="dbnote" hidden></p>
 </header>
 <p class="help">Докосни гласната, която трябва да е ударена — <b>а́</b>. Ако моделът е прав, натисни <b>✓ Вярно</b>.</p>
