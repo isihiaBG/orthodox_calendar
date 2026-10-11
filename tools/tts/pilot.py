@@ -74,7 +74,7 @@ def blocks(book=BOOK, chapter=CHAPTER):
         tag, attrs, inner = m.groups()
         if 'data-prayer="csl"' in attrs:
             continue
-        txt = html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', inner))).strip()
+        txt = html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', re.sub(r'<br\s*/?>', ' ', inner)))).strip()
         if not txt:
             continue
         txt = re.sub(r'^Превод:\s*', '', txt)

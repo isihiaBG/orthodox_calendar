@@ -46,7 +46,7 @@ SPEAKERS = {'К': 'kalinik', 'Ц': 'tsetso', 'И': 'ivaylo'}
 # ── разчитане на книгата ────────────────────────────────────────────────
 
 def _plain(fragment):
-    return html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', fragment))).strip()
+    return html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', re.sub(r'<br\s*/?>', ' ', fragment)))).strip()
 
 
 def book_blocks(epub):
