@@ -1,0 +1,83 @@
+
+</script>
+<script>
+const D = JSON.parse(document.getElementById('data').textContent);
+const C = D.chapter, S = C.sents;
+const WHO = {kalinik: 'о. Калиник', ivaylo: 'Ивайло', tsetso: 'Цецо'};
+const $ = id => document.getElementById(id);
+const a = $('a'), na = $('na');
+a.src = D.audio;
+
+// Текстът: абзаците по реда си, изреченията — докосваеми.
+const box = $('text'), spans = [];
+let lastWho = null, pEl = null, curP = -1;
+S.forEach((s, i) => {
+  if (s.p !== curP) {
+    curP = s.p;
+    const para = C.paras[s.p];
+    if (para.k !== 'head' && para.v !== 'narrator' && para.v !== lastWho) {
+      const w = document.createElement('span'); w.className = 'who'; w.textContent = WHO[para.v] || para.v;
+      box.appendChild(w);
+    }
+    if (para.k !== 'head') lastWho = para.v;
+    pEl = document.createElement('p'); pEl.className = 'p' + (para.k === 'head' ? ' head' : '');
+    box.appendChild(pEl);
+  }
+  const sp = document.createElement('span');
+  sp.className = 's'; sp.tabIndex = 0; sp.textContent = s.s;
+  sp.onclick = () => { stopNote(); a.currentTime = s.t; a.play(); };
+  sp.onkeydown = e => { if (e.key === 'Enter') sp.onclick(); };
+  pEl.appendChild(sp);
+  if (s.n) s.n.forEach(n => { const r = document.createElement('span'); r.className = 'nref'; r.textContent = n; pEl.appendChild(r); });
+  pEl.appendChild(document.createTextNode(' '));
+  spans.push(sp);
+});
+if (S.length) $('title').textContent = S[0].s;
+
+// Бележките — тук само за слушане поотделно.
+Object.entries(D.notes).forEach(([n, x]) => {
+  const row = document.createElement('div'); row.className = 'note';
+  const b = document.createElement('button'); b.className = 'nbtn'; b.textContent = '▶'; b.setAttribute('aria-label', 'Слушай бележка ' + n);
+  b.onclick = () => { a.pause(); na.src = x.a; na.play(); };
+  const t = document.createElement('div'); t.innerHTML = '<b>' + n + '.</b> '; t.append(x.s);
+  row.append(b, t); $('notes').appendChild(row);
+});
+
+const fmt = t => Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0');
+let cur = -1, notePlayed = new Set();
+function find(t) {
+  let lo = 0, hi = S.length - 1, r = -1;
+  while (lo <= hi) { const m = (lo + hi) >> 1; if (S[m].t <= t + 0.05) { r = m; lo = m + 1; } else hi = m - 1; }
+  return r;
+}
+function stopNote() { if (!na.paused) na.pause(); }
+a.ontimeupdate = () => {
+  const t = a.currentTime;
+  $('time').textContent = fmt(t) + ' / ' + fmt(C.duration);
+  $('prog').style.width = (100 * t / C.duration) + '%';
+  // Бележка: след края на изречението с нея, ако е включено.
+  if (cur >= 0 && S[cur].n && $('withNotes').checked && t >= S[cur].e && !notePlayed.has(cur)) {
+    const n = S[cur].n.find(x => D.notes[x]);
+    notePlayed.add(cur);
+    if (n) { a.pause(); na.src = D.notes[n].a; na.onended = () => a.play(); na.play(); return; }
+  }
+  const i = find(t);
+  if (i !== cur) {
+    if (cur >= 0) spans[cur].classList.remove('on');
+    cur = i;
+    if (cur >= 0) {
+      spans[cur].classList.add('on');
+      const r = spans[cur].getBoundingClientRect();
+      if (r.top < 60 || r.bottom > innerHeight - 140)
+        spans[cur].scrollIntoView({block: 'center', behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth'});
+    }
+  }
+};
+a.onplay = () => { $('play').textContent = '❚❚'; $('play').setAttribute('aria-label', 'Пауза'); };
+a.onpause = () => { $('play').textContent = '▶'; $('play').setAttribute('aria-label', 'Пусни'); };
+$('play').onclick = () => { stopNote(); a.paused ? a.play() : a.pause(); };
+$('back').onclick = () => { stopNote(); a.currentTime = Math.max(0, a.currentTime - 5); notePlayed.clear(); };
+$('fwd').onclick = () => { stopNote(); a.currentTime = Math.min(C.duration, a.currentTime + 5); };
+$('track').onclick = e => { const r = e.currentTarget.getBoundingClientRect(); a.currentTime = C.duration * (e.clientX - r.left) / r.width; };
+$('time').textContent = '0:00 / ' + fmt(C.duration);
+</script>

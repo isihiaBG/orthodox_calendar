@@ -2,7 +2,9 @@
   "_note": "Гласовете в ElevenLabs по говорещия в „Разговори…“ (избор на потребителя, 11.10.2026). Ключът е в ~/.config/elevenlabs.env.",
   "kalinik": {
     "voice_id": "Aa6nEBJJMKJwJkCx8VU2",
-    "name": "Quentin - Narrator and Educator"
+    "name": "Quentin - Narrator and Educator",
+    "speed": 0.92,
+    "_speed": "малко по-бавно (желание на потребителя); нагласява се на слух"
   },
   "ivaylo": {
     "voice_id": "CstacWqMhJQlnfLPxRG4",

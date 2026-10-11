@@ -50,13 +50,52 @@ def _plain(fragment):
     return html.unescape(re.sub(r'\s+', ' ', re.sub(r'<[^>]+>', '', re.sub(r'<br\s*/?>', ' ', fragment)))).strip()
 
 
+NOTE = re.compile('\ue000(\\d+)\ue001')
+# Съкращения, след чиято точка изречението НЕ свършва.
+NO_SPLIT = {'св', 'свт', 'свв', 'прп', 'мч', 'мчк', 'ап', 'равноап', 'гл', 'вж', 'срв',
+            'стр', 'архим', 'йером', 'йеросхим', 'еп', 'митр', 'прот', 'о', 'т', 'е',
+            'напр', 'др', 'сл', 'пр', 'р', 'ок', 'бел', 'вл', 'ст', 'изд', 'т.е'}
+_SENT_END = re.compile('[.!?…]+[»“”"\')\\]]*(?:\ue000\\d+\ue001)?(?=\\s+[„"«(–—-]?\\s*[А-ЯA-Z0-9Ѝ])')
+
+
+def split_sentences(text):
+    """Изреченията на абзаца, БЕЗ да се губи и знак: ''.join(парчетата) == text.
+
+    Точка след съкращение („св. Йоан“, „о. Калиник“) и след единична главна
+    буква (инициал) не е край на изречение."""
+    out, last = [], 0
+    for m in _SENT_END.finditer(text):
+        before = re.search('([А-Яа-яA-Za-z.]+)$', text[last:m.start()])
+        word = before.group(1).lower().rstrip('.') if before else ''
+        if m.group(0).startswith('.') and len(m.group(0).rstrip('»“”"\')]')) == 1 and (
+                word in NO_SPLIT or (before and len(before.group(1)) == 1 and before.group(1).isupper())):
+            continue
+        cut = m.end()
+        while cut < len(text) and text[cut].isspace():
+            cut += 1
+        out.append(text[last:cut])
+        last = cut
+    if last < len(text):
+        out.append(text[last:])
+    return out
+
+
+def speak(shown):
+    """Показаният текст → текстът за гласа (без ударенията)."""
+    return expand_abbr(cs_translit.convert(shown))
+
+
 def book_blocks(epub):
-    """[(файл, [блок…])]; блок = {kind, speaker, text, cs}.
+    """[(файл, [блок…])]; блок = {kind, speaker, text, sents}.
 
     Репликата продължава до следващия етикет „К:"/„Ц:"/„И:"; в началото на
     беседата говори разказвачът. Етикетът НЕ се чете — сменя се гласът.
-    Църковнославянското (клас `cs`/`csq`) пази своите ударения и се бележи с
-    ⟦…⟧, за да не го пипа речникът."""
+
+    Абзацът се реже на изречения в ПОКАЗАНИЯ текст и всяко се обработва
+    поотделно (числа, съкращения, църковнославянско), така че за всяко се знае
+    къде е в текста за гласа: `sents` = [[начало, край, показано, [бележки]]].
+    По показаното приложението намира изречението, за да го освети; номерът
+    на бележката стои в показаното, защото и екранът го показва."""
     z = zipfile.ZipFile(epub)
     opf = next(n for n in z.namelist() if n.endswith('.opf'))
     o = z.read(opf).decode()
@@ -65,7 +104,9 @@ def book_blocks(epub):
     for idref in re.findall(r'<itemref idref="([^"]+)"', o):
         name = str(Path(opf).parent / man[idref])
         t = z.read(name).decode()
-        t = re.sub(r'<a [^>]*epub:type="noteref"[^>]*>.*?</a>', '', t, flags=re.S)
+        # Бележката става знак в текста — за да се знае след КОЕ изречение е.
+        t = re.sub(r'<a href="note(\d+)\.xhtml[^"]*">.*?</a>',
+                   lambda m: '\ue000' + m.group(1) + '\ue001', t, flags=re.S)
         t = re.sub(r'<sup[^>]*>.*?</sup>', '', t, flags=re.S)
         # Църковнославянското се разпознава ДУМА ПО ДУМА (cs_translit), не по
         # класа: span-ът „cs“ често обгражда само червената начална буква и
@@ -76,20 +117,62 @@ def book_blocks(epub):
             tag, cls, inner = m.group(1), m.group(2) or '', m.group(3)
             if any(c in cls for c in ('pagebreak', 'cover', 'titleorn', 'dedorn')):
                 continue
-            text = _plain(inner)
-            if not text or not WORD.search(text):
+            plain = _plain(inner)
+            if not plain or not WORD.search(NOTE.sub('', plain)):
                 continue
-            text = expand_abbr(cs_translit.convert(text))
-            lab = re.match(r'^([КЦИ]):\s*', text)
+            lab = re.match(r'^([КЦИ]):\s*', plain)
             if lab:
                 speaker = SPEAKERS[lab.group(1)]
-                text = text[lab.end():]
+                plain = plain[lab.end():]
+            parts, sents, pos = [], [], 0
+            for piece in split_sentences(plain):
+                shown = NOTE.sub(r'\1', piece).strip()
+                spoken = speak(NOTE.sub('', piece).strip())
+                if not spoken:
+                    continue
+                if parts:
+                    pos += 1
+                parts.append(spoken)
+                sents.append([pos, pos + len(spoken), shown, [int(n) for n in NOTE.findall(piece)]])
+                pos += len(spoken)
             kind = 'head' if tag.startswith('h') else (cls.split()[0] if cls else 'text')
             blocks.append({'kind': kind, 'speaker': 'narrator' if kind == 'head' else speaker,
-                           'text': text})
+                           'text': ' '.join(parts), 'sents': sents})
         if blocks:
             out.append((Path(name).stem, blocks))
+    out.append(('notes', note_blocks(z)))
     return out
+
+
+NOTES_SKIP = HERE / 'notes_skip.txt'
+NOTES_SPOKEN = HERE / 'notes_spoken.txt'
+
+
+def note_blocks(z):
+    """Бележките под линия — блокове за гласа на разказвача, всяка поотделно.
+    Пропускат се изброените в notes_skip.txt; адресите се махат, а бележка,
+    останала без думи, отпада. notes_spoken.txt дава текст за четене там,
+    където написаното не се чете (сметка с гръцки букви)."""
+    skip = {int(m) for m in re.findall(r'^razgovori note(\d+)', NOTES_SKIP.read_text(), re.M)}
+    spoken = {int(m.group(1)): m.group(2).strip() for m in
+              re.finditer(r'^razgovori note(\d+)\s*\|\s*(.+)$', NOTES_SPOKEN.read_text(), re.M)} \
+        if NOTES_SPOKEN.exists() else {}
+    out = []
+    for name in sorted(n for n in z.namelist() if re.search(r'/note\d+\.xhtml$', n)):
+        n = int(re.search(r'note(\d+)', name).group(1))
+        if n in skip:
+            continue
+        body = z.read(name).decode()
+        body = body[body.find('<body'):]
+        txt = spoken.get(n) or _plain(re.sub(r'<a [^>]*>\s*\d+\s*</a>|<sup[^>]*>.*?</sup>', '', body, flags=re.S))
+        txt = re.sub(r'^\d+\s*', '', txt)                     # номерът отпред
+        txt = re.sub(r'https?://\S+', '', txt).strip(' :')
+        if not WORD.search(txt):
+            continue
+        sp = speak(txt)
+        out.append({'kind': 'note', 'note': n, 'speaker': 'narrator', 'text': sp,
+                    'sents': [[0, len(sp), txt, []]]})
+    return sorted(out, key=lambda b: b['note'])
 
 
 # ── речниците ───────────────────────────────────────────────────────────
