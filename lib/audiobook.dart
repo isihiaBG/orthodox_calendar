@@ -22,12 +22,54 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data' show BytesBuilder;
+import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart';
+
+import 'audio_secret.dart';
+
+/// ⚠ „Куца" защита на звука в GitHub (решение на автора, 11.10.2026): файлът
+/// е XOR-нат с поток от xorshift32 със семе FNV-1a на „ключ:име на файла".
+/// Огледално на `keystream_xor` в tools/tts/publish_audio.py — двете ТРЯБВА
+/// да дават едно и също. Дешифрира се, докато се тегли; на устройството
+/// звукът стои дешифриран във вътрешната папка, недостъпна за файловия
+/// мениджър.
+class _XorStream {
+  int _x;
+  int _have = 0; // колко байта от текущата дума са изразходвани (0..4)
+  int _word = 0;
+  _XorStream(String name) : _x = _seed(name);
+
+  static int _seed(String name) {
+    var h = 0x811C9DC5;
+    for (final b in utf8.encode('$kAudioSecret:$name')) {
+      h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF;
+    }
+    return h == 0 ? 1 : h;
+  }
+
+  Uint8List apply(List<int> chunk) {
+    final out = Uint8List(chunk.length);
+    for (var i = 0; i < chunk.length; i++) {
+      if (_have == 0) {
+        var x = _x;
+        x ^= (x << 13) & 0xFFFFFFFF;
+        x ^= x >> 17;
+        x ^= (x << 5) & 0xFFFFFFFF;
+        _x = x;
+        _word = x;
+        _have = 4;
+      }
+      final k = (_word >> (8 * (4 - _have))) & 0xFF;
+      _have--;
+      out[i] = chunk[i] ^ k;
+    }
+    return out;
+  }
+}
 
 /// Една част в изданието: беседа (`c02`) или бележка (`note3`).
 class AudioPart {
@@ -333,13 +375,16 @@ class AudioBook {
     final tmp = File('${target.path}.part');
     final client = HttpClient();
     try {
-      final req = await client.getUrl(Uri.parse('$_baseUrl/$part.$ext'));
+      // Файлът в GitHub е шифрован (`.mp3x`) — дешифрира се, докато се тегли.
+      final name = '$part.${ext}x';
+      final xs = _XorStream(name);
+      final req = await client.getUrl(Uri.parse('$_baseUrl/$name'));
       final resp = await req.close();
       if (resp.statusCode != 200) return 'Сървърът отговори с ${resp.statusCode}.';
       final out = tmp.openWrite();
       var n = 0;
       await for (final chunk in resp) {
-        out.add(chunk);
+        out.add(xs.apply(chunk));
         n += chunk.length;
         onBytes?.call(n);
       }
@@ -522,3 +567,7 @@ class AudioPlayback {
     position.dispose();
   }
 }
+
+/// Само за проверката, че приложението и скриптът шифроват еднакво.
+@visibleForTesting
+Uint8List audioXorForTest(String name, List<int> data) => _XorStream(name).apply(data);

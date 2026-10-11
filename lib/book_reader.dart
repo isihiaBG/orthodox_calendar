@@ -123,6 +123,7 @@ class BookReader extends StatefulWidget {
 /// звук) или посивено „Звук: още няма". ⚠ Една точка, не три — за да не се
 /// пръсне интерфейсът (решено с автора, 11.10.2026).
 const String _kListenValue = 'listen';
+const String _kDeleteAudioValue = 'delete_audio';
 
 /// Избор в съдържанието: „отвори главата и пусни звука ѝ".
 class _ListenAt {
@@ -1991,12 +1992,25 @@ class _BookReaderState extends State<BookReader>
               icon: const Icon(Icons.headphones, size: 24, color: AppColors.textSecondary),
               label: label,
               value: _kListenValue));
+      if (_hasAudio && _audio.isDownloaded(_audioPart)) {
+        items.insert(
+            1,
+            ReaderMenuItem(
+                icon: const Icon(Icons.delete_outline, size: 24, color: AppColors.textSecondary),
+                label: 'Изтрий звука (${audioSizeLabel(_audio.sizeOf(_audioPart!))})',
+                value: _kDeleteAudioValue));
+      }
     }
     if (widget.book.bookPdf != null) {
       items.insert(items.indexOf(kSharePdfMenuItem) + 1, kShareBookPdfMenuItem);
     }
     final choice = await showReaderMoreMenu(context, items: items, disabled: disabled);
     if (!mounted || choice == null) return;
+    if (choice == _kDeleteAudioValue) {
+      if (_playback?.chapter.part == _audioPart) await _stopAudio();
+      if (mounted) await askAudioDelete(context, _audio!, _audioPart!, title: _current.title);
+      return;
+    }
     if (choice == _kListenValue) {
       if (!AudioRegistry.known) {
         final err = await AudioRegistry.check();
@@ -3813,6 +3827,7 @@ class _TocSheetState extends State<_TocSheet> {
               await downloadAudioWithPrompt(context, a, part, title: entry.title);
             }
           },
+          onLongPress: () => askAudioDelete(context, a, part, title: entry.title),
         ),
       ),
     );

@@ -418,3 +418,4 @@ tools/chitalnya/images_edit/
 # Четене на глас — изходът (MP3) не е в git
 tools/tts/out/
 tools/tts/work/
+lib/audio_secret.dart

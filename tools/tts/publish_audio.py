@@ -22,6 +22,7 @@
 Приложението чете САМО него; манифестът на книгата е за този скрипт.
 """
 import argparse
+import re
 import hashlib
 import json
 import sys
@@ -38,6 +39,34 @@ INDEX_TAG = 'audio-index'
 ASSETS = {'razgovori': 'assets/chitalnya/razgovori.epub'}
 
 
+def secret():
+    """Ключът за шифроване — от lib/audio_secret.dart (не е в git)."""
+    t = (HERE.parent.parent / 'lib' / 'audio_secret.dart').read_text()
+    return re.search(r"kAudioSecret = '([^']+)'", t).group(1)
+
+
+def keystream_xor(data, name):
+    """⚠ „Куца" защита (решение на автора, 11.10.2026): XOR с поток от
+    xorshift32, чието семе е FNV-1a на „ключ:име на файла". Огледално на
+    `_xorStream` в lib/audiobook.dart — двете ТРЯБВА да дават едно и също."""
+    h = 0x811C9DC5
+    for b in (secret() + ':' + name).encode():
+        h = ((h ^ b) * 0x01000193) & 0xFFFFFFFF
+    st = h or 1
+    out = bytearray(len(data))
+    import numpy as np
+    n = (len(data) + 3) // 4
+    ks = np.empty(n, dtype=np.uint32)
+    x = st
+    for i in range(n):
+        x ^= (x << 13) & 0xFFFFFFFF
+        x ^= x >> 17
+        x ^= (x << 5) & 0xFFFFFFFF
+        ks[i] = x
+    kb = ks.view(np.uint8)[:len(data)]
+    return (np.frombuffer(data, dtype=np.uint8) ^ kb).tobytes()
+
+
 def token():
     for line in (Path.home() / '.git-credentials').read_text().splitlines():
         if 'github.com' in line and '@' in line:
@@ -49,6 +78,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('book')
     ap.add_argument('--dry-run', action='store_true')
+    ap.add_argument('--force', action='store_true', help='качва всичко наново')
     a = ap.parse_args()
     out = HERE / 'out' / a.book
     tag = f'{a.book}-audio-v1'
@@ -86,7 +116,7 @@ def main():
             if m.ok:
                 old = m.json().get('parts', {})
 
-    todo = [p for p, x in parts.items() if old.get(p, {}).get('v') != x['v']]
+    todo = [p for p, x in parts.items() if a.force or old.get(p, {}).get('v') != x['v']]
     print(f'за качване: {len(todo)} — {", ".join(todo) or "нищо"}')
     if a.dry_run:
         return
@@ -101,9 +131,13 @@ def main():
         r.raise_for_status()
         print(f'  ↑ {name} ({len(data) // 1024} KB)')
 
+    # ⚠ Качват се ШИФРОВАНИ (`.mp3x`, `.jsonx`) — свален с браузъра, файлът
+    # е безсмислен; приложението го дешифрира при сваляне.
     for p in todo:
-        upload(f'{p}.mp3', (out / f'{p}.mp3').read_bytes(), 'audio/mpeg')
-        upload(f'{p}.json', (out / f'{p}.json').read_bytes(), 'application/json')
+        for ext in ('mp3', 'json'):
+            name = f'{p}.{ext}x'
+            upload(name, keystream_xor((out / f'{p}.{ext}').read_bytes(), name),
+                   'application/octet-stream')
     # Манифестът — ПОСЛЕДЕН: докато частите се качват, старият още сочи старото.
     upload(f'{a.book}.json', json.dumps({'parts': parts}, ensure_ascii=False).encode(),
            'application/json')

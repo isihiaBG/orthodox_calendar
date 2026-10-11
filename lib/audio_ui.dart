@@ -51,12 +51,42 @@ Future<bool> downloadAudioWithPrompt(BuildContext context, AudioBook book, Strin
   return err == null;
 }
 
+/// Пита и изтрива сваления звук — за освобождаване на място (искане на
+/// автора, 11.10.2026: изслушана беседа човек може да не иска да пази).
+Future<bool> askAudioDelete(BuildContext context, AudioBook book, String part,
+    {required String title}) async {
+  final palette = ReaderTheme.palette;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Изтриване на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        '„$title“\n\n'
+        'Да изтрия ли звука от телефона? Освобождава ${audioSizeLabel(book.sizeOf(part))}. '
+        'Може да се свали пак по всяко време.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Изтрий')),
+      ],
+    ),
+  );
+  if (ok == true) await book.remove(part);
+  return ok == true;
+}
+
 /// Етикетът в съдържанието.
 class AudioChip extends StatelessWidget {
   final AudioBook book;
   final String part;
   final VoidCallback onTap;
-  const AudioChip({super.key, required this.book, required this.part, required this.onTap});
+
+  /// Задържане върху свален етикет — изтриване (с питане).
+  final VoidCallback? onLongPress;
+  const AudioChip(
+      {super.key, required this.book, required this.part, required this.onTap, this.onLongPress});
 
   @override
   Widget build(BuildContext context) {
@@ -84,6 +114,7 @@ class AudioChip extends StatelessWidget {
         }
         return InkWell(
           onTap: busy ? null : onTap,
+          onLongPress: done ? onLongPress : null,
           borderRadius: BorderRadius.circular(6),
           child: Padding(
             padding: const EdgeInsets.symmetric(vertical: 4),
