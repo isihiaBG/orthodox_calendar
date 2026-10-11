@@ -293,24 +293,27 @@ class AudioMiniPlayer extends StatelessWidget {
             valueListenable: playback.position,
             builder: (_, t, _) => LinearProgressIndicator(
               value: total > 0 ? (t / total).clamp(0.0, 1.0) : 0,
-              minHeight: 2,
+              minHeight: 4,
               backgroundColor: AppColors.sectionDivider,
               color: AppColors.sectionTitle,
             ),
           ),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            // ⚠ По-едро (бележка на автора, 11.10.2026: „доста дребнички") —
+            // копчетата се натискат с палец, докато човек слуша, без да гледа.
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(children: [
               IconButton(
                 tooltip: 'Назад 5 секунди',
                 onPressed: () => playback.skip(-5),
+                iconSize: 30,
                 icon: const Icon(Icons.replay_5, color: fg),
               ),
               ValueListenableBuilder<bool>(
                 valueListenable: playback.playing,
                 builder: (_, on, _) => IconButton(
                   tooltip: on ? 'Пауза' : 'Пусни',
-                  iconSize: 34,
+                  iconSize: 48,
                   onPressed: playback.toggle,
                   icon: Icon(on ? Icons.pause_circle_filled : Icons.play_circle_filled, color: fg),
                 ),
@@ -318,6 +321,7 @@ class AudioMiniPlayer extends StatelessWidget {
               IconButton(
                 tooltip: 'Напред 5 секунди',
                 onPressed: () => playback.skip(5),
+                iconSize: 30,
                 icon: const Icon(Icons.forward_5, color: fg),
               ),
               const SizedBox(width: 8),
@@ -326,12 +330,15 @@ class AudioMiniPlayer extends StatelessWidget {
                   valueListenable: playback.position,
                   builder: (_, t, _) => Text('${_clock(t)} / ${_clock(total)}',
                       style: const TextStyle(
-                          color: Colors.white70, fontFeatures: [FontFeature.tabularFigures()])),
+                          color: Colors.white70,
+                          fontSize: 16,
+                          fontFeatures: [FontFeature.tabularFigures()])),
                 ),
               ),
               IconButton(
                 tooltip: 'Затвори плейъра',
                 onPressed: onClose,
+                iconSize: 28,
                 icon: const Icon(Icons.close, color: Colors.white70),
               ),
             ]),
