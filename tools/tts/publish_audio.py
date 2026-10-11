@@ -126,9 +126,25 @@ def main():
             requests.delete(f'{API}/releases/assets/{assets[name]["id"]}', headers=hd,
                             timeout=60).raise_for_status()
         up = rel['upload_url'].split('{')[0]
-        r = requests.post(up, params={'name': name}, data=data, timeout=600,
-                          headers={**hd, 'Content-Type': ctype})
-        r.raise_for_status()
+        # ⚠ Големият файл (беседа 1, 22 MB) понякога прекъсва по средата —
+        # опитва се пак, преди да се откаже.
+        for attempt in range(4):
+            try:
+                r = requests.post(up, params={'name': name}, data=data, timeout=1800,
+                                  headers={**hd, 'Content-Type': ctype})
+                if r.status_code == 422:      # остатък от прекъснат опит
+                    for x in requests.get(f'{API}/releases/{rel["id"]}/assets?per_page=100',
+                                          headers=hd, timeout=60).json():
+                        if x['name'] == name:
+                            requests.delete(f'{API}/releases/assets/{x["id"]}', headers=hd,
+                                            timeout=60)
+                    continue
+                r.raise_for_status()
+                break
+            except requests.exceptions.ConnectionError:
+                if attempt == 3:
+                    raise
+                time.sleep(10)
         print(f'  ↑ {name} ({len(data) // 1024} KB)')
 
     # ⚠ Качват се ШИФРОВАНИ (`.mp3x`, `.jsonx`) — свален с браузъра, файлът
