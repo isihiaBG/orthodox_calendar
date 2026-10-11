@@ -86,7 +86,63 @@ def spoken(block):
         j += 1
     out.extend(marked[j:])
     pos.append(len(out))
-    return voice_fix(''.join(out)), pos
+    sp, remap = yat(voice_fix(''.join(out)))
+    return sp, [remap[p] for p in pos]
+
+
+def _load_yat():
+    words, phrases = set(), []
+    for line in (HERE / 'yat_words.txt').read_text().splitlines():
+        line = line.split('#')[0].strip()
+        if not line:
+            continue
+        (phrases.append(line) if ' ' in line else words.add(line))
+    return words, phrases
+
+
+YAT_WORDS, YAT_PHRASES = _load_yat()
+_TOKEN = re.compile('[А-Яа-яЍѝ\u0301\u0300]+')
+
+
+def _yat_word(w):
+    """„благодаря́“ → „благодарйъ́“, „чета́т“ → „четъ́т“."""
+    m = re.search('([ая])(\u0301т?)$', w) or re.search('([АЯ])(\u0301Т?)$', w)
+    up = m.group(1).isupper()
+    rep = ('Ъ' if up else 'ъ') if m.group(1) in 'аА' else ('ЙЪ' if up else 'йъ')
+    return w[:m.start()] + rep + m.group(2)
+
+
+def yat(text):
+    """Ударено -а/-я на глагола (1 л. ед. ч.) и на краткия член → -ъ/-йъ, за
+    гласа (yat_words.txt). Връща новия низ и карта: стара позиция → нова
+    (с един знак повече за всяко „йъ“)."""
+    spans = []                                    # (начало, край) на думата за смяна
+    for m in _TOKEN.finditer(text):
+        low = m.group(0).lower()
+        if low not in YAT_WORDS:
+            continue
+        if low == 'света\u0301':
+            nxt = re.match(r'\s+(\w)', text[m.end():])
+            if nxt and nxt.group(1).isupper():
+                continue                          # „Света́ Гора́“, „света́ Троица“
+        spans.append((m.start(), m.end()))
+    for ph in YAT_PHRASES:
+        for m in re.finditer(r'(?<!\w)' + re.escape(ph) + r'(?![\w\u0301])', text, re.I):
+            spans.append((m.end() - len(ph.split()[-1]), m.end()))
+    out, remap, last = [], [], 0
+    for a, b in sorted(set(spans)):
+        out.append(text[last:a])
+        remap.extend(range(len(''.join(out)) - (a - last), len(''.join(out))))
+        rep = _yat_word(text[a:b])
+        base = len(''.join(out))
+        # Знаците на думата сочат същите места; след нея всичко се измества.
+        remap.extend(base + min(k, len(rep) - 1) for k in range(b - a))
+        out.append(rep)
+        last = b
+    base = len(''.join(out))
+    out.append(text[last:])
+    remap.extend(range(base, base + len(text) - last + 1))
+    return ''.join(out), remap
 
 
 # Думи, при които гласът НЕ спазва острото ударение, а спазва тежкото —
