@@ -86,7 +86,21 @@ def spoken(block):
         j += 1
     out.extend(marked[j:])
     pos.append(len(out))
-    return ''.join(out), pos
+    return voice_fix(''.join(out)), pos
+
+
+# Думи, при които гласът НЕ спазва острото ударение, а спазва тежкото —
+# избрано на слух от потребителя (11.10.2026). Смяната е знак срещу знак,
+# тъй че позициите на изреченията не се местят.
+VOICE_FIX = {'Христо\u0301с': 'Христо\u0300с', 'христо\u0301с': 'христо\u0300с',
+             'по\u0301вече': 'по\u0300вече', 'По\u0301вече': 'По\u0300вече'}
+
+
+def voice_fix(text):
+    for a, b in VOICE_FIX.items():
+        assert len(a) == len(b)
+        text = text.replace(a, b)
+    return text
 
 
 def synth(k, speaker, text, budget, prev='', nxt=''):
