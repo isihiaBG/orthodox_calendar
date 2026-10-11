@@ -192,9 +192,9 @@ def yat(text):
         if low not in YAT_WORDS:
             continue
         if low == 'света\u0301':
-            nxt = re.match(r'\s+(\w)', text[m.end():])
-            if nxt and nxt.group(1).isupper():
-                continue                          # „Света́ Гора́“, „света́ Троица“
+            nxt = re.match(r'\s+(\w+)', text[m.end():])
+            if nxt and (nxt.group(1)[0].isupper() or nxt.group(1).lower().startswith('гор')):
+                continue                          # „Света́ Гора́“, „Света́ гора́“, „света́ Троица“
         spans.append((m.start(), m.end()))
     for ph in YAT_PHRASES:
         for m in re.finditer(r'(?<!\w)' + re.escape(ph) + r'(?![\w\u0301])', text, re.I):
@@ -246,7 +246,8 @@ VOICE_FIX = {'Христо\u0301с': 'Христо\u0300с', 'христо\u0301
              'погу\u0301би': 'погу\u0300би',
              'го\u0301рдост': 'го\u0300рдост', 'Го\u0301рдост': 'Го\u0300рдост',
              'Денни\u0301ц': 'Денни\u0300ц',
-             'о\u0301браз': 'о\u0300браз', 'О\u0301браз': 'О\u0300браз'}
+             'о\u0301браз': 'о\u0300браз', 'О\u0301браз': 'О\u0300браз',
+             'недо\u0301стиг': 'недо\u0300стиг'}
 
 
 # Думи, написани с ГЛАВНИ за натъртване („ДАР БО́ЖИЙ“, „НЕ“): гласът ги чете
