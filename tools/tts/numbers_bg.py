@@ -183,6 +183,9 @@ def years_text(txt):
                            f'{ordinal(roman(m.group(2)), "m")} век', txt)
     txt = re.sub(r'\b([IVXLC]+)\s*в(?:в)?\.',
                  lambda m: ordinal(roman(m.group(1)), 'm') + ' век', txt)
+    # И изписаното с думата: „в VI век" (беседа 7, 11.10.2026).
+    txt = re.sub(r'\b([IVXLC]+)\s+(век|века|векове)\b',
+                 lambda m: ordinal(roman(m.group(1)), 'm') + ' ' + m.group(2), txt)
     for pat, rep in _ERA:
         txt = re.sub(pat, rep, txt)
     return misc_text(suffixed_text(txt))

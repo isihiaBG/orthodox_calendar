@@ -129,6 +129,7 @@ def expand_abbr(txt):
         return w + (m.group(2) or ' ') + m.group(3)
     txt = re.sub(r'(?<![А-Яа-я])([Сс]в)\.(\s+)?([А-Яа-я]+)', sv, txt)
     # Годините и вековете — с думи, ПРЕДИ „г." да стане „година" (numbers_bg).
+    txt = re.sub(r'(\d)\s*год\.', r'\1 г.', txt)     # „2025 год.“ (заглавната страница)
     txt = years_text(txt)
     txt = re.sub(r'(\d)\s*гг\.', r'\1 години', txt)
     txt = re.sub(r'(\d)\s*г\.', r'\1 година', txt)
