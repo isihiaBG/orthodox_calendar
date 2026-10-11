@@ -88,8 +88,21 @@ class AudioRegistry {
 
   /// Път до тома → (издание, глави).
   static Map<String, (String, Map<String, AudioPart>)> _books = {};
-  static bool _fetched = false;
   static Future<void>? _loading;
+
+  /// Свален ли е регистърът поне веднъж (тоест човекът е поискал звук).
+  ///
+  /// ⚠⚠ МРЕЖА САМО ПО ВОЛЯ НА ЧОВЕКА (решение на автора, 11.10.2026) —
+  /// приложението не дърпа трафик без негово знание. Регистърът се тегли
+  /// в два случая: „Провери за звук" и при всяко СВАЛЯНЕ на звук (тогава се
+  /// сверява версията и, ако тукашният е по-стар, се подменя). Никога сам.
+  static bool known = false;
+
+  /// Версията на прочетения регистър (секунди от епохата при качването).
+  static int version = 0;
+
+  static Future<File> _localFile() async =>
+      File(join((await getApplicationSupportDirectory()).path, 'audio', 'audio.json'));
 
   static (String, Map<String, AudioPart>)? entry(String assetPath) => _books[assetPath];
 
@@ -99,31 +112,43 @@ class AudioRegistry {
 
   static Future<void> _load() async {
     if (kIsWeb) return; // сваляне в браузъра няма (dart:io, CORS)
-    final base = await getApplicationSupportDirectory();
-    final local = File(join(base.path, 'audio', 'audio.json'));
+    final local = await _localFile();
     if (await local.exists()) {
       try {
         _parse(await local.readAsString());
+        known = true;
         revision.value++;
       } catch (_) {}
     }
-    if (_fetched) return;
-    _fetched = true;
+  }
+
+  /// Тегли регистъра — САМО по действие на човека („Провери за звук" или
+  /// сваляне на звук). Подменя тукашния, само ако онзи в GitHub е по-нов.
+  /// Връща грешка или `null`.
+  static Future<String?> check() async {
+    await load();
     try {
       final body = await _download(_url);
-      if (body != null) {
-        _parse(utf8.decode(body));
-        await local.parent.create(recursive: true);
-        await local.writeAsBytes(body);
-        revision.value++;
-      }
-    } catch (_) {
-      // офлайн — остава запазеното
+      if (body == null) return 'Регистърът не можа да се прочете.';
+      final text = utf8.decode(body);
+      final v = ((jsonDecode(text) as Map)['version'] as num?)?.toInt() ?? 0;
+      if (known && v <= version) return null; // тукашният е актуален
+      _parse(text);
+      final local = await _localFile();
+      await local.parent.create(recursive: true);
+      await local.writeAsBytes(body);
+      known = true;
+      revision.value++;
+      return null;
+    } catch (e) {
+      return e is SocketException ? 'Няма връзка с интернет.' : 'Проверката не успя.';
     }
   }
 
   static void _parse(String s) {
-    final books = (jsonDecode(s) as Map)['books'] as Map;
+    final j = jsonDecode(s) as Map;
+    version = (j['version'] as num?)?.toInt() ?? 0;
+    final books = j['books'] as Map;
     _books = {
       for (final b in books.entries)
         b.key as String: (
@@ -246,6 +271,10 @@ class AudioBook {
   /// ⚠ Пише в `.part` и преименува накрая — същото правило като при
   /// езиковите пакети: прекъснато тегление не бива да изглежда като свалено.
   Future<String?> download(String part) async {
+    // Свалянето и без това иска мрежа — сверява се и регистърът, за да се
+    // вземе текущата версия на беседата (и да се видят новите).
+    await AudioRegistry.check();
+    await _scanDownloaded();
     if (!_parts.containsKey(part)) return 'Тази беседа още няма звук.';
     progress[part] = 0;
     revision.value++;

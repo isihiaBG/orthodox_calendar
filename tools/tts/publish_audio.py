@@ -25,6 +25,7 @@ import argparse
 import hashlib
 import json
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -128,6 +129,8 @@ def update_index(hd, book, tag, parts):
         requests.delete(f'{API}/releases/assets/{assets["audio.json"]["id"]}', headers=hd,
                         timeout=60).raise_for_status()
     idx['books'][ASSETS[book]] = {'release': tag, 'parts': parts}
+    # Версията — по нея приложението разбира, че неговият регистър е стар.
+    idx['version'] = int(time.time())
     up = rel['upload_url'].split('{')[0]
     requests.post(up, params={'name': 'audio.json'}, timeout=120,
                   data=json.dumps(idx, ensure_ascii=False).encode(),

@@ -118,12 +118,11 @@ class BookReader extends StatefulWidget {
   State<BookReader> createState() => _BookReaderState();
 }
 
-/// „Слушай беседата" — първа точка в менюто, само при глава със звук.
-const ReaderMenuItem _kListenMenuItem = ReaderMenuItem(
-  icon: Icon(Icons.headphones, size: 24, color: AppColors.textSecondary),
-  label: 'Слушай беседата',
-  value: 'listen',
-);
+/// Точката за звука — ПЪРВА в менюто, с надпис според състоянието:
+/// „Провери за звук" (регистърът още не е свален), „Слушай беседата" (има
+/// звук) или посивено „Звук: още няма". ⚠ Една точка, не три — за да не се
+/// пръсне интерфейсът (решено с автора, 11.10.2026).
+const String _kListenValue = 'listen';
 
 /// Избор в съдържанието: „отвори главата и пусни звука ѝ".
 class _ListenAt {
@@ -1972,13 +1971,43 @@ class _BookReaderState extends State<BookReader>
     // reader_more_menu.dart (kReaderMenuItems), за да не се разминат.
     // Книга с оригинален PDF получава и точка за цялата книга.
     final items = [...kReaderMenuItems];
-    if (_hasAudio) items.insert(0, _kListenMenuItem);
+    final disabled = <String>{};
+    if (_audio != null && _index > 0) {
+      final String label;
+      if (!AudioRegistry.known) {
+        label = 'Провери за звук';
+      } else if (_hasAudio) {
+        final a = _audio, part = _audioPart!;
+        label = a.isDownloaded(part)
+            ? 'Слушай беседата'
+            : 'Слушай беседата (${audioSizeLabel(a.sizeOf(part))})';
+      } else {
+        label = 'Звук: още няма';
+        disabled.add(_kListenValue);
+      }
+      items.insert(
+          0,
+          ReaderMenuItem(
+              icon: const Icon(Icons.headphones, size: 24, color: AppColors.textSecondary),
+              label: label,
+              value: _kListenValue));
+    }
     if (widget.book.bookPdf != null) {
       items.insert(items.indexOf(kSharePdfMenuItem) + 1, kShareBookPdfMenuItem);
     }
-    final choice = await showReaderMoreMenu(context, items: items);
+    final choice = await showReaderMoreMenu(context, items: items, disabled: disabled);
     if (!mounted || choice == null) return;
-    if (choice == _kListenMenuItem.value) {
+    if (choice == _kListenValue) {
+      if (!AudioRegistry.known) {
+        final err = await AudioRegistry.check();
+        if (!mounted) return;
+        final msg = err ??
+            (_hasAudio
+                ? 'Тази беседа има звук — слушалките са горе в лентата.'
+                : 'За тази беседа още няма звук.');
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+        return;
+      }
       await _onAudioTap();
     } else if (choice == kReaderSettingsMenuItem.value) {
       // Локална настройка — drawer, СЪЩИЯТ принцип като в календара; цял
