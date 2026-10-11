@@ -204,6 +204,71 @@ class AudioFab extends StatelessWidget {
   }
 }
 
+/// Редът под кориците (Читалня, Месецослов): дали книгата има звук.
+///
+///   регистърът още не е свален  „🎧 Провери за звук" — копче, тегли го
+///   книгата има звук            „🎧 Със звук: 3 глави · 1 свалена"
+///   няма                        нищо (без излишни знаци — бележка на автора)
+class CoverAudioLine extends StatefulWidget {
+  final String assetPath;
+  const CoverAudioLine(this.assetPath, {super.key});
+
+  @override
+  State<CoverAudioLine> createState() => _CoverAudioLineState();
+}
+
+class _CoverAudioLineState extends State<CoverAudioLine> {
+  bool _checking = false;
+
+  Future<void> _check() async {
+    setState(() => _checking = true);
+    final err = await AudioRegistry.check();
+    if (!mounted) return;
+    setState(() => _checking = false);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final book = AudioBook.forAsset(widget.assetPath);
+    if (book == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<int>(
+      valueListenable: book.revision,
+      builder: (context, _, _) {
+        const style = TextStyle(color: AppColors.textSecondary, fontSize: 13.5);
+        if (!AudioRegistry.known) {
+          return TextButton.icon(
+            onPressed: _checking ? null : _check,
+            style: TextButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                visualDensity: VisualDensity.compact),
+            icon: _checking
+                ? const SizedBox(
+                    width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.headphones_outlined, size: 17),
+            label: const Text('Провери за звук', style: style),
+          );
+        }
+        final (n, got) = book.counts();
+        if (n == 0) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.headphones, size: 16, color: AppColors.sectionTitle),
+            const SizedBox(width: 6),
+            Text(
+                'Със звук: $n ${n == 1 ? 'глава' : 'глави'}'
+                '${got > 0 ? ' · $got ${got == 1 ? 'свалена' : 'свалени'}' : ''}',
+                style: style),
+          ]),
+        );
+      },
+    );
+  }
+}
+
 String _clock(double s) {
   final t = s.isFinite ? s.round() : 0;
   return '${t ~/ 60}:${(t % 60).toString().padLeft(2, '0')}';

@@ -296,6 +296,13 @@ class AudioBook {
     }
   }
 
+  /// Колко глави със звук има книгата (бележките не се броят) и колко от
+  /// тях са свалени — за реда под кориците.
+  (int, int) counts() {
+    final chapters = _parts.keys.where((k) => !k.startsWith('note')).toList();
+    return (chapters.length, chapters.where(_downloaded.contains).length);
+  }
+
   /// Има ли беседата звук (в изданието).
   bool has(String? part) => part != null && _parts.containsKey(part);
 

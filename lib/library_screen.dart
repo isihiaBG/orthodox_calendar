@@ -21,6 +21,7 @@ import 'package:flutter/services.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'audio_ui.dart';
 import 'book_open_transition.dart';
 import 'book_reader.dart';
 import 'cover_flow.dart';
@@ -246,6 +247,8 @@ class _LibraryScreenState extends State<LibraryScreen>
             style: const TextStyle(
                 color: AppColors.textSecondary, fontSize: 14),
           ),
+          // Звукът — „Провери за звук" или колко глави имат звук.
+          CoverAudioLine(kEpubOf[v.file]!),
           const SizedBox(height: 18),
           FilledButton.icon(
             onPressed: _opening ? null : () => _open(_index),

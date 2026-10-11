@@ -18,6 +18,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'audio_ui.dart';
 import 'book_open_transition.dart';
 import 'book_reader.dart';
 import 'chitalnya_books.dart';
@@ -208,6 +209,8 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppColors.textSecondary, fontSize: 14),
           ),
+          // Звукът — „Провери за звук" или колко глави имат звук.
+          CoverAudioLine(b.epub),
           const SizedBox(height: 16),
           FilledButton.icon(
             onPressed: _opening ? null : () => _open(_index),
