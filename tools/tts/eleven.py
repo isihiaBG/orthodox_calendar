@@ -65,19 +65,25 @@ def remaining(k):
     return d['character_limit'] - d['character_count']
 
 
-def settings(speaker, kind=None):
+def settings(speaker, kind=None, text=''):
     v = VOICES[speaker]
     # 0.5 → 0.7 (11.10.2026): при всяко генериране гласът сбъркваше друга дума
     # („насами́“, „наса́ме“) — по-висока стабилност значи по-малко вариране.
     # 0.7 → 0.85 същия ден, по молба на потребителя: още по-малко вариране.
     # Заглавията — осезателно по-бавно: „изтраква ги като картечница"
     # (автора, 11.10.2026). ⚠ ElevenLabs не приема под 0.7.
-    speed = HEAD_SPEED if kind == 'head' else v.get('speed', 1.0)
+    # Подзаглавието („(разговор с Цецо)") — СЪЩОТО темпо като заглавието:
+    # отделно звучеше като скоропоговорка до него (автора).
+    titled = kind in ('head', 'centernote')
+    speed = HEAD_SPEED.get(text, HEAD_SPEED['']) if titled else v.get('speed', 1.0)
     return {'stability': v.get('stability', 0.85), 'similarity_boost': 0.75,
             'style': 0.0, 'use_speaker_boost': True, 'speed': speed}
 
 
-HEAD_SPEED = 0.78
+# 0.78 се оказа „инфантилно флегматично" за беседа 1 (автора) — общото е
+# 0.9, малко по-бавно от обичайното. „Вместо предисловие" остава на 0.78:
+# там е одобрено. Ключът е текстът, както отива при гласа.
+HEAD_SPEED = {'': 0.9, 'Вме\u0301сто, предисло\u0301вие.': 0.78}
 
 
 def spoken(block):
@@ -99,7 +105,13 @@ def spoken(block):
     pos.append(len(out))
     sp, remap = yat(voice_fix(''.join(out)))
     sp, remap2 = insert_fix(sp)
-    return sp, [remap2[remap[p]] for p in pos]
+    res = [remap2[remap[p]] for p in pos]
+    # Заглавие и подзаглавие — с точка накрая, за спокойно окончание
+    # (автора, 11.10.2026). Краят сочи след нея.
+    if block.get('kind') in ('head', 'centernote') and sp.rstrip()[-1:] not in '.!?…':
+        sp = sp.rstrip() + '.'
+        res[-1] = len(sp)
+    return sp, res
 
 
 # Поправки, които МЕНЯТ дължината — само в текста за гласа: вмъкната запетая,
@@ -300,7 +312,7 @@ def voice_fix(text):
 def synth(k, speaker, text, budget, prev='', nxt='', kind=None):
     """Един абзац → (pcm байтове, начала и краища на знаците в секунди).
     Пази се на диска; от кеша не се плаща."""
-    s = settings(speaker, kind)
+    s = settings(speaker, kind, text)
     # Ключът е САМО абзацът, без съседите (11.10.2026). Със съседите в ключа
     # поправка в един абзац генерираше наново и двата му съседа, а гласът
     # всеки път чете малко различно — оправиш една дума, развали се друга.
