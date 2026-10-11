@@ -483,6 +483,9 @@ def main():
         if 'Исихастирио' in tp[k] and 'Якимово' in tp[k + 2]:
             lines = [re.sub(r'^<p class="centernote">|</p>$', '', x)
                      for x in tp[k:k + 3]]
+            # Годината на издаване — на нов ред под адреса (указание на
+            # автора, 11.10.2026: книгата иначе няма година никъде).
+            lines.append('2025 год.')
             tp[k:k + 3] = ['<p class="centernote centerblock addrblock">'
                            + '<br/>'.join(lines) + '</p>']
             break
