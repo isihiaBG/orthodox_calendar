@@ -41,7 +41,10 @@ API = 'https://api.elevenlabs.io/v1'
 MODEL = 'eleven_multilingual_v2'
 RATE = 24000                       # pcm_24000: 16 бита, моно
 CREDITS_PER_CHAR = 0.5             # измерено 0,44 (11.10.2026) — с резерв
-MAX_CHARS = 9000                   # моделът приема до 10 000 знака на заявка
+# Абзацът се праща на части от по няколко изречения: в дълъг откъс гласът
+# понякога забързва към края (чуто от потребителя, 11.10.2026). Текстът преди
+# и след частта се подава за интонацията и НЕ се таксува (измерено).
+MAX_CHARS = 500
 ACUTE = '́'
 
 # Паузите между абзаците, в секунди.
@@ -86,11 +89,11 @@ def spoken(block):
     return ''.join(out), pos
 
 
-def synth(k, speaker, text, budget):
+def synth(k, speaker, text, budget, prev='', nxt=''):
     """Един абзац → (pcm байтове, начала и краища на знаците в секунди).
     Пази се на диска; от кеша не се плаща."""
     s = settings(speaker)
-    h = hashlib.sha1(json.dumps([VOICES[speaker]['voice_id'], MODEL, s, text],
+    h = hashlib.sha1(json.dumps([VOICES[speaker]['voice_id'], MODEL, s, text, prev, nxt],
                                 ensure_ascii=False).encode()).hexdigest()[:20]
     pcm_p, al_p = CACHE / f'{h}.pcm', CACHE / f'{h}.json'
     if pcm_p.exists() and al_p.exists():
@@ -105,7 +108,8 @@ def synth(k, speaker, text, budget):
         r = requests.post(f'{API}/text-to-speech/{VOICES[speaker]["voice_id"]}/with-timestamps',
                           params={'output_format': f'pcm_{RATE}'},
                           headers={'xi-api-key': k},
-                          json={'text': text, 'model_id': MODEL, 'voice_settings': s},
+                          json={'text': text, 'model_id': MODEL, 'voice_settings': s,
+                                'previous_text': prev[-1000:], 'next_text': nxt[:1000]},
                           timeout=600)
         if r.status_code == 200:
             break
@@ -168,8 +172,11 @@ def render(k, book, name, blocks, budget):
                 PAUSE['speaker'] if prev['speaker'] != bl['speaker'] else PAUSE['para']
             pcm += silence(gap)
             t += gap
-        for text, base, items in chunks_of(bl):
-            audio, al = synth(k, bl['speaker'], text, budget)
+        parts = chunks_of(bl)
+        for ci, (text, base, items) in enumerate(parts):
+            prev_t = ' '.join(p[0] for p in parts[:ci])
+            next_t = ' '.join(p[0] for p in parts[ci + 1:])
+            audio, al = synth(k, bl['speaker'], text, budget, prev_t, next_t)
             if len(al['chars']) != len(text):
                 print(f'  ⚠ подравняването е {len(al["chars"])} знака, текстът {len(text)}')
             for a, b, shown, notes in items:
