@@ -106,9 +106,9 @@ class AudioChip extends StatelessWidget {
         } else {
           inner = Row(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.headphones_outlined, size: 14, color: AppColors.textSecondary),
-            const SizedBox(width: 3),
-            const Icon(Icons.arrow_downward, size: 12, color: AppColors.textSecondary),
-            const SizedBox(width: 2),
+            const SizedBox(width: 4),
+            const Icon(Icons.file_download_outlined, size: 14, color: AppColors.textSecondary),
+            const SizedBox(width: 1),
             Text(audioSizeLabel(book.sizeOf(part)), style: muted),
           ]);
         }
@@ -169,12 +169,34 @@ class AudioFab extends StatelessWidget {
                     height: 20,
                     child: CircularProgressIndicator(
                         strokeWidth: 2, value: book.progress[part], color: p.ink))
-                : Stack(clipBehavior: Clip.none, children: [
-                    Icon(done ? Icons.headphones : Icons.headphones_outlined),
-                    if (!done)
-                      const Positioned(
-                          right: -5, bottom: -4, child: Icon(Icons.arrow_downward, size: 13)),
-                  ]),
+                : done
+                    ? const Icon(Icons.headphones)
+                    // ⚠ Знакът „свали" е ДО слушалките, не върху тях
+                    // (бележка на автора: стрелката ги застъпваше). Слушалките
+                    // са по-малки и горе вляво, кръжецът — в долния десен
+                    // ъгъл, а тънкият пръстен в цвета на копчето ги разделя.
+                    : SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: Stack(children: [
+                          const Positioned(
+                              left: 0, top: 0, child: Icon(Icons.headphones_outlined, size: 20)),
+                          Positioned(
+                            right: 0,
+                            bottom: 0,
+                            child: Container(
+                              width: 14,
+                              height: 14,
+                              decoration: BoxDecoration(
+                                color: p.ink,
+                                shape: BoxShape.circle,
+                                border: Border.all(color: p.fab, width: 1.5),
+                              ),
+                              child: Icon(Icons.arrow_downward, size: 9, color: p.fab),
+                            ),
+                          ),
+                        ]),
+                      ),
           ),
         );
       },
