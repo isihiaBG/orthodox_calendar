@@ -122,9 +122,11 @@ def main():
         return
 
     def upload(name, data, ctype):
-        if name in assets:
-            requests.delete(f'{API}/releases/assets/{assets[name]["id"]}', headers=hd,
-                            timeout=60).raise_for_status()
+        # ⚠⚠ НОВОТО СЕ КАЧВА ПОД ВРЕМЕННО ИМЕ и чак после заменя старото.
+        # Дотук старото се триеше ПРЕДИ качването — и докато 22-те MB се
+        # качваха (минути), беседата я нямаше и свалянето в приложението
+        # гърмеше (11.10.2026). Сега прозорецът е секунда.
+        final, name = name, name + '.new'
         up = rel['upload_url'].split('{')[0]
         # ⚠ Големият файл (беседа 1, 22 MB) понякога прекъсва по средата —
         # опитва се пак, преди да се откаже.
@@ -145,6 +147,13 @@ def main():
                 if attempt == 3:
                     raise
                 time.sleep(10)
+        new_id = r.json()['id']
+        if final in assets:
+            requests.delete(f'{API}/releases/assets/{assets[final]["id"]}', headers=hd,
+                            timeout=60).raise_for_status()
+        requests.patch(f'{API}/releases/assets/{new_id}', headers=hd, timeout=60,
+                       json={'name': final}).raise_for_status()
+        name = final
         print(f'  ↑ {name} ({len(data) // 1024} KB)')
 
     # ⚠ Качват се ШИФРОВАНИ (`.mp3x`, `.jsonx`) — свален с браузъра, файлът
