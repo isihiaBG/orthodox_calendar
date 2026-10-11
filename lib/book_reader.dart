@@ -2168,6 +2168,11 @@ class _BookReaderState extends State<BookReader>
       bottomNavigationBar: _playback == null
           ? null
           : AudioMiniPlayer(playback: _playback!, onClose: () => _stopAudio()),
+      // Копчето със слушалките — само при глава със звук и докато плейърът е
+      // затворен (виж AudioFab защо не е в лентата).
+      floatingActionButton: _playback != null || _audio == null || _audioPart == null
+          ? null
+          : AudioFab(book: _audio, part: _audioPart!, onTap: _onAudioTap),
       body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
@@ -2910,11 +2915,7 @@ class _BookReaderState extends State<BookReader>
   /// него работят както преди.
   List<Widget> _toolbarActions() => [
         _stopsNudge(
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            if (_audio != null && _audioPart != null)
-              AudioToolbarButton(book: _audio, part: _audioPart!, onTap: _onAudioTap),
-            ..._toolbarRow(),
-          ]),
+          child: Row(mainAxisSize: MainAxisSize.min, children: _toolbarRow()),
         ),
       ];
 

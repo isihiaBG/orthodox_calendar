@@ -5,7 +5,7 @@
 //   AudioChip        етикетът в съдържанието — ТИХ, като този с езиците в
 //                    молитвослова: несвалено (слушалки + ↓ + размер), сваля
 //                    се (процент), свалено (слушалки)
-//   AudioToolbarButton  същото в лентата на четеца — съдържанието е затворено,
+//   AudioFab         плаващото копче долу вдясно — съдържанието е затворено,
 //                    докато човек чете, а копчето е под ръка
 //   askAudioDownload прозорчето „колко MB, безплатно" преди сваляне
 //   AudioMiniPlayer  лентата отдолу: −5, пауза, +5, време, затваряне
@@ -133,12 +133,18 @@ class AudioChip extends StatelessWidget {
   }
 }
 
-/// Копчето в лентата на четеца — видно само при беседа със звук.
-class AudioToolbarButton extends StatelessWidget {
+/// Плаващото копче долу вдясно — видно само при глава със звук.
+///
+/// ⚠⚠ НЕ В ЛЕНТАТА (решено с автора, 11.10.2026). На изправен телефон лентата
+/// на четеца е пълна — стрелка и съдържание отляво, шест копчета отдясно —
+/// и седмото се блъскаше в съдържанието. Плаващото копче е като това в
+/// молитвослова (същият `palette.fab`): самата му поява казва „тук има звук",
+/// а щом звукът тръгне, на мястото му идва мини плейърът.
+class AudioFab extends StatelessWidget {
   final AudioBook book;
   final String part;
   final VoidCallback onTap;
-  const AudioToolbarButton({super.key, required this.book, required this.part, required this.onTap});
+  const AudioFab({super.key, required this.book, required this.part, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -146,26 +152,30 @@ class AudioToolbarButton extends StatelessWidget {
       valueListenable: book.revision,
       builder: (context, _, _) {
         if (!book.has(part)) return const SizedBox.shrink();
-        final color = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+        final p = ReaderTheme.palette;
+        final done = book.isDownloaded(part);
         final busy = book.isDownloading(part);
-        return IconButton(
-          tooltip: book.isDownloaded(part) ? 'Слушай беседата' : 'Свали звука на беседата',
-          onPressed: busy ? null : onTap,
-          icon: busy
-              ? SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(
-                      strokeWidth: 2, value: book.progress[part], color: color))
-              : Stack(clipBehavior: Clip.none, children: [
-                  Icon(book.isDownloaded(part) ? Icons.headphones : Icons.headphones_outlined,
-                      color: color),
-                  if (!book.isDownloaded(part))
-                    Positioned(
-                        right: -4,
-                        bottom: -3,
-                        child: Icon(Icons.arrow_downward, size: 13, color: color)),
-                ]),
+        return Padding(
+          padding: const EdgeInsets.only(right: 14, bottom: 8),
+          child: FloatingActionButton.small(
+            heroTag: null,
+            tooltip: done ? 'Слушай беседата' : 'Свали звука на беседата',
+            backgroundColor: p.fab,
+            foregroundColor: p.ink,
+            onPressed: busy ? null : onTap,
+            child: busy
+                ? SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(
+                        strokeWidth: 2, value: book.progress[part], color: p.ink))
+                : Stack(clipBehavior: Clip.none, children: [
+                    Icon(done ? Icons.headphones : Icons.headphones_outlined),
+                    if (!done)
+                      const Positioned(
+                          right: -5, bottom: -4, child: Icon(Icons.arrow_downward, size: 13)),
+                  ]),
+          ),
         );
       },
     );
