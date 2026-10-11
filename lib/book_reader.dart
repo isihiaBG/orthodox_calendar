@@ -1217,7 +1217,9 @@ class _BookReaderState extends State<BookReader>
   /// обратно няколко секунди.
   DateTime _userScrolledAt = DateTime(0);
 
-  String? get _audioPart => _index > 0 ? AudioBook.partOf(_current.href) : null;
+  // И заглавната страница може да има звук („Разговори…“ — посвещението и
+  // надписите, 11.10.2026); дали има, казва регистърът.
+  String? get _audioPart => AudioBook.partOf(_current.href);
   bool get _hasAudio => _audio?.has(_audioPart) ?? false;
 
   void _onAudioRevision() {
@@ -1973,7 +1975,7 @@ class _BookReaderState extends State<BookReader>
     // Книга с оригинален PDF получава и точка за цялата книга.
     final items = [...kReaderMenuItems];
     final disabled = <String>{};
-    if (_audio != null && _index > 0) {
+    if (_audio != null) {
       final String label;
       if (!AudioRegistry.known) {
         label = 'Провери за звук';

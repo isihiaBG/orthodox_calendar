@@ -119,7 +119,8 @@ def spoken(block):
     res = [remap2[remap[p]] for p in pos]
     # Заглавие и подзаглавие — с точка накрая, за спокойно окончание
     # (автора, 11.10.2026). Краят сочи след нея.
-    if block.get('kind') in ('head', 'centernote') and sp.rstrip()[-1:] not in '.!?…':
+    if block.get('kind') in ('head', 'centernote') and not block.get('cont') \
+            and sp.rstrip()[-1:] not in '.!?…':
         sp = sp.rstrip() + '.'
         res[-1] = len(sp)
     return sp, res
@@ -181,6 +182,9 @@ INSERT_FIX = [
       "Свята'го Духъ', ни'не и при'сно и вове'ки ве'ков").replace("'", A),
      ("въ'зглас. „Я'ко Твое' е'ст ца'рство, и си'ла и сла'ва, Отца' и Си'на, и "
       "Свята'го Ду'ха, ни'не и при'сно, и вове'ки веко'ов.").replace("'", A)),
+    # Адресът на заглавната — редовете с запетаи (автора, 11.10.2026).
+    ('Пантеле' + A + 'ймон“ село' + A, 'Пантеле' + A + 'ймон“, село' + A),
+    ('Ви' + A + 'динска епа' + A + 'рхия две', 'Ви' + A + 'динска епа' + A + 'рхия, две'),
     ('отгово' + A + 'ря по-къ' + A + 'сно', 'отгово' + A + 'ря по' + A + ', къ' + A + 'сно'),  # като „По́, подро́бно“
     # „Благодарйъ́" гласът го четеше „Благода́рия" — „благодариъ́" (автора).
     ('агодарйъ' + A, 'агодариъ' + A),
@@ -424,8 +428,47 @@ def render(k, book, name, blocks, budget):
     """Една беседа → mp3 + json."""
     pcm, sents, t, prev = bytearray(), [], 0.0, None
     paras = []
+    # Заглавие на два реда („Разговори за“ / „Божествения промисъл…“) — на
+    # ЕДИН ДЪХ: изпраща се слято и звукът се реже между редовете (автора,
+    # 11.10.2026). Първият ред е без точка — признакът, че продължава.
+    for x, y in zip(blocks, blocks[1:]):
+        if x['kind'] == y['kind'] == 'head' and x['text'].rstrip()[-1:] not in '.!?…:':
+            x['cont'] = True
+    joined = None
     for pi, bl in enumerate(blocks):
         paras.append({'k': bl['kind'], 'v': bl['speaker']})
+        if joined is not None:                 # вторият ред — звукът е готов
+            audio, al, off = joined
+            joined = None
+            (text, base, items), = chunks_of(bl)
+            for a, b, shown, notes in items:
+                sents.append({'t': round(t + char_time(al, off + a - base) - cut_t, 3),
+                              'e': round(t + char_time(al, off + b - base - 1, end=True) - cut_t, 3),
+                              'p': pi, 's': shown, **({'n': notes} if notes else {})})
+            pcm += audio
+            t += len(audio) / 2 / RATE
+            prev = bl
+            continue
+        if bl.get('cont'):
+            (t1, b1, it1), = chunks_of(bl)
+            (t2, _, _), = chunks_of(blocks[pi + 1])
+            whole = t1 + ' ' + t2
+            audio, al = synth(k, bl['speaker'], whole, budget, '', '', bl['kind'])
+            n1 = len(t1)
+            cut_t = (char_time(al, n1 - 1, end=True) + char_time(al, n1 + 1)) / 2
+            cut = int(cut_t * RATE) * 2
+            if prev is not None:
+                pcm += silence(PAUSE['head'])
+                t += PAUSE['head']
+            for a, b, shown, notes in it1:
+                sents.append({'t': round(t + char_time(al, a - b1), 3),
+                              'e': round(t + char_time(al, b - b1 - 1, end=True), 3),
+                              'p': pi, 's': shown, **({'n': notes} if notes else {})})
+            pcm += audio[:cut]
+            t += cut / 2 / RATE
+            joined = (audio[cut:], al, n1 + 1)
+            prev = bl
+            continue
         if prev is not None:
             gap = PAUSE['head'] if 'head' in (prev['kind'], bl['kind']) else \
                 PAUSE['speaker'] if prev['speaker'] != bl['speaker'] else PAUSE['para']

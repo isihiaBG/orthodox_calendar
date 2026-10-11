@@ -296,10 +296,11 @@ class AudioBook {
     }
   }
 
-  /// Колко глави със звук има книгата (бележките не се броят) и колко от
-  /// тях са свалени — за реда под кориците.
+  /// Колко глави със звук има книгата (бележките и заглавната страница не
+  /// се броят — не са беседи) и колко от тях са свалени — за реда под кориците.
   (int, int) counts() {
-    final chapters = _parts.keys.where((k) => !k.startsWith('note')).toList();
+    final chapters =
+        _parts.keys.where((k) => !k.startsWith('note') && k != 'title').toList();
     return (chapters.length, chapters.where(_downloaded.contains).length);
   }
 
