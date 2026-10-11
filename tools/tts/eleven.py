@@ -21,6 +21,7 @@
 Ключът е в ~/.config/elevenlabs.env (ELEVENLABS_API_KEY=…).
 """
 import argparse
+import difflib
 import base64
 import hashlib
 import json
@@ -90,7 +91,39 @@ def spoken(block):
     out.extend(marked[j:])
     pos.append(len(out))
     sp, remap = yat(voice_fix(''.join(out)))
-    return sp, [remap[p] for p in pos]
+    sp, remap2 = insert_fix(sp)
+    return sp, [remap2[remap[p]] for p in pos]
+
+
+# Поправки, които МЕНЯТ дължината (вмъкната запетая и т.н.) — за гласа,
+# избрани на слух от потребителя. Ключът е след voice_fix (малки букви).
+INSERT_FIX = {'да\u0301р Бо\u0301жий': 'да\u0301р, Бо\u0301жий'}   # „Дър Божий“ (11.10.2026)
+
+
+def insert_fix(text):
+    """→ (нов текст, карта стара позиция → нова, с една повече за края)."""
+    remap, out, last = [], [], 0
+    hits = sorted((m.start(), m.end(), new) for old, new in INSERT_FIX.items()
+                  for m in re.finditer(re.escape(old), text))
+    for a, b, new in hits:
+        out.append(text[last:a])
+        base = len(''.join(out))
+        remap.extend(range(base - (a - last), base))
+        sm = difflib.SequenceMatcher(None, text[a:b], new, autojunk=False)
+        mp = [None] * (b - a)
+        for i, j, n in sm.get_matching_blocks():
+            for k in range(n):
+                mp[i + k] = j + k
+        prev = 0
+        for k in range(b - a):
+            prev = mp[k] if mp[k] is not None else prev
+            remap.append(base + prev)
+        out.append(new)
+        last = b
+    base = len(''.join(out))
+    out.append(text[last:])
+    remap.extend(range(base, base + len(text) - last + 1))
+    return ''.join(out), remap
 
 
 def _load_yat():
