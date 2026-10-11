@@ -23,7 +23,7 @@ import os
 import re
 
 from bible_speak import bible_text
-from numbers_bg import years_text
+from numbers_bg import cardinal, years_text
 import subprocess
 import sys
 import tempfile
@@ -145,6 +145,11 @@ def expand_abbr(txt):
     txt = re.sub(r'(?<![А-Яа-я])([Вв])ж\.', lambda m: 'Виж' if m.group(1) == 'В' else 'виж', txt)
     txt = re.sub(r'(?<![А-Яа-я])([Сс])рв\.', lambda m: m.group(1) + 'равни', txt)
     txt = re.sub(r'(\d)\s*гл\.', r'\1 глава', txt)
+    # Знаци, които гласът би прочел като нещо странно (11.10.2026).
+    txt = re.sub(r'^\s*[•▪◦·]\s*', '', txt)          # булет — редът и без това е абзац
+    txt = re.sub(r'\s*[•▪◦]\s*', ', ', txt)
+    txt = re.sub(r'\s*-+>\s*', ' – ', txt)            # „помисъл -> словесност"
+    txt = re.sub(r'§\s*(\d+)', lambda m: 'параграф ' + cardinal(int(m.group(1))), txt)
     return txt
 
 
