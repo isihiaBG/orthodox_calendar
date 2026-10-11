@@ -29,6 +29,7 @@ from pathlib import Path
 import requests
 
 from pilot import expand_abbr
+import cs_translit
 
 ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
@@ -66,7 +67,10 @@ def book_blocks(epub):
         t = z.read(name).decode()
         t = re.sub(r'<a [^>]*epub:type="noteref"[^>]*>.*?</a>', '', t, flags=re.S)
         t = re.sub(r'<sup[^>]*>.*?</sup>', '', t, flags=re.S)
-        t = re.sub(r'<span class="cs">(.*?)</span>', lambda m: '⟦' + m.group(1) + '⟧', t, flags=re.S)
+        # Църковнославянското се разпознава ДУМА ПО ДУМА (cs_translit), не по
+        # класа: span-ът „cs“ често обгражда само червената начална буква и
+        # вложените ⟦…⟧ късаха защитата насред думата.
+        t = re.sub(r'<span class="cs">(.*?)</span>', r'\1', t, flags=re.S)
         speaker, blocks = 'narrator', []
         for m in re.finditer(r'<(p|h\d)(?: class="([^"]*)")?[^>]*>(.*?)</\1>', t, re.S):
             tag, cls, inner = m.group(1), m.group(2) or '', m.group(3)
@@ -75,9 +79,7 @@ def book_blocks(epub):
             text = _plain(inner)
             if not text or not WORD.search(text):
                 continue
-            text = expand_abbr(text)
-            if 'csq' in cls:
-                text = '⟦' + text + '⟧'
+            text = expand_abbr(cs_translit.convert(text))
             lab = re.match(r'^([КЦИ]):\s*', text)
             if lab:
                 speaker = SPEAKERS[lab.group(1)]

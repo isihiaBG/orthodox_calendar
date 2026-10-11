@@ -135,6 +135,7 @@ def expand_abbr(txt):
     txt = re.sub(r'([IVXLC])\s*вв\.', r'\1 век', txt)
     txt = re.sub(r'([IVXLC])\s*в\.', r'\1 век', txt)
     txt = re.sub(r'(?<![А-Яа-я])т\.\s?е\.', 'тоест', txt)
+    txt = re.sub(r'(?<![А-Яа-я])равноап\.', 'равноапостол', txt)
     txt = re.sub(r'(?<![А-Яа-я])ап\.', 'апостол', txt)
     txt = re.sub(r'(?<![А-Яа-я])и сл\.', 'и следващите', txt)
     txt = re.sub(r'(?<![А-Яа-я])и др\.', 'и други', txt)
