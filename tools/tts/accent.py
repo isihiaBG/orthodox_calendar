@@ -242,8 +242,10 @@ def mark(text, accents, dic, llm=None):
     protected = [(m.start(), m.end()) for m in re.finditer(r'⟦.*?⟧', text, re.S)]
     for m in WORD.finditer(text):
         s, w = m.start(), m.group(0)
-        if any(a <= s < b for a, b in protected) or vowel_count(w) < 2:
+        if any(a <= s < b for a, b in protected):
             continue
+        if vowel_count(w) < 2 and w.lower() not in words and s not in fixed:
+            continue                  # едносрична — само ако е изрично в accents.txt („да́р“)
         if text[m.end():m.end() + 1] in (ACUTE, '̀'):
             continue                  # вече с ударение
         low = w.lower()

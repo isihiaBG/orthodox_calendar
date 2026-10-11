@@ -160,7 +160,23 @@ VOICE_FIX = {'Христо\u0301с': 'Христо\u0300с', 'христо\u0301
              'насаме\u0301': 'насаме\u0300', 'Насаме\u0301': 'Насаме\u0300'}
 
 
+# Думи, написани с ГЛАВНИ за натъртване („ДАР БО́ЖИЙ“, „НЕ“): гласът ги чете
+# криво („Дър Божий“), затова отиват при него с малки (11.10.2026).
+# Съкращенията остават, а името на Бога — с главна.
+CAPS_KEEP = {'ИИ\u0301'}
+CAPS_TITLE = {'БОГ', 'БО\u0301ЖИЙ'}
+_CAPS = re.compile(r'(?<!\w)[А-ЯЪЬЮЩ][А-ЯЪЬЮЩ\u0301\u0300]+(?!\w)')
+
+
+def _uncaps(m):
+    w = m.group(0)
+    if w in CAPS_KEEP:
+        return w
+    return w[0] + w[1:].lower() if w in CAPS_TITLE else w.lower()
+
+
 def voice_fix(text):
+    text = _CAPS.sub(_uncaps, text)
     for a, b in VOICE_FIX.items():
         assert len(a) == len(b)
         text = text.replace(a, b)
