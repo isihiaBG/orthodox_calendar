@@ -81,6 +81,10 @@ class QuotableSelectionArea extends StatefulWidget {
   /// [QuoteAnchor.zachala]). Без това улавянето честно се отказваше.
   final String Function(String text)? cleanSelection;
 
+  /// „Слушай оттук" — ▶ ПЪРВО в менюто при маркиране (четене на глас,
+  /// 11.10.2026). Получава мястото на селекцията; `null` — няма такова копче.
+  final void Function(CapturedSpot spot)? onListen;
+
   const QuotableSelectionArea({
     super.key,
     required this.child,
@@ -93,6 +97,7 @@ class QuotableSelectionArea extends StatefulWidget {
     this.anchorOf,
     this.titleOf,
     this.cleanSelection,
+    this.onListen,
   });
 
   @override
@@ -189,6 +194,23 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     await Share.share(quoteShareText(q));
   }
 
+  /// Пуска четенето на глас от маркираното — ориентирът се взима ПРЕДИ
+  /// скриването на менюто, по същата причина като при [_save].
+  void _listen(SelectableRegionState region) {
+    final text = _selectedText();
+    final blocks = widget.blocks();
+    final hint = _hintFor(region, blocks);
+    region.hideToolbar();
+    if (text == null || text.isEmpty) return;
+    final spot = captureSelection(blocks, text,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1, hint: hint);
+    if (spot == null) {
+      _tell('Маркирай откъс в рамките на един абзац');
+      return;
+    }
+    widget.onListen!(spot);
+  }
+
   Future<void> _save(SelectableRegionState region) async {
     final text = _selectedText();
     if (text == null || text.isEmpty) {
@@ -260,6 +282,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
           items: region.contextMenuButtonItems,
           onSaveQuote: () => _save(region),
           onShareQuote: () => _share(region),
+          onListen: widget.onListen == null ? null : () => _listen(region),
         );
       },
       child: widget.child,

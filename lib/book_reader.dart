@@ -31,6 +31,8 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'audio_ui.dart';
+import 'audiobook.dart';
 import 'book_image.dart';
 import 'book_last_read_store.dart';
 import 'book_position_store.dart';
@@ -51,6 +53,7 @@ import 'reader_font_size.dart';
 import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
 import 'pdf_export.dart';
+import 'quote_capture.dart' show CapturedSpot;
 import 'quote_link.dart';
 import 'quote_menu.dart';
 import 'quotes.dart';
@@ -113,6 +116,19 @@ class BookReader extends StatefulWidget {
 
   @override
   State<BookReader> createState() => _BookReaderState();
+}
+
+/// „Слушай беседата" — първа точка в менюто, само при глава със звук.
+const ReaderMenuItem _kListenMenuItem = ReaderMenuItem(
+  icon: Icon(Icons.headphones, size: 24, color: AppColors.textSecondary),
+  label: 'Слушай беседата',
+  value: 'listen',
+);
+
+/// Избор в съдържанието: „отвори главата и пусни звука ѝ".
+class _ListenAt {
+  final int index;
+  const _ListenAt(this.index);
 }
 
 class _BookReaderState extends State<BookReader>
@@ -288,6 +304,7 @@ class _BookReaderState extends State<BookReader>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _audio?.revision.addListener(_onAudioRevision);
     _chapters = widget.book.toc
         .expand((e) => e.flattened())
         .where((e) => e.href.isNotEmpty)
@@ -425,6 +442,8 @@ class _BookReaderState extends State<BookReader>
 
   @override
   void dispose() {
+    _audio?.revision.removeListener(_onAudioRevision);
+    unawaited(_stopAudio(quiet: true));
     _searchDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
@@ -500,6 +519,8 @@ class _BookReaderState extends State<BookReader>
     // Пелената сама по себе си не я носи (всяка смяна изглежда еднакво),
     // затова плъзгането върви заедно с нея.
     _enterFromRight = i > _index;
+    // Друга глава — звукът на старата спира (и осветяването с него).
+    if (i != _index) await _stopAudio();
 
     // Фаза 1: пелената пада. Смяната става зад нея.
     await _veil.forward(from: 0);
@@ -1179,6 +1200,189 @@ class _BookReaderState extends State<BookReader>
   int _quoteLength = 0;
   String _quoteText = '';
 
+  // ---------------------------------------------------------------
+  // Четене на глас (11.10.2026) — виж audiobook.dart.
+  //
+  // ⚠ Изречението, което звучи, се осветява със СЪЩИЯ механизъм като
+  // цитата (`_quoteRegion`/`_quoteText`): той вече умее да намери откъс в
+  // регионите и да го покрие с фон, включително през няколко абзаца.
+  // ---------------------------------------------------------------
+  late final AudioBook? _audio = AudioBook.forAsset(widget.book.assetPath);
+  AudioPlayback? _playback;
+
+  /// За всяко изречение — (блок, знак, последен блок, край) в [_quoteBlocks].
+  List<(int, int, int, int)?> _sentLoc = const [];
+
+  /// Кога човекът сам е плъзнал текста — тогава плейърът не го дърпа
+  /// обратно няколко секунди.
+  DateTime _userScrolledAt = DateTime(0);
+
+  String? get _audioPart => _index > 0 ? AudioBook.partOf(_current.href) : null;
+  bool get _hasAudio => _audio?.has(_audioPart) ?? false;
+
+  void _onAudioRevision() {
+    if (mounted) setState(() {});
+  }
+
+  /// Тап по слушалките (лента, меню, съдържание): несвалено — пита и сваля;
+  /// свалено — пуска (или паузира, ако вече звучи).
+  Future<void> _onAudioTap({CapturedSpot? from}) async {
+    final a = _audio, part = _audioPart;
+    if (a == null || part == null || !a.has(part)) return;
+    if (!a.isDownloaded(part)) {
+      final ok = await downloadAudioWithPrompt(context, a, part, title: _current.title);
+      if (!ok || !mounted) return;
+    }
+    final pb = _playback;
+    if (pb != null && pb.chapter.part == part && from == null) {
+      await pb.toggle();
+      return;
+    }
+    await _startAudio(from: from);
+  }
+
+  Future<void> _startAudio({CapturedSpot? from, int tries = 0}) async {
+    final a = _audio!, part = _audioPart!;
+    if (_quoteBlocks().isEmpty) {
+      // Главата още не е разчетена — опитай на следващия кадър.
+      if (tries < 8) {
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) { if (mounted) _startAudio(from: from, tries: tries + 1); });
+      }
+      return;
+    }
+    final ch = await a.chapter(part);
+    if (ch == null || !mounted) return;
+    final loc = _locateSentences(ch);
+    final k = from == null ? 0 : _sentenceAt(loc, from.block, from.charStart);
+    final old = _playback;
+    if (old != null && old.chapter.part == part) {
+      await old.seekToSentence(k);
+      if (!old.playing.value) await old.toggle();
+      return;
+    }
+    await _stopAudio();
+    final pb = AudioPlayback(a, ch);
+    pb.sentence.addListener(_onSentence);
+    setState(() {
+      _sentLoc = loc;
+      _playback = pb;
+    });
+    _userScrolledAt = DateTime(0);
+    await pb.start(fromSentence: k);
+  }
+
+  Future<void> _stopAudio({bool quiet = false}) async {
+    final pb = _playback;
+    if (pb == null) return;
+    pb.sentence.removeListener(_onSentence);
+    _playback = null;
+    if (!quiet && mounted) {
+      setState(() {
+        _quoteRegion = -1;
+        _quoteRegionEnd = -1;
+        _quoteText = '';
+      });
+    }
+    await pb.dispose();
+  }
+
+  /// Къде в текста е всяко изречение. Търси се ПОРЕД, напред от предишното —
+  /// едно и също изречение („Да.") може да се среща много пъти.
+  List<(int, int, int, int)?> _locateSentences(AudioChapter ch) {
+    final f = foldBlocks(_quoteBlocks());
+    var cur = 0;
+    final out = <(int, int, int, int)?>[];
+    for (final st in ch.sentences) {
+      final fs = foldForMatch(st.text);
+      if (fs.isEmpty) {
+        out.add(null);
+        continue;
+      }
+      var i = f.text.indexOf(fs, cur);
+      if (i < 0 || i - cur > 4000) {
+        // Изречението може да се разминава в някой знак — опит по началото.
+        final head = fs.substring(0, math.min(24, fs.length));
+        i = f.text.indexOf(head, cur);
+        if (i < 0 || i - cur > 4000) {
+          out.add(null);
+          continue;
+        }
+      }
+      final last = math.min(i + fs.length, f.text.length) - 1;
+      out.add((f.ofBlock[i], f.ofChar[i], f.ofBlock[last], f.ofChar[last] + 1));
+      cur = last + 1;
+    }
+    return out;
+  }
+
+  /// Изречението, което съдържа мястото (блок, знак) — или последното преди него.
+  int _sentenceAt(List<(int, int, int, int)?> loc, int block, int char) {
+    var best = 0;
+    for (var k = 0; k < loc.length; k++) {
+      final l = loc[k];
+      if (l == null) continue;
+      if (l.$1 < block || (l.$1 == block && l.$2 <= char)) {
+        best = k;
+      } else {
+        break;
+      }
+    }
+    return best;
+  }
+
+  void _onSentence() {
+    final pb = _playback;
+    if (pb == null || !mounted) return;
+    final k = pb.sentence.value;
+    final loc = (k >= 0 && k < _sentLoc.length) ? _sentLoc[k] : null;
+    if (loc == null) return;
+    final (b, c, bEnd, cEnd) = loc;
+    final blocks = _quoteBlocks();
+    if (bEnd >= blocks.length) return;
+    final capLen = (b == _dropCapBlockIndex()) ? _currentDropCap().length : 0;
+    setState(() {
+      _quoteRegion = b;
+      _quoteRegionEnd = bEnd;
+      _quoteStart = (c - capLen).clamp(0, 1 << 30);
+      final parts = <String>[];
+      for (var x = b; x <= bEnd; x++) {
+        final raw = blocks[x];
+        final from = (x == b ? c : 0).clamp(0, raw.length);
+        final to = (x == bEnd ? cEnd : raw.length).clamp(from, raw.length);
+        parts.add(raw.substring(from, to));
+      }
+      _quoteText = parts.join('\n\n');
+      _quoteLength = _quoteText.length;
+    });
+    if (DateTime.now().difference(_userScrolledAt).inSeconds >= 5) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _glideToLine(b, c));
+    }
+  }
+
+  /// ⚠⚠ ПЛАВНО, „много плавно" (изрично от автора). Плъзга се само когато
+  /// изречението излезе извън удобната ивица на екрана, и то с дълга, мека
+  /// крива — текстът тръгва, не подскача.
+  void _glideToLine(int region, int charInRegion) {
+    if (!mounted || !_scroll.hasClients) return;
+    if (region < 0 || region >= _regionKeys.length) return;
+    final position = _scroll.position;
+    final box = _regionKeys[region].currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final line = _lineForChar(_currentRegions(), region, charInRegion, box.size.width);
+    if (line == null) return;
+    final top = RenderAbstractViewport.of(box)
+        .getOffsetToReveal(box, 0, rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2))
+        .offset;
+    final vp = position.viewportDimension;
+    final y = top - position.pixels;
+    if (y >= vp * 0.12 && y <= vp * 0.62) return;
+    final target = (top - vp * 0.3)
+        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    _scroll.animateTo(target,
+        duration: const Duration(milliseconds: 1400), curve: Curves.easeInOutCubic);
+  }
+
   /// Коя част от цитата се пада на регион [i].
   String _quotePartFor(int i) {
     if (_quoteRegionEnd == _quoteRegion) return _quoteText;
@@ -1768,12 +1972,15 @@ class _BookReaderState extends State<BookReader>
     // reader_more_menu.dart (kReaderMenuItems), за да не се разминат.
     // Книга с оригинален PDF получава и точка за цялата книга.
     final items = [...kReaderMenuItems];
+    if (_hasAudio) items.insert(0, _kListenMenuItem);
     if (widget.book.bookPdf != null) {
       items.insert(items.indexOf(kSharePdfMenuItem) + 1, kShareBookPdfMenuItem);
     }
     final choice = await showReaderMoreMenu(context, items: items);
     if (!mounted || choice == null) return;
-    if (choice == kReaderSettingsMenuItem.value) {
+    if (choice == _kListenMenuItem.value) {
+      await _onAudioTap();
+    } else if (choice == kReaderSettingsMenuItem.value) {
       // Локална настройка — drawer, СЪЩИЯТ принцип като в календара; цял
       // отделен екран е само за общите настройки от главното меню.
       _scaffoldKey.currentState?.openEndDrawer();
@@ -1887,11 +2094,16 @@ class _BookReaderState extends State<BookReader>
         autofocusSearch: focusSearch,
         collapsible: widget.book.collapsibleToc,
         wholeBook: _isChitalnya,
+        audio: _audio,
       ),
     );
     // Число — избрано четиво; низ — Enter при „в целия том" (виж
     // _TocSheetState._submit): търсенето се пуска оттук, от четеца.
     if (chosen is int) _goTo(chosen);
+    if (chosen is _ListenAt) {
+      await _goTo(chosen.index);
+      if (mounted) await _onAudioTap();
+    }
     if (chosen is String) _runBookSearch(chosen);
   }
 
@@ -1909,6 +2121,10 @@ class _BookReaderState extends State<BookReader>
       // кремава заедно със страницата. Точно както в четеца на жития.
       backgroundColor: AppColors.toolbar,
       endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
+      // Мини плейърът — само докато звучи беседа (четене на глас).
+      bottomNavigationBar: _playback == null
+          ? null
+          : AudioMiniPlayer(playback: _playback!, onClose: () => _stopAudio()),
       body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
@@ -2651,7 +2867,11 @@ class _BookReaderState extends State<BookReader>
   /// него работят както преди.
   List<Widget> _toolbarActions() => [
         _stopsNudge(
-          child: Row(mainAxisSize: MainAxisSize.min, children: _toolbarRow()),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (_audio != null && _audioPart != null)
+              AudioToolbarButton(book: _audio, part: _audioPart!, onTap: _onAudioTap),
+            ..._toolbarRow(),
+          ]),
         ),
       ];
 
@@ -2839,7 +3059,13 @@ class _BookReaderState extends State<BookReader>
             // ⚠ Виж същото място в reader_screen.dart.
             blockKey: (i) =>
                 i >= 0 && i < _regionKeys.length ? _regionKeys[i] : null,
-            child: CustomScrollView(
+            onListen: _hasAudio ? (spot) => _onAudioTap(from: spot) : null,
+            child: NotificationListener<UserScrollNotification>(
+              onNotification: (n) {
+                if (n.direction != ScrollDirection.idle) _userScrolledAt = DateTime.now();
+                return false;
+              },
+              child: CustomScrollView(
               controller: _scroll,
               slivers: [
                 if (withHeader)
@@ -2885,6 +3111,7 @@ class _BookReaderState extends State<BookReader>
                 // екрана.
                 SliverToBoxAdapter(child: _footer()),
               ],
+            ),
             ),
           ),
         ),
@@ -3007,7 +3234,11 @@ class _TocSheet extends StatefulWidget {
     this.autofocusSearch = false,
     this.collapsible = false,
     this.wholeBook = false,
+    this.audio,
   });
+
+  /// Звукът на книгата — за етикета до всяка глава със звук.
+  final AudioBook? audio;
 
   /// Книга от „Читалня" — само за надписите на разширеното търсене.
   final bool wholeBook;
@@ -3505,6 +3736,7 @@ class _TocSheetState extends State<_TocSheet> {
         child: _hasToggle(entry)
             ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: RichText(text: _spanFor(i))),
+                if (_audioChip(entry, at) case final chip?) chip,
                 // Тапът по ЗАГЛАВИЕТО отваря четивото, а по стрелката —
                 // само разгъва групата.
                 SizedBox(
@@ -3521,7 +3753,38 @@ class _TocSheetState extends State<_TocSheet> {
                   ),
                 ),
               ])
-            : RichText(text: _spanFor(i)),
+            : switch (_audioChip(entry, at)) {
+                final chip? => Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [Expanded(child: RichText(text: _spanFor(i))), chip]),
+                null => RichText(text: _spanFor(i)),
+              },
+      ),
+    );
+  }
+
+  /// Етикетът със звука вдясно от главата — тих, като този с езиците в
+  /// молитвослова. Свалено — тапът отваря главата и я пуска; несвалено —
+  /// пита (колко MB, безплатно) и сваля на място, без да затваря списъка.
+  Widget? _audioChip(EpubTocEntry entry, int at) {
+    final a = widget.audio;
+    final part = AudioBook.partOf(entry.href);
+    if (a == null || part == null || at < 0 || !a.has(part)) return null;
+    return Padding(
+      padding: const EdgeInsets.only(left: 10),
+      child: Transform.translate(
+        offset: const Offset(0, -2),
+        child: AudioChip(
+          book: a,
+          part: part,
+          onTap: () async {
+            if (a.isDownloaded(part)) {
+              Navigator.of(context).pop(_ListenAt(at));
+            } else {
+              await downloadAudioWithPrompt(context, a, part, title: entry.title);
+            }
+          },
+        ),
       ),
     );
   }

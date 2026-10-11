@@ -79,12 +79,16 @@ class IconSelectionToolbar extends StatelessWidget {
   /// действието е същото, само резултатът е по-полезен.
   final VoidCallback? onShareQuote;
 
+  /// „Слушай оттук" — стои ПЪРВО (искане на автора, 11.10.2026).
+  final VoidCallback? onListen;
+
   const IconSelectionToolbar({
     super.key,
     required this.anchors,
     required this.items,
     this.onSaveQuote,
     this.onShareQuote,
+    this.onListen,
   });
 
   @override
@@ -118,6 +122,14 @@ class IconSelectionToolbar extends StatelessWidget {
         child: child,
       ),
       children: [
+        if (onListen != null)
+          IconButton(
+            icon: Icon(Icons.play_arrow, size: _kIconSize, color: ink),
+            tooltip: 'Слушай оттук',
+            onPressed: onListen,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            constraints: const BoxConstraints(),
+          ),
         for (final (icon, onTap, tip) in known)
           IconButton(
             icon: Icon(icon, size: _kIconSize, color: ink),
