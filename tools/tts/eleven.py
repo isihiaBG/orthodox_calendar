@@ -69,7 +69,8 @@ def settings(speaker):
     v = VOICES[speaker]
     # 0.5 → 0.7 (11.10.2026): при всяко генериране гласът сбъркваше друга дума
     # („насами́“, „наса́ме“) — по-висока стабилност значи по-малко вариране.
-    return {'stability': v.get('stability', 0.7), 'similarity_boost': 0.75,
+    # 0.7 → 0.85 същия ден, по молба на потребителя: още по-малко вариране.
+    return {'stability': v.get('stability', 0.85), 'similarity_boost': 0.75,
             'style': 0.0, 'use_speaker_boost': True, 'speed': v.get('speed', 1.0)}
 
 

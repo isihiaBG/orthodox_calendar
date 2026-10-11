@@ -13,10 +13,9 @@
   "tsetso": {
     "voice_id": "C1npRmjB19a6yNkEucvx",
     "name": "Arthur – Clear & Engaging American Male Audio",
-    "stability": 0.75,
     "speed": 0.95,
     "_note": "сменен от Adam - Compelling (звучеше напрегнато); избран на слух от потребителя, 11.10.2026",
-    "_stability": "0.65 → 0.75 (11.10.2026), за по-малко вариране"
+    "_stability": "0.65 → 0.75 → общите 0.85 (11.10.2026), за по-малко вариране"
   },
   "narrator": {
     "voice_id": "TTtB1x9U8PF0Vgf20IAP",
