@@ -61,8 +61,16 @@ def key():
 
 
 def remaining(k):
-    d = requests.get(f'{API}/user/subscription', headers={'xi-api-key': k}, timeout=60).json()
-    return d['character_limit'] - d['character_count']
+    # ⚠ Понякога отговорът идва без полетата (временна грешка на сървъра) —
+    # опитва се пак, вместо да спре цялото генериране (12.10.2026).
+    for i in range(6):
+        try:
+            d = requests.get(f'{API}/user/subscription', headers={'xi-api-key': k}, timeout=60).json()
+            return d['character_limit'] - d['character_count']
+        except (KeyError, ValueError, requests.RequestException) as e:
+            last = e
+            time.sleep(5 * (i + 1))
+    raise SystemExit(f'Не мога да прочета остатъка от кредити: {last!r}')
 
 
 def settings(speaker, kind=None, text=''):
