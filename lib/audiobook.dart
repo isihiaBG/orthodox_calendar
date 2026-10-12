@@ -28,6 +28,7 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audio_secret.dart';
 
@@ -457,6 +458,33 @@ String audioSizeLabel(int bytes) {
   return mb < 1 ? '${(bytes / 1024).round()} KB' : '${mb.round()} MB';
 }
 
+/// Да продължи ли със следващата беседа със звук, щом тази свърши.
+/// Включено по подразбиране (искане на автора, 12.10.2026); пази се.
+class AudioAutoNext {
+  static const _key = 'audio_auto_next';
+  static final ValueNotifier<bool> notifier = ValueNotifier(true);
+  static bool _loaded = false;
+
+  static bool get value => notifier.value;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      notifier.value = p.getBool(_key) ?? true;
+    } catch (_) {}
+  }
+
+  static Future<void> toggle() async {
+    notifier.value = !notifier.value;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_key, notifier.value);
+    } catch (_) {}
+  }
+}
+
 /// Плейърът на една беседа.
 ///
 /// ⚠ Бележката се пуска СЛЕД изречението си, в отделен плейър, а беседата
@@ -480,6 +508,10 @@ class AudioPlayback {
   bool _inNote = false;
   final List<StreamSubscription> _subs = [];
 
+  /// Вика се веднъж, щом беседата свърши докрай (за [AudioAutoNext]).
+  VoidCallback? onFinished;
+  bool _finished = false;
+
   AudioPlayback(this.book, this.chapter);
 
   Future<void> start({int fromSentence = 0}) async {
@@ -489,6 +521,11 @@ class AudioPlayback {
       if (!_inNote) playing.value = s.playing && s.processingState != ProcessingState.completed;
       if (s.processingState == ProcessingState.completed) {
         playing.value = false;
+        // ⚠ Не насред бележка — тя пуска беседата пак, щом свърши.
+        if (!_inNote && !_finished) {
+          _finished = true;
+          onFinished?.call();
+        }
       }
     }));
     await seekToSentence(fromSentence);
@@ -535,6 +572,7 @@ class AudioPlayback {
   Future<void> seekToSentence(int i) async {
     if (chapter.sentences.isEmpty) return;
     i = i.clamp(0, chapter.sentences.length - 1);
+    _finished = false;
     _notesDone.removeWhere((k) => k >= i);
     sentence.value = i;
     await _main.seek(Duration(milliseconds: (chapter.sentences[i].start * 1000).round()));
@@ -561,6 +599,7 @@ class AudioPlayback {
     final t = (_main.position.inMilliseconds / 1000.0 + seconds)
         .clamp(0.0, chapter.duration);
     _notesDone.removeWhere((k) => chapter.sentences[k].end > t);
+    _finished = false;
     await _main.seek(Duration(milliseconds: (t * 1000).round()));
   }
 

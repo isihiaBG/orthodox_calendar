@@ -337,6 +337,7 @@ class _BookReaderState extends State<BookReader>
     // Темата и размерът се четат заедно — за човека това е един
     // четец и настройките му са общи (виж ReaderTheme.loadOnce).
     BookSearchSettings.loadOnce();
+    AudioAutoNext.loadOnce();
     ReaderTheme.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
@@ -1271,12 +1272,39 @@ class _BookReaderState extends State<BookReader>
     await _stopAudio();
     final pb = AudioPlayback(a, ch);
     pb.sentence.addListener(_onSentence);
+    pb.onFinished = _onAudioFinished;
     setState(() {
       _sentLoc = loc;
       _playback = pb;
     });
     _userScrolledAt = DateTime(0);
     await pb.start(fromSentence: k);
+  }
+
+  /// Беседата свърши. Включено ли е [AudioAutoNext] — отваря следващата
+  /// глава със звук и я пуска. ⚠ Не сваля нищо само (мрежа само по воля на
+  /// човека): несвалена следваща беседа — съобщение и стоп.
+  Future<void> _onAudioFinished() async {
+    final a = _audio;
+    if (!mounted || a == null || !AudioAutoNext.value) return;
+    int? next;
+    for (var j = _index + 1; j < _chapters.length; j++) {
+      final part = AudioBook.partOf(_chapters[j].href);
+      if (part != null && a.has(part)) {
+        next = j;
+        break;
+      }
+    }
+    if (next == null) return;
+    final part = AudioBook.partOf(_chapters[next].href)!;
+    if (!a.isDownloaded(part)) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('Следващата беседа („${_chapters[next].title}“) не е свалена.')));
+      return;
+    }
+    await _goTo(next);
+    if (!mounted || _index != next) return;
+    await _startAudio();
   }
 
   Future<void> _stopAudio({bool quiet = false}) async {

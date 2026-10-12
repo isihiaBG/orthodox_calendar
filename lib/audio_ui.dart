@@ -335,6 +335,19 @@ class AudioMiniPlayer extends StatelessWidget {
                           fontFeatures: [FontFeature.tabularFigures()])),
                 ),
               ),
+              // Продължи със следващата беседа (включено по подразбиране).
+              ValueListenableBuilder<bool>(
+                valueListenable: AudioAutoNext.notifier,
+                builder: (_, on, _) => IconButton(
+                  tooltip: on
+                      ? 'След края — следващата беседа (вкл.)'
+                      : 'След края — спри (следващата беседа е изкл.)',
+                  onPressed: AudioAutoNext.toggle,
+                  iconSize: 28,
+                  icon: Icon(Icons.playlist_play,
+                      color: on ? AppColors.sectionTitle : Colors.white38),
+                ),
+              ),
               IconButton(
                 tooltip: 'Затвори плейъра',
                 onPressed: onClose,
