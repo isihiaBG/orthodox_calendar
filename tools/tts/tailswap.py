@@ -3,7 +3,7 @@ import json,hashlib,array,shutil,sys
 sys.path.insert(0,'.')
 import eleven as E, splice_many as M
 snap,name,w,n,first=sys.argv[1:6]
-S='/tmp/claude-1000/-home-mypc-orthodox-calendar/223dc8d5-53b4-4c02-b3de-a1e756d7eff4/scratchpad'
+S=str(E.HERE / 'review')   # копие на новия звук преди смяната
 ch,bi,ci=name.split('|')
 c=[c for c in json.load(open('work/razgovori_marked.json')) if c['file']==ch][0]
 bl=c['blocks'][int(bi)]; new=E.chunks_of(bl)[int(ci)][0]
