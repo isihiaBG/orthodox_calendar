@@ -31,6 +31,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'audio_outro.dart';
 import 'audio_ui.dart';
 import 'audiobook.dart';
 import 'book_image.dart';
@@ -338,6 +339,7 @@ class _BookReaderState extends State<BookReader>
     // четец и настройките му са общи (виж ReaderTheme.loadOnce).
     BookSearchSettings.loadOnce();
     AudioAutoNext.loadOnce();
+    AudioOutroSetting.loadOnce();
     ReaderTheme.loadOnce().then((_) {
       if (mounted) setState(() {});
     });
@@ -450,6 +452,7 @@ class _BookReaderState extends State<BookReader>
   void dispose() {
     _audio?.revision.removeListener(_onAudioRevision);
     unawaited(_stopAudio(quiet: true));
+    unawaited(_outro.dispose());
     _searchDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
@@ -1236,6 +1239,14 @@ class _BookReaderState extends State<BookReader>
   late final AudioBook? _audio = AudioBook.forAsset(widget.book.assetPath);
   AudioPlayback? _playback;
 
+  // Музиката в края на беседата — виж audio_outro.dart.
+  final AudioOutro _outro = AudioOutro();
+  double _outroAt = 0; // откъде в беседата влиза
+  bool _outroBegun = false; // влязла ли е за тази беседа
+  bool _outroPending = false; // засилване/задържане — чака да пусне следващата
+  bool _outroCarry = false; // минаваме към следващата — музиката НЕ спира
+  bool _lastPlaying = false;
+
   /// За всяко изречение — (блок, знак, последен блок, край) в [_quoteBlocks].
   List<(int, int, int, int)?> _sentLoc = const [];
 
@@ -1285,6 +1296,7 @@ class _BookReaderState extends State<BookReader>
     final k = from == null ? 0 : _sentenceAt(loc, from.block, from.charStart);
     final old = _playback;
     if (old != null && old.chapter.part == part) {
+      _cancelOutro();
       await old.seekToSentence(k);
       if (!old.playing.value) await old.toggle();
       return;
@@ -1293,6 +1305,11 @@ class _BookReaderState extends State<BookReader>
     final pb = AudioPlayback(a, ch);
     pb.sentence.addListener(_onSentence);
     pb.onFinished = _onAudioFinished;
+    pb.position.addListener(_onAudioPosition);
+    pb.playing.addListener(_onAudioPlaying);
+    _outroAt = outroStartOf(ch);
+    _outroBegun = false;
+    _lastPlaying = false;
     setState(() {
       _sentLoc = loc;
       _playback = pb;
@@ -1305,6 +1322,57 @@ class _BookReaderState extends State<BookReader>
   /// глава със звук и я пуска. ⚠ Не сваля нищо само (мрежа само по воля на
   /// човека): несвалена следваща беседа — съобщение и стоп.
   Future<void> _onAudioFinished() async {
+    if (_outroBegun && _outro.active) {
+      // Гласът свърши под тихата музика: тя се засилва, звучи сама и
+      // затихва, а следващата беседа почва върху затихването.
+      _outroPending = true;
+      await _outro.finish(onNext: () {
+        if (!_outroPending || !mounted) return;
+        _outroPending = false;
+        _outroCarry = true;
+        unawaited(_goNextAudio().whenComplete(() => _outroCarry = false));
+      });
+      _outroPending = false;
+      return;
+    }
+    await _goNextAudio();
+  }
+
+  /// Музиката влиза под последното изречение (или по-рано, ако то е късо).
+  void _onAudioPosition() {
+    final pb = _playback;
+    if (pb == null) return;
+    final t = pb.position.value;
+    if (_outroBegun) {
+      // Върнал се е назад — музиката си отива; ще влезе пак на мястото си.
+      if (!pb.completed && t < _outroAt - 1) _cancelOutro();
+      return;
+    }
+    if (!AudioOutroSetting.value || !pb.playing.value) return;
+    if (t >= _outroAt && t < pb.chapter.duration - 0.3) {
+      _outroBegun = true;
+      unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, _index)));
+    }
+  }
+
+  /// Пауза насред музиката — тя затихва бързо (и влиза пак при пускане);
+  /// пуснато наново след края, докато музиката звучи — преходът се отменя.
+  void _onAudioPlaying() {
+    final pb = _playback;
+    if (pb == null) return;
+    final v = pb.playing.value;
+    if (_lastPlaying && !v && !pb.completed && _outro.active) _cancelOutro();
+    if (!_lastPlaying && v && _outroPending) _cancelOutro();
+    _lastPlaying = v;
+  }
+
+  void _cancelOutro() {
+    _outroPending = false;
+    _outroBegun = false;
+    if (_outro.active) unawaited(_outro.stop());
+  }
+
+  Future<void> _goNextAudio() async {
     final a = _audio;
     if (!mounted || a == null || !AudioAutoNext.value) return;
     int? next;
@@ -1331,7 +1399,14 @@ class _BookReaderState extends State<BookReader>
     final pb = _playback;
     if (pb == null) return;
     pb.sentence.removeListener(_onSentence);
+    pb.position.removeListener(_onAudioPosition);
+    pb.playing.removeListener(_onAudioPlaying);
     _playback = null;
+    // ⚠ При преминаване към следващата беседа музиката продължава да
+    // затихва върху заглавието ѝ; при всяко друго спиране си отива.
+    if (!_outroCarry) _cancelOutro();
+    _outroBegun = false;
+    _outroPending = false;
     if (!quiet && mounted) {
       setState(() {
         _quoteRegion = -1;

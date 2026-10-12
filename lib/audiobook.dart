@@ -596,6 +596,9 @@ class AudioPlayback {
 
   AudioPlayback(this.book, this.chapter);
 
+  /// Свършила ли е беседата докрай (а не просто на пауза).
+  bool get completed => _main.processingState == ProcessingState.completed;
+
   Future<void> start({int fromSentence = 0}) async {
     await _main.setFilePath(chapter.mp3Path);
     _subs.add(_main.positionStream.listen(_onPosition));

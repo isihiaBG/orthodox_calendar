@@ -112,6 +112,7 @@ flutter:
     # „Читалня" — книгите (.epub, tools/chitalnya/) и кориците им.
     - assets/chitalnya/
     - assets/chitalnya_covers/
+    - assets/audio_outro/
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #
