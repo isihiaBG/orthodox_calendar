@@ -314,6 +314,24 @@ class AudioBook {
   /// Докъде е стигнало „Свали всички" (`null` — не тече). Пази се тук, а не
   /// в етикета: съдържанието може да се затвори насред свалянето.
   int? bulkDone, bulkTotal;
+  int _bulkBytes = 0, _bulkBytesDone = 0;
+  String? _bulkCurrent;
+
+  /// Общият напредък на „Свали всички" по БАЙТОВЕ (0..1) — броят глави лъже,
+  /// защото са различно дълги (c02 е 22 MB, заглавната — половин).
+  double get bulkFraction {
+    if (bulkTotal == null || _bulkBytes <= 0) return 0;
+    final cur = _bulkCurrent;
+    final inCur = cur == null ? 0.0 : (progress[cur] ?? 0) * sizeOf(cur);
+    return ((_bulkBytesDone + inCur) / _bulkBytes).clamp(0.0, 1.0);
+  }
+
+  /// Колко MB от колко — за надписа под кориците.
+  (int, int) get bulkBytes {
+    final cur = _bulkCurrent;
+    final inCur = cur == null ? 0 : ((progress[cur] ?? 0) * sizeOf(cur)).round();
+    return (_bulkBytesDone + inCur, _bulkBytes);
+  }
 
   /// Сваля всички несвалени глави една след друга. Връща грешка или `null`.
   Future<String?> downloadAll() async {
@@ -321,13 +339,18 @@ class AudioBook {
     final todo = missingParts();
     bulkTotal = todo.length;
     bulkDone = 0;
+    _bulkBytes = todo.fold(0, (a, p) => a + sizeOf(p));
+    _bulkBytesDone = 0;
     revision.value++;
     try {
       for (final p in todo) {
         if (!isDownloaded(p)) {
+          _bulkCurrent = p;
           final err = await download(p);
           if (err != null) return err;
         }
+        _bulkCurrent = null;
+        _bulkBytesDone += sizeOf(p);
         bulkDone = bulkDone! + 1;
         revision.value++;
       }
@@ -335,6 +358,7 @@ class AudioBook {
     } finally {
       bulkDone = null;
       bulkTotal = null;
+      _bulkCurrent = null;
       revision.value++;
     }
   }

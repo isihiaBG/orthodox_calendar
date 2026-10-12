@@ -253,7 +253,7 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
         }
         final (n, got) = book.counts();
         if (n == 0) return const SizedBox.shrink();
-        return Padding(
+        final row = Padding(
           padding: const EdgeInsets.symmetric(vertical: 6),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
             const Icon(Icons.headphones, size: 16, color: AppColors.sectionTitle),
@@ -266,6 +266,29 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
             AudioDownloadAllButton(book),
           ]),
         );
+        // Докато тече „Свали всички" — лента с общия напредък по байтове и
+        // колко MB от колко: може да трае минути (искане на автора).
+        if (book.bulkTotal != null) {
+          final (done, all) = book.bulkBytes;
+          return Column(mainAxisSize: MainAxisSize.min, children: [
+            row,
+            SizedBox(
+              width: 260,
+              child: LinearProgressIndicator(
+                value: book.bulkFraction,
+                minHeight: 4,
+                backgroundColor: AppColors.sectionDivider,
+                color: AppColors.sectionTitle,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+                'Глава ${book.bulkDone! + 1} от ${book.bulkTotal} · '
+                '${audioSizeLabel(done)} от ${audioSizeLabel(all)}',
+                style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+          ]);
+        }
+        return row;
       },
     );
   }
@@ -316,7 +339,7 @@ class AudioDownloadAllButton extends StatelessWidget {
         final total = book.bulkTotal;
         final Widget inner;
         if (total != null) {
-          inner = Text('всички: ${book.bulkDone! + 1}/$total', style: muted);
+          inner = Text('всички ${(book.bulkFraction * 100).floor()}%', style: muted);
         } else if (book.missingParts().isEmpty) {
           return const SizedBox.shrink();
         } else {
