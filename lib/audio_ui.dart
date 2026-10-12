@@ -269,6 +269,88 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
   }
 }
 
+/// „Свали всички" — на първия ред на съдържанието, до етикета със
+/// слушалките (искане на автора, 12.10.2026). Показва се само ако има
+/// несвалено.
+class AudioDownloadAllButton extends StatelessWidget {
+  final AudioBook book;
+  const AudioDownloadAllButton(this.book, {super.key});
+
+  Future<void> _ask(BuildContext context) async {
+    final todo = book.missingParts();
+    if (todo.isEmpty) return;
+    final bytes = todo.fold<int>(0, (a, p) => a + book.sizeOf(p));
+    final palette = ReaderTheme.palette;
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: palette.sheet,
+        title: Text('Сваляне на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+        content: Text(
+          'Да сваля ли звука на всички ${todo.length} '
+          '${todo.length == 1 ? 'глава' : 'глави'}, които още ги няма на телефона? '
+          'Общо ${audioSizeLabel(bytes)}, безплатно. После се слушат и без интернет.',
+          style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Свали')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final err = await book.downloadAll();
+    messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е свален.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: book.revision,
+      builder: (context, _, _) {
+        const muted = TextStyle(
+            color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
+        final total = book.bulkTotal;
+        final Widget inner;
+        if (total != null) {
+          inner = Text('всички: ${book.bulkDone! + 1}/$total', style: muted);
+        } else if (book.missingParts().isEmpty) {
+          return const SizedBox.shrink();
+        } else {
+          inner = const Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.download, size: 14, color: AppColors.textSecondary),
+            SizedBox(width: 3),
+            Text('всички', style: muted),
+          ]);
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: InkWell(
+            borderRadius: BorderRadius.circular(10),
+            onTap: total != null ? null : () => _ask(context),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppColors.textSecondary.withValues(alpha: 0.5)),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: inner,
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+extension AudioDownloadAllExt on Widget {
+  /// Слага „Свали всички" вдясно от етикета (само ако [book] не е `null`).
+  Widget withDownloadAll(AudioBook? book) => book == null
+      ? this
+      : Row(mainAxisSize: MainAxisSize.min, children: [this, AudioDownloadAllButton(book)]);
+}
+
 String _clock(double s) {
   final t = s.isFinite ? s.round() : 0;
   return '${t ~/ 60}:${(t % 60).toString().padLeft(2, '0')}';

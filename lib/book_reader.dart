@@ -3885,7 +3885,7 @@ class _TocSheetState extends State<_TocSheet> {
           onLongPress: () => askAudioDelete(context, a, part, title: entry.title),
         ),
       ),
-    );
+    ).withDownloadAll(at == 0 ? a : null);
   }
 
   @override

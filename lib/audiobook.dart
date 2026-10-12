@@ -305,6 +305,40 @@ class AudioBook {
     return (chapters.length, chapters.where(_downloaded.contains).length);
   }
 
+  /// Главите със звук, които още не са свалени (бележките се теглят с тях).
+  List<String> missingParts() => [
+        for (final k in _parts.keys)
+          if (!k.startsWith('note') && !_downloaded.contains(k)) k
+      ]..sort((a, b) => a == 'title' ? -1 : b == 'title' ? 1 : a.compareTo(b));
+
+  /// Докъде е стигнало „Свали всички" (`null` — не тече). Пази се тук, а не
+  /// в етикета: съдържанието може да се затвори насред свалянето.
+  int? bulkDone, bulkTotal;
+
+  /// Сваля всички несвалени глави една след друга. Връща грешка или `null`.
+  Future<String?> downloadAll() async {
+    if (bulkTotal != null) return null;
+    final todo = missingParts();
+    bulkTotal = todo.length;
+    bulkDone = 0;
+    revision.value++;
+    try {
+      for (final p in todo) {
+        if (!isDownloaded(p)) {
+          final err = await download(p);
+          if (err != null) return err;
+        }
+        bulkDone = bulkDone! + 1;
+        revision.value++;
+      }
+      return null;
+    } finally {
+      bulkDone = null;
+      bulkTotal = null;
+      revision.value++;
+    }
+  }
+
   /// Има ли беседата звук (в изданието).
   bool has(String? part) => part != null && _parts.containsKey(part);
 
