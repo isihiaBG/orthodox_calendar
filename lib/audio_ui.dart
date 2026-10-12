@@ -262,6 +262,8 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
                 'Със звук: $n ${n == 1 ? 'глава' : 'глави'}'
                 '${got > 0 ? ' · $got ${got == 1 ? 'свалена' : 'свалени'}' : ''}',
                 style: style),
+            // Същото „всички" като на първия ред в съдържанието.
+            AudioDownloadAllButton(book),
           ]),
         );
       },
