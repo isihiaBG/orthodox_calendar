@@ -940,6 +940,26 @@ class _BookReaderState extends State<BookReader>
       });
       return;
     }
+    // Докато се чете на глас — след завъртането се застава при ТЕКУЩОТО
+    // изречение, а не при най-горния ред (12.10.2026). Целта се смята
+    // наново от живата геометрия на всяка стъпка: Android завърта на
+    // стъпки (виж молитвослова), а листовете на заглавната и картинките
+    // сменят височината си с ширината.
+    if (_playback != null) {
+      for (final ms in const [80, 400, 900]) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          Future.delayed(Duration(milliseconds: ms), () {
+            if (!mounted || !_scroll.hasClients || _playback == null) return;
+            final k = _playback!.sentence.value;
+            final loc = (k >= 0 && k < _sentLoc.length) ? _sentLoc[k] : null;
+            if (loc == null) return;
+            final t = _glideTarget(loc.$1, loc.$2, force: true);
+            if (t != null) _scroll.jumpTo(t);
+          });
+        });
+      }
+      return;
+    }
     final at = _topmostLine();
     if (at == null) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1398,12 +1418,39 @@ class _BookReaderState extends State<BookReader>
   /// ⚠⚠ ПЛАВНО, „много плавно" (изрично от автора). Плъзга се само когато
   /// изречението излезе извън удобната ивица на екрана, и то с дълга, мека
   /// крива — текстът тръгва, не подскача.
-  void _glideToLine(int region, int charInRegion) {
+  void _glideToLine(int region, int charInRegion, {bool again = false}) {
     if (!mounted || !_scroll.hasClients) return;
-    if (region < 0 || region >= _regionKeys.length) return;
+    final target = _glideTarget(region, charInRegion);
+    if (target == null) return;
+    final pb = _playback, k = pb?.sentence.value;
+    _scroll
+        .animateTo(target,
+            duration: Duration(milliseconds: again ? 600 : 1400),
+            curve: Curves.easeInOutCubic)
+        .then((_) {
+      // ⚠ Целта се смята веднъж, в началото на кривата. Мръдне ли
+      // подредбата междувременно (картинка, лист, построен по-късно),
+      // плъзгането спираше встрани — затова още ЕДНА проверка накрая
+      // (12.10.2026). Не и ако човек е плъзнал сам или изречението вече е
+      // друго.
+      if (again || !mounted || !_scroll.hasClients) return;
+      if (_playback != pb || pb?.sentence.value != k) return;
+      if (DateTime.now().difference(_userScrolledAt).inSeconds < 5) return;
+      final t2 = _glideTarget(region, charInRegion);
+      if (t2 != null && (t2 - _scroll.position.pixels).abs() > 8) {
+        _glideToLine(region, charInRegion, again: true);
+      }
+    });
+  }
+
+  /// Докъде да се плъзне при четене на глас — `null`, ако не трябва.
+  ///
+  /// [force] — без „удобната ивица": целта се връща винаги (при завъртане).
+  double? _glideTarget(int region, int charInRegion, {bool force = false}) {
+    if (region < 0 || region >= _regionKeys.length) return null;
     final position = _scroll.position;
     final box = _regionKeys[region].currentContext?.findRenderObject() as RenderBox?;
-    if (box == null) return;
+    if (box == null) return null;
     // ⚠ На заглавната (листове, всеки висок колкото екрана и центриран)
     // се плъзга до ЦЕЛИЯ ЛИСТ, не до реда: изречение, вдигнато на 30% от
     // екрана, реже листа и го показва „много по-нагоре" (автора,
@@ -1413,23 +1460,18 @@ class _BookReaderState extends State<BookReader>
     if (sheet != null && sheet.size.height <= position.viewportDimension + 1) {
       final top = RenderAbstractViewport.of(sheet).getOffsetToReveal(sheet, 0).offset
           .clamp(position.minScrollExtent, position.maxScrollExtent);
-      if ((top - position.pixels).abs() < 2) return;
-      _scroll.animateTo(top,
-          duration: const Duration(milliseconds: 1400), curve: Curves.easeInOutCubic);
-      return;
+      if (!force && (top - position.pixels).abs() < 2) return null;
+      return top;
     }
     final line = _lineForChar(_currentRegions(), region, charInRegion, box.size.width);
-    if (line == null) return;
+    if (line == null) return null;
     final top = RenderAbstractViewport.of(box)
         .getOffsetToReveal(box, 0, rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2))
         .offset;
     final vp = position.viewportDimension;
     final y = top - position.pixels;
-    if (y >= vp * 0.12 && y <= vp * 0.62) return;
-    final target = (top - vp * 0.3)
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
-    _scroll.animateTo(target,
-        duration: const Duration(milliseconds: 1400), curve: Curves.easeInOutCubic);
+    if (!force && y >= vp * 0.12 && y <= vp * 0.62) return null;
+    return (top - vp * 0.3).clamp(position.minScrollExtent, position.maxScrollExtent);
   }
 
   /// Коя част от цитата се пада на регион [i].
@@ -2187,6 +2229,9 @@ class _BookReaderState extends State<BookReader>
         collapsible: widget.book.collapsibleToc,
         wholeBook: _isChitalnya,
         audio: _audio,
+        beforeAudioRemove: (parts) async {
+          if (parts.contains(_playback?.chapter.part)) await _stopAudio();
+        },
       ),
     );
     // Число — избрано четиво; низ — Enter при „в целия том" (виж
@@ -3333,10 +3378,14 @@ class _TocSheet extends StatefulWidget {
     this.collapsible = false,
     this.wholeBook = false,
     this.audio,
+    this.beforeAudioRemove,
   });
 
   /// Звукът на книгата — за етикета до всяка глава със звук.
   final AudioBook? audio;
+
+  /// Спира плейъра, ако свири глава, чийто звук ще се изтрие.
+  final Future<void> Function(Set<String>)? beforeAudioRemove;
 
   /// Книга от „Читалня" — само за надписите на разширеното търсене.
   final bool wholeBook;
@@ -3434,6 +3483,9 @@ class _TocSheetState extends State<_TocSheet> {
     // Последната промяна на размера иначе се губи, ако панелът се затвори
     // преди изтичането на трите секунди покой.
     TocFontSize.flush();
+    // Изтритото в режима за избор влиза в сила и когато съдържанието се
+    // затвори направо (плъзгане надолу), без ✕.
+    _commitPending();
     _scroll.dispose();
     _searchCtrl.dispose();
     super.dispose();
@@ -3456,6 +3508,194 @@ class _TocSheetState extends State<_TocSheet> {
   /// които се и рисуват. Мерещият трябва да е огледален на рисуващия —
   /// затова редовете се рисуват с `RichText`, а не с `Text`: `Text` слива
   /// стила по подразбиране от контекста, а мерещият не го вижда.
+  // ── Изборът на глави за изтриване на звука (12.10.2026) ──────────────
+  //
+  // Като редакцията в списъка с отметки: задържане върху етикета (или
+  // „Избери за изтриване" от ⋮) влиза в режима, лентата горе става ✕ /
+  // „Избрани: N · MB" / всички / кошче, а етикетите на свалените глави —
+  // отметки. `null` — режимът е изключен.
+  Set<String>? _selected;
+
+  /// Изтритото в режима, още НЕ изтрито от диска — като в списъка с
+  /// отметки, промените влизат в сила при излизане от редакцията, а
+  /// дотогава „отмени" ги връща (искане на автора, 12.10.2026). Затова
+  /// „Изтрий звука" тук не пита.
+  final List<String> _pending = [];
+  final List<List<String>> _undo = [];
+
+  bool get _selecting => _selected != null;
+
+  /// Свалените глави, без чакащите за изтриване.
+  List<String> get _selectable => [
+        for (final p in widget.audio!.downloadedParts())
+          if (!_pending.contains(p)) p
+      ];
+
+  void _startSelecting([String? part]) =>
+      setState(() => _selected = {if (part != null) part});
+
+  void _stopSelecting() {
+    _commitPending();
+    setState(() => _selected = null);
+  }
+
+  /// Трие наистина. Вика се при излизане от режима и при затваряне на
+  /// съдържанието (dispose) — тогава без чакане, затова плейърът се спира
+  /// първо.
+  void _commitPending() {
+    if (_pending.isEmpty) return;
+    final parts = [..._pending];
+    _pending.clear();
+    _undo.clear();
+    final a = widget.audio!;
+    () async {
+      await widget.beforeAudioRemove?.call(parts.toSet());
+      await a.removeMany(parts);
+    }();
+  }
+
+  void _toggleSelected(String part) => setState(() {
+        if (!_selected!.remove(part)) _selected!.add(part);
+      });
+
+  void _deleteSelected() => setState(() {
+        final parts = [for (final p in _selectable) if (_selected!.contains(p)) p];
+        if (parts.isEmpty) return;
+        _pending.addAll(parts);
+        _undo.add(parts);
+        _selected = {};
+      });
+
+  void _undoLast() => setState(() {
+        if (_undo.isEmpty) return;
+        final back = _undo.removeLast();
+        _pending.removeWhere(back.contains);
+        _selected = back.toSet();
+      });
+
+  /// Лентата в режима за избор — на мястото на търсенето, в същата височина.
+  /// Устроена като лентата на списъка с отметки в редакция: ✕ вляво,
+  /// надпис, копчетата вдясно с отстъп 8 от ръба; мъртвото копче е сиво
+  /// ([AppColors.textMuted]), не скрито.
+  Widget _selectBar(BuildContext context) {
+    final fg = AppBarTheme.of(context).foregroundColor ?? Colors.white;
+    final a = widget.audio!;
+    final all = _selectable;
+    final sel = [for (final p in all) if (_selected!.contains(p)) p];
+    final everything = sel.length == all.length && all.isNotEmpty;
+    return Container(
+      color: AppColors.toolbar,
+      padding: const EdgeInsets.fromLTRB(4, 0, 8, 2),
+      child: SizedBox(
+        height: 54,
+        child: Row(children: [
+          IconButton(
+            tooltip: 'Готово',
+            icon: Icon(Icons.close, color: fg),
+            onPressed: _stopSelecting,
+          ),
+          // Слушалките отпред казват, че се избира ЗВУКЪТ, а не главите
+          // (бележка на автора: голо кошче в съдържанието се чете като
+          // „изтрий главата").
+          const Icon(Icons.headphones, size: 18, color: AppColors.sectionTitle),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(sel.isEmpty ? 'Избери звук' : 'Избрани: ${sel.length}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                        color: fg, fontSize: 16, fontWeight: FontWeight.w500, height: 1.15)),
+                if (sel.isNotEmpty)
+                  Text(audioSizeLabel(a.bytesOf(sel)),
+                      maxLines: 1,
+                      style: TextStyle(
+                          color: fg.withValues(alpha: 0.7), fontSize: 12.5, height: 1.15)),
+              ],
+            ),
+          ),
+          // Цветът е ИЗРИЧЕН и сив без стъпка за връщане — както в
+          // списъка с отметки.
+          IconButton(
+            tooltip: 'Отмени',
+            icon: Icon(Icons.undo, color: _undo.isEmpty ? AppColors.textMuted : fg),
+            onPressed: _undo.isEmpty ? null : _undoLast,
+          ),
+          IconButton(
+            tooltip: everything ? 'Махни избора' : 'Избери всички',
+            icon: Icon(everything ? Icons.deselect : Icons.select_all,
+                color: all.isEmpty ? AppColors.textMuted : fg),
+            onPressed: all.isEmpty
+                ? null
+                : () => setState(() => _selected = everything ? {} : all.toSet()),
+          ),
+          // С НАДПИС, не голо кошче — виж слушалките по-горе.
+          TextButton.icon(
+            onPressed: sel.isEmpty ? null : _deleteSelected,
+            style: TextButton.styleFrom(
+              foregroundColor: fg,
+              disabledForegroundColor: AppColors.textMuted,
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              visualDensity: VisualDensity.compact,
+            ),
+            icon: const Icon(Icons.headset_off, size: 20),
+            label: const Text('Изтрий звука', style: TextStyle(fontSize: 14.5)),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Отметката на мястото на етикета — само за СВАЛЕНИ глави; несвалените
+  /// остават без нищо (няма какво да се трие). Цветовете са от палитрата на
+  /// четеца, тъй че се четат и в светла, и в тъмна тема; запълнена е в
+  /// синьото на „свалено" ([AppColors.sectionTitle]) — същото като иконката
+  /// на сваления етикет.
+  Widget? _selectBox(String part) {
+    if (!widget.audio!.isDownloaded(part)) return null;
+    // Изтрита в режима (още може да се отмени) — угасени слушалки.
+    if (_pending.contains(part)) {
+      return Padding(
+        padding: const EdgeInsets.only(left: 10, top: 2),
+        child: Icon(Icons.headset_off, size: 16, color: widget.palette.dim),
+      );
+    }
+    // В рамката на етикета и до слушалките му — изборът се чете като избор
+    // на ЗВУКА, а не на главата.
+    return Padding(
+      padding: const EdgeInsets.only(left: 10, top: 2),
+      child: Transform.translate(
+        offset: const Offset(0, -2),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(7, 1, 2, 1),
+          decoration: BoxDecoration(
+            color: widget.palette.ink.withValues(alpha: 0.07),
+            borderRadius: BorderRadius.circular(5),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle),
+            SizedBox(
+              width: 26,
+              height: 22,
+              child: Checkbox(
+                value: _selected!.contains(part),
+                onChanged: (_) => _toggleSelected(part),
+                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                visualDensity: const VisualDensity(horizontal: -4, vertical: -4),
+                activeColor: AppColors.sectionTitle,
+                checkColor: Colors.white,
+                side: BorderSide(color: widget.palette.dim, width: 1.5),
+              ),
+            ),
+          ]),
+        ),
+      ),
+    );
+  }
+
   void _measure(double width) {
     if (width == _measuredWidth && TocFontSize.value == _measuredSize) return;
     _measuredWidth = width;
@@ -3820,8 +4060,18 @@ class _TocSheetState extends State<_TocSheet> {
         (c) => c.href == entry.href && c.anchor == entry.anchor);
     final isCurrent = at == widget.current;
     final isDay = _isGroup(entry, depth);
+    final part = AudioBook.partOf(entry.href);
+    final VoidCallback? tap = _selecting
+        ? (part != null &&
+                (widget.audio?.isDownloaded(part) ?? false) &&
+                !_pending.contains(part)
+            ? () => _toggleSelected(part)
+            : null)
+        : at < 0
+            ? null
+            : () => Navigator.of(context).pop(at);
     return InkWell(
-      onTap: at < 0 ? null : () => Navigator.of(context).pop(at),
+      onTap: tap,
       child: Container(
         color: isCurrent ? widget.palette.here : null,
         padding: EdgeInsets.fromLTRB(
@@ -3868,6 +4118,7 @@ class _TocSheetState extends State<_TocSheet> {
     final a = widget.audio;
     final part = AudioBook.partOf(entry.href);
     if (a == null || part == null || at < 0 || !a.has(part)) return null;
+    if (_selecting) return _selectBox(part);
     return Padding(
       padding: const EdgeInsets.only(left: 10),
       child: Transform.translate(
@@ -3883,14 +4134,31 @@ class _TocSheetState extends State<_TocSheet> {
               await downloadAudioWithPrompt(context, a, part, title: entry.title);
             }
           },
-          onLongPress: () => askAudioDelete(context, a, part, title: entry.title),
+          // Задържането вече НЕ пита за една глава, а влиза в избора —
+          // с тази глава отметната (12.10.2026).
+          onLongPress: () => _startSelecting(part),
         ),
       ),
-    ).withDownloadAll(at == 0 ? a : null, ink: widget.palette.ink);
+    ).withDownloadAll(at == 0 ? a : null,
+        ink: widget.palette.ink,
+        onSelect: _startSelecting,
+        beforeRemove: widget.beforeAudioRemove);
   }
 
   @override
   Widget build(BuildContext context) {
+    // В режима за избор системното „назад" само излиза от него — като в
+    // списъка с отметки, — а не затваря съдържанието.
+    return PopScope(
+      canPop: !_selecting,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _stopSelecting();
+      },
+      child: _body(context),
+    );
+  }
+
+  Widget _body(BuildContext context) {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -3919,7 +4187,7 @@ class _TocSheetState extends State<_TocSheet> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-              _bar(context),
+              _selecting ? _selectBar(context) : _bar(context),
             ],
           ),
         ),

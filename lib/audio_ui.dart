@@ -77,6 +77,71 @@ Future<bool> askAudioDelete(BuildContext context, AudioBook book, String part,
   return ok == true;
 }
 
+/// „Свали всички" — питане с общия размер, после сваляне поред. Общо за
+/// етикета „↓ всички" и за менюто ⋮.
+Future<void> askAudioDownloadAll(BuildContext context, AudioBook book) async {
+  final todo = book.missingParts();
+  if (todo.isEmpty) return;
+  final bytes = todo.fold<int>(0, (a, p) => a + book.sizeOf(p));
+  final palette = ReaderTheme.palette;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Сваляне на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        'Да сваля ли звука на всички ${todo.length} '
+        '${todo.length == 1 ? 'глава' : 'глави'}, които още ги няма на телефона? '
+        'Общо ${audioSizeLabel(bytes)}, безплатно. После се слушат и без интернет.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Свали')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final err = await book.downloadAll();
+  messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е свален.')));
+}
+
+/// Пита и изтрива звука на няколко глави наведнъж (или на всички) — ЕДНО
+/// питане с общия размер (искане на автора, 12.10.2026: едно по едно със
+/// задържане беше бавно). [beforeRemove] спира плейъра, ако свири някоя от
+/// тях. Връща `true`, ако е изтрито.
+Future<bool> askAudioDeleteMany(BuildContext context, AudioBook book, List<String> parts,
+    {Future<void> Function(Set<String>)? beforeRemove}) async {
+  if (parts.isEmpty) return false;
+  final palette = ReaderTheme.palette;
+  final all = parts.length == book.downloadedParts().length;
+  final n = parts.length;
+  final glavi = '$n ${n == 1 ? 'глава' : 'глави'}';
+  final what = all ? 'целия свален звук на книгата ($glavi)' : 'звука на $glavi';
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Изтриване на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        'Да изтрия ли $what от телефона? '
+        'Освобождава ${audioSizeLabel(book.bytesOf(parts))}. '
+        'Може да се свали пак по всяко време.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Изтрий')),
+      ],
+    ),
+  );
+  if (ok != true) return false;
+  await beforeRemove?.call(parts.toSet());
+  await book.removeMany(parts);
+  return true;
+}
+
 /// Етикетът в съдържанието.
 class AudioChip extends StatelessWidget {
   final AudioBook book;
@@ -273,8 +338,9 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
                 'Със звук: $n ${n == 1 ? 'глава' : 'глави'}'
                 '${got > 0 ? ' · $got ${got == 1 ? 'свалена' : 'свалени'}' : ''}',
                 style: style),
-            // Същото „всички" като на първия ред в съдържанието.
+            // Същото „всички" и ⋮ като на първия ред в съдържанието.
             AudioDownloadAllButton(book),
+            AudioMoreButton(book),
           ]),
         );
         // Докато тече „Свали всички" — лента с общия напредък по байтове и
@@ -315,33 +381,7 @@ class AudioDownloadAllButton extends StatelessWidget {
   final Color? ink;
   const AudioDownloadAllButton(this.book, {super.key, this.ink});
 
-  Future<void> _ask(BuildContext context) async {
-    final todo = book.missingParts();
-    if (todo.isEmpty) return;
-    final bytes = todo.fold<int>(0, (a, p) => a + book.sizeOf(p));
-    final palette = ReaderTheme.palette;
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: palette.sheet,
-        title: Text('Сваляне на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
-        content: Text(
-          'Да сваля ли звука на всички ${todo.length} '
-          '${todo.length == 1 ? 'глава' : 'глави'}, които още ги няма на телефона? '
-          'Общо ${audioSizeLabel(bytes)}, безплатно. После се слушат и без интернет.',
-          style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Свали')),
-        ],
-      ),
-    );
-    if (ok != true) return;
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    final err = await book.downloadAll();
-    messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е свален.')));
-  }
+  Future<void> _ask(BuildContext context) => askAudioDownloadAll(context, book);
 
   @override
   Widget build(BuildContext context) {
@@ -384,13 +424,120 @@ class AudioDownloadAllButton extends StatelessWidget {
   }
 }
 
+/// ⋮ до „↓ всички" — сваляне на останалото, избор за изтриване и
+/// изтриване на целия звук (искане на автора, 12.10.2026). Стои и на първия
+/// ред на съдържанието, и под кориците. Видно е само ако поне една глава е
+/// свалена — иначе работата му я върши „↓ всички".
+///
+/// Менюто е във вида на менюто зад трите точки в четеца
+/// ([showReaderMoreMenu]): същият тъмен фон, ъгли, иконки 24 и текст 16.
+class AudioMoreButton extends StatelessWidget {
+  final AudioBook book;
+
+  /// Като [AudioChip.ink].
+  final Color? ink;
+
+  /// Влиза в режима за избор в съдържанието. `null` — точката я няма (под
+  /// кориците съдържание няма).
+  final VoidCallback? onSelect;
+
+  /// Спира плейъра, ако свири глава, която ще се изтрие.
+  final Future<void> Function(Set<String>)? beforeRemove;
+
+  const AudioMoreButton(this.book,
+      {super.key, this.ink, this.onSelect, this.beforeRemove});
+
+  Future<void> _open(BuildContext context) async {
+    final box = context.findRenderObject() as RenderBox;
+    final overlay = Overlay.of(context).context.findRenderObject() as RenderBox;
+    final at = box.localToGlobal(Offset(0, box.size.height), ancestor: overlay);
+    final missing = book.missingParts(), got = book.downloadedParts();
+    Widget row(IconData icon, String label) => Row(children: [
+          Icon(icon, size: 24, color: AppColors.textSecondary),
+          const SizedBox(width: 12),
+          Text(label, style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+        ]);
+    const pad = EdgeInsets.symmetric(horizontal: 16);
+    final v = await showMenu<String>(
+      context: context,
+      color: AppColors.backgroundCard,
+      elevation: 8,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      position: RelativeRect.fromRect(at & const Size(1, 1), Offset.zero & overlay.size),
+      items: [
+        if (missing.isNotEmpty)
+          PopupMenuItem(
+              value: 'download',
+              padding: pad,
+              child: row(Icons.download,
+                  'Свали останалите (${audioSizeLabel(book.bytesOf(missing))})')),
+        if (onSelect != null)
+          PopupMenuItem(
+              value: 'select',
+              padding: pad,
+              child: row(Icons.checklist, 'Избери за изтриване')),
+        PopupMenuItem(
+            value: 'delete',
+            padding: pad,
+            child: row(Icons.headset_off,
+                'Изтрий целия звук (${audioSizeLabel(book.bytesOf(got))})')),
+      ],
+    );
+    if (!context.mounted) return;
+    switch (v) {
+      case 'download':
+        await askAudioDownloadAll(context, book);
+      case 'select':
+        onSelect?.call();
+      case 'delete':
+        await askAudioDeleteMany(context, book, book.downloadedParts(),
+            beforeRemove: beforeRemove);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<int>(
+      valueListenable: book.revision,
+      builder: (context, _, _) {
+        // Докато тече „всички" — нищо: менюто би предложило да се трие
+        // онова, което в същия миг се сваля.
+        if (book.bulkTotal != null || book.downloadedParts().isEmpty) {
+          return const SizedBox.shrink();
+        }
+        return Padding(
+          padding: const EdgeInsets.only(left: 2),
+          child: Tooltip(
+            message: 'Звукът на книгата',
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: () => _open(context),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: Icon(Icons.more_vert, size: 18, color: ink ?? AppColors.textSecondary),
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
 extension AudioDownloadAllExt on Widget {
-  /// Слага „Свали всички" вдясно от етикета (само ако [book] не е `null`).
-  Widget withDownloadAll(AudioBook? book, {Color? ink}) => book == null
-      ? this
-      : Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [this, AudioDownloadAllButton(book, ink: ink)]);
+  /// Слага „Свали всички" и ⋮ вдясно от етикета (само ако [book] не е `null`).
+  Widget withDownloadAll(AudioBook? book,
+          {Color? ink,
+          VoidCallback? onSelect,
+          Future<void> Function(Set<String>)? beforeRemove}) =>
+      book == null
+          ? this
+          : Row(mainAxisSize: MainAxisSize.min, children: [
+              this,
+              AudioDownloadAllButton(book, ink: ink),
+              AudioMoreButton(book,
+                  ink: ink, onSelect: onSelect, beforeRemove: beforeRemove),
+            ]);
 }
 
 String _clock(double s) {

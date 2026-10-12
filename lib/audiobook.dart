@@ -311,6 +311,16 @@ class AudioBook {
           if (!k.startsWith('note') && !_downloaded.contains(k)) k
       ]..sort((a, b) => a == 'title' ? -1 : b == 'title' ? 1 : a.compareTo(b));
 
+  /// Свалените глави (без бележките), в реда на книгата — за изтриването на
+  /// няколко или на всички наведнъж.
+  List<String> downloadedParts() => [
+        for (final k in _parts.keys)
+          if (!k.startsWith('note') && _downloaded.contains(k)) k
+      ]..sort((a, b) => a == 'title' ? -1 : b == 'title' ? 1 : a.compareTo(b));
+
+  /// Колко тежат заедно.
+  int bytesOf(Iterable<String> parts) => parts.fold(0, (a, p) => a + sizeOf(p));
+
   /// Докъде е стигнало „Свали всички" (`null` — не тече). Пази се тук, а не
   /// в етикета: съдържанието може да се затвори насред свалянето.
   int? bulkDone, bulkTotal;
@@ -434,6 +444,20 @@ class AudioBook {
     }
     _downloaded.remove(part);
     revision.value++;
+  }
+
+  /// Изтрива няколко глави наведнъж. Не остане ли свалена нито една глава,
+  /// отиват и бележките — инак след „изтрий всички" на телефона остават
+  /// дребни файлове, които никъде не се виждат.
+  Future<void> removeMany(Iterable<String> parts) async {
+    for (final p in [...parts]) {
+      await remove(p);
+    }
+    if (downloadedParts().isEmpty) {
+      for (final n in [..._downloaded]) {
+        if (n.startsWith('note')) await remove(n);
+      }
+    }
   }
 
   Future<String?> _fetchTo(String part, String ext, void Function(int)? onBytes) async {

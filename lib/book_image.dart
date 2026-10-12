@@ -11,6 +11,8 @@
 // Липсва ли файлът, не се рисува НИЩО — орнамент, който го няма, не бива да
 // оставя счупена иконка насред заглавната страница.
 
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_html/flutter_html.dart';
 
@@ -70,7 +72,22 @@ class BookImageExtension extends HtmlExtension {
                 const ColorFilter.mode(Color(0xFFC9B48A), BlendMode.srcIn),
             child: child)
         : child;
-    final image = paint(Image.memory(bytes, fit: BoxFit.scaleDown));
+    // ⚠⚠ РАЗМЕРЪТ СЕ ЗАДЕЛЯ ПРЕДИ ДЕКОДИРАНЕТО (12.10.2026). `Image.memory`
+    // е с височина 0, докато картинката не се декодира (асинхронно), и
+    // после израства — всичко под нея се измества. Плъзгането при четене
+    // на глас смяташе целта върху „плоските" корица и икони и на заглавната
+    // недоскролваше (докладвано от автора). Размерът се чете от заглавката
+    // на файла — без декодиране.
+    final dims = encodedImageSize(bytes);
+    Widget sized(Widget img) => dims == null
+        ? img
+        : AspectRatio(aspectRatio: dims.$1 / dims.$2, child: img);
+    final image = paint(dims == null
+        ? Image.memory(bytes, fit: BoxFit.scaleDown)
+        // Естествената ширина като таван — като при `scaleDown`.
+        : ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: dims.$1.toDouble()),
+            child: sized(Image.memory(bytes, fit: BoxFit.contain))));
     // Корицата (`data-cover`) — от край до край, без въздух около нея
     // (указание на автора). Полетата на страницата ги маха book_reader
     // (`_pageGroups`); тук — само собственият отстъп на картинката.
@@ -81,7 +98,7 @@ class BookImageExtension extends HtmlExtension {
       return WidgetSpan(
         child: SizedBox(
           width: double.infinity,
-          child: Image.memory(bytes, fit: BoxFit.fitWidth),
+          child: sized(Image.memory(bytes, fit: BoxFit.fitWidth)),
         ),
       );
     }
@@ -98,7 +115,7 @@ class BookImageExtension extends HtmlExtension {
               // мерене (не дава вградени размери).
               : FractionallySizedBox(
                   widthFactor: frac.clamp(0.05, 1.0),
-                  child: paint(Image.memory(bytes, fit: BoxFit.contain)),
+                  child: paint(sized(Image.memory(bytes, fit: BoxFit.contain))),
                 ),
         ),
       ),
@@ -125,4 +142,68 @@ class BookImageExtension extends HtmlExtension {
     }
     return parts.join('/');
   }
+}
+
+/// Ширината и височината на картинка в пиксели, прочетени от ЗАГЛАВКАТА на
+/// файла (PNG, JPEG, WebP, GIF) — без декодиране. `null`, ако форматът не е
+/// познат или файлът е повреден; тогава картинката се рисува по старому.
+(int, int)? encodedImageSize(Uint8List b) {
+  int be16(int i) => (b[i] << 8) | b[i + 1];
+  int le16(int i) => b[i] | (b[i + 1] << 8);
+  int be32(int i) => (b[i] << 24) | (b[i + 1] << 16) | (b[i + 2] << 8) | b[i + 3];
+  bool tag(int i, String t) {
+    if (i + t.length > b.length) return false;
+    for (var k = 0; k < t.length; k++) {
+      if (b[i + k] != t.codeUnitAt(k)) return false;
+    }
+    return true;
+  }
+
+  (int, int)? ok(int w, int h) => w > 0 && h > 0 ? (w, h) : null;
+  try {
+    if (b.length > 24 && b[0] == 0x89 && tag(1, 'PNG')) {
+      return ok(be32(16), be32(20));
+    }
+    if (b.length > 10 && (tag(0, 'GIF87a') || tag(0, 'GIF89a'))) {
+      return ok(le16(6), le16(8));
+    }
+    if (b.length > 30 && tag(0, 'RIFF') && tag(8, 'WEBP')) {
+      if (tag(12, 'VP8 ')) return ok(le16(26) & 0x3FFF, le16(28) & 0x3FFF);
+      if (tag(12, 'VP8L')) {
+        final w = 1 + (b[21] | ((b[22] & 0x3F) << 8));
+        final h = 1 + ((b[22] >> 6) | (b[23] << 2) | ((b[24] & 0x0F) << 10));
+        return ok(w, h);
+      }
+      if (tag(12, 'VP8X')) {
+        final w = 1 + (b[24] | (b[25] << 8) | (b[26] << 16));
+        final h = 1 + (b[27] | (b[28] << 8) | (b[29] << 16));
+        return ok(w, h);
+      }
+      return null;
+    }
+    if (b.length > 4 && b[0] == 0xFF && b[1] == 0xD8) {
+      var i = 2;
+      while (i + 9 < b.length) {
+        if (b[i] != 0xFF) {
+          i++;
+          continue;
+        }
+        final m = b[i + 1];
+        if (m == 0xFF) {
+          i++;
+          continue;
+        }
+        // SOF0–SOF15 без DHT (C4), JPG (C8) и DAC (CC).
+        if (m >= 0xC0 && m <= 0xCF && m != 0xC4 && m != 0xC8 && m != 0xCC) {
+          return ok(be16(i + 7), be16(i + 5));
+        }
+        if (m == 0xD8 || m == 0x01 || (m >= 0xD0 && m <= 0xD7)) {
+          i += 2;
+          continue;
+        }
+        i += 2 + be16(i + 2);
+      }
+    }
+  } catch (_) {}
+  return null;
 }
