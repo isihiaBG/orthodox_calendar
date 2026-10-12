@@ -482,8 +482,8 @@ class AudioMoreButton extends StatelessWidget {
             padding: pad,
             child: row(AudioOutroSetting.value ? Icons.music_note : Icons.music_off,
                 AudioOutroSetting.value
-                    ? 'Музика в края на беседите: вкл.'
-                    : 'Музика в края на беседите: изкл.')),
+                    ? 'Музика в края: вкл.'
+                    : 'Музика в края: изкл.')),
         PopupMenuItem(
             value: 'delete',
             padding: pad,

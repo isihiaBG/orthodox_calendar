@@ -93,7 +93,10 @@ class AudioSentence {
 
   /// Номерата на бележките под линия, които стоят в изречението.
   final List<int> notes;
-  const AudioSentence(this.start, this.end, this.text, this.notes);
+
+  /// Видът на абзаца („text", „figcaption", „dedication"…) — от `paras`.
+  final String kind;
+  const AudioSentence(this.start, this.end, this.text, this.notes, [this.kind = 'text']);
 }
 
 class AudioChapter {
@@ -496,6 +499,12 @@ class AudioBook {
   Future<AudioChapter> _readChapter(String part) async {
     final d = await _folder();
     final j = jsonDecode(await File(join(d.path, '$part.json')).readAsString()) as Map;
+    final paras = (j['paras'] as List? ?? const []);
+    String kindOf(Object? p) {
+      final i = (p as num?)?.toInt();
+      if (i == null || i < 0 || i >= paras.length) return 'text';
+      return ((paras[i] as Map)['k'] as String?) ?? 'text';
+    }
     return AudioChapter(
       part,
       join(d.path, '$part.mp3'),
@@ -503,7 +512,8 @@ class AudioBook {
       [
         for (final s in j['sents'] as List)
           AudioSentence((s['t'] as num).toDouble(), (s['e'] as num).toDouble(),
-              s['s'] as String, [for (final n in (s['n'] as List? ?? [])) (n as num).toInt()]),
+              s['s'] as String, [for (final n in (s['n'] as List? ?? [])) (n as num).toInt()],
+              kindOf(s['p'])),
       ],
     );
   }

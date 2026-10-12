@@ -18,16 +18,18 @@ import 'audiobook.dart';
 
 /// Фрагментите. Не са вързани за една книга.
 const List<String> kOutroClips = [
-  'assets/audio_outro/duduk_1.mp3', // I. Mazia — 80 s
-  'assets/audio_outro/duduk_2.mp3', // арменска народна песен (Ikuzusotnek) — 100 s
-  'assets/audio_outro/duduk_3.mp3', // импровизация (SERGO.TEL) — 90 s
-  'assets/audio_outro/duduk_4.mp3', // същата песен, по-нататък — 90 s
+  // ⚠ По 125 s: най-дългото — 60 s фон + надпис под илюстрацията + 44,6 s
+  // засилване, задържане и затихване. По-късите записи са зациклени с
+  // плавно преливане.
+  'assets/audio_outro/duduk_1.mp3', // I. Mazia
+  'assets/audio_outro/duduk_2.mp3', // арменска народна песен (Ikuzusotnek)
+  'assets/audio_outro/duduk_3.mp3', // импровизация (SERGO.TEL)
+  'assets/audio_outro/duduk_4.mp3', // същата песен, по-нататък
 ];
 
 /// Кой дудук след коя беседа — ВИНАГИ един и същ (искане на автора,
 /// 13.10.2026). Ключът е частта от регистъра на звука. Смяна за една
 /// беседа — само тук. Номерът е индекс в [kOutroClips].
-/// ⚠ Заглавната иска фрагмент от 100 s — фонът под нея е над 40 s.
 const Map<String, Map<String, int>> kOutroByBook = {
   'assets/chitalnya/razgovori.epub': {
     'title': 1,
@@ -54,29 +56,47 @@ class OutroTiming {
   static const double fade = 14; // затихването до нищо
   static const double nextAt = 5; // следващата беседа — толкова след началото на затихването
   static const double minLead = 6; // музиката влиза поне толкова преди края на гласа
-  static const double maxLead = 30; // …и най-много толкова (най-късият фрагмент е 80 s)
+  static const double maxLead = 30; // …и най-много толкова (кратка беседа)
+  static const double maxLeadLong = 60; // …дълга беседа (фрагментите са по 125 s)
+  static const double longChapter = 20 * 60; // „дълга" беседа
+  static const double shortSentence = 3; // по-кратко изречение не се брои за отделно
   static const double silentDb = -55;
 }
 
-/// Откъде в беседата да влезе музиката: началото на последното изречение,
-/// а ако то е по-късо от [OutroTiming.minLead] — на по-ранно.
+/// Откъде в беседата да влезе музиката (правила на автора, 13.10.2026):
+/// - краят е последното изречение на САМАТА беседа — надписите под
+///   илюстрацията накрая не се броят (под тях музиката просто остава фон);
+/// - кратка беседа — от последното изречение, дълга (над 20 мин) — от
+///   предпоследното: там и заключението е по-дълго;
+/// - съвсем кратките изречения („Амин.") не се броят за отделни;
+/// - влиза поне [OutroTiming.minLead] и най-много [maxLead] s преди края
+///   на гласа — при по-дълги изречения влиза насред (тихо, не се усеща).
 ///
 /// ⚠ Заглавната страница е различна (искане на автора): музиката е
 /// постоянен фон, от надписа под иконата (след заглавието и адреса на
 /// обителта — първите три изречения) през цялото посвещение.
 double outroStartOf(AudioChapter ch, {bool titlePage = false}) {
-  if (titlePage && ch.sentences.length > 4) return ch.sentences[3].start;
-  if (ch.sentences.isEmpty) return math.max(0, ch.duration - OutroTiming.minLead);
-  final end = ch.sentences.last.end;
-  var t = ch.sentences.first.start;
-  for (final s in ch.sentences.reversed) {
-    if (end - s.start >= OutroTiming.minLead) {
-      t = s.start;
-      break;
-    }
+  final ss = ch.sentences;
+  if (titlePage && ss.length > 4) return ss[3].start;
+  if (ss.isEmpty) return math.max(0, ch.duration - OutroTiming.minLead);
+  var last = ss.length - 1;
+  while (last > 0 && kOutroCaptionKinds.contains(ss[last].kind)) {
+    last--;
   }
-  return math.max(t, end - OutroTiming.maxLead);
+  final end = ss[last].end;
+  final long = ch.duration >= OutroTiming.longChapter;
+  final need = long ? 2 : 1;
+  var k = last, counted = 0;
+  while (k > 0) {
+    if (ss[k].end - ss[k].start >= OutroTiming.shortSentence) counted++;
+    if (counted >= need && end - ss[k].start >= OutroTiming.minLead) break;
+    k--;
+  }
+  return math.max(ss[k].start, end - (long ? OutroTiming.maxLeadLong : OutroTiming.maxLead));
 }
+
+/// Надписи под илюстрации — не са край на беседата.
+const Set<String> kOutroCaptionKinds = {'figcaption', 'caption'};
 
 /// Да звучи ли музиката. Включено по подразбиране; пази се.
 class AudioOutroSetting {
