@@ -25,6 +25,8 @@ _TABLE = linkify.abbreviations()
 # Руски форми, които се срещат в томовете, а ги няма в linkify.
 _TABLE.setdefault('мф', 'Mt')
 _TITLES = dict(sqlite3.connect(linkify.BIBLE_DB).execute('SELECT code, bg_title FROM books'))
+# В базата е „Марко“; авторът го чете „Марк“ (12.10.2026).
+_TITLES['Mk'] = _TITLES['Mk'].replace('Марко', 'Марк')
 
 _D = r'\s*[-–—]\s*'
 # Книга + място. Мястото: глава:стих(ове), със запетаи, диапазони и
