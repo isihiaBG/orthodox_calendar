@@ -16,20 +16,33 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audiobook.dart';
 
-/// Фрагментите. Не са вързани за една книга — всяка книга със звук ги
-/// редува по реда на главите си ([outroClipFor]).
+/// Фрагментите. Не са вързани за една книга.
 const List<String> kOutroClips = [
-  'assets/audio_outro/duduk_1.mp3', // I. Mazia — любимият на автора, затова първи
-  'assets/audio_outro/duduk_2.mp3', // арменска народна песен (Ikuzusotnek)
-  'assets/audio_outro/duduk_3.mp3', // импровизация (SERGO.TEL)
-  'assets/audio_outro/duduk_4.mp3', // същата песен, по-нататък
+  'assets/audio_outro/duduk_1.mp3', // I. Mazia — 80 s
+  'assets/audio_outro/duduk_2.mp3', // арменска народна песен (Ikuzusotnek) — 100 s
+  'assets/audio_outro/duduk_3.mp3', // импровизация (SERGO.TEL) — 90 s
+  'assets/audio_outro/duduk_4.mp3', // същата песен, по-нататък — 90 s
 ];
 
-/// Кой фрагмент звучи след глава с пореден номер [index] в книгата.
-/// ⚠ Тук е мястото за изрично закачане на фрагмент към глава, ако авторът
-/// поиска — засега фрагментите просто се редуват.
-String outroClipFor(String bookAsset, int index) =>
-    kOutroClips[index % kOutroClips.length];
+/// Кой дудук след коя беседа — ВИНАГИ един и същ (искане на автора,
+/// 13.10.2026). Ключът е частта от регистъра на звука. Смяна за една
+/// беседа — само тук. Номерът е индекс в [kOutroClips].
+/// ⚠ Заглавната иска фрагмент от 100 s — фонът под нея е над 40 s.
+const Map<String, Map<String, int>> kOutroByBook = {
+  'assets/chitalnya/razgovori.epub': {
+    'title': 1,
+    'c01': 0, 'c02': 2, 'c03': 3, 'c04': 1, 'c05': 0, 'c06': 2,
+    'c07': 3, 'c08': 1, 'c09': 0, 'c10': 2, 'c11': 3, 'c12': 1,
+    'c13': 0, 'c14': 2, 'c15': 3, 'c16': 1, 'c17': 0,
+  },
+};
+
+/// Дудукът за беседа [part] (глава с пореден номер [index]) в книга
+/// [bookAsset]. Книга без таблица — редуват се по номера на главата.
+String outroClipFor(String bookAsset, String? part, int index) {
+  final i = kOutroByBook[bookAsset]?[part];
+  return kOutroClips[(i ?? index) % kOutroClips.length];
+}
 
 /// Времената (секунди) и силата (dB спрямо пълната).
 class OutroTiming {
@@ -37,17 +50,22 @@ class OutroTiming {
   static const double bedIn = 5; // от нищо до фона
   static const double after = 0.6; // тишина на гласа преди засилването
   static const double swell = 4; // от фона до пълна сила
-  static const double hold = 16; // пълна сила
+  static const double hold = 26; // пълна сила (по-дълго — по-добре, авторът)
   static const double fade = 14; // затихването до нищо
   static const double nextAt = 5; // следващата беседа — толкова след началото на затихването
   static const double minLead = 6; // музиката влиза поне толкова преди края на гласа
-  static const double maxLead = 40; // …и най-много толкова (фрагментът е 80 s)
+  static const double maxLead = 30; // …и най-много толкова (най-късият фрагмент е 80 s)
   static const double silentDb = -55;
 }
 
 /// Откъде в беседата да влезе музиката: началото на последното изречение,
 /// а ако то е по-късо от [OutroTiming.minLead] — на по-ранно.
-double outroStartOf(AudioChapter ch) {
+///
+/// ⚠ Заглавната страница е различна (искане на автора): музиката е
+/// постоянен фон, от надписа под иконата (след заглавието и адреса на
+/// обителта — първите три изречения) през цялото посвещение.
+double outroStartOf(AudioChapter ch, {bool titlePage = false}) {
+  if (titlePage && ch.sentences.length > 4) return ch.sentences[3].start;
   if (ch.sentences.isEmpty) return math.max(0, ch.duration - OutroTiming.minLead);
   final end = ch.sentences.last.end;
   var t = ch.sentences.first.start;

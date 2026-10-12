@@ -1307,7 +1307,7 @@ class _BookReaderState extends State<BookReader>
     pb.onFinished = _onAudioFinished;
     pb.position.addListener(_onAudioPosition);
     pb.playing.addListener(_onAudioPlaying);
-    _outroAt = outroStartOf(ch);
+    _outroAt = outroStartOf(ch, titlePage: part == 'title');
     _outroBegun = false;
     _lastPlaying = false;
     setState(() {
@@ -1351,7 +1351,7 @@ class _BookReaderState extends State<BookReader>
     if (!AudioOutroSetting.value || !pb.playing.value) return;
     if (t >= _outroAt && t < pb.chapter.duration - 0.3) {
       _outroBegun = true;
-      unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, _index)));
+      unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, pb.chapter.part, _index)));
     }
   }
 
