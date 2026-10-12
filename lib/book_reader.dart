@@ -225,6 +225,11 @@ class _BookReaderState extends State<BookReader>
   /// позициониране (виж reader_regions.dart и text_line_locator.dart).
   List<GlobalKey> _regionKeys = [];
 
+  /// Листовете на заглавната част (виж [_pageGroups]): регион → ключът на
+  /// листа му. Ключът е по първия регион на листа, за да е устойчив.
+  final Map<int, GlobalKey> _sheetKeys = {};
+  final Map<int, int> _sheetOf = {};
+
   /// Кутията с ЦЯЛОТО съдържание на главата. Спрямо нея се смятат
   /// съотношенията за чертичките — не спрямо скрола, защото в неговото
   /// пространство влиза и лентата отгоре (при търсене тя е закована и не се
@@ -1371,6 +1376,20 @@ class _BookReaderState extends State<BookReader>
     final position = _scroll.position;
     final box = _regionKeys[region].currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
+    // ⚠ На заглавната (листове, всеки висок колкото екрана и центриран)
+    // се плъзга до ЦЕЛИЯ ЛИСТ, не до реда: изречение, вдигнато на 30% от
+    // екрана, реже листа и го показва „много по-нагоре" (автора,
+    // 12.10.2026). Само ако листът се побира — в легнало е по-висок.
+    final sheet = _sheetKeys[_sheetOf[region]]?.currentContext?.findRenderObject()
+        as RenderBox?;
+    if (sheet != null && sheet.size.height <= position.viewportDimension + 1) {
+      final top = RenderAbstractViewport.of(sheet).getOffsetToReveal(sheet, 0).offset
+          .clamp(position.minScrollExtent, position.maxScrollExtent);
+      if ((top - position.pixels).abs() < 2) return;
+      _scroll.animateTo(top,
+          duration: const Duration(milliseconds: 1400), curve: Curves.easeInOutCubic);
+      return;
+    }
     final line = _lineForChar(_currentRegions(), region, charInRegion, box.size.width);
     if (line == null) return;
     final top = RenderAbstractViewport.of(box)
@@ -2344,6 +2363,7 @@ class _BookReaderState extends State<BookReader>
     final (beforeHtml, leadingQuote, dropCap, firstP, afterHtml) =
         _splitDropCap(body);
     final regions = computeRegions(beforeHtml, dropCap, firstP, afterHtml);
+    _sheetOf.clear(); // пълни се наново от _pageGroups при всяко строене
     if (_regionKeys.length != regions.length) {
       _regionKeys = List.generate(regions.length, (_) => GlobalKey());
       // ⚠ ЗАДЪЛЖИТЕЛНО заедно с ключовете: кеширан widget носи СТАРИЯ ключ,
@@ -2582,9 +2602,11 @@ class _BookReaderState extends State<BookReader>
     final breakGap = mq.size.width > mq.size.height ? 72.0 : 0.0;
     final out = <Widget>[];
     var page = <Widget>[];
+    var first = from;
     void flush() {
       if (page.isEmpty) return;
       out.add(ConstrainedBox(
+        key: _sheetKeys.putIfAbsent(first, GlobalKey.new),
         constraints: BoxConstraints(minHeight: pageH),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -2598,10 +2620,12 @@ class _BookReaderState extends State<BookReader>
     for (int i = from; i < to; i++) {
       if (isBreak(i)) {
         flush();
+        first = i + 1;
         out.add(KeyedSubtree(
             key: _regionKeys[i], child: SizedBox(height: breakGap)));
       } else {
         page.add(children[i]);
+        _sheetOf[i] = first;
       }
     }
     flush();
