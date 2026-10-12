@@ -52,7 +52,7 @@ class OutroTiming {
   static const double bedIn = 5; // от нищо до фона
   static const double after = 0.6; // тишина на гласа преди засилването
   static const double swell = 4; // от фона до пълна сила
-  static const double hold = 26; // пълна сила (по-дълго — по-добре, авторът)
+  static const double hold = 20; // пълна сила (26 беше „с една идея по-дълго“ — авторът)
   static const double fade = 14; // затихването до нищо
   static const double nextAt = 5; // следващата беседа — толкова след началото на затихването
   static const double minLead = 6; // музиката влиза поне толкова преди края на гласа
@@ -155,14 +155,23 @@ class AudioOutro {
       done.complete();
       return done.future;
     }
+    // ⚠ Времето се НАТРУПВА на стъпки от най-много 60 ms, а не се чете
+    // направо от часовника. Задъха ли се нишката (точно когато се строи
+    // следващата беседа), по часовника силата щеше да прескочи няколко dB
+    // наведнъж — затихването звучеше като рязко спиране (автор, 13.10.2026).
+    // Така то просто трае малко по-дълго.
     final sw = Stopwatch()..start();
+    var last = 0, acc = 0;
     _ramp = Timer.periodic(const Duration(milliseconds: 40), (t) {
       if (gen != _gen || _disposed) {
         t.cancel();
         if (!done.isCompleted) done.complete();
         return;
       }
-      final k = math.min(1.0, sw.elapsedMilliseconds / total);
+      final now = sw.elapsedMilliseconds;
+      acc += math.min(now - last, 60);
+      last = now;
+      final k = math.min(1.0, acc / total);
       _db = from + (target - from) * k;
       unawaited(_p.setVolume(_gain(_db)));
       if (k >= 1) {

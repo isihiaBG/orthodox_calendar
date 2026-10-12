@@ -64,6 +64,13 @@ A14 = 'http://schemas.microsoft.com/office/drawing/2010/main'
 SVG_PX = 1200          # широчина, до която се растеризира SVG (Inkscape)
 
 
+
+# Грешки в .docx, потвърдени от автора — поправят се в .epub-а (13.10.2026).
+# ⚠ PDF-ът е оригиналът на автора и не се пипа — там поправката е негова.
+BOOK_FIX = {
+    'благотворното въздействието': 'благотворното въздействие',   # два члена подред
+}
+
 def svg_to_png(data):
     """SVG от .docx → PNG с прозрачност. ⚠ Word държи до SVG-то и PNG
     резерв (`a:blip`), но той е дребен (592 px) — орнаментите се виждаха
@@ -702,9 +709,18 @@ def main():
 
     # ── .epub ──────────────────────────────────────────────────────
     files, toc = [], []
+    seen = {k: 0 for k in BOOK_FIX}
     for i, (title, parts) in enumerate(chapters):
         name = 'title.xhtml' if i == 0 else f'c{i:02d}.xhtml'
-        files.append((name, xhtml(title, ''.join(parts))))
+        body = ''.join(parts)
+        for bad, good in BOOK_FIX.items():
+            seen[bad] += body.count(bad)
+            body = body.replace(bad, good)
+        files.append((name, xhtml(title, body)))
+    # Поправил ли е авторът мястото в .docx — редът тук става излишен (0).
+    for bad, n in seen.items():
+        if n != 1:
+            print(f'  ⚠ BOOK_FIX „{bad}“: {n} срещания (очаквано 1)')
         toc.append((title if i else 'Начало', name))
     for n, t in doc.notes:
         files.append((f'note{n}.xhtml', xhtml(str(n), f'<h1 id="note{n}">{n}</h1><p>{t}</p>')))

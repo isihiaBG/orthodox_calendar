@@ -52,7 +52,7 @@ def _plain(fragment):
 
 NOTE = re.compile('\ue000(\\d+)\ue001')
 # Съкращения, след чиято точка изречението НЕ свършва.
-NO_SPLIT = {'св', 'свт', 'свв', 'прп', 'мч', 'мчк', 'ап', 'равноап', 'гл', 'вж', 'срв',
+NO_SPLIT = {'св', 'свт', 'свв', 'прп', 'преп', 'мч', 'мчк', 'ап', 'равноап', 'гл', 'вж', 'срв',
             'стр', 'архим', 'йером', 'йеросхим', 'еп', 'митр', 'прот', 'о', 'т', 'е',
             'напр', 'др', 'сл', 'пр', 'р', 'ок', 'бел', 'вл', 'ст', 'изд', 'т.е'}
 _SENT_END = re.compile('[.!?…]+[»“”"\')\\]]*(?:\ue000\\d+\ue001)?(?=\\s+[„"«(–—-]?\\s*[А-ЯA-ZЍ])')
@@ -137,7 +137,15 @@ def book_blocks(epub):
                 pos += len(spoken)
             kind = 'head' if tag.startswith('h') else (cls.split()[0] if cls else 'text')
             blocks.append({'kind': kind, 'speaker': 'narrator' if kind == 'head' else speaker,
-                           'text': ' '.join(parts), 'sents': sents})
+                           'text': ' '.join(parts), 'sents': sents, '_lab': bool(lab)})
+        # Подзаглавие точно пред реплика с етикет е встъпление в НЕЯ —
+        # чете го говорещият там (c06 „Егото – какво е то…“ е на о. Калиник;
+        # бележка на автора, 13.10.2026).
+        for i, b in enumerate(blocks):
+            if b['kind'] == 'grouphead' and i + 1 < len(blocks) and blocks[i + 1]['_lab']:
+                b['speaker'] = blocks[i + 1]['speaker']
+        for b in blocks:
+            del b['_lab']
         if blocks:
             out.append((Path(name).stem, blocks))
     out.append(('notes', note_blocks(z)))
