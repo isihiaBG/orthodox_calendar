@@ -78,6 +78,8 @@ def settings(speaker, kind=None, text=''):
     # dedicationright — автора, 12.10.2026).
     titled = kind in ('head', 'centernote') or text in HEAD_SPEED
     speed = HEAD_SPEED.get(text, HEAD_SPEED['']) if titled else v.get('speed', 1.0)
+    if not titled and kind in KIND_SPEED:
+        speed = KIND_SPEED[kind]
     return {'stability': v.get('stability', 0.85), 'similarity_boost': 0.75,
             'style': 0.0, 'use_speaker_boost': True, 'speed': speed}
 
@@ -95,6 +97,9 @@ PINS = [
     ('Смили' + '\u0301' + ' се над мен', '60ceffac5c7a887d01eb'),  # беседа 1, вар. 2 (11.10.2026)
     ('Я' + '\u0301' + 'ко Твое' + '\u0301' + ' е' + '\u0301' + 'ст', '3b7b5fe87128b25a693b'),  # беседа 13, възгласът, № 9 (11.10.2026)
 ]
+
+# Темпо по вид блок. Посвещението — бавно (автора, 12.10.2026).
+KIND_SPEED = {'dedication': 0.8}
 
 HEAD_SPEED = {'': 0.9, 'Вме\u0301сто, предисло\u0301вие.': 0.78,
               # подписът под посвещението — бавно, вар. 3 (автора, 12.10.2026)
