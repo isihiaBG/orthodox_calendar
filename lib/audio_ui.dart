@@ -85,8 +85,18 @@ class AudioChip extends StatelessWidget {
 
   /// Задържане върху свален етикет — изтриване (с питане).
   final VoidCallback? onLongPress;
+
+  /// Цветът на текста и иконките — в съдържанието той е мастилото на
+  /// палитрата, за да личи и в СВЕТЛА тема (автора, 12.10.2026). Без него —
+  /// приглушеното за тъмен фон.
+  final Color? ink;
   const AudioChip(
-      {super.key, required this.book, required this.part, required this.onTap, this.onLongPress});
+      {super.key,
+      required this.book,
+      required this.part,
+      required this.onTap,
+      this.onLongPress,
+      this.ink});
 
   @override
   Widget build(BuildContext context) {
@@ -96,8 +106,9 @@ class AudioChip extends StatelessWidget {
         if (!book.has(part)) return const SizedBox.shrink();
         final done = book.isDownloaded(part);
         final busy = book.isDownloading(part);
-        const muted = TextStyle(
-            color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
+        final fg = ink ?? AppColors.textSecondary;
+        final muted =
+            TextStyle(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
         final Widget inner;
         if (busy) {
           inner = Text('${((book.progress[part] ?? 0) * 100).round()}%', style: muted);
@@ -105,9 +116,9 @@ class AudioChip extends StatelessWidget {
           inner = const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle);
         } else {
           inner = Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.headphones_outlined, size: 14, color: AppColors.textSecondary),
+            Icon(Icons.headphones_outlined, size: 14, color: fg),
             const SizedBox(width: 4),
-            const Icon(Icons.file_download_outlined, size: 14, color: AppColors.textSecondary),
+            Icon(Icons.file_download_outlined, size: 14, color: fg),
             const SizedBox(width: 1),
             Text(audioSizeLabel(book.sizeOf(part)), style: muted),
           ]);
@@ -121,7 +132,7 @@ class AudioChip extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                color: AppColors.textPrimary.withValues(alpha: 0.07),
+                color: (ink ?? AppColors.textPrimary).withValues(alpha: 0.07),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: inner,
@@ -299,7 +310,10 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
 /// несвалено.
 class AudioDownloadAllButton extends StatelessWidget {
   final AudioBook book;
-  const AudioDownloadAllButton(this.book, {super.key});
+
+  /// Като [AudioChip.ink].
+  final Color? ink;
+  const AudioDownloadAllButton(this.book, {super.key, this.ink});
 
   Future<void> _ask(BuildContext context) async {
     final todo = book.missingParts();
@@ -334,8 +348,9 @@ class AudioDownloadAllButton extends StatelessWidget {
     return ValueListenableBuilder<int>(
       valueListenable: book.revision,
       builder: (context, _, _) {
-        const muted = TextStyle(
-            color: AppColors.textSecondary, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
+        final fg = ink ?? AppColors.textSecondary;
+        final muted =
+            TextStyle(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
         final total = book.bulkTotal;
         final Widget inner;
         if (total != null) {
@@ -343,9 +358,9 @@ class AudioDownloadAllButton extends StatelessWidget {
         } else if (book.missingParts().isEmpty) {
           return const SizedBox.shrink();
         } else {
-          inner = const Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.download, size: 14, color: AppColors.textSecondary),
-            SizedBox(width: 3),
+          inner = Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.download, size: 14, color: fg),
+            const SizedBox(width: 3),
             Text('всички', style: muted),
           ]);
         }
@@ -357,7 +372,7 @@ class AudioDownloadAllButton extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(
-                border: Border.all(color: AppColors.textSecondary.withValues(alpha: 0.5)),
+                border: Border.all(color: fg.withValues(alpha: 0.5)),
                 borderRadius: BorderRadius.circular(10),
               ),
               child: inner,
@@ -371,9 +386,11 @@ class AudioDownloadAllButton extends StatelessWidget {
 
 extension AudioDownloadAllExt on Widget {
   /// Слага „Свали всички" вдясно от етикета (само ако [book] не е `null`).
-  Widget withDownloadAll(AudioBook? book) => book == null
+  Widget withDownloadAll(AudioBook? book, {Color? ink}) => book == null
       ? this
-      : Row(mainAxisSize: MainAxisSize.min, children: [this, AudioDownloadAllButton(book)]);
+      : Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [this, AudioDownloadAllButton(book, ink: ink)]);
 }
 
 String _clock(double s) {

@@ -3875,6 +3875,7 @@ class _TocSheetState extends State<_TocSheet> {
         child: AudioChip(
           book: a,
           part: part,
+          ink: widget.palette.ink,
           onTap: () async {
             if (a.isDownloaded(part)) {
               Navigator.of(context).pop(_ListenAt(at));
@@ -3885,7 +3886,7 @@ class _TocSheetState extends State<_TocSheet> {
           onLongPress: () => askAudioDelete(context, a, part, title: entry.title),
         ),
       ),
-    ).withDownloadAll(at == 0 ? a : null);
+    ).withDownloadAll(at == 0 ? a : null, ink: widget.palette.ink);
   }
 
   @override
