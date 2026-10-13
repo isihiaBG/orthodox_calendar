@@ -107,13 +107,33 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
   @override
   void dispose() {
     AudioRegistry.revision.removeListener(_reload);
+    for (final w in _watched) {
+      w.revision.removeListener(_onBookChange);
+    }
     unawaited(_commit());
     super.dispose();
   }
 
+  final List<AudioBook> _watched = [];
+
+  void _onBookChange() {
+    if (mounted) setState(() {});
+  }
+
   Future<void> _reload() async {
     final b = await _loadBooks();
-    if (mounted) setState(() => _books = b);
+    if (!mounted) return;
+    // Лентата („Обнови всички", моливчето) следи свалянето по всички книги.
+    for (final w in _watched) {
+      w.revision.removeListener(_onBookChange);
+    }
+    _watched
+      ..clear()
+      ..addAll(b.map((x) => x.book));
+    for (final w in _watched) {
+      w.revision.addListener(_onBookChange);
+    }
+    setState(() => _books = b);
   }
 
   Future<void> _commit() async {
@@ -132,10 +152,32 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
   Future<void> _check() async {
     setState(() => _checking = true);
     final err = await AudioRegistry.check();
+    final msg = err ?? await audioSummary();
     if (!mounted) return;
     setState(() => _checking = false);
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(err ?? 'Списъкът със звука е обновен.')));
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+  }
+
+  bool _updating = false;
+
+  bool get _anyOutdated =>
+      (_books ?? const <_AudioBookInfo>[]).any((b) => b.book.outdatedParts().isNotEmpty);
+
+  /// „Обнови всички": първо тихо регистъра, после остарелите глави на
+  /// всички книги наред.
+  Future<void> _updateAll() async {
+    setState(() => _updating = true);
+    final messenger = ScaffoldMessenger.of(context);
+    String? err = await AudioRegistry.check();
+    if (err == null) {
+      for (final b in _books ?? const <_AudioBookInfo>[]) {
+        err = await b.book.updateAll();
+        if (err != null) break;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _updating = false);
+    messenger.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е обновен.')));
   }
 
   bool _isGot(_AudioBookInfo b, String p) =>
@@ -230,6 +272,16 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
                   ),
                 ]
               : [
+                  if (_anyOutdated)
+                    IconButton(
+                      tooltip: 'Обнови всички',
+                      onPressed: _updating ? null : _updateAll,
+                      icon: _updating
+                          ? const SizedBox(
+                              width: 20, height: 20,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                          : const Icon(Icons.update),
+                    ),
                   IconButton(
                     tooltip: 'Провери за звук',
                     onPressed: _checking ? null : _check,
@@ -297,18 +349,46 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
       if (_edit) return null;
       final book = b.book;
       if (book.bulkTotal != null) {
-        // „Свали всички" тече — общият напредък на мястото на иконата.
-        return SizedBox(
-            width: 24, height: 24,
-            child: CircularProgressIndicator(
-                strokeWidth: 2.5, value: book.bulkFraction, color: AppColors.sectionTitle));
+        // „Свали всички" тече — общият напредък (и в MB) на мястото на иконата.
+        final (done, all) = book.bulkBytes;
+        return Row(mainAxisSize: MainAxisSize.min, children: [
+          Text('${(done / 1048576).toStringAsFixed(1)} / ${audioSizeLabel(all)}',
+              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12.5)),
+          const SizedBox(width: 6),
+          SizedBox(
+              width: 22, height: 22,
+              child: CircularProgressIndicator(
+                  strokeWidth: 2.5, value: book.bulkFraction, color: AppColors.sectionTitle)),
+        ]);
       }
-      if (book.missingParts().isEmpty) return null;
-      return IconButton(
-        tooltip: 'Свали останалите',
-        icon: const Icon(Icons.download, color: AppColors.textSecondary),
-        onPressed: () => askAudioDownloadAll(context, book),
-      );
+      // ⚠ С мегабайтите до знака — човек да прецени какво му предстои
+      // (автора, 13.10.2026).
+      Widget act(IconData ic, String tip, int bytes, VoidCallback f, Color c) => InkWell(
+            onTap: f,
+            borderRadius: BorderRadius.circular(8),
+            child: Tooltip(
+              message: tip,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Text(audioSizeLabel(bytes),
+                      style: TextStyle(color: c, fontSize: 13, fontWeight: FontWeight.w600)),
+                  const SizedBox(width: 4),
+                  Icon(ic, color: c, size: 22),
+                ]),
+              ),
+            ),
+          );
+      final missing = book.missingParts(), outdated = book.outdatedParts();
+      if (missing.isNotEmpty) {
+        return act(Icons.download, 'Свали останалите', book.bytesOf(missing),
+            () => askAudioDownloadAll(context, book), AppColors.textSecondary);
+      }
+      if (outdated.isNotEmpty) {
+        return act(Icons.update, 'Обнови (нови версии)', book.bytesOf(outdated),
+            () => askAudioUpdateAll(context, book), AppColors.sectionTitle);
+      }
+      return null;
     }
 
     Widget tile(Widget? subtitle, Widget? trail) => Theme(
@@ -361,11 +441,21 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
               child: CircularProgressIndicator(
                   strokeWidth: 2, value: book.progress[part], color: AppColors.sectionTitle));
         } else if (got) {
-          trailing = IconButton(
+          final listen = IconButton(
             tooltip: 'Слушай',
             icon: const Icon(Icons.headphones, color: AppColors.sectionTitle, size: 22),
             onPressed: () => _openAndPlay(context, b.asset, part),
           );
+          trailing = !book.isOutdated(part)
+              ? listen
+              : Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(
+                    tooltip: 'Нова версия — обнови',
+                    icon: const Icon(Icons.update, color: AppColors.sectionTitle, size: 22),
+                    onPressed: () => askAudioUpdate(context, book, part, title: title),
+                  ),
+                  listen,
+                ]);
         } else {
           trailing = IconButton(
             tooltip: 'Свали',
@@ -377,8 +467,13 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
           dense: true,
           contentPadding: const EdgeInsets.only(left: 32, right: 12),
           title: Text(title, style: const TextStyle(color: AppColors.textPrimary, fontSize: 15)),
-          subtitle: Text(audioSizeLabel(book.sizeOf(part)),
-              style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
+          subtitle: Text(
+              book.isOutdated(part) && got
+                  ? '${audioSizeLabel(book.sizeOf(part))} · има нова версия'
+                  : audioSizeLabel(book.sizeOf(part)),
+              style: TextStyle(
+                  color: book.isOutdated(part) && got ? AppColors.sectionTitle : AppColors.textSecondary,
+                  fontSize: 12)),
           trailing: trailing,
           // Тап по реда — отваря четивото и пуска звука (несвалено — първо
           // пита за сваляне); в редакцията — отметка.

@@ -2207,7 +2207,7 @@ class _BookReaderState extends State<BookReader>
         if (!mounted) return;
         final msg = err ??
             (_hasAudio
-                ? 'Тази беседа има звук — слушалките са горе в лентата.'
+                ? 'Тази беседа има звук — слушалките са долу вдясно.'
                 : 'За тази беседа още няма звук.');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         return;
@@ -4226,6 +4226,7 @@ class _TocSheetState extends State<_TocSheet> {
           book: a,
           part: part,
           ink: widget.palette.ink,
+          title: entry.title,
           onTap: () async {
             if (a.isDownloaded(part)) {
               Navigator.of(context).pop(_ListenAt(at));

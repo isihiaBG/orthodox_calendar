@@ -227,6 +227,29 @@ class AudioRegistry {
   }
 }
 
+/// Кратка равносметка след „Провери за звук" (автора, 13.10.2026): колко
+/// глави със звук има, колко са свалени, колко са нови за сваляне и колко
+/// имат по-нова версия. Бележките под линия не се броят.
+Future<String> audioSummary() async {
+  var total = 0, got = 0, upd = 0;
+  for (final asset in AudioRegistry.books) {
+    final b = AudioBook.forAsset(asset);
+    if (b == null) continue;
+    await b.load();
+    await b._scanDownloaded();
+    b.revision.value++;
+    final parts = b._parts.keys.where((k) => !k.startsWith('note'));
+    total += parts.length;
+    got += parts.where(b._downloaded.contains).length;
+    upd += parts.where(b._outdated.contains).length;
+  }
+  if (total == 0) return 'Още няма звук за сваляне.';
+  final parts = ['Със звук: $total', 'свалени $got'];
+  if (total - got > 0) parts.add('нови за сваляне ${total - got}');
+  if (upd > 0) parts.add('за обновяване $upd');
+  return parts.join(' · ');
+}
+
 Future<List<int>?> _download(String url) async {
   final client = HttpClient()..connectionTimeout = const Duration(seconds: 8);
   try {
@@ -308,14 +331,37 @@ class AudioBook {
   Future<void> _scanDownloaded() async {
     final d = await _folder();
     _downloaded.clear();
+    _outdated.clear();
     for (final p in _parts.keys) {
       final v = File(join(d.path, '$p.v'));
-      if (await v.exists() &&
-          await File(join(d.path, '$p.mp3')).exists() &&
-          (await v.readAsString()).trim() == _parts[p]!.version) {
+      if (await v.exists() && await File(join(d.path, '$p.mp3')).exists()) {
+        // ⚠ Остаряла версия СЕ СЛУША (свалена е), но се отбелязва за
+        // обновяване (автора, 13.10.2026) — дотогава изглеждаше несвалена.
         _downloaded.add(p);
+        if ((await v.readAsString()).trim() != _parts[p]!.version) _outdated.add(p);
       }
     }
+  }
+
+  final Set<String> _outdated = {};
+
+  /// Свалена, но в регистъра има по-нова версия.
+  bool isOutdated(String? part) => part != null && _outdated.contains(part);
+
+  /// Главите с по-нова версия (без бележките), в реда на книгата.
+  List<String> outdatedParts() => [
+        for (final k in _parts.keys)
+          if (!k.startsWith('note') && _outdated.contains(k)) k
+      ]..sort((a, b) => a == 'title' ? -1 : b == 'title' ? 1 : a.compareTo(b));
+
+  /// Обновява всички остарели глави: първо тихо регистъра, после ги тегли
+  /// наново (новото заменя старото чак когато е свалено докрай).
+  Future<String?> updateAll() async {
+    final err = await AudioRegistry.check();
+    if (err != null) return err;
+    await _scanDownloaded();
+    revision.value++;
+    return downloadAll(outdatedParts());
   }
 
   /// Колко глави със звук има книгата (бележките и заглавната страница не
@@ -365,9 +411,9 @@ class AudioBook {
   }
 
   /// Сваля всички несвалени глави една след друга. Връща грешка или `null`.
-  Future<String?> downloadAll() async {
+  Future<String?> downloadAll([List<String>? parts]) async {
     if (bulkTotal != null) return null;
-    final todo = missingParts();
+    final todo = parts ?? missingParts();
     bulkTotal = todo.length;
     bulkDone = 0;
     _bulkBytes = todo.fold(0, (a, p) => a + sizeOf(p));
@@ -375,7 +421,7 @@ class AudioBook {
     revision.value++;
     try {
       for (final p in todo) {
-        if (!isDownloaded(p)) {
+        if (!isDownloaded(p) || isOutdated(p)) {
           _bulkCurrent = p;
           final err = await download(p);
           if (err != null) return err;
@@ -433,7 +479,7 @@ class AudioBook {
       final ch = await _readChapter(part);
       for (final n in {for (final s in ch.sentences) ...s.notes}) {
         final np = 'note$n';
-        if (!_parts.containsKey(np) || isDownloaded(np)) continue;
+        if (!_parts.containsKey(np) || (isDownloaded(np) && !isOutdated(np))) continue;
         for (final ext in ['json', 'mp3']) {
           final err = await _fetchTo(np, ext, null);
           if (err != null) return err;
@@ -454,6 +500,7 @@ class AudioBook {
     final d = await _folder();
     await File(join(d.path, '$part.v')).writeAsString(_parts[part]!.version);
     _downloaded.add(part);
+    _outdated.remove(part);
   }
 
   /// Изтрива свалена беседа (бележките остават — те са общи и малки).
@@ -464,6 +511,7 @@ class AudioBook {
       if (await f.exists()) await f.delete();
     }
     _downloaded.remove(part);
+    _outdated.remove(part);
     revision.value++;
   }
 

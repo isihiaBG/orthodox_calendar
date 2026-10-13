@@ -108,6 +108,60 @@ Future<void> askAudioDownloadAll(BuildContext context, AudioBook book) async {
   messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е свален.')));
 }
 
+/// Обновяване на една глава с по-нова версия — с размера.
+Future<void> askAudioUpdate(BuildContext context, AudioBook book, String part,
+    {required String title}) async {
+  final palette = ReaderTheme.palette;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Нова версия на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        '„$title“\n\nИма поправен запис. Да го сваля ли (${audioSizeLabel(book.sizeOf(part))})? '
+        'Старият се заменя, щом новият е свален.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Обнови')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final err = await book.download(part);
+  messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е обновен.')));
+}
+
+/// „Обнови всички" за една книга — първо регистъра, после остарелите глави.
+Future<void> askAudioUpdateAll(BuildContext context, AudioBook book) async {
+  final todo = book.outdatedParts();
+  if (todo.isEmpty) return;
+  final palette = ReaderTheme.palette;
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Нови версии на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        'Има поправени записи на ${todo.length} '
+        '${todo.length == 1 ? 'глава' : 'глави'} — общо ${audioSizeLabel(book.bytesOf(todo))}. '
+        'Да ги сваля ли? Старите се заменят, щом новите са свалени.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Обнови')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  final messenger = ScaffoldMessenger.maybeOf(context);
+  final err = await book.updateAll();
+  messenger?.showSnackBar(SnackBar(content: Text(err ?? 'Звукът е обновен.')));
+}
+
 /// Пита и изтрива звука на няколко глави наведнъж (или на всички) — ЕДНО
 /// питане с общия размер (искане на автора, 12.10.2026: едно по едно със
 /// задържане беше бавно). [beforeRemove] спира плейъра, ако свири някоя от
@@ -156,13 +210,17 @@ class AudioChip extends StatelessWidget {
   /// палитрата, за да личи и в СВЕТЛА тема (автора, 12.10.2026). Без него —
   /// приглушеното за тъмен фон.
   final Color? ink;
+
+  /// Заглавието на главата — за прозореца при обновяване.
+  final String title;
   const AudioChip(
       {super.key,
       required this.book,
       required this.part,
       required this.onTap,
       this.onLongPress,
-      this.ink});
+      this.ink,
+      this.title = 'Главата'});
 
   @override
   Widget build(BuildContext context) {
@@ -178,6 +236,20 @@ class AudioChip extends StatelessWidget {
         final Widget inner;
         if (busy) {
           inner = Text('${((book.progress[part] ?? 0) * 100).round()}%', style: muted);
+        } else if (done && book.isOutdated(part)) {
+          // Нова версия: слушалките пускат старата, ⟳ сваля новата.
+          inner = Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle),
+            const SizedBox(width: 4),
+            InkWell(
+              onTap: () => askAudioUpdate(context, book, part, title: title),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Icon(Icons.update, size: 15, color: AppColors.sectionTitle),
+                const SizedBox(width: 2),
+                Text(audioSizeLabel(book.sizeOf(part)), style: muted),
+              ]),
+            ),
+          ]);
         } else if (done) {
           inner = const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle);
         } else {
@@ -300,11 +372,10 @@ class _CoverAudioLineState extends State<CoverAudioLine> {
   Future<void> _check() async {
     setState(() => _checking = true);
     final err = await AudioRegistry.check();
+    final msg = err ?? await audioSummary();
     if (!mounted) return;
     setState(() => _checking = false);
-    if (err != null) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
-    }
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
@@ -393,23 +464,36 @@ class AudioDownloadAllButton extends StatelessWidget {
         final muted =
             TextStyle(color: fg, fontSize: 11.5, fontWeight: FontWeight.w600, height: 1.1);
         final total = book.bulkTotal;
+        final missing = book.missingParts(), outdated = book.outdatedParts();
         final Widget inner;
+        VoidCallback? tap;
         if (total != null) {
-          inner = Text('всички ${(book.bulkFraction * 100).floor()}%', style: muted);
-        } else if (book.missingParts().isEmpty) {
-          return const SizedBox.shrink();
-        } else {
+          // Напредъкът в MB — като под кориците (автора, 13.10.2026).
+          final (done, all) = book.bulkBytes;
+          inner = Text('${(book.bulkFraction * 100).floor()}% · '
+              '${(done / 1048576).toStringAsFixed(1)} / ${audioSizeLabel(all)}', style: muted);
+        } else if (missing.isNotEmpty) {
           inner = Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.download, size: 14, color: fg),
             const SizedBox(width: 3),
-            Text('всички', style: muted),
+            Text('всички · ${audioSizeLabel(book.bytesOf(missing))}', style: muted),
           ]);
+          tap = () => _ask(context);
+        } else if (outdated.isNotEmpty) {
+          inner = Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(Icons.update, size: 14, color: AppColors.sectionTitle),
+            const SizedBox(width: 3),
+            Text('обнови · ${audioSizeLabel(book.bytesOf(outdated))}', style: muted),
+          ]);
+          tap = () => askAudioUpdateAll(context, book);
+        } else {
+          return const SizedBox.shrink();
         }
         return Padding(
           padding: const EdgeInsets.only(left: 8),
           child: InkWell(
             borderRadius: BorderRadius.circular(10),
-            onTap: total != null ? null : () => _ask(context),
+            onTap: tap,
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
               decoration: BoxDecoration(

@@ -412,7 +412,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
     if (choice == 'audio_check') {
       final messenger = ScaffoldMessenger.of(context);
       final err = await AudioRegistry.check();
-      messenger.showSnackBar(SnackBar(content: Text(err ?? 'Списъкът със звука е обновен.')));
+      final msg = err ?? await audioSummary();
+      messenger.showSnackBar(SnackBar(content: Text(msg)));
       return;
     }
     if (choice == 'audio_manage') {
