@@ -189,7 +189,10 @@ class AudioRegistry {
   static Future<String?> check() async {
     await load();
     try {
-      final body = await _download(_url);
+      // ⚠⚠ Параметърът заобикаля кеша на GitHub: той пази ПРЕНАСОЧВАНЕТО
+      // по име на файла (към стария, вече подменен файл) с часове — без него
+      // телефонът теглеше регистъра отпреди качването (13.10.2026: 45 мин.).
+      final body = await _download('$_url?t=${DateTime.now().millisecondsSinceEpoch}');
       if (body == null) return 'Регистърът не можа да се прочете.';
       final text = utf8.decode(body);
       final v = ((jsonDecode(text) as Map)['version'] as num?)?.toInt() ?? 0;
@@ -487,7 +490,10 @@ class AudioBook {
       // Файлът в GitHub е шифрован (`.mp3x`) — дешифрира се, докато се тегли.
       final name = '$part.${ext}x';
       final xs = _XorStream(name);
-      final req = await client.getUrl(Uri.parse('$_baseUrl/$name'));
+      // Версията в адреса — нов запис се тегли веднага (кешът на GitHub
+      // пази пренасочването по име), а непроменен — както досега.
+      final v = _parts[part]?.version ?? '';
+      final req = await client.getUrl(Uri.parse('$_baseUrl/$name?v=$v'));
       final resp = await req.close();
       if (resp.statusCode != 200) return 'Сървърът отговори с ${resp.statusCode}.';
       final out = tmp.openWrite();
