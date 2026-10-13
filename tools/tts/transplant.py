@@ -40,6 +40,7 @@ def bounds(al, p, n, tail_word_end):
     return int(round(s * R)), int(round(e * R))
 
 
+_fresh = set()
 sal, spcm = load(src_h)
 word = ''.join(sal['chars'][sp:sp + n])
 low = lambda c: c.lower()
@@ -53,7 +54,11 @@ for tgt in sys.argv[4:]:
     for ext in ('pcm', 'json'):
         if not (BK / f'{th}.{ext}').exists():
             shutil.copy(E.CACHE / f'{th}.{ext}', BK / f'{th}.{ext}')
-    if os.environ.get('FROM_BACKUP'):   # наново — от оригинала, не върху предишния опит
+    # наново — от оригинала, не върху предишния опит. ⚠ САМО първия път за
+    # този запис в пускането: няколко места в ЕДИН запис — второто иначе
+    # тръгваше пак от оригинала и изтриваше първото (13.10.2026, c05).
+    if os.environ.get('FROM_BACKUP') and th not in _fresh:
+        _fresh.add(th)
         al, pcm = json.loads((BK / f'{th}.json').read_text()), array.array('h', (BK / f'{th}.pcm').read_bytes())
     q = tp + n
     ends = q >= len(al['chars']) or not al['chars'][q].isalpha()   # цялата дума ли е
@@ -63,6 +68,16 @@ for tgt in sys.argv[4:]:
         b1 = int(round(SRC_END * R))
     # ⚠ БЕЗ „въздух“ от източника след думата — там вече е следващият звук.
     piece = spcm[a1:b1]
+    # По избор: PITCH=<полутонове> — леко вдигане/сваляне на тона на
+    # пренесеното (rubberband, без промяна на скоростта; автора, 13.10.2026:
+    # „тембърът е забележимо по-нисък").
+    if os.environ.get('PITCH'):
+        import subprocess
+        r = 2 ** (float(os.environ['PITCH']) / 12)
+        out_b = subprocess.run(['ffmpeg', '-v', 'error', '-f', 's16le', '-ar', str(R), '-ac', '1', '-i', '-',
+                                '-af', f'rubberband=pitch={r:.5f}', '-f', 's16le', '-ar', str(R), '-ac', '1', '-'],
+                               input=piece.tobytes(), capture_output=True, check=True).stdout
+        piece = array.array('h', out_b)
     rms = lambda x: math.sqrt(sum(v * v for v in x) / max(len(x), 1))
     g = rms(pcm[a0:b0]) / max(rms(piece), 1)
     piece = array.array('h', (max(-32768, min(32767, int(v * g))) for v in piece))
