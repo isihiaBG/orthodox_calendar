@@ -283,37 +283,58 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
   }
 
   Widget _group(String title, List<Widget> children, _AudioBookInfo? b, {bool nested = false}) {
-    String? sub;
-    if (b != null) {
+    // ⚠ Заглавието на групата СЛЕДИ свалянето и триенето (book.revision) —
+    // иначе иконата „свали останалите" и броят оставаха стари до следващото
+    // отваряне на екрана (автор, 13.10.2026).
+    Widget? sub(_AudioBookInfo b) {
       final n = b.parts.where((x) => _isGot(b, x.$1)).length;
       final total = b.book.bytesOf([for (final x in b.parts) x.$1]);
-      sub = 'свалени $n от ${b.parts.length} · общо ${audioSizeLabel(total)}';
+      return Text('свалени $n от ${b.parts.length} · общо ${audioSizeLabel(total)}',
+          style: const TextStyle(color: AppColors.textSecondary, fontSize: 13));
     }
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: ExpansionTile(
-        tilePadding: EdgeInsets.only(left: nested ? 28 : 16, right: 12),
-        childrenPadding: EdgeInsets.only(left: nested ? 12 : 0),
-        iconColor: AppColors.sectionTitle,
-        collapsedIconColor: AppColors.textSecondary,
-        initiallyExpanded: !nested,
-        title: Text(title,
-            style: TextStyle(
-                color: AppColors.sectionTitle,
-                fontSize: nested ? 16 : 17,
-                fontWeight: FontWeight.w600)),
-        subtitle: sub == null
-            ? null
-            : Text(sub, style: const TextStyle(color: AppColors.textSecondary, fontSize: 13)),
-        trailing: b == null || _edit || b.book.missingParts().isEmpty
-            ? null
-            : IconButton(
-                tooltip: 'Свали останалите',
-                icon: const Icon(Icons.download, color: AppColors.textSecondary),
-                onPressed: () => askAudioDownloadAll(context, b.book),
-              ),
-        children: children,
-      ),
+
+    Widget? trailing(_AudioBookInfo b) {
+      if (_edit) return null;
+      final book = b.book;
+      if (book.bulkTotal != null) {
+        // „Свали всички" тече — общият напредък на мястото на иконата.
+        return SizedBox(
+            width: 24, height: 24,
+            child: CircularProgressIndicator(
+                strokeWidth: 2.5, value: book.bulkFraction, color: AppColors.sectionTitle));
+      }
+      if (book.missingParts().isEmpty) return null;
+      return IconButton(
+        tooltip: 'Свали останалите',
+        icon: const Icon(Icons.download, color: AppColors.textSecondary),
+        onPressed: () => askAudioDownloadAll(context, book),
+      );
+    }
+
+    Widget tile(Widget? subtitle, Widget? trail) => Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: PageStorageKey('audio-group-$title'),
+            tilePadding: EdgeInsets.only(left: nested ? 28 : 16, right: 12),
+            childrenPadding: EdgeInsets.only(left: nested ? 12 : 0),
+            iconColor: AppColors.sectionTitle,
+            collapsedIconColor: AppColors.textSecondary,
+            initiallyExpanded: !nested,
+            title: Text(title,
+                style: TextStyle(
+                    color: AppColors.sectionTitle,
+                    fontSize: nested ? 16 : 17,
+                    fontWeight: FontWeight.w600)),
+            subtitle: subtitle,
+            trailing: trail,
+            children: children,
+          ),
+        );
+
+    if (b == null) return tile(null, null);
+    return ValueListenableBuilder<int>(
+      valueListenable: b.book.revision,
+      builder: (context, _, _) => tile(sub(b), trailing(b)),
     );
   }
 
