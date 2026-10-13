@@ -1453,11 +1453,15 @@ class _BookReaderState extends State<BookReader>
         out.add(null);
         continue;
       }
-      var i = f.text.indexOf(fs, cur);
+      // ⚠ Търси се и МАЛКО НАЗАД (300 знака): предишното изречение, намерено
+      // само „по началото", може да е избутало показалеца в това — тогава то
+      // не се намираше изобщо и не светваше (c05 „Важен момент…", 13.10.2026).
+      final from = math.max(0, cur - 300);
+      var i = f.text.indexOf(fs, from);
       if (i < 0 || i - cur > 4000) {
         // Изречението може да се разминава в някой знак — опит по началото.
         final head = fs.substring(0, math.min(24, fs.length));
-        i = f.text.indexOf(head, cur);
+        i = f.text.indexOf(head, from);
         if (i < 0 || i - cur > 4000) {
           out.add(null);
           continue;
