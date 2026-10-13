@@ -36,7 +36,9 @@ REPO = 'isihiaBG/orthodox_calendar'
 API = f'https://api.github.com/repos/{REPO}'
 INDEX_TAG = 'audio-index'
 # Книга → пътят ѝ в приложението (ключът в регистъра).
-ASSETS = {'razgovori': 'assets/chitalnya/razgovori.epub'}
+ASSETS = {'razgovori': 'assets/chitalnya/razgovori.epub',
+          # Житията от томовете — гласът Калина (azure_life.py), 13.10.2026.
+          'zhitia10': 'assets/books/Жития на светиите - 10(окт) - Димитрий Ростовски.epub'}
 
 
 def secret():

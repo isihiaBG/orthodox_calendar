@@ -61,6 +61,7 @@ class OutroTiming {
   static const double longChapter = 20 * 60; // „дълга" беседа
   static const double shortSentence = 3; // по-кратко изречение не се брои за отделно
   static const double silentDb = -55;
+  static const double titleLeadIn = 2.2; // заглавната: пауза, в която дудукът изплува преди посвещението
 }
 
 /// Откъде в беседата да влезе музиката (правила на автора, 13.10.2026):
@@ -73,11 +74,15 @@ class OutroTiming {
 ///   на гласа — при по-дълги изречения влиза насред (тихо, не се усеща).
 ///
 /// ⚠ Заглавната страница е различна (искане на автора): музиката е
-/// постоянен фон, от надписа под иконата (след заглавието и адреса на
-/// обителта — първите три изречения) през цялото посвещение.
+/// постоянен фон под цялото посвещение и влиза малко преди него.
 double outroStartOf(AudioChapter ch, {bool titlePage = false}) {
   final ss = ch.sentences;
-  if (titlePage && ss.length > 4) return ss[3].start;
+  if (titlePage) {
+    // Надписът под иконата вече не се чете — музиката влиза с посвещението
+    // (или в паузата преди него — виж onCaptionSkip в book_reader.dart).
+    final d = ss.indexWhere((s) => s.kind == 'dedication');
+    if (d >= 0) return ss[d].start;
+  }
   if (ss.isEmpty) return math.max(0, ch.duration - OutroTiming.minLead);
   var last = ss.length - 1;
   while (last > 0 && kOutroCaptionKinds.contains(ss[last].kind)) {
@@ -182,8 +187,9 @@ class AudioOutro {
     return done.future;
   }
 
-  /// Пуска [asset] от нищо до фона под гласа.
-  Future<void> beginBed(String asset) async {
+  /// Пуска [asset] от нищо до фона под гласа (за [seconds], по подразбиране
+  /// [OutroTiming.bedIn]).
+  Future<void> beginBed(String asset, {double? seconds}) async {
     final gen = ++_gen;
     _active = true;
     try {
@@ -192,7 +198,7 @@ class AudioOutro {
       _db = OutroTiming.silentDb;
       await _p.setVolume(0);
       unawaited(_p.play());
-      await _rampTo(OutroTiming.bedDb, OutroTiming.bedIn, gen);
+      await _rampTo(OutroTiming.bedDb, seconds ?? OutroTiming.bedIn, gen);
     } catch (_) {
       if (gen == _gen) _active = false;
     }

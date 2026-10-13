@@ -25,6 +25,7 @@ import 'dart:io';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:just_audio/just_audio.dart';
 import 'package:path/path.dart' show join;
 import 'package:path_provider/path_provider.dart';
@@ -152,6 +153,9 @@ class AudioRegistry {
 
   static (String, Map<String, AudioPart>)? entry(String assetPath) => _books[assetPath];
 
+  /// Всички книги със звук (пътищата им) — за екрана „Звук".
+  static Iterable<String> get books => _books.keys;
+
   /// Чете запазения регистър и (веднъж на сесия) пита GitHub за нов.
   /// ⚠ Без мрежа се ползва запазеният — свалените глави се слушат и офлайн.
   static Future<void> load() => _loading ??= _load();
@@ -163,9 +167,20 @@ class AudioRegistry {
       try {
         _parse(await local.readAsString());
         known = true;
-        revision.value++;
       } catch (_) {}
     }
+    // ⚠ Копие на регистъра В ПАКЕТА (assets/audio_index.json, 13.10.2026) —
+    // за да се знае без мрежа кое четиво има звук (знакът в дневния изглед,
+    // филтърът #звук). Печели по-новото от двете; свалянето пак е по воля.
+    try {
+      final bundled = await rootBundle.loadString('assets/audio_index.json');
+      final v = ((jsonDecode(bundled) as Map)['version'] as num?)?.toInt() ?? 0;
+      if (!known || v > version) {
+        _parse(bundled);
+        known = true;
+      }
+    } catch (_) {}
+    if (known) revision.value++;
   }
 
   /// Тегли регистъра — САМО по действие на човека („Провери за звук" или
@@ -606,14 +621,65 @@ class AudioPlayback {
 
   AudioPlayback(this.book, this.chapter);
 
-  /// Свършила ли е беседата докрай (а не просто на пауза).
-  bool get completed => _main.processingState == ProcessingState.completed;
+  /// Свършила ли е беседата докрай (а не просто на пауза) — включително
+  /// когато след последната дума остават само надписи под илюстрации.
+  bool get completed => _endedEarly || _main.processingState == ProcessingState.completed;
+
+  // ── Надписите под илюстрациите НЕ се четат (автор, 13.10.2026) ──────
+  // Те са справка и разваляха заключението на беседата (и атмосферата с
+  // музиката). Записите не се пипат — плейърът просто ги прескача. Изключение:
+  // пуснато от самия надпис (▶ при маркиране) — прочита се надписът, после
+  // продължава с беседата; след края ѝ — спира.
+  static const _captionKinds = {'figcaption', 'caption'};
+  bool _isCaption(int i) =>
+      i >= 0 && i < chapter.sentences.length && _captionKinds.contains(chapter.sentences[i].kind);
+  int _allowFrom = -1, _allowTo = -1; // надписът, пуснат изрично
+  bool _skipping = false;
+  bool _endedEarly = false;
+
+  /// Вика се при прескачане на надпис към изречение [to]; върнатото време
+  /// е пауза ПРЕДИ продължаването (заглавната: дудукът влиза в нея).
+  Future<Duration> Function(int to)? onCaptionSkip;
+
+  Future<void> _skipCaptions(int i) async {
+    _skipping = true;
+    try {
+      var j = i;
+      while (_isCaption(j)) {
+        j++;
+      }
+      if (j >= chapter.sentences.length) {
+        // След последната дума — само надписи: беседата свършва тук.
+        _endedEarly = true;
+        await _main.pause();
+        playing.value = false;
+        if (!_finished) {
+          _finished = true;
+          onFinished?.call();
+        }
+        return;
+      }
+      final d = await (onCaptionSkip?.call(j) ?? Future.value(Duration.zero));
+      if (d > Duration.zero) {
+        await _main.pause();
+        await Future.delayed(d);
+      }
+      sentence.value = j;
+      await _main.seek(Duration(milliseconds: (chapter.sentences[j].start * 1000).round()));
+      if (d > Duration.zero) unawaited(_main.play());
+    } finally {
+      _skipping = false;
+    }
+  }
 
   Future<void> start({int fromSentence = 0}) async {
     await _main.setFilePath(chapter.mp3Path);
     _subs.add(_main.positionStream.listen(_onPosition));
     _subs.add(_main.playerStateStream.listen((s) {
-      if (!_inNote) playing.value = s.playing && s.processingState != ProcessingState.completed;
+      // ⚠ Паузата при прескачане на надпис не е пауза на човека.
+      if (!_inNote && !_skipping && !_endedEarly) {
+        playing.value = s.playing && s.processingState != ProcessingState.completed;
+      }
       if (s.processingState == ProcessingState.completed) {
         playing.value = false;
         // ⚠ Не насред бележка — тя пуска беседата пак, щом свърши.
@@ -642,6 +708,11 @@ class AudioPlayback {
       }
     }
     final i = chapter.indexAt(t);
+    if (_skipping || _endedEarly) return;
+    if (_isCaption(i) && !(i >= _allowFrom && i <= _allowTo)) {
+      unawaited(_skipCaptions(i));
+      return;
+    }
     if (i != cur) sentence.value = i;
   }
 
@@ -668,6 +739,19 @@ class AudioPlayback {
     if (chapter.sentences.isEmpty) return;
     i = i.clamp(0, chapter.sentences.length - 1);
     _finished = false;
+    _endedEarly = false;
+    // Пуснато от надпис — той (целият, ако е от няколко изречения) се чете.
+    _allowFrom = _allowTo = -1;
+    if (_isCaption(i)) {
+      _allowFrom = i;
+      _allowTo = i;
+      while (_isCaption(_allowFrom - 1)) {
+        _allowFrom--;
+      }
+      while (_isCaption(_allowTo + 1)) {
+        _allowTo++;
+      }
+    }
     _notesDone.removeWhere((k) => k >= i);
     sentence.value = i;
     await _main.seek(Duration(milliseconds: (chapter.sentences[i].start * 1000).round()));
@@ -681,8 +765,9 @@ class AudioPlayback {
     if (_main.playing) {
       await _main.pause();
     } else {
-      if (_main.processingState == ProcessingState.completed) await seekToSentence(0);
+      if (completed) await seekToSentence(0);
       await _main.play();
+      if (!_inNote) playing.value = true;
     }
   }
 
@@ -695,6 +780,7 @@ class AudioPlayback {
         .clamp(0.0, chapter.duration);
     _notesDone.removeWhere((k) => chapter.sentences[k].end > t);
     _finished = false;
+    _endedEarly = false;
     await _main.seek(Duration(milliseconds: (t * 1000).round()));
   }
 

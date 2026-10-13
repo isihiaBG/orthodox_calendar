@@ -1,3 +1,5 @@
+import 'audio_manage_screen.dart';
+import 'audiobook.dart';
 import 'package:flutter/material.dart';
 import 'style_dates.dart';
 import 'database_helper.dart';
@@ -394,8 +396,29 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       kReaderSettingsMenuItem,
       kBookmarksMenuItem,
       kQuotesMenuItem,
+      // Звукът (13.10.2026, искане на автора) — проверка и управление.
+      const ReaderMenuItem(
+        icon: Icon(Icons.cloud_sync_outlined, size: 24, color: AppColors.textSecondary),
+        label: 'Провери за звук',
+        value: 'audio_check',
+      ),
+      const ReaderMenuItem(
+        icon: Icon(Icons.headphones_outlined, size: 24, color: AppColors.textSecondary),
+        label: 'Звук — свалени и налични',
+        value: 'audio_manage',
+      ),
     ]);
     if (!mounted || choice == null) return;
+    if (choice == 'audio_check') {
+      final messenger = ScaffoldMessenger.of(context);
+      final err = await AudioRegistry.check();
+      messenger.showSnackBar(SnackBar(content: Text(err ?? 'Списъкът със звука е обновен.')));
+      return;
+    }
+    if (choice == 'audio_manage') {
+      Navigator.of(context).push(MaterialPageRoute(builder: (_) => const AudioManageScreen()));
+      return;
+    }
     if (choice == kReaderSettingsMenuItem.value) {
       _scaffoldKey.currentState?.openEndDrawer();
     } else if (choice == kBookmarksMenuItem.value) {

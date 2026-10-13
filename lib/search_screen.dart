@@ -1,3 +1,5 @@
+import 'audiobook.dart';
+import 'lives_index.dart';
 import 'package:flutter/material.dart';
 import 'style_dates.dart';
 import 'database_helper.dart';
@@ -95,10 +97,31 @@ const Map<String, String> _contentAliases = {
   // преназначаването им би сменило тихо смисъла на заучен хаштаг.
   'сло': 'slovo', 'слов': 'slovo', 'слово': 'slovo', 'слова': 'slovo',
   'slo': 'slovo', 'slov': 'slovo', 'slovo': 'slovo',
+  // ⚠ ЗВУК (13.10.2026) — четивото на светията (житието по свт. Димитрий
+  // Ростовски) има запис за слушане. Също извън `_contentSql`: кое има звук,
+  // казва регистърът на звука (виж `_audioNumsCondition`).
+  'зв': 'audio', 'зву': 'audio', 'звук': 'audio',
+  's': 'audio', 'so': 'audio', 'sound': 'audio',
   // служба (по същата логика — махни реда, ако не я искаш)
   'сл': 'sluzhba', 'слу': 'sluzhba', 'служ': 'sluzhba', 'служба': 'sluzhba',
   'sl': 'sluzhba', 'slu': 'sluzhba', 'sluj': 'sluzhba', 'slujb': 'sluzhba', 'slujba': 'sluzhba', 'sluzhba': 'sluzhba',
 };
+
+/// Номерата (в `lives_index.json`) на четивата по свт. Димитрий, за чиято
+/// глава в тома има звук — за филтъра `#звук`.
+Future<List<int>> _audioNums() async {
+  await AudioRegistry.load();
+  final index = await LivesIndex.load();
+  final out = <int>[];
+  for (final e in index.entries) {
+    final parts = AudioRegistry.entry('assets/books/${e.value.book}')?.$2;
+    if (parts != null && parts.containsKey(AudioBook.partOf(e.value.href))) {
+      final n = int.tryParse(e.key);
+      if (n != null) out.add(n);
+    }
+  }
+  return out;
+}
 
 /// Гражданските дати, за които има слово — за филтъра `#слово`.
 ///
@@ -458,6 +481,18 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
 		        : 's.date NOT IN ($ph)');
 		    saintArgs.addAll(dates);
 		  }
+		}
+		// ⚠ ЗВУК — номерата на четивата по свт. Димитрий, чиято глава в тома
+		// има звук по регистъра (без мрежа — регистърът е и в пакета).
+		final wantsAudio = parsed.content.contains('audio');
+		final notAudio = parsed.excludeContent.contains('audio');
+		if (wantsAudio || notAudio) {
+		  final nums = await _audioNums();
+		  final cond = nums.isEmpty
+		      ? '0'
+		      : 'EXISTS (SELECT 1 FROM lives.saint_dmitry_refs r WHERE r.slug = s.slug '
+		          'AND r.num IN (${nums.join(',')}))';
+		  saintConds.add(wantsAudio ? cond : 'NOT $cond');
 		}
 		// Периодът — НАКРАЯ, за да лягат новите аргументи след досегашните
 		// (sqflite ги свързва по ред на появяване в текста на заявката).
@@ -896,6 +931,7 @@ const Map<String, String> _contentTitles = {
   // ⚠ Формулировката казва изрично, че условието е за ДЕНЯ — инак човек
   // очаква слово ЗА СВЕТИЯТА и празният резултат го обърква.
   'slovo': 'слово за деня (в същия ден)',
+  'audio': 'четиво със звук (за слушане)',
 };
 
 /// ⚠ Женски род — съгласуват се с „църква“ от заглавието на раздела

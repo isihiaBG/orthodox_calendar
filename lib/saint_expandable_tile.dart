@@ -24,6 +24,8 @@ import 'expandable_section.dart';
 import 'database_helper.dart';
 import 'dmitry_life.dart';
 import 'lives_index.dart';
+import 'audiobook.dart';
+import 'audio_ui.dart';
 import 'reader_screen.dart';
 import 'reference_text.dart';
 
@@ -712,10 +714,16 @@ class _SectionRow extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// Знак отдясно, преди стрелката (слушалките — четивото има звук).
+  final Widget? badge;
+  final VoidCallback? onLongPress;
+
   const _SectionRow({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.badge,
+    this.onLongPress,
   });
 
   @override
@@ -723,6 +731,7 @@ class _SectionRow extends StatelessWidget {
     final theme = Theme.of(context);
     return InkWell(
       onTap: onTap,
+      onLongPress: onLongPress,
       borderRadius: BorderRadius.circular(6),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
@@ -731,6 +740,7 @@ class _SectionRow extends StatelessWidget {
             Icon(icon, size: 18, color: AppColors.sectionTitle), 
             const SizedBox(width: 10),
             Expanded(child: Text(label, style: theme.textTheme.bodyMedium)),
+            if (badge != null) ...[badge!, const SizedBox(width: 4)],
             Icon(Icons.chevron_right, size: 20, color: theme.hintColor),
           ],
         ),
@@ -774,6 +784,71 @@ class _DmitryRow extends StatelessWidget {
           icon: Icons.import_contacts_outlined,
           label: snap.data ?? fallback,
           onTap: () => openDmitryLife(context, ref.num),
+          badge: _DmitryAudioBadge(ref.num),
+          // Задържане — изтриване на сваления звук (с питане). Записът е
+          // един, тъй че изчезва от ВСИЧКИ дни с тази памет.
+          onLongPress: () => _deleteAudio(context, snap.data ?? fallback),
+        );
+      },
+    );
+  }
+}
+
+
+extension on _DmitryRow {
+  Future<void> _deleteAudio(BuildContext context, String title) async {
+    await AudioRegistry.load();
+    final r = (await LivesIndex.load())[ref.num.toString()];
+    if (r == null || !context.mounted) return;
+    final book = AudioBook.forAsset('assets/books/${r.book}');
+    final part = AudioBook.partOf(r.href);
+    if (book == null || part == null || !book.isDownloaded(part)) return;
+    await askAudioDelete(context, book, part, title: title);
+  }
+}
+
+/// Слушалки до четивото по Димитрий Ростовски, ако за главата му в тома
+/// има звук (по регистъра на звука — без мрежа; 13.10.2026). Свалено —
+/// в цвета на секцията, несвалено — приглушено.
+class _DmitryAudioBadge extends StatelessWidget {
+  final int num;
+  const _DmitryAudioBadge(this.num);
+
+  Future<LifeRef?> _ref() async {
+    await AudioRegistry.load();
+    return (await LivesIndex.load())[num.toString()];
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<LifeRef?>(
+      future: _ref(),
+      builder: (context, snap) {
+        final r = snap.data;
+        if (r == null) return const SizedBox.shrink();
+        return ValueListenableBuilder<int>(
+          valueListenable: AudioRegistry.revision,
+          builder: (context, _, _) {
+            final asset = 'assets/books/${r.book}';
+            final part = AudioBook.partOf(r.href);
+            if (AudioRegistry.entry(asset)?.$2.containsKey(part) != true) {
+              return const SizedBox.shrink();
+            }
+            final book = AudioBook.forAsset(asset);
+            if (book == null) return const SizedBox.shrink();
+            // И свалянето/изтриването сменят цвета веднага.
+            return ValueListenableBuilder<int>(
+              valueListenable: book.revision,
+              builder: (context, _, _) {
+                final got = book.isDownloaded(part);
+                return Tooltip(
+                  message: got ? 'Има звук (свален)' : 'Има звук',
+                  child: Icon(Icons.headphones, size: 18,
+                      color: got ? AppColors.sectionTitle : AppColors.textSecondary),
+                );
+              },
+            );
+          },
         );
       },
     );

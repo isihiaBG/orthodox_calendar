@@ -113,6 +113,7 @@ flutter:
     - assets/chitalnya/
     - assets/chitalnya_covers/
     - assets/audio_outro/
+    - assets/audio_index.json
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #

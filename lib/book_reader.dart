@@ -1306,6 +1306,16 @@ class _BookReaderState extends State<BookReader>
     pb.sentence.addListener(_onSentence);
     pb.onFinished = _onAudioFinished;
     pb.position.addListener(_onAudioPosition);
+    // Заглавната: надписът под иконата се прескача, а в паузата преди
+    // посвещението изплува дудукът (автор, 13.10.2026).
+    pb.onCaptionSkip = (to) async {
+      if (part != 'title' || _outroBegun || !AudioOutroSetting.value) return Duration.zero;
+      if (ch.sentences[to].kind != 'dedication') return Duration.zero;
+      _outroBegun = true;
+      unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, part, _index),
+          seconds: OutroTiming.titleLeadIn));
+      return Duration(milliseconds: (OutroTiming.titleLeadIn * 1000).round());
+    };
     pb.playing.addListener(_onAudioPlaying);
     _outroAt = outroStartOf(ch, titlePage: part == 'title');
     _outroBegun = false;
