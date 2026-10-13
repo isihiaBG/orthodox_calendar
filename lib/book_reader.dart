@@ -113,7 +113,12 @@ class BookReader extends StatefulWidget {
     this.hintContents = false,
     this.keepImmersiveOnExit = false,
     this.openAtQuote,
+    this.playOnOpen = false,
   });
+
+  /// Отвори главата и пусни звука ѝ веднага (екранът „Звук"; несвалено —
+  /// първо обичайното питане за сваляне).
+  final bool playOnOpen;
 
   @override
   State<BookReader> createState() => _BookReaderState();
@@ -353,6 +358,15 @@ class _BookReaderState extends State<BookReader>
     // затваря) — без слушател ефектът се виждаше едва при следващо
     // отваряне на четивото.
     ReaderDropCapScale.notifier.addListener(_onDropCapScaleChanged);
+    if (widget.playOnOpen) {
+      // Главата и регистърът трябва да са прочетени — `_startAudio` и без
+      // това опитва пак, докато регионите се построят.
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await AudioRegistry.load();
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) await _onAudioTap();
+      });
+    }
     // Кое четиво е било последно в този том — решава какво пише опашката
     // под заглавната страница и кой ред е маркиран в съдържанието.
     if (widget.openAtQuote != null) {

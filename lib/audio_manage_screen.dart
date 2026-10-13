@@ -16,6 +16,7 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'audio_ui.dart';
 import 'audiobook.dart';
+import 'book_reader.dart';
 import 'chitalnya_books.dart';
 import 'edit_icon.dart';
 import 'epub_source.dart';
@@ -63,6 +64,22 @@ Future<List<_AudioBookInfo>> _loadBooks() async {
   }
   out.sort((a, b) => (a.month ?? 0).compareTo(b.month ?? 0));
   return out;
+}
+
+/// Отваря главата в четеца на книгата ѝ и пуска звука (тап в списъка).
+Future<void> _openAndPlay(BuildContext context, String asset, String part) async {
+  final nav = Navigator.of(context);
+  final book = await EpubBook.open(asset);
+  EpubTocEntry? hit;
+  for (final e in book.toc.expand((e) => e.flattened())) {
+    if (e.href.isEmpty || AudioBook.partOf(e.href) != part) continue;
+    // Денят дели файла с житието си — печели листът (самото четиво).
+    if (hit == null || e.children.isEmpty) hit = e;
+    if (e.children.isEmpty) break;
+  }
+  if (hit == null) return;
+  await nav.push(MaterialPageRoute(
+      builder: (_) => BookReader(book: book, start: hit, playOnOpen: true)));
 }
 
 class AudioManageScreen extends StatefulWidget {
@@ -323,7 +340,11 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
               child: CircularProgressIndicator(
                   strokeWidth: 2, value: book.progress[part], color: AppColors.sectionTitle));
         } else if (got) {
-          trailing = const Icon(Icons.headphones, color: AppColors.sectionTitle, size: 22);
+          trailing = IconButton(
+            tooltip: 'Слушай',
+            icon: const Icon(Icons.headphones, color: AppColors.sectionTitle, size: 22),
+            onPressed: () => _openAndPlay(context, b.asset, part),
+          );
         } else {
           trailing = IconButton(
             tooltip: 'Свали',
@@ -338,9 +359,13 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
           subtitle: Text(audioSizeLabel(book.sizeOf(part)),
               style: const TextStyle(color: AppColors.textSecondary, fontSize: 12)),
           trailing: trailing,
-          onTap: _edit && got
-              ? () => setState(() => _selected.contains(key) ? _selected.remove(key) : _selected.add(key))
-              : null,
+          // Тап по реда — отваря четивото и пуска звука (несвалено — първо
+          // пита за сваляне); в редакцията — отметка.
+          onTap: _edit
+              ? (got
+                  ? () => setState(() => _selected.contains(key) ? _selected.remove(key) : _selected.add(key))
+                  : null)
+              : () => _openAndPlay(context, b.asset, part),
         );
       },
     );
