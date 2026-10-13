@@ -23,7 +23,9 @@ cur = ''.join(al['chars'])
 assert cur == cur_txt and cur.count(y_old) == 1
 i = cur.index(y_old)
 new = cur[:i] + y_new + cur[i + len(y_old):]
-assert new == E.chunks_of(bl)[int(ci)][0], 'новият текст на парчето не съвпада с правилата'
+import os
+if not os.environ.get('MEZHDINNO'):   # междинна стъпка при няколко израза в едно парче
+    assert new == E.chunks_of(bl)[int(ci)][0], 'новият текст на парчето не съвпада с правилата'
 fp, fal = E.synth(E.key(), bl['speaker'], y_new, {'reserve': 20, 'spent': 0},
                   cur[:i], cur[i + len(y_old):], bl['kind'])
 fp = array.array('h', fp)
