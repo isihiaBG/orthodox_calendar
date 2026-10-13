@@ -717,11 +717,15 @@ def main():
             seen[bad] += body.count(bad)
             body = body.replace(bad, good)
         files.append((name, xhtml(title, body)))
+        toc.append((title if i else 'Начало', name))
     # Поправил ли е авторът мястото в .docx — редът тук става излишен (0).
     for bad, n in seen.items():
         if n != 1:
             print(f'  ⚠ BOOK_FIX „{bad}“: {n} срещания (очаквано 1)')
-        toc.append((title if i else 'Начало', name))
+    # ⚠ Съдържанието трябва да има ВСИЧКИ глави — на 13.10.2026 редът за toc
+    # изпадна от цикъла и книгата излезе само с последната беседа.
+    if len(toc) != len(chapters):
+        sys.exit(f'⚠ съдържанието има {len(toc)} записа, а главите са {len(chapters)}')
     for n, t in doc.notes:
         files.append((f'note{n}.xhtml', xhtml(str(n), f'<h1 id="note{n}">{n}</h1><p>{t}</p>')))
 
