@@ -12,6 +12,9 @@ import eleven as E
 from splice_many import cache_key, mp3, clip
 
 chap, bi, ci, snapf, w_old, w_new = sys.argv[1:7]
+# По избор: колко ms ПО-РАНО да почне изрязът (разбивката по знаци е
+# приблизителна — в c06 от „т“ оставаше чуваемо парченце; автор, 13.10.2026).
+early = float(sys.argv[7]) / 1000 if len(sys.argv) > 7 else 0.0
 R = E.RATE
 snap = json.load(open(snapf))
 ch = {c['file']: c for c in json.loads((E.WORK / 'razgovori_marked.json').read_text())}
@@ -32,7 +35,7 @@ n0 = cur.index(w_old)
 i = n0 + pre                                # първият изрязан знак
 j = n0 + len(w_old) - suf                   # първият запазен след тях
 assert cur[:i] + cur[j:] == new, 'разликата не е само в изрязаното'
-a, b = int(round(al['start'][i] * R)), int(round(al['start'][j] * R))
+a, b = int(round((al['start'][i] - early) * R)), int(round(al['start'][j] * R))
 x = int(0.008 * R)
 head, tail = pcm[:a], pcm[b:]
 for k in range(x):                          # преливане
