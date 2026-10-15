@@ -1310,8 +1310,7 @@ class _BookReaderState extends State<BookReader>
     final k = from == null ? 0 : _sentenceAt(loc, from.block, from.charStart);
     final old = _playback;
     if (old != null && old.chapter.part == part) {
-      _cancelOutro();
-      await old.seekToSentence(k);
+      await old.seekToSentence(k); // действие на човека — маха и музиката
       if (!old.playing.value) await old.toggle();
       return;
     }
@@ -1320,6 +1319,7 @@ class _BookReaderState extends State<BookReader>
     pb.sentence.addListener(_onSentence);
     pb.onFinished = _onAudioFinished;
     pb.position.addListener(_onAudioPosition);
+    pb.onUserAction = _onAudioUserAction;
     // Заглавната: надписът под иконата се прескача, а в паузата преди
     // посвещението изплува дудукът (автор, 13.10.2026).
     pb.onCaptionSkip = (to) async {
@@ -1367,11 +1367,10 @@ class _BookReaderState extends State<BookReader>
     final pb = _playback;
     if (pb == null) return;
     final t = pb.position.value;
-    if (_outroBegun) {
-      // Върнал се е назад — музиката си отива; ще влезе пак на мястото си.
-      if (!pb.completed && t < _outroAt - 1) _cancelOutro();
-      return;
-    }
+    // ⚠ Връщането назад спира музиката през `onUserAction` (превъртането е
+    // действие на човека) — НЕ по позицията: около края плейърът понякога
+    // дава позиция, която изглеждаше като връщане (15.10.2026).
+    if (_outroBegun) return;
     if (!AudioOutroSetting.value || !pb.playing.value) return;
     if (t >= _outroAt && t < pb.chapter.duration - 0.3) {
       _outroBegun = true;
@@ -1385,15 +1384,33 @@ class _BookReaderState extends State<BookReader>
     final pb = _playback;
     if (pb == null) return;
     final v = pb.playing.value;
-    if (_lastPlaying && !v && !pb.completed && _outro.active) _cancelOutro();
-    if (!_lastPlaying && v && _outroPending) _cancelOutro();
+    // Спряно НЕ от човека насред беседата (обаждане по телефона) — музиката
+    // спира с нея. ⚠ Близо до края — НЕ: там плейърът дава мигновени
+    // „спрях" и музиката се прекъсваше без причина (автора, 15.10.2026).
+    if (_lastPlaying && !v && !pb.completed && _outro.active &&
+        pb.position.value < pb.chapter.duration - 2.0) {
+      _cancelOutro('прекъсване на беседата');
+    }
     _lastPlaying = v;
   }
 
-  void _cancelOutro() {
+  /// Пауза, превъртане, ▶ отначало — музиката в края се маха.
+  void _onAudioUserAction() {
+    if (_outro.active || _outroPending) _cancelOutro('действие на човека');
+  }
+
+  void _cancelOutro([String why = '']) {
     _outroPending = false;
     _outroBegun = false;
-    if (_outro.active) unawaited(_outro.stop());
+    if (_outro.active) unawaited(_outro.stop(why: why));
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (_playback != null) audioLogAdd('приложението: ${state.name}');
+    // Връщане в приложението — иконката ▶/⏸ се сверява с плейъра.
+    if (state == AppLifecycleState.resumed) _playback?.resync();
   }
 
   Future<void> _goNextAudio() async {
@@ -1428,7 +1445,7 @@ class _BookReaderState extends State<BookReader>
     _playback = null;
     // ⚠ При преминаване към следващата беседа музиката продължава да
     // затихва върху заглавието ѝ; при всяко друго спиране си отива.
-    if (!_outroCarry) _cancelOutro();
+    if (!_outroCarry) _cancelOutro('спрян звук / друга глава');
     _outroBegun = false;
     _outroPending = false;
     if (!quiet && mounted) {

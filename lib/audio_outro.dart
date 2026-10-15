@@ -174,6 +174,7 @@ class AudioOutro {
         return;
       }
       final now = sw.elapsedMilliseconds;
+      if (now - last > 400) audioLogAdd('музика: стъпката закъсня ${now - last} ms');
       acc += math.min(now - last, 60);
       last = now;
       final k = math.min(1.0, acc / total);
@@ -192,6 +193,7 @@ class AudioOutro {
   Future<void> beginBed(String asset, {double? seconds}) async {
     final gen = ++_gen;
     _active = true;
+    audioLogAdd('музика: влиза ($asset)');
     try {
       await _p.setAsset(asset);
       if (gen != _gen) return;
@@ -209,27 +211,41 @@ class AudioOutro {
   /// почва следващата беседа). Връща false, ако е прекъснато.
   Future<bool> finish({required VoidCallback onNext}) async {
     final gen = _gen;
-    if (!_active) return false;
+    if (!_active) {
+      audioLogAdd('музика: finish — НЕ звучи, преход няма');
+      return false;
+    }
+    audioLogAdd('музика: finish — засилване');
     await Future.delayed(Duration(milliseconds: (OutroTiming.after * 1000).round()));
-    if (gen != _gen) return false;
+    if (gen != _gen) return _cut('след паузата');
     await _rampTo(0, OutroTiming.swell, gen);
-    if (gen != _gen) return false;
+    if (gen != _gen) return _cut('при засилването');
+    audioLogAdd('музика: пълна сила');
     await Future.delayed(Duration(milliseconds: (OutroTiming.hold * 1000).round()));
-    if (gen != _gen) return false;
+    if (gen != _gen) return _cut('при задържането');
+    audioLogAdd('музика: затихва');
     final fading = _rampTo(OutroTiming.silentDb, OutroTiming.fade, gen);
     await Future.delayed(Duration(milliseconds: (OutroTiming.nextAt * 1000).round()));
-    if (gen != _gen) return false;
+    if (gen != _gen) return _cut('при затихването');
+    audioLogAdd('музика: следващата беседа');
     onNext();
     await fading;
     if (gen != _gen) return true;
     _active = false;
     await _p.stop();
+    audioLogAdd('музика: свърши');
     return true;
+  }
+
+  bool _cut(String where) {
+    audioLogAdd('музика: прекъсната $where');
+    return false;
   }
 
   /// Прекъсване от човека (пауза, превъртане, затваряне): бързо, но
   /// плавно затихване — без рязко отрязване.
-  Future<void> stop({double seconds = 1.0}) async {
+  Future<void> stop({double seconds = 1.0, String why = ''}) async {
+    if (_active) audioLogAdd('музика: стоп ($why)');
     if (!_active) {
       _gen++;
       return;
@@ -244,7 +260,7 @@ class AudioOutro {
   }
 
   Future<void> dispose() async {
-    await stop(seconds: 0.8);
+    await stop(seconds: 0.8, why: 'четецът се затвори');
     _disposed = true;
     _ramp?.cancel();
     await _p.dispose();

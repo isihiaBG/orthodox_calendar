@@ -227,6 +227,19 @@ class AudioRegistry {
   }
 }
 
+/// Дневник на звука — последните ~500 събития с часа (13.10.2026): за
+/// бъга „музиката в края спира изведнъж". Не се пази на диска; споделя се
+/// от екрана „Звук" (задържане върху заглавието).
+final List<String> audioLog = [];
+
+void audioLogAdd(String msg) {
+  final n = DateTime.now();
+  String two(int x) => x.toString().padLeft(2, '0');
+  audioLog.add('${two(n.hour)}:${two(n.minute)}:${two(n.second)}.'
+      '${n.millisecond.toString().padLeft(3, '0')} $msg');
+  if (audioLog.length > 500) audioLog.removeRange(0, audioLog.length - 500);
+}
+
 /// Кратка равносметка след „Провери за звук" (автора, 13.10.2026): колко
 /// глави със звук има, колко са свалени, колко са нови за сваляне и колко
 /// имат по-нова версия. Бележките под линия не се броят.
@@ -671,6 +684,23 @@ class AudioPlayback {
 
   /// Вика се веднъж, щом беседата свърши докрай (за [AudioAutoNext]).
   VoidCallback? onFinished;
+
+  /// Вика се при ДЕЙСТВИЕ НА ЧОВЕКА — пауза/пускане, превъртане, преход към
+  /// изречение. ⚠ Само по него музиката в края се прекъсва: сигналите на
+  /// плейъра около края (особено във фонов режим) я спираха без причина
+  /// (автора, 15.10.2026).
+  VoidCallback? onUserAction;
+
+  /// Сверява иконката ▶/⏸ с плейъра — при връщане в приложението тя
+  /// оставаше „пауза" (автора, 15.10.2026).
+  void resync() {
+    if (_inNote || _skipping || _endedEarly) return;
+    final v = _main.playing && _main.processingState != ProcessingState.completed;
+    if (playing.value != v) {
+      audioLogAdd('resync: playing ${playing.value} → $v');
+      playing.value = v;
+    }
+  }
   bool _finished = false;
 
   AudioPlayback(this.book, this.chapter);
@@ -730,6 +760,11 @@ class AudioPlayback {
     await _main.setFilePath(chapter.mp3Path);
     _subs.add(_main.positionStream.listen(_onPosition));
     _subs.add(_main.playerStateStream.listen((s) {
+      if (position.value > chapter.duration - 40) {
+        audioLogAdd('${chapter.part} @${position.value.toStringAsFixed(1)}/'
+            '${chapter.duration.toStringAsFixed(1)} state: playing=${s.playing} ${s.processingState.name}'
+            '${_inNote ? ' [бележка]' : ''}${_skipping ? ' [прескачане]' : ''}');
+      }
       // ⚠ Паузата при прескачане на надпис не е пауза на човека.
       if (!_inNote && !_skipping && !_endedEarly) {
         playing.value = s.playing && s.processingState != ProcessingState.completed;
@@ -739,11 +774,14 @@ class AudioPlayback {
         // ⚠ Не насред бележка — тя пуска беседата пак, щом свърши.
         if (!_inNote && !_finished) {
           _finished = true;
+          audioLogAdd('${chapter.part}: край (completed) → onFinished');
           onFinished?.call();
+        } else {
+          audioLogAdd('${chapter.part}: completed, БЕЗ onFinished (inNote=$_inNote finished=$_finished)');
         }
       }
     }));
-    await seekToSentence(fromSentence);
+    await seekToSentence(fromSentence, user: false);
     unawaited(_main.play());
   }
 
@@ -789,8 +827,12 @@ class AudioPlayback {
     await _main.play();
   }
 
-  Future<void> seekToSentence(int i) async {
+  Future<void> seekToSentence(int i, {bool user = true}) async {
     if (chapter.sentences.isEmpty) return;
+    if (user) {
+      audioLogAdd('${chapter.part}: човек → изречение $i');
+      onUserAction?.call();
+    }
     i = i.clamp(0, chapter.sentences.length - 1);
     _finished = false;
     _endedEarly = false;
@@ -812,20 +854,25 @@ class AudioPlayback {
   }
 
   Future<void> toggle() async {
+    audioLogAdd('${chapter.part}: човек → ▶/⏸ (playing=${_main.playing})');
+    onUserAction?.call();
     if (_inNote) {
       await _note.stop();
       _inNote = false;
     }
     if (_main.playing) {
       await _main.pause();
+      if (!_inNote) playing.value = false;
     } else {
-      if (completed) await seekToSentence(0);
+      if (completed) await seekToSentence(0, user: false);
       await _main.play();
       if (!_inNote) playing.value = true;
     }
   }
 
   Future<void> skip(double seconds) async {
+    audioLogAdd('${chapter.part}: човек → превъртане ${seconds}s');
+    onUserAction?.call();
     if (_inNote) {
       await _note.stop();
       _inNote = false;

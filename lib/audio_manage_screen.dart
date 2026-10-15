@@ -12,6 +12,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:share_plus/share_plus.dart';
 
 import 'app_theme.dart';
 import 'audio_ui.dart';
@@ -231,13 +232,20 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
           leading: _edit
               ? IconButton(tooltip: 'Готово', icon: const Icon(Icons.close), onPressed: _closeEdit)
               : null,
-          title: Text(
+          // ⚠ Задържане върху заглавието — споделя дневника на звука (за
+          // търсене на бъгове; автора, 15.10.2026).
+          title: GestureDetector(
+            onLongPress: () => Share.share(audioLog.isEmpty
+                ? 'Дневникът на звука е празен.'
+                : 'Дневник на звука\n\n${audioLog.join('\n')}'),
+            child: Text(
               _edit
                   ? (_selected.isEmpty
                       ? 'Избери за изтриване'
                       : 'Избрани: ${_selected.length} · ${audioSizeLabel(selBytes)}')
                   : 'Звук',
               style: const TextStyle(fontSize: 19)),
+          ),
           actions: _edit
               ? [
                   IconButton(
