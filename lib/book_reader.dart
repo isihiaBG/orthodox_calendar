@@ -1470,23 +1470,36 @@ class _BookReaderState extends State<BookReader>
         out.add(null);
         continue;
       }
-      // ⚠ Търси се и МАЛКО НАЗАД (300 знака): предишното изречение, намерено
-      // само „по началото", може да е избутало показалеца в това — тогава то
-      // не се намираше изобщо и не светваше (c05 „Важен момент…", 13.10.2026).
-      final from = math.max(0, cur - 300);
-      var i = f.text.indexOf(fs, from);
-      if (i < 0 || i - cur > 4000) {
+      // ⚠⚠ ПЪРВО НАПРЕД, назад — само ако напред няма нищо (16.10.2026).
+      // Дотук търсенето почваше 300 знака НАЗАД и кратко изречение („Да.“),
+      // казано малко по-рано, печелеше пред истинското — светваше предишното.
+      // Назад се гледа само по старата причина: предишното изречение,
+      // намерено „по началото“, да е избутало показалеца (c05, 13.10.2026).
+      final back = math.max(0, cur - 300);
+      int find(String s) {
+        final a = f.text.indexOf(s, cur);
+        if (a >= 0 && a - cur <= 4000) return a;
+        final b = f.text.indexOf(s, back);
+        return (b >= 0 && b < cur) ? b : -1;
+      }
+
+      var i = find(fs);
+      var advance = fs.length;
+      if (i < 0) {
         // Изречението може да се разминава в някой знак — опит по началото.
         final head = fs.substring(0, math.min(24, fs.length));
-        i = f.text.indexOf(head, from);
-        if (i < 0 || i - cur > 4000) {
+        i = find(head);
+        if (i < 0) {
           out.add(null);
           continue;
         }
+        // ⚠ Намерено само по началото — показалецът не бива да прескача
+        // целия (несигурен) край, инак следващото изречение остава отзад.
+        advance = head.length;
       }
       final last = math.min(i + fs.length, f.text.length) - 1;
       out.add((f.ofBlock[i], f.ofChar[i], f.ofBlock[last], f.ofChar[last] + 1));
-      cur = last + 1;
+      cur = math.min(i + advance, f.text.length);
     }
     return out;
   }
@@ -1622,7 +1635,8 @@ class _BookReaderState extends State<BookReader>
 
     for (final piece in part.split('\n')) {
       if (piece.trim().length < 3) continue;
-      final tried = wrapQuoteByText(out, piece, 'quotehit');
+      final tried = wrapQuoteByText(out, piece, 'quotehit',
+          hintStart: i == _quoteRegion ? _quoteStart : 0);
       if (tried != out) out = tried;
     }
     return out;

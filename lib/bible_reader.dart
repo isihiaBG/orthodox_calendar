@@ -4256,7 +4256,9 @@ class _BibleReaderState extends State<BibleReader>
     final b = StringBuffer();
     for (var i = 0; i < hay.length; i++) {
       final c = hay[i].toLowerCase();
-      if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
+      // ⚠ Същият [kWordChar] като във [foldForMatch] — инак цс „ѡ", „ѧ"…
+      // се сгъват различно от двете страни.
+      if (kWordChar.hasMatch(c)) {
         b.write(c);
         map.add(i);
       }

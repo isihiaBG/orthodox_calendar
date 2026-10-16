@@ -1295,7 +1295,11 @@ String wrapQuoteByText(String html, String quoteText, String className,
       }
     }
     final c = ch.toLowerCase();
-    if (RegExp(r'[0-9a-zа-яёіѣѫ]').hasMatch(c)) {
+    // ⚠⚠ СЪЩИЯТ [kWordChar] като в [foldForMatch]. Тук стоеше старият
+    // `[0-9a-zа-яёіѣѫ]` — без „ѝ" (и без гръцки, цс „ѡ"…), тъй че изречение
+    // с „ѝ" се сгъваше РАЗЛИЧНО от двете страни и не се маркираше изобщо,
+    // макар съседните да светеха (авторът, 16.10.2026: „…постигането ѝ…", c07).
+    if (kWordChar.hasMatch(c)) {
       folded.write(c);
       map.add(plainPos);
     }
