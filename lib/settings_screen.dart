@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'audiobook.dart' show AudioQuality;
+import 'audio_outro.dart' show AudioOutroSetting;
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_settings.dart';
@@ -69,6 +70,7 @@ class _SettingsContentState extends State<SettingsContent> {
   bool _zachala = BibleZachala.value;
   bool _bibleWelcome = BibleWelcome.value;
   bool _audioLow = AudioQuality.low.value;
+  bool _outro = AudioOutroSetting.value;
 
   @override
   void initState() {
@@ -93,6 +95,9 @@ class _SettingsContentState extends State<SettingsContent> {
     });
     AudioQuality.loadOnce().then((_) {
       if (mounted) setState(() => _audioLow = AudioQuality.low.value);
+    });
+    AudioOutroSetting.loadOnce().then((_) {
+      if (mounted) setState(() => _outro = AudioOutroSetting.value);
     });
   }
 
@@ -516,6 +521,21 @@ class _SettingsContentState extends State<SettingsContent> {
         'Изборът важи за следващите сваляния. Вече свалените беседи остават '
             'в качеството, в което са свалени.',
         style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+      ),
+      const Divider(height: 28, color: AppColors.sectionDivider, thickness: 1),
+      SwitchListTile(
+        contentPadding: EdgeInsets.zero,
+        dense: true,
+        value: _outro,
+        onChanged: (v) {
+          setState(() => _outro = v);
+          AudioOutroSetting.set(v);
+        },
+        title: const Text('Музика в края на беседата'),
+        subtitle: Text(
+          'Тиха мелодия на дудук след последните думи, преди следващата беседа.',
+          style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        ),
       ),
     ];
   }

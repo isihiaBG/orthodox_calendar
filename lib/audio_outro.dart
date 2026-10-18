@@ -120,8 +120,12 @@ class AudioOutroSetting {
     } catch (_) {}
   }
 
-  static Future<void> toggle() async {
-    notifier.value = !notifier.value;
+  static Future<void> toggle() => set(!notifier.value);
+
+  /// ⚠ Превключвателят е в Настройки → „ЗВУК" (18.10.2026, автора) — дотогава
+  /// беше ред в менюто ⋮ на звука в съдържанието и под кориците.
+  static Future<void> set(bool v) async {
+    notifier.value = v;
     try {
       final p = await SharedPreferences.getInstance();
       await p.setBool(_key, notifier.value);

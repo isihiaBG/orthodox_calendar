@@ -13,7 +13,6 @@
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
-import 'audio_outro.dart';
 import 'audiobook.dart';
 import 'reader_theme.dart';
 
@@ -603,13 +602,6 @@ class AudioMoreButton extends StatelessWidget {
               padding: pad,
               child: row(Icons.checklist, 'Избери за изтриване')),
         PopupMenuItem(
-            value: 'music',
-            padding: pad,
-            child: row(AudioOutroSetting.value ? Icons.music_note : Icons.music_off,
-                AudioOutroSetting.value
-                    ? 'Музика в края: вкл.'
-                    : 'Музика в края: изкл.')),
-        PopupMenuItem(
             value: 'delete',
             padding: pad,
             child: row(Icons.headset_off,
@@ -622,8 +614,6 @@ class AudioMoreButton extends StatelessWidget {
         await askAudioDownloadAll(context, book);
       case 'select':
         onSelect?.call();
-      case 'music':
-        await AudioOutroSetting.toggle();
       case 'delete':
         await askAudioDeleteMany(context, book, book.downloadedParts(),
             beforeRemove: beforeRemove);
