@@ -73,6 +73,34 @@ class _XorStream {
   }
 }
 
+/// Качеството на звука, който се СВАЛЯ (18.10.2026, искане на автора):
+/// високо — оригиналният MP3 (64 kbps); икономично — Opus, около четири пъти
+/// по-малък. ⚠ По подразбиране е ИКОНОМИЧНОТО (решение на автора, 18.10.2026).
+///
+/// Вече свалените глави НЕ се пипат при смяна: всяка помни в какво е свалена
+/// (по разширението на файла) и се слуша. Изборът важи за следващите сваляния.
+class AudioQuality {
+  AudioQuality._();
+  static const _key = 'audio_quality_low';
+  static final ValueNotifier<bool> low = ValueNotifier(true);
+  static bool _loaded = false;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      low.value = (await SharedPreferences.getInstance()).getBool(_key) ?? true;
+    } catch (_) {}
+  }
+
+  static Future<void> set(bool v) async {
+    low.value = v;
+    try {
+      await (await SharedPreferences.getInstance()).setBool(_key, v);
+    } catch (_) {}
+  }
+}
+
 /// Една част в изданието: беседа (`c02`) или бележка (`note3`).
 class AudioPart {
   final int mp3Bytes;
@@ -81,9 +109,22 @@ class AudioPart {
   /// Отпечатък на звука и изреченията — сменя ли се, беседата е генерирана
   /// наново и сваленото копие е остаряло.
   final String version;
-  const AudioPart(this.mp3Bytes, this.jsonBytes, this.version);
 
-  int get bytes => mp3Bytes + jsonBytes;
+  /// Лекият вариант (Opus): размер и отпечатък. `null` — още го няма в
+  /// изданието; тогава се тегли MP3-то, каквото и да е избрано.
+  final int? lowBytes;
+  final String? lowVersion;
+  const AudioPart(this.mp3Bytes, this.jsonBytes, this.version,
+      [this.lowBytes, this.lowVersion]);
+
+  bool get hasLow => lowBytes != null && lowVersion != null;
+
+  /// Разширението на звука, който се тегли при текущия избор.
+  String get ext => AudioQuality.low.value && hasLow ? 'opus' : 'mp3';
+
+  int get audioBytes => ext == 'opus' ? lowBytes! : mp3Bytes;
+
+  int get bytes => audioBytes + jsonBytes;
 }
 
 /// Едно изречение: показаният текст и къде е в звука.
@@ -219,8 +260,12 @@ class AudioRegistry {
           b.value['release'] as String,
           {
             for (final e in (b.value['parts'] as Map).entries)
-              e.key as String: AudioPart((e.value['mp3'] as num).toInt(),
-                  (e.value['json'] as num).toInt(), e.value['v'] as String),
+              e.key as String: AudioPart(
+                  (e.value['mp3'] as num).toInt(),
+                  (e.value['json'] as num).toInt(),
+                  e.value['v'] as String,
+                  (e.value['lq'] as num?)?.toInt(),
+                  e.value['lv'] as String?),
           }
         ),
     };
@@ -283,6 +328,8 @@ class AudioBook {
   final String assetPath;
   AudioBook._(this.assetPath) {
     AudioRegistry.revision.addListener(_onRegistry);
+    // Размерите в етикетите следват избраното качество.
+    AudioQuality.low.addListener(() => revision.value++);
   }
 
   static final Map<String, AudioBook> _cache = {};
@@ -320,6 +367,7 @@ class AudioBook {
   Future<void>? _loading;
 
   Future<void> load() => _loading ??= () async {
+        await AudioQuality.loadOnce();
         await AudioRegistry.load();
         await _scanDownloaded();
         revision.value++;
@@ -347,16 +395,27 @@ class AudioBook {
     _outdated.clear();
     for (final p in _parts.keys) {
       final v = File(join(d.path, '$p.v'));
-      if (await v.exists() && await File(join(d.path, '$p.mp3')).exists()) {
+      final ext = await _audioExt(d, p);
+      if (await v.exists() && ext != null) {
         // ⚠ Остаряла версия СЕ СЛУША (свалена е), но се отбелязва за
         // обновяване (автора, 13.10.2026) — дотогава изглеждаше несвалена.
+        // Версията се сравнява със СВАЛЕНИЯ вариант (MP3 или Opus).
         _downloaded.add(p);
-        if ((await v.readAsString()).trim() != _parts[p]!.version) _outdated.add(p);
+        final want = ext == 'opus' ? _parts[p]!.lowVersion : _parts[p]!.version;
+        if ((await v.readAsString()).trim() != want) _outdated.add(p);
       }
     }
   }
 
   final Set<String> _outdated = {};
+
+  /// В какъв вид е свалена частта: `mp3`, `opus` или `null` (не е).
+  static Future<String?> _audioExt(Directory d, String part) async {
+    for (final e in ['opus', 'mp3']) {
+      if (await File(join(d.path, '$part.$e')).exists()) return e;
+    }
+    return null;
+  }
 
   /// Свалена, но в регистъра има по-нова версия.
   bool isOutdated(String? part) => part != null && _outdated.contains(part);
@@ -480,26 +539,30 @@ class AudioBook {
     try {
       final total = _parts[part]!.bytes;
       var done = 0;
-      for (final ext in ['json', 'mp3']) {
+      // ⚠ Видът се фиксира В НАЧАЛОТО — смени ли човек качеството насред
+      // свалянето, звукът и версията пак трябва да са от един вариант.
+      final audio = _parts[part]!.ext;
+      for (final ext in ['json', audio]) {
         final err = await _fetchTo(part, ext, (n) {
           progress[part] = (done + n) / total;
           revision.value++;
         });
         if (err != null) return err;
-        done += ext == 'json' ? _parts[part]!.jsonBytes : _parts[part]!.mp3Bytes;
+        done += ext == 'json' ? _parts[part]!.jsonBytes : _parts[part]!.audioBytes;
       }
       // Бележките, които беседата чете — малки, свалят се заедно с нея.
       final ch = await _readChapter(part);
       for (final n in {for (final s in ch.sentences) ...s.notes}) {
         final np = 'note$n';
         if (!_parts.containsKey(np) || (isDownloaded(np) && !isOutdated(np))) continue;
-        for (final ext in ['json', 'mp3']) {
+        final na = _parts[np]!.ext;
+        for (final ext in ['json', na]) {
           final err = await _fetchTo(np, ext, null);
           if (err != null) return err;
         }
-        await _markDone(np);
+        await _markDone(np, na);
       }
-      await _markDone(part);
+      await _markDone(part, audio);
       return null;
     } catch (e) {
       return _friendly(e);
@@ -509,9 +572,14 @@ class AudioBook {
     }
   }
 
-  Future<void> _markDone(String part) async {
+  Future<void> _markDone(String part, String ext) async {
     final d = await _folder();
-    await File(join(d.path, '$part.v')).writeAsString(_parts[part]!.version);
+    // Другият вариант (свален по-рано в другото качество) отпада.
+    final other = File(join(d.path, '$part.${ext == 'opus' ? 'mp3' : 'opus'}'));
+    if (await other.exists()) await other.delete();
+    final p = _parts[part]!;
+    await File(join(d.path, '$part.v'))
+        .writeAsString(ext == 'opus' ? p.lowVersion! : p.version);
     _downloaded.add(part);
     _outdated.remove(part);
   }
@@ -519,7 +587,7 @@ class AudioBook {
   /// Изтрива свалена беседа (бележките остават — те са общи и малки).
   Future<void> remove(String part) async {
     final d = await _folder();
-    for (final ext in ['mp3', 'json', 'v']) {
+    for (final ext in ['mp3', 'opus', 'json', 'v']) {
       final f = File(join(d.path, '$part.$ext'));
       if (await f.exists()) await f.delete();
     }
@@ -553,7 +621,7 @@ class AudioBook {
       final xs = _XorStream(name);
       // Версията в адреса — нов запис се тегли веднага (кешът на GitHub
       // пази пренасочването по име), а непроменен — както досега.
-      final v = _parts[part]?.version ?? '';
+      final v = (ext == 'opus' ? _parts[part]?.lowVersion : _parts[part]?.version) ?? '';
       final req = await client.getUrl(Uri.parse('$_baseUrl/$name?v=$v'));
       final resp = await req.close();
       if (resp.statusCode != 200) return 'Сървърът отговори с ${resp.statusCode}.';
@@ -589,7 +657,7 @@ class AudioBook {
     }
     return AudioChapter(
       part,
-      join(d.path, '$part.mp3'),
+      join(d.path, '$part.${await _audioExt(d, part) ?? 'mp3'}'),
       (j['duration'] as num).toDouble(),
       [
         for (final s in j['sents'] as List)
@@ -613,7 +681,8 @@ class AudioBook {
   /// Пътят до звука на бележка, ако е свалена.
   Future<String?> notePath(int n) async {
     if (!isDownloaded('note$n')) return null;
-    return join((await _folder()).path, 'note$n.mp3');
+    final d = await _folder();
+    return join(d.path, 'note$n.${await _audioExt(d, 'note$n') ?? 'mp3'}');
   }
 
   static String _friendly(Object e) {

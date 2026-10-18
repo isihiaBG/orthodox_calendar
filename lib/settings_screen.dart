@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'audiobook.dart' show AudioQuality;
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_settings.dart';
@@ -22,12 +24,13 @@ const bool _kUseGraphicalCalendarStylePicker = true;
 /// ЧЕТЕЦ засега е празна категория (общи настройки за двата четеца —
 /// жития и книги — предстоят); съществува тук, за да не се пренарежда
 /// всичко наново, когато се появят.
-enum SettingsSection { calendar, reader, bible }
+enum SettingsSection { calendar, reader, bible, audio }
 
 const _kAllSections = {
   SettingsSection.calendar,
   SettingsSection.reader,
   SettingsSection.bible,
+  SettingsSection.audio,
 };
 
 /// ⚠ Заглавията са КРАТКИ нарочно — тук са уместни, защото човекът вече е в
@@ -39,6 +42,7 @@ const _kSectionTitles = {
   SettingsSection.calendar: 'КАЛЕНДАР',
   SettingsSection.reader: 'ЗА ЧЕТИВАТА',
   SettingsSection.bible: 'БИБЛИЯ',
+  SettingsSection.audio: 'ЗВУК',
 };
 
 // ─── Общото съдържание на настройките ────────────────────────────────────
@@ -64,6 +68,7 @@ class _SettingsContentState extends State<SettingsContent> {
   DropCapScale _dropCapScale = ReaderDropCapScale.value;
   bool _zachala = BibleZachala.value;
   bool _bibleWelcome = BibleWelcome.value;
+  bool _audioLow = AudioQuality.low.value;
 
   @override
   void initState() {
@@ -85,6 +90,9 @@ class _SettingsContentState extends State<SettingsContent> {
     });
     BibleWelcome.loadOnce().then((_) {
       if (mounted) setState(() => _bibleWelcome = BibleWelcome.value);
+    });
+    AudioQuality.loadOnce().then((_) {
+      if (mounted) setState(() => _audioLow = AudioQuality.low.value);
     });
   }
 
@@ -456,12 +464,69 @@ class _SettingsContentState extends State<SettingsContent> {
     ];
   }
 
+  /// Качеството на звука, който се сваля (18.10.2026, искане на автора).
+  /// ⚠ В браузъра звук няма (сваляне с dart:io), затова там секцията е празна
+  /// и изобщо не се показва.
+  List<Widget> _audioSection() {
+    if (kIsWeb) return const [];
+    return [
+      Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: Text('КАЧЕСТВО НА ЗВУКА',
+            style: TextStyle(
+              color: AppColors.textMuted,
+              fontSize: 11,
+              letterSpacing: 1.5,
+            )),
+      ),
+      Center(
+        child: SegmentedButton<bool>(
+          style: SegmentedButton.styleFrom(
+            backgroundColor: AppColors.backgroundCard,
+            foregroundColor: AppColors.textMuted,
+            selectedForegroundColor: AppColors.textPrimary,
+            selectedBackgroundColor: AppColors.appBarWeekday,
+            iconSize: 14,
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            visualDensity: VisualDensity.compact,
+            textStyle: const TextStyle(fontSize: 14, height: 1.0),
+          ),
+          segments: const [
+            ButtonSegment(value: true, label: Text('Икономично')),
+            ButtonSegment(value: false, label: Text('Високо')),
+          ],
+          selected: {_audioLow},
+          onSelectionChanged: (v) {
+            setState(() => _audioLow = v.first);
+            AudioQuality.set(v.first);
+          },
+        ),
+      ),
+      const SizedBox(height: 12),
+      Text(
+        _audioLow
+            ? 'Файловете са около три пъти по-малки (около 9 MB на час) и се '
+                'свалят по-лесно. Гласът звучи почти както в оригинала.'
+            : 'Оригиналният запис (около 29 MB на час) — най-доброто качество, '
+                'но файловете са около три пъти по-големи.',
+        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Изборът важи за следващите сваляния. Вече свалените беседи остават '
+            'в качеството, в което са свалени.',
+        style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+      ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     final sectionContent = {
       SettingsSection.calendar: _calendarSection,
       SettingsSection.reader: _readerSection,
       SettingsSection.bible: _bibleSection,
+      SettingsSection.audio: _audioSection,
     };
 
     final children = <Widget>[];

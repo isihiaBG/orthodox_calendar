@@ -11,6 +11,12 @@
 В изданието за всяка готова част (беседа или бележка):
     <част>.mp3     звукът (64 kbps моно, както идва от ElevenLabs)
     <част>.json    изреченията: показан текст, начало и край в секунди
+    <част>.opus    ЛЕКИЯТ вариант (18.10.2026, искане на автора): Opus 20 kbps,
+                   около 3 пъти по-малък — приложението го тегли при избор
+                   „Икономично" (по подразбиране). Прави се ТУК, от одобрения
+                   MP3 — не от кеша на ElevenLabs: кешът може да е по-нов от
+                   одобреното (c08), а звукът трябва да е СЪЩИЯТ. В регистъра:
+                   `lq` (байтове) и `lv` (отпечатък) до `mp3`/`v`.
 и един манифест `<книга>.json`:
     {"parts": {"c02": {"mp3": байтове, "json": байтове, "v": отпечатък}, …}}
 По `v` приложението разбира, че беседа е генерирана наново и трябва да се
@@ -25,6 +31,7 @@ import argparse
 import re
 import hashlib
 import json
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -69,6 +76,21 @@ def keystream_xor(data, name):
     return (np.frombuffer(data, dtype=np.uint8) ^ kb).tobytes()
 
 
+LOW_KBPS = 20   # избрано на слух от автора (18.10.2026) — 16 също ставаше
+
+
+def make_low(mp3):
+    """`<част>.opus` до MP3-то — наново само ако липсва или е по-стар.
+    ⚠ `-application voip` — настройката на Opus за глас (музиката в края е
+    отделен плейър, в записите я няма)."""
+    opus = mp3.with_suffix('.opus')
+    if not opus.exists() or opus.stat().st_mtime < mp3.stat().st_mtime:
+        subprocess.run(['ffmpeg', '-v', 'error', '-y', '-i', str(mp3), '-ac', '1',
+                        '-c:a', 'libopus', '-b:a', f'{LOW_KBPS}k', '-application', 'voip',
+                        str(opus)], check=True)
+    return opus
+
+
 def token():
     for line in (Path.home() / '.git-credentials').read_text().splitlines():
         if 'github.com' in line and '@' in line:
@@ -90,8 +112,11 @@ def main():
         mp3 = js.with_suffix('.mp3')
         if not mp3.exists():
             continue
+        opus = make_low(mp3)
         h = hashlib.sha1(mp3.read_bytes() + js.read_bytes()).hexdigest()[:12]
-        parts[js.stem] = {'mp3': mp3.stat().st_size, 'json': js.stat().st_size, 'v': h}
+        lv = hashlib.sha1(opus.read_bytes() + js.read_bytes()).hexdigest()[:12]
+        parts[js.stem] = {'mp3': mp3.stat().st_size, 'json': js.stat().st_size, 'v': h,
+                          'lq': opus.stat().st_size, 'lv': lv}
     print(f'части: {len(parts)} — {", ".join(parts)}')
 
     hd = {'Authorization': f'Bearer {token()}', 'Accept': 'application/vnd.github+json'}
@@ -114,12 +139,15 @@ def main():
         assets = {x['name']: x for x in rel['assets']}
         old = {}
         if f'{a.book}.json' in assets:
-            m = requests.get(assets[f'{a.book}.json']['browser_download_url'], timeout=60)
+            m = requests.get(assets[f'{a.book}.json']['url'], timeout=60,   # виж update_index
+                             headers={**hd, 'Accept': 'application/octet-stream'})
             if m.ok:
                 old = m.json().get('parts', {})
 
     todo = [p for p, x in parts.items() if a.force or old.get(p, {}).get('v') != x['v']]
+    todo_low = [p for p, x in parts.items() if a.force or old.get(p, {}).get('lv') != x['lv']]
     print(f'за качване: {len(todo)} — {", ".join(todo) or "нищо"}')
+    print(f'лек вариант: {len(todo_low)} — {", ".join(todo_low) or "нищо"}')
     if a.dry_run:
         return
 
@@ -165,6 +193,10 @@ def main():
             name = f'{p}.{ext}x'
             upload(name, keystream_xor((out / f'{p}.{ext}').read_bytes(), name),
                    'application/octet-stream')
+    for p in todo_low:
+        name = f'{p}.opusx'
+        upload(name, keystream_xor((out / f'{p}.opus').read_bytes(), name),
+               'application/octet-stream')
     # Манифестът — ПОСЛЕДЕН: докато частите се качват, старият още сочи старото.
     upload(f'{a.book}.json', json.dumps({'parts': parts}, ensure_ascii=False).encode(),
            'application/json')
@@ -184,7 +216,13 @@ def update_index(hd, book, tag, parts):
     assets = {x['name']: x for x in rel['assets']}
     idx = {'books': {}}
     if 'audio.json' in assets:
-        m = requests.get(assets['audio.json']['browser_download_url'], timeout=60)
+        # ⚠⚠ ПРЕЗ API-то, не през `browser_download_url`: GitHub кешира
+        # пренасочването по име с часове и второ пускане веднага след първо
+        # четеше СТАРИЯ регистър — и го записваше обратно, затривайки току-що
+        # вписаното (18.10.2026: леките варианти на „Разговори…" изчезнаха
+        # при качването на житията).
+        m = requests.get(assets['audio.json']['url'], timeout=60,
+                         headers={**hd, 'Accept': 'application/octet-stream'})
         if m.ok:
             idx = m.json()
         requests.delete(f'{API}/releases/assets/{assets["audio.json"]["id"]}', headers=hd,

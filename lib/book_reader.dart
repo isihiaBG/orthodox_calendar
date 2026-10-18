@@ -2391,7 +2391,8 @@ class _BookReaderState extends State<BookReader>
       // Така тя стои еднакво тъмна и в светла тема, вместо да светне
       // кремава заедно със страницата. Точно както в четеца на жития.
       backgroundColor: AppColors.toolbar,
-      endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
+      // ЗВУК — четене на глас има само в този четец (18.10.2026).
+      endDrawer: const SettingsDrawer(sections: {SettingsSection.reader, SettingsSection.audio}),
       // Мини плейърът — само докато звучи беседа (четене на глас).
       bottomNavigationBar: _playback == null
           ? null
