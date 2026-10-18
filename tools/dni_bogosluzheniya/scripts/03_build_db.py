@@ -29,6 +29,35 @@ import linkify  # noqa: E402
 _карта = linkify.abbreviations()
 
 КОРЕН = pathlib.Path(__file__).resolve().parent.parent
+
+# ⚠ Препратки БЕЗ име на книга — книгата личи само от изречението („пророк
+# Исаия предсказал… (2:3)"). Не се гадаят: всяка е вписана на ръка в
+# input/bible_refs_context.csv (18.10.2026). Не се ли намери — скриптът спира.
+import csv  # noqa: E402
+_КОНТЕКСТ = {}
+for _р in csv.DictReader(open(КОРЕН / 'input' / 'bible_refs_context.csv',
+                              encoding='utf-8')):
+    _КОНТЕКСТ.setdefault(_р['id'], []).append((_р['places'], _р['code']))
+
+
+def _по_контекст(ид, тяло, грешки):
+    for места, код in _КОНТЕКСТ.get(ид, []):
+        игла = '(' + места + ')'
+        if тяло.count(игла) != 1:
+            грешки.append('%s: „%s" се среща %d пъти' % (ид, игла, тяло.count(игла)))
+            continue
+        части = re.split(r'(\s*;\s*)', места)
+        нови = []
+        for к, ч in enumerate(части):
+            if к % 2:
+                нови.append(ч); continue
+            адр = linkify._addr(ч)
+            if not linkify.valid(код, адр):
+                грешки.append('%s: няма място %s.%s' % (ид, код, адр)); continue
+            нови.append(linkify._a(код, адр, ч))
+        тяло = тяло.replace(игла, '(' + ''.join(нови) + ')')
+    return тяло
+
 РАБОТА = КОРЕН / 'work'
 БАЗА = КОРЕН.parent.parent / 'assets' / 'db' / 'lives_plus.db'
 ИЗТОЧНИК = ('https://azbyka.ru/otechnik/Grigorij_Debolskij/'
@@ -100,6 +129,7 @@ def main() -> int:
             БЕЛЕЖКА_НЕДЕЛЯ if any(а.startswith('G:') for а in адр) else '') + '\n'.join(
             '<p>%s</p>' % linkify.link(html.escape(b.strip()), _карта)
             for b in bg if b and b.strip())
+        тяло = _по_контекст(u['id'], тяло, грешки)
         дял = ДЯЛОВЕ.get((u['path'] or [''])[-1], '')
         редове.append((u['id'], int(u['order']), дял, загл, u['title_ru'],
                        тяло, ИЗТОЧНИК, sum(len(b) for b in bg)))
