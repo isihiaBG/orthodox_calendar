@@ -21,6 +21,7 @@
 
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:io';
 import 'dart:typed_data' show BytesBuilder, Uint8List;
 
@@ -806,6 +807,9 @@ class AudioPlayback {
   // пуснато от самия надпис (▶ при маркиране) — прочита се надписът, после
   // продължава с беседата; след края ѝ — спира.
   static const _captionKinds = {'figcaption', 'caption'};
+  /// Колко преди надписа се прескача и колко след края на изречението
+  /// пред него най-рано (вж. [_onPosition]).
+  static const _kCaptionLead = 0.45, _kCaptionAfterEnd = 0.1;
   bool _isCaption(int i) =>
       i >= 0 && i < chapter.sentences.length && _captionKinds.contains(chapter.sentences[i].kind);
   int _allowFrom = -1, _allowTo = -1; // надписът, пуснат изрично
@@ -895,6 +899,21 @@ class AudioPlayback {
     if (_isCaption(i) && !(i >= _allowFrom && i <= _allowTo)) {
       unawaited(_skipCaptions(i));
       return;
+    }
+    // ⚠ Прескачането ИЗПРЕВАРВА надписа. Позицията идва на стъпки до
+    // ~200 ms, а пауза/скок през канала до плейъра — още ~100 ms; чакано
+    // до началото на надписа, се чуваше „По…" (края на c02, автора,
+    // 18.10.2026). Затова — още в паузата преди него, но не преди края
+    // на текущото изречение.
+    final n = i + 1;
+    if (i >= 0 && _isCaption(n) && !(n >= _allowFrom && n <= _allowTo)) {
+      final cut = math.max(chapter.sentences[i].end + _kCaptionAfterEnd,
+          chapter.sentences[n].start - _kCaptionLead);
+      if (t >= cut) {
+        if (i != cur) sentence.value = i;
+        unawaited(_skipCaptions(n));
+        return;
+      }
     }
     if (i != cur) sentence.value = i;
   }
