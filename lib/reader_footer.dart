@@ -71,6 +71,13 @@ const double kFooterLabelSize = 16;
 const double kFooterTopGap = 112;
 const double kFooterBottomGap = 40;
 
+/// Въздухът под бутоните, когато долу вдясно стои плаващото копче на
+/// звука (`AudioFab`: 40 копче + 8 + 16 поле на Scaffold = 64 над дъното).
+/// Плъзне ли се докрай, редът „предишно / следващо" застава ИЗЦЯЛО над
+/// копчето, с ~20 точки въздух — инак „следващо" се скриваше под него
+/// (бележка на автора, 18.10.2026).
+const double kFooterBottomGapWithFab = 128;
+
 /// Въздухът между края на текста и реда с ИЗТОЧНИКА, когато го има.
 ///
 /// ⚠ Чувствително по-малък от [kFooterTopGap] нарочно. Източникът
@@ -148,7 +155,12 @@ class ReaderFooter extends StatelessWidget {
     this.sourceLabel,
     this.onSourceTap,
     this.sources,
+    this.bottomGap = kFooterBottomGap,
   });
+
+  /// Въздухът под бутоните — [kFooterBottomGapWithFab], ако екранът има
+  /// плаващо копче долу.
+  final double bottomGap;
 
   @override
   Widget build(BuildContext context) {
@@ -197,7 +209,7 @@ class ReaderFooter extends StatelessWidget {
         16,
         hasSource ? kFooterSourceTopGap : kFooterTopGap,
         16,
-        kFooterBottomGap,
+        bottomGap,
       ),
       child: !hasSource
           ? row

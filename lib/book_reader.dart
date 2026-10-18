@@ -3434,6 +3434,9 @@ class _BookReaderState extends State<BookReader>
       void go() => _goTo(target);
       return ReaderFooter(
         color: ReaderTheme.palette.dim,
+        bottomGap: _audio != null && _audioPart != null
+            ? kFooterBottomGapWithFab
+            : kFooterBottomGap,
         centerLabel: resume == null
             ? 'към първото четиво'
             : 'продължете от последно отваряното четиво',
@@ -3450,9 +3453,14 @@ class _BookReaderState extends State<BookReader>
     // заглавната страница — щом тя е достъпна от съдържанието, няма
     // причина да е недостъпна от навигацията.
     final prevTarget = _adjacentReading(-1);
+    // Под бутоните — място колкото да излязат над копчето на звука.
+    final gap = _audio != null && _audioPart != null
+        ? kFooterBottomGapWithFab
+        : kFooterBottomGap;
     final nextTarget = _adjacentReading(1);
     return ReaderFooter(
       color: ReaderTheme.palette.dim,
+      bottomGap: gap,
       left: FooterAction(
         icon: Icons.chevron_left,
         label: 'предишно',
