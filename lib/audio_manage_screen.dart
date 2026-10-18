@@ -451,7 +451,7 @@ class _AudioManageScreenState extends State<AudioManageScreen> {
         } else if (got) {
           final listen = IconButton(
             tooltip: 'Слушай',
-            icon: const Icon(Icons.headphones, color: AppColors.sectionTitle, size: 22),
+            icon: AudioHeadphones(high: book.isHigh(part), size: 22),
             onPressed: () => _openAndPlay(context, b.asset, part),
           );
           trailing = !book.isOutdated(part)

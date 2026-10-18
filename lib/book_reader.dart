@@ -3819,7 +3819,7 @@ class _TocSheetState extends State<_TocSheet> {
             borderRadius: BorderRadius.circular(5),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle),
+            AudioHeadphones(high: widget.audio!.isHigh(part)),
             SizedBox(
               width: 26,
               height: 22,

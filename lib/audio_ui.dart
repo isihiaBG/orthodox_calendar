@@ -197,6 +197,47 @@ Future<bool> askAudioDeleteMany(BuildContext context, AudioBook book, List<Strin
   return true;
 }
 
+/// Слушалките на СВАЛЕН запис — с малко „HQ" горе вдясно, ако е свален във
+/// високо качество (18.10.2026, автора). Икономичното е нормата и знак няма:
+/// маркира се изключението — по-тежкият запис.
+class AudioHeadphones extends StatelessWidget {
+  final bool high;
+  final double size;
+  final Color color;
+  const AudioHeadphones(
+      {super.key, required this.high, this.size = 15, this.color = AppColors.sectionTitle});
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = Icon(Icons.headphones, size: size, color: color);
+    if (!high) return icon;
+    // Като горен индекс: подравнено по ГОРНИЯ ръб на иконата, тъй че
+    // стои по-високо от средата ѝ — суфикс на слушалките.
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        icon,
+        Container(
+          margin: const EdgeInsets.only(left: 1),
+          padding: const EdgeInsets.symmetric(horizontal: 2.5, vertical: 0.5),
+          decoration: BoxDecoration(
+            color: AppColors.textMuted.withValues(alpha: 0.22),
+            borderRadius: BorderRadius.circular(2.5),
+          ),
+          child: Text('HQ',
+              style: TextStyle(
+                  color: AppColors.textSecondary,
+                  fontSize: size * 0.42,
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                  letterSpacing: 0.2)),
+        ),
+      ],
+    );
+  }
+}
+
 /// Етикетът в съдържанието.
 class AudioChip extends StatelessWidget {
   final AudioBook book;
@@ -239,7 +280,7 @@ class AudioChip extends StatelessWidget {
         } else if (done && book.isOutdated(part)) {
           // Нова версия: слушалките пускат старата, ⟳ сваля новата.
           inner = Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle),
+            AudioHeadphones(high: book.isHigh(part)),
             const SizedBox(width: 4),
             InkWell(
               onTap: () => askAudioUpdate(context, book, part, title: title),
@@ -251,7 +292,7 @@ class AudioChip extends StatelessWidget {
             ),
           ]);
         } else if (done) {
-          inner = const Icon(Icons.headphones, size: 15, color: AppColors.sectionTitle);
+          inner = AudioHeadphones(high: book.isHigh(part));
         } else {
           inner = Row(mainAxisSize: MainAxisSize.min, children: [
             Icon(Icons.headphones_outlined, size: 14, color: fg),

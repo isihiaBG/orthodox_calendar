@@ -843,8 +843,9 @@ class _DmitryAudioBadge extends StatelessWidget {
                 final got = book.isDownloaded(part);
                 return Tooltip(
                   message: got ? 'Има звук (свален)' : 'Има звук',
-                  child: Icon(Icons.headphones, size: 18,
-                      color: got ? AppColors.sectionTitle : AppColors.textSecondary),
+                  child: got
+                      ? AudioHeadphones(high: book.isHigh(part), size: 18)
+                      : const Icon(Icons.headphones, size: 18, color: AppColors.textSecondary),
                 );
               },
             );

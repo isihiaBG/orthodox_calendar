@@ -393,6 +393,7 @@ class AudioBook {
     final d = await _folder();
     _downloaded.clear();
     _outdated.clear();
+    _high.clear();
     for (final p in _parts.keys) {
       final v = File(join(d.path, '$p.v'));
       final ext = await _audioExt(d, p);
@@ -401,6 +402,7 @@ class AudioBook {
         // обновяване (автора, 13.10.2026) — дотогава изглеждаше несвалена.
         // Версията се сравнява със СВАЛЕНИЯ вариант (MP3 или Opus).
         _downloaded.add(p);
+        if (ext == 'mp3') _high.add(p);
         final want = ext == 'opus' ? _parts[p]!.lowVersion : _parts[p]!.version;
         if ((await v.readAsString()).trim() != want) _outdated.add(p);
       }
@@ -408,6 +410,12 @@ class AudioBook {
   }
 
   final Set<String> _outdated = {};
+
+  /// Свалените във ВИСОКО качество (MP3) — до слушалките им стои „HQ".
+  final Set<String> _high = {};
+
+  /// Свалена ли е частта във високо качество.
+  bool isHigh(String? part) => part != null && _high.contains(part);
 
   /// В какъв вид е свалена частта: `mp3`, `opus` или `null` (не е).
   static Future<String?> _audioExt(Directory d, String part) async {
@@ -580,6 +588,7 @@ class AudioBook {
     final p = _parts[part]!;
     await File(join(d.path, '$part.v'))
         .writeAsString(ext == 'opus' ? p.lowVersion! : p.version);
+    ext == 'mp3' ? _high.add(part) : _high.remove(part);
     _downloaded.add(part);
     _outdated.remove(part);
   }
@@ -593,6 +602,7 @@ class AudioBook {
     }
     _downloaded.remove(part);
     _outdated.remove(part);
+    _high.remove(part);
     revision.value++;
   }
 
