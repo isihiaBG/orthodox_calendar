@@ -23,6 +23,7 @@ import 'book_open_transition.dart';
 import 'book_reader.dart';
 import 'chitalnya_books.dart';
 import 'cover_flow.dart';
+import 'cover_light.dart';
 import 'cover_picker.dart';
 import 'epub_source.dart';
 
@@ -64,7 +65,7 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
     with TickerProviderStateMixin {
   final GlobalKey<CoverFlowState> _flow = GlobalKey<CoverFlowState>();
   late final List<ImageProvider> _covers = kChitalnyaBooks
-      .map<ImageProvider>((b) => AssetImage(b.cover))
+      .map<ImageProvider>((b) => LitCover(AssetImage(b.cover)))
       .toList();
   int _index = 0;
 

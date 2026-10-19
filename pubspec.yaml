@@ -92,6 +92,10 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
+  # Обем и отблясъци върху кориците (lib/cover_light.dart).
+  shaders:
+    - shaders/cover_light.frag
+
   # To add assets to your application, add an assets section, like this:
   assets:
     - assets/db/
@@ -112,6 +116,8 @@ flutter:
     # „Читалня" — книгите (.epub, tools/chitalnya/) и кориците им.
     - assets/chitalnya/
     - assets/chitalnya_covers/
+    # Картите на светлината за кориците (tools/chitalnya/scripts/05_cover_light.py).
+    - assets/cover_light/
     - assets/audio_outro/
     - assets/audio_index.json
     # Илюстрациите към житията на българските светии (икони, стенописи,
