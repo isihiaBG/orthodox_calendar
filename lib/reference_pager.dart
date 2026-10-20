@@ -69,8 +69,7 @@ class ReferencePager extends StatefulWidget {
       active._jumpTo(section);
       return Future.value();
     }
-    navigator.popUntil((route) => route.isFirst);
-    return navigator.push(MaterialPageRoute(
+    return pushOverCalendar(navigator, MaterialPageRoute(
       builder: (_) => ReferencePager(initial: section),
     ));
   }

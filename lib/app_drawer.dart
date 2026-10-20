@@ -39,9 +39,8 @@ SettingsChangedHook? appSettingsChangedHook;
 /// него, а прочетен след това, би стигнал след първото построяване.
 Future<void> _openMolitvoslov(BuildContext context) async {
   final nav = Navigator.of(context);
-  nav.popUntil((route) => route.isFirst);
   await MolitvoslovLastTab.loadOnce();
-  await nav.push(MaterialPageRoute(
+  await pushOverCalendar(nav, MaterialPageRoute(
       builder: (_) => const MolitvoslovWelcomeScreen()));
 }
 
@@ -80,8 +79,7 @@ Future<void> _openBible(BuildContext context) async {
   //
   // Календарът никога не страдаше от това именно защото пътят към него
   // (`_backToCalendar`) чисти стека.
-  nav.popUntil((route) => route.isFirst);
-
+  // (Самото чистене става при push-а — виж [pushOverCalendar].)
   await BibleWelcome.loadOnce();
   await BibleLastPart.loadOnce();
 
@@ -90,17 +88,30 @@ Future<void> _openBible(BuildContext context) async {
   // bible_welcome_screen.dart). Затова тук няма какво да се чака: подир него
   // не следва нищо, а „назад" без избор просто се връща в менюто.
   if (BibleWelcome.value) {
-    await nav.push(
+    await pushOverCalendar(
+      nav,
       MaterialPageRoute(builder: (_) => const BibleWelcomeScreen()),
     );
     return;
   }
 
   // Изключен екран — влиза се направо, но пак на запомнената книга.
-  await nav.push(MaterialPageRoute(
+  await pushOverCalendar(nav, MaterialPageRoute(
     builder: (_) => BibleContents(initialTab: bibleTabForLastPart()),
   ));
 }
+
+/// Отваря [route] непосредствено над календара (първия маршрут), като маха
+/// всичко между тях — така стекът не расте при разходка между разделите.
+///
+/// ⚠ НЕ `popUntil(isFirst)` и после `push` (20.10.2026). Тогава между двата
+/// екрана календарът излиза отгоре — за кадър, а при „Библия"/„Молитвослов"
+/// и за времето на `loadOnce` — и новият екран влиза върху НЕГО. При смяна
+/// на раздел с корици (Библия → Читалня → Молитвослов) това личеше като
+/// премигване с дневния изглед. С `pushAndRemoveUntil` новият влиза върху
+/// стария, а старите се махат чак след това.
+Future<T?> pushOverCalendar<T>(NavigatorState nav, Route<T> route) =>
+    nav.pushAndRemoveUntil(route, (r) => r.isFirst);
 
 class AppDrawer extends StatelessWidget {
   const AppDrawer({super.key});
@@ -138,8 +149,7 @@ class AppDrawer extends StatelessWidget {
   Future<void> _openScreen(BuildContext context, WidgetBuilder builder) {
     final navigator = _navigatorOf(context);
     navigator.pop(); // менюто
-    navigator.popUntil((route) => route.isFirst);
-    return navigator.push(MaterialPageRoute(builder: builder));
+    return pushOverCalendar(navigator, MaterialPageRoute(builder: builder));
   }
 
   /// Справочните секции — само затваря менюто и оставя ReferencePager да
