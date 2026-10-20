@@ -253,6 +253,7 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
       onIndexChanged: (i) => setState(() => _index = i),
       onOpen: _open,
       flowKey: _flow,
+      cornerRadius: kCoverCornerRadius,
       drawer: const AppDrawer(),
       infoBuilder: (_, _) => _info(),
       landscapeLabel: (i) => kChitalnyaBooks[i].title,

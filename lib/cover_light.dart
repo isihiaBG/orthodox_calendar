@@ -17,6 +17,10 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter/services.dart' show rootBundle;
 
+/// Радиусът на заоблените ъгли — дял от ширината. ⚠ Същото число стои като
+/// `kCorner` в shaders/cover_light.frag; менят се заедно.
+const double kCoverCornerRadius = 0.012;
+
 /// Картите на светлината в пакета.
 class CoverLight {
   static const book1 = 'assets/cover_light/book1.png';

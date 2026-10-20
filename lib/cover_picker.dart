@@ -64,6 +64,9 @@ class CoverPickerScaffold extends StatefulWidget {
   /// рисунката се разтяга и това се вижда веднага.
   final double aspect;
 
+  /// Заобляне на ъглите — нататък на [CoverFlow.cornerRadius].
+  final double cornerRadius;
+
   /// Допълнително съдържание НАД панела — например чекбоксът „не показвай
   /// повече". Изправено стои между тестето и панела; легнало не се показва
   /// (там няма място, а и екранът се отваря наново при следващо пускане).
@@ -85,6 +88,7 @@ class CoverPickerScaffold extends StatefulWidget {
     this.flowKey,
     this.drawer,
     this.aspect = kCoverAspect,
+    this.cornerRadius = 0,
     this.extra,
     this.keepImmersiveOnExit = false,
   });
@@ -201,6 +205,7 @@ class _CoverPickerScaffoldState extends State<CoverPickerScaffold> {
         key: widget.flowKey,
         covers: widget.covers,
         aspect: widget.aspect,
+        cornerRadius: widget.cornerRadius,
         initialIndex: widget.index,
         onSelected: widget.onIndexChanged,
         onOpen: widget.onOpen,

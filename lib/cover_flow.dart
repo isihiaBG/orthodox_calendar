@@ -58,6 +58,11 @@ class CoverFlow extends StatefulWidget {
 
   final double aspect;
 
+  /// Заобляне на ъглите — дял от ширината на корицата (0 = остри). Само за
+  /// сянката и потъмняването: самите заоблени ъгли идват от изображението
+  /// (виж LitCover). Без това правоъгълната сянка стърчи в ъглите.
+  final double cornerRadius;
+
   final int initialIndex;
 
   /// Викa се при СМЯНА на централната корица (докато се плъзга — при всяко
@@ -71,6 +76,7 @@ class CoverFlow extends StatefulWidget {
     super.key,
     required this.covers,
     this.aspect = kCoverAspect,
+    this.cornerRadius = 0,
     this.initialIndex = 0,
     this.onSelected,
     this.onOpen,
@@ -472,10 +478,12 @@ class CoverFlowState extends State<CoverFlow> {
   /// самата корица. Тя си остава такава, каквато е направена.
   Widget _face(int i, double d, double w, double h, double dim) {
     final away = d.abs().clamp(0.0, 1.0);
+    final radius = BorderRadius.circular(widget.cornerRadius * w);
     return Container(
       width: w,
       height: h,
       decoration: BoxDecoration(
+        borderRadius: radius,
         boxShadow: [
           BoxShadow(
             color: Colors.black.withValues(alpha: 0.55 - 0.25 * away),
@@ -485,13 +493,16 @@ class CoverFlowState extends State<CoverFlow> {
           ),
         ],
       ),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Image(image: widget.covers[i], fit: BoxFit.fill),
-          if (dim > 0.001)
-            ColoredBox(color: Colors.black.withValues(alpha: dim)),
-        ],
+      child: ClipRRect(
+        borderRadius: radius,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Image(image: widget.covers[i], fit: BoxFit.fill),
+            if (dim > 0.001)
+              ColoredBox(color: Colors.black.withValues(alpha: dim)),
+          ],
+        ),
       ),
     );
   }
