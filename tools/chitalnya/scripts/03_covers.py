@@ -3,8 +3,13 @@
 
     python3 03_covers.py        # ПРЕДИ 02_build_epubs.py — той ги вгражда
 
-⚠ Примерни, до истинските (потребителят ще ги подмени). Размерът е като на
-томовете в „Месецослов" — 479×741 — тъй че пропорцията в Cover Flow е същата.
+⚠ Примерни, до истинските (потребителят ще ги подмени). Размерът 525×741 е
+пропорцията на „Разговори…" (истинската книга, 594×839) — тестето в
+„Читалня" е с нея (`kChitalnyaCoverAspect`), за да не се изрязва корицата.
+
+Отляво стои гръбчето с прегъвката от картата на светлината (05_cover_light.py)
+— `SPINE` пиксела. Рамката и всичко в нея се нареждат в полето ВДЯСНО от него,
+за да е симетрично спрямо видимата плоскост, а не спрямо цялата ширина.
 Подмяна: сложи свой .jpg със същото име и пусни наново 02_build_epubs.py.
 """
 import random
@@ -19,7 +24,9 @@ FONTS = PROJ / 'assets' / 'fonts'
 CROSS_SVG = PROJ / 'assets' / 'icons' / 'cross.svg'
 SS = 3          # свръхдискретизация: рисува се три пъти по-едро и се смалява
 OUT = PROJ / 'assets' / 'chitalnya_covers'
-W, H = 479, 741
+W, H = 525, 741
+SPINE = 12      # място за гръбчето отляво (в пиксели на корицата)
+CX = (SPINE + W) / 2   # средата на плоскостта вдясно от гръбчето
 GOLD = (201, 168, 96)
 
 BOOKS = [
@@ -99,13 +106,13 @@ def cover(code, lines, author, base):
     d = ImageDraw.Draw(big)
     # Двойна рамка.
     for m, wd in ((22, 3), (32, 1)):
-        d.rectangle([m * SS, m * SS, (W - m) * SS, (H - m) * SS],
+        d.rectangle([(SPINE + m) * SS, m * SS, (W - m) * SS, (H - m) * SS],
                     outline=GOLD, width=wd * SS)
     # Кръстът — по-едър от досегашния, в горната трета.
     cm = cross_mask(118 * SS)
-    emboss(big, cm, ((W * SS - cm.width) // 2, 62 * SS), GOLD)
+    emboss(big, cm, (int(CX * SS - cm.width / 2), 62 * SS), GOLD)
     # Заглавието — по-едро; кегелът се свива само ако ред не се побира.
-    inner = (W - 2 * 48) * SS
+    inner = (W - SPINE - 2 * 48) * SS
     title = fit(d, lines, FONTS / 'Tamburin Modern.ttf', 60 * SS, inner)
     step = int(title.size * 1.28)
     block = step * (len(lines) - 1) + title.size
@@ -118,7 +125,7 @@ def cover(code, lines, author, base):
     y0 = y
     for ln in lines:
         w = d.textlength(ln, font=title)
-        sd.text(((W * SS - w) / 2 + 2 * SS, y + 3 * SS), ln, font=title,
+        sd.text((CX * SS - w / 2 + 2 * SS, y + 3 * SS), ln, font=title,
                 fill=(0, 0, 0, 140))
         y += step
     big.alpha_composite(shade.filter(ImageFilter.GaussianBlur(2 * SS)))
@@ -126,11 +133,11 @@ def cover(code, lines, author, base):
     y = y0
     for ln in lines:
         w = d.textlength(ln, font=title)
-        d.text(((W * SS - w) / 2, y), ln, font=title, fill=GOLD + (255,))
+        d.text((CX * SS - w / 2, y), ln, font=title, fill=GOLD + (255,))
         y += step
     # Орнаментална черта: по-къса от реда, с ромбче по средата.
     ly = y - step + title.size + 34 * SS
-    cx = W * SS // 2
+    cx = int(CX * SS)
     d.line([cx - 78 * SS, ly, cx - 10 * SS, ly], fill=GOLD, width=2 * SS)
     d.line([cx + 10 * SS, ly, cx + 78 * SS, ly], fill=GOLD, width=2 * SS)
     r = 5 * SS
@@ -138,7 +145,7 @@ def cover(code, lines, author, base):
     # Авторът — по-едър курсив над долния ръб на рамката.
     au = fit(d, [author], FONTS / 'CharisSIL-Italic.ttf', 30 * SS, inner)
     w = d.textlength(author, font=au)
-    d.text(((W * SS - w) / 2, (H - 112) * SS), author, font=au, fill=(230, 214, 176))
+    d.text((CX * SS - w / 2, (H - 112) * SS), author, font=au, fill=(230, 214, 176))
     img = big.convert('RGB').resize((W, H), Image.LANCZOS)
     OUT.mkdir(parents=True, exist_ok=True)
     img.save(OUT / f'{code}.jpg', quality=90)

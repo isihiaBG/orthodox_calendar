@@ -21,6 +21,10 @@ import 'package:flutter/services.dart' show rootBundle;
 /// `kCorner` в shaders/cover_light.frag; менят се заедно.
 const double kCoverCornerRadius = 0.012;
 
+/// Пропорцията на кориците в „Читалня" — на истинската книга „Разговори…"
+/// (594×839). ⚠ Картата book1.png е за нея; кориците от 03_covers.py — също.
+const double kChitalnyaCoverAspect = 525 / 741;
+
 /// Картите на светлината в пакета.
 class CoverLight {
   static const book1 = 'assets/cover_light/book1.png';

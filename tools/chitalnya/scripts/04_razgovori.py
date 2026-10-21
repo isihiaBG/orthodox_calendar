@@ -769,9 +769,9 @@ def main():
         for n, data in pdfs.items():
             z.writestr(f'OEBPS/pdf/{n}', data, compress_type=zipfile.ZIP_STORED)
     # Корицата — предната корица на книгата (image1), с пропорцията на
-    # останалите (479×741): изрязва се по средата, не се разтяга.
+    # тестето (525×741): изрязва се по средата, не се разтяга.
     front = Image.open(io.BytesIO(doc.z.read('word/media/image1.jpg'))).convert('RGB')
-    W, H = 479, 741
+    W, H = 525, 741
     s = max(W / front.width, H / front.height)
     front = front.resize((round(front.width * s), round(front.height * s)), Image.LANCZOS)
     l, t = (front.width - W) // 2, (front.height - H) // 2
