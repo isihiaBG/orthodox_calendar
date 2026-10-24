@@ -595,7 +595,9 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
     out.addAll(anchoredFor(date, oldStyle: oldStyle));
     return out;
   }
+  final head = out.length;
   take(kReadingsApostle, apostleKey, 'apostle');
+  final apostles = out.length - head;
   // ⚠⚠ НЕДЕЛНОТО ЕВАНГЕЛИЕ СЛЕД ВЪЗДВИЖЕНИЕ — по свое правило, не по
   // таблицата: виж [sundayGospelAfterExaltation].
   final sunday = addr.cycle == ReadingCycle.afterPentecost
@@ -605,6 +607,22 @@ List<R> readingsFor(DateTime date, String churchMonthDay,
     take(kReadingsGospel, gospelKey, 'gospel');
   } else if (sunday.number != null) {
     out.add(R('gospel', kSundayGospels[sunday.number]!));
+  }
+  // ⚠ Две и повече ДВОЙКИ в един ден (W2:7 — редовото и на българските
+  // светии): апостолите и евангелията идват от отделни таблици, а
+  // евангелието наследява етикета на апостола ПРЕД себе си — подредени
+  // „всички апостоли, после всички евангелия", двете евангелия падаха под
+  // втория апостол. Редят се по двойки. (24.10.2026.)
+  final gospels = out.length - head - apostles;
+  if (apostles > 1 && apostles == gospels) {
+    final a = out.sublist(head, head + apostles);
+    final g = out.sublist(head + apostles);
+    out.removeRange(head, out.length);
+    for (var i = 0; i < apostles; i++) {
+      out
+        ..add(a[i])
+        ..add(g[i]);
+    }
   }
 
   final fixed = kReadingsFixed[churchMonthDay];
