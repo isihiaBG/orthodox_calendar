@@ -1118,6 +1118,53 @@ def renumber_notes(oebps):
     return (старо_начало, старо_край, изместване)
 
 
+# ⚠ Бележки със ЗВЕЗДИЧКА — наши, не от книгата (24.10.2026). Пояснения
+# за памет, чиято дата в книгата е неподвижна, а се празнува подвижно.
+# Том → (глава, точно низът, след който застава звездичката, id, текст).
+# Номерираните бележки не се пипат: id-то не е „noteN", тъй че
+# renumber_notes и 06_verify.py не го броят.
+FEAST_NOTES = {
+    "10": [("Text/index_split_892.xhtml",
+            "<span>Памет на 11 октомври</span>",
+            "note_sobor7",
+            "Паметта на светите отци от Седмия Вселенски събор винаги се "
+            "пренася в неделята, най-близка до 11 октомври: ако 11 октомври "
+            "се падне в понеделник, вторник или сряда — в предходната неделя, "
+            "ако се падне в четвъртък, петък или събота — в следващата, а ако "
+            "е неделя — на самия ден.")],
+}
+
+
+def add_feast_notes(oebps, vol):
+    """Вмъква бележките от FEAST_NOTES: звездичка-връзка в текста (с текста
+    и в `title`, както при останалите — за изскачащото прозорче и за PDF-а)
+    и отделен файл на бележката в манифеста и spine-а. ⚠ ПРЕДИ
+    embed_fonts — шрифтът се подрязва до знаците на тома."""
+    n = 0
+    opf_path = os.path.join(oebps, "content.opf")
+    opf = open(opf_path, encoding="utf-8").read()
+    for rel, after, nid, text in FEAST_NOTES.get(vol[:2], []):
+        path = os.path.join(oebps, rel)
+        s = open(path, encoding="utf-8").read()
+        if s.count(after) != 1:
+            raise SystemExit("✗ FEAST_NOTES: %r не е еднозначно в %s" % (after, rel))
+        link = ('<a href="../Text/%s.xhtml#%s" title="%s"><sup class="calibre8">*</sup></a>'
+                % (nid, nid, html.escape(text, quote=True)))
+        s = s.replace(after, after + link)
+        open(path, "w", encoding="utf-8").write(s)
+        head = s[:re.search(r"<body[^>]*>", s).end()]
+        note = (head + '\n<h1 id="%s" class="calibre9">*<br class="calibre10"/></h1>\n'
+                '<div class="paragraph">%s</div>\n</body>\n</html>\n'
+                % (nid, html.escape(text, quote=False)))
+        open(os.path.join(oebps, "Text", nid + ".xhtml"), "w", encoding="utf-8").write(note)
+        opf = opf.replace("</manifest>", '    <item href="Text/%s.xhtml" id="%s" '
+                          'media-type="application/xhtml+xml"/>\n  </manifest>' % (nid, nid), 1)
+        opf = opf.replace("</spine>", '    <itemref idref="%s" linear="no"/>\n  </spine>' % nid, 1)
+        n += 1
+    open(opf_path, "w", encoding="utf-8").write(opf)
+    return n
+
+
 def process(vol, dry, epub3=False):
     work = os.path.join(WORK_DIR, vol)
     src = os.path.join(work, "src")
@@ -1199,6 +1246,10 @@ def process(vol, dry, epub3=False):
 
     if replace_cover(oebps, vol):
         print("  корица: българската от Covers_BG/%s.jpg" % vol[:2])
+
+    n_fn = add_feast_notes(oebps, vol)
+    if n_fn:
+        print("  бележки със звездичка: %d" % n_fn)
 
     # ⚠ Файлът на предговора — ПРЕДИ шрифтовете (виж add_preface).
     has_preface = add_preface(oebps, "file")

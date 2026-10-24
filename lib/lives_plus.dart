@@ -176,6 +176,10 @@ class LivesPlusDb {
         for (final y in [d.year - 1, d.year, d.year + 1]) {
           final fd = civilDateOfChurch(y, m, day, oldStyle: oldStyle);
           final diff = d.difference(fd).inDays;
+          // „Най-близката неделя" — като в [anchoredFor].
+          if (d.weekday == DateTime.sunday && diff.abs() <= 3) {
+            out.add('$feast|7|nearest');
+          }
           if (diff.abs() > 7 || diff == 0) continue;
           out.add('$feast|${d.weekday}|${diff < 0 ? 'before' : 'after'}');
         }

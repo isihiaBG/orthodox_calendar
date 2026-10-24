@@ -490,7 +490,7 @@ int? winterWeekFor(DateTime date, {required bool oldStyle}) {
 ///
 /// ⚠ Църковна, не гражданска: тя е обща за двата стила, а гражданската се
 /// смята от нея по стила (виж [civilDateOfChurch]).
-const kAnchorFeasts = ['09-14', '12-25', '01-06'];
+const kAnchorFeasts = ['09-14', '12-25', '01-06', '07-16', '10-11'];
 
 /// Закотвените четива за този ден, ако е събота или неделя до празник.
 ///
@@ -521,6 +521,13 @@ List<R> anchoredFor(DateTime date, {required bool oldStyle}) {
       // Праотци е двете седмици преди Рождество. Дотук тя беше вкаменена
       // на църковна 14.XII (датата ѝ през 2026 г.) и в друга година
       // излизаше в делник. (30.09.2026.)
+      // ⚠ „Най-близката неделя" (Отците на шестте събора — 16.VII, на
+      // седмия — 11.X): падне ли се празникът в чт–сб, е следващата, в
+      // пн–ср — предишната, в неделя — самият ден. (24.10.2026.)
+      if (d.weekday == DateTime.sunday && diff.abs() <= 3) {
+        final near = kReadingsAnchored['$feast|7|nearest'];
+        if (near != null) out.addAll(near);
+      }
       if (diff == 0 || diff > 7 || diff < -14) continue;
       final dir = diff < -7 ? 'before2' : (diff < 0 ? 'before' : 'after');
       final rows = kReadingsAnchored['$feast|${d.weekday}|$dir'];
