@@ -1150,7 +1150,13 @@ def add_feast_notes(oebps, vol):
             raise SystemExit("✗ FEAST_NOTES: %r не е еднозначно в %s" % (after, rel))
         link = ('<a href="../Text/%s.xhtml#%s" title="%s"><sup class="calibre8">*</sup></a>'
                 % (nid, nid, html.escape(text, quote=True)))
-        s = s.replace(after, after + link)
+        # ⚠ Звездичката е ВЪТРЕ в <span> на реда с паметта: book_reader го
+        # познава по „целият абзац е един <span>“ (клас memorydate, без
+        # буквица). Сложена след </span>, буквицата падаше върху реда.
+        if after.endswith("</span>"):
+            s = s.replace(after, after[:-len("</span>")] + link + "</span>")
+        else:
+            s = s.replace(after, after + link)
         open(path, "w", encoding="utf-8").write(s)
         head = s[:re.search(r"<body[^>]*>", s).end()]
         note = (head + '\n<h1 id="%s" class="calibre9">*<br class="calibre10"/></h1>\n'
