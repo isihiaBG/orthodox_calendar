@@ -20,6 +20,7 @@
 """
 import argparse
 import datetime
+import gzip
 import hashlib
 import json
 import shutil
@@ -92,28 +93,40 @@ def main():
     rel = r.json()
     assets = {x['name']: x for x in rel['assets']}
 
-    if name in assets:
-        requests.delete(f'{API}/releases/assets/{assets.pop(name)["id"]}',
-                        headers=hd, timeout=60).raise_for_status()
     up = rel['upload_url'].split('{')[0]
-    for attempt in range(4):
-        try:
-            r = requests.post(up, params={'name': name}, data=data, timeout=3600,
-                              headers={**hd, 'Content-Type': 'application/vnd.android.package-archive'})
-            r.raise_for_status()
-            break
-        except requests.exceptions.ConnectionError:
-            if attempt == 3:
-                raise
-            time.sleep(15)
-    url = r.json()['browser_download_url']
-    print(f'  ↑ {url}')
 
-    apks = sorted((x for x in assets.values() if x['name'].endswith('.apk')),
-                  key=lambda x: x['created_at'], reverse=True)
-    for x in apks[KEEP - 1:]:
-        requests.delete(f'{API}/releases/assets/{x["id"]}', headers=hd, timeout=60)
-        print(f'  ✕ {x["name"]}')
+    def upload(fname, payload, ctype):
+        if fname in assets:
+            requests.delete(f'{API}/releases/assets/{assets.pop(fname)["id"]}',
+                            headers=hd, timeout=60).raise_for_status()
+        for attempt in range(4):
+            try:
+                r = requests.post(up, params={'name': fname}, data=payload, timeout=3600,
+                                  headers={**hd, 'Content-Type': ctype})
+                r.raise_for_status()
+                break
+            except requests.exceptions.ConnectionError:
+                if attempt == 3:
+                    raise
+                time.sleep(15)
+        u = r.json()['browser_download_url']
+        print(f'  ↑ {u} ({len(payload) / 1048576:.1f} MB)')
+        return u
+
+    # Обикновеното APK — за страницата за сваляне и за билд 2193 (той не
+    # познава свитото). Свитото (gzip, ~12% по-малко) — за обновяването от
+    # приложението; то го разархивира, докато тегли.
+    url = upload(name, data, 'application/vnd.android.package-archive')
+    gz = gzip.compress(data, compresslevel=9, mtime=0)
+    assert gzip.decompress(gz) == data
+    gz_url = upload(name + '.gz', gz, 'application/gzip')
+
+    for ext in ('.apk', '.apk.gz'):
+        old = sorted((x for x in assets.values() if x['name'].endswith(ext)),
+                     key=lambda x: x['created_at'], reverse=True)
+        for x in old[KEEP - 1:]:
+            requests.delete(f'{API}/releases/assets/{x["id"]}', headers=hd, timeout=60)
+            print(f'  ✕ {x["name"]}')
 
     news = sorted(news, key=lambda n: n['build'], reverse=True)[:80]
     OUT.write_text(json.dumps({
@@ -121,6 +134,8 @@ def main():
         'apk': url,
         'size': len(data),
         'sha256': sha,
+        'apk_gz': gz_url,
+        'gz_size': len(gz),
         'date': datetime.date.today().isoformat(),
         'news': news,
     }, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')

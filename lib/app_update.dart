@@ -70,7 +70,17 @@ class UpdateInfo {
   final int size;
   final String sha256;
   final List<UpdateNews> news;
-  const UpdateInfo(this.build, this.apk, this.size, this.sha256, this.news);
+
+  /// Същото APK, свито с gzip (~12% по-малко) — от билд 2194 нататък се
+  /// тегли то и се разархивира ДОКАТО се тегли. Липсва ли — обикновеното.
+  /// ⚠ [sha256] е на РАЗАРХИВИРАНОТО APK и в двата случая.
+  final String? gz;
+  final int? gzSize;
+  const UpdateInfo(this.build, this.apk, this.size, this.sha256, this.news,
+      [this.gz, this.gzSize]);
+
+  /// Колко се тегли реално.
+  int get downloadSize => gz != null && gzSize != null ? gzSize! : size;
 
   static UpdateInfo parse(String text) {
     final j = jsonDecode(text) as Map;
@@ -84,10 +94,12 @@ class UpdateInfo {
           UpdateNews((n['build'] as num).toInt(), (n['date'] as String?) ?? '',
               [for (final i in (n['items'] as List)) i as String]),
       ],
+      j['apk_gz'] as String?,
+      (j['gz_size'] as num?)?.toInt(),
     );
   }
 
-  String get sizeLabel => '${(size / 1048576).round()} MB';
+  String get sizeLabel => '${(downloadSize / 1048576).round()} MB';
 }
 
 class AppUpdate {
@@ -283,7 +295,7 @@ class AppUpdate {
                 backgroundColor: AppColors.sectionDivider,
               ),
               const SizedBox(height: 10),
-              Text('${(v * info.size / 1048576).round()} / ${info.sizeLabel}',
+              Text('${(v * info.downloadSize / 1048576).round()} / ${info.sizeLabel}',
                   style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
             ]),
           ),
@@ -353,15 +365,23 @@ class AppUpdate {
       client.close(force: true);
     }));
     try {
-      final resp = await (await client.getUrl(Uri.parse(info.apk))).close();
+      final packed = info.gz != null && info.gzSize != null;
+      final resp =
+          await (await client.getUrl(Uri.parse(packed ? info.gz! : info.apk))).close();
       if (resp.statusCode != 200) return null;
       final sink = part.openWrite();
-      var got = 0;
+      var wire = 0, got = 0;
+      // Напредъкът е по ИЗТЕГЛЕНОТО (свитото); на диска пада разархивираното.
+      Stream<List<int>> body = resp.timeout(const Duration(seconds: 30)).map((c) {
+        wire += c.length;
+        progress.value = (wire / info.downloadSize).clamp(0, 1);
+        return c;
+      });
+      if (packed) body = body.transform(gzip.decoder);
       try {
-        await for (final c in resp.timeout(const Duration(seconds: 30))) {
+        await for (final c in body) {
           sink.add(c);
           got += c.length;
-          progress.value = (got / info.size).clamp(0, 1);
         }
       } finally {
         await sink.close();

@@ -89,6 +89,10 @@
                   width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
                   border: 1px solid var(--gold-deep); color: var(--gold); font-size: 14px; font-weight: 700; }
   ol li small { display: block; color: var(--muted); font-size: 14px; }
+  .card { transition: border-color .5s ease, box-shadow .5s ease; scroll-margin-top: 16px; }
+  .card.active { border-color: rgba(226,196,126,.55); box-shadow: 0 0 0 4px rgba(226,196,126,.08); }
+  .card .alt { margin: 0 0 14px; font-size: 14px; color: var(--muted); text-align: center; }
+  .card .alt a { color: var(--gold); }
 
   /* QR кодът — в разгъваща се секция под „Покажи QR код". Фонът е топъл
      пергамент (не чисто бяло) — тонът на златото от иконата. */
@@ -131,16 +135,24 @@
     <li>Пости</li><li>Библия</li><li>Молитвослов</li><li>Книги и беседи на глас</li>
   </ul>
 
-  <section class="card">
-    <h2>Как се инсталира</h2>
+  <section class="card" id="guide">
+    <h2 id="guidehead">Как се инсталира</h2>
     <ol>
-      <li>Натисни „Свали за Android“.</li>
-      <li>Отвори сваления файл.
-        <small>Ако телефонът попита — разреши инсталиране от браузъра. Това е
-        нужно само веднъж.</small></li>
+      <li>Натисни „Свали за Android“.
+        <small>Ако браузърът предупреди, че файлът може да е опасен —
+        „Изтегли все пак“. Така предупреждава за всяко приложение извън Google Play.</small></li>
+      <li>Когато свали, натисни „Отвори“.
+        <small>Долу на екрана или в известията. Ако не се появи — отвори
+        „Изтегляния“ и докосни файла.</small></li>
+      <li>Разреши и инсталирай.
+        <small>Само първия път телефонът пита: „Настройки“ → „Разреши от този
+        източник“ → назад → „Инсталирай“. Ако Play Protect попита —
+        „Инсталирай все пак“.</small></li>
       <li>Готово.
-        <small>Оттук нататък приложението само ще съобщава, когато има нова версия.</small></li>
+        <small>Оттук нататък приложението само ще съобщава, когато има нова
+        версия, и ще се обновява с едно докосване.</small></li>
     </ol>
+    <p class="alt">Свалянето не тръгва? <a id="alt" href="https://github.com/isihiaBG/orthodox_calendar/releases/tag/app-latest">Свали от GitHub</a></p>
   </section>
 
   <button class="qrtoggle" id="qrbtn" aria-expanded="false" aria-controls="qr">
@@ -159,6 +171,15 @@
   // Размерът, датата и адресът — от update.json (пише ги publish_app.py).
   var MONTHS = ['януари','февруари','март','април','май','юни','юли','август',
                 'септември','октомври','ноември','декември'];
+  // След „Свали": упътването светва и застава пред очите — браузърът сам не
+  // може да пусне инсталацията (защита на Android), човекът трябва да знае
+  // какво ще види.
+  document.getElementById('dl').addEventListener('click', function () {
+    var g = document.getElementById('guide');
+    g.classList.add('active');
+    document.getElementById('guidehead').textContent = 'Свалянето започна';
+    setTimeout(function () { g.scrollIntoView({behavior: 'smooth', block: 'start'}); }, 400);
+  });
   fetch('update.json?t=' + Math.floor(Date.now() / 60000), {cache: 'no-store'})
     .then(function (r) { return r.ok ? r.json() : null; })
     .then(function (u) {
