@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="bg">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Православен календар</title>
+<meta name="description" content="Жития на светиите, четива за деня, пости, Библия, молитвослов и книги — на български, без интернет.">
+<meta property="og:title" content="Православен календар">
+<meta property="og:description" content="Жития на светиите, четива за деня, пости, Библия, молитвослов и книги — на български, без интернет.">
+<meta property="og:image" content="https://isihiabg.github.io/orthodox_calendar/icon.png">
+<meta name="theme-color" content="#0E131C">
+<link rel="icon" href="favicon.png">
+<!--
+  Страницата за сваляне (25.10.2026) — споделя се като линк преди Google Play.
+  Размерът, датата и адресът на APK-то идват от update.json (пише го
+  tools/release/publish_app.py), тъй че страницата сама е винаги актуална.
+  Цветовете са от иконата: нощно синьо, злато, вишнево, сиво-синьо.
+  Шрифтът — Charis SIL (OFL, лицензът е в fonts/), подрязан до кирилица и
+  латиница.
+-->
+<style>
+  @font-face { font-family: Charis; src: url(fonts/charis-regular.woff2) format('woff2'); font-weight: 400; font-display: swap; }
+  @font-face { font-family: Charis; src: url(fonts/charis-bold.woff2) format('woff2'); font-weight: 700; font-display: swap; }
+  @font-face { font-family: Charis; src: url(fonts/charis-italic.woff2) format('woff2'); font-style: italic; font-display: swap; }
+
+  :root {
+    --bg: #0E131C;
+    --bg2: #151C29;
+    --ink: #ECE6DA;
+    --muted: #9AA3B2;
+    --gold: #E2C47E;
+    --gold-deep: #B8954B;
+    --wine: #8C2433;
+    --line: rgba(226,196,126,.18);
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0; min-height: 100vh; color: var(--ink);
+    font: 18px/1.6 Charis, Georgia, serif;
+    background:
+      radial-gradient(60rem 40rem at 50% -10rem, rgba(226,196,126,.13), transparent 60%),
+      radial-gradient(40rem 30rem at 50% 110%, rgba(140,36,51,.16), transparent 60%),
+      var(--bg);
+    display: flex; flex-direction: column; align-items: center;
+    padding: max(32px, env(safe-area-inset-top)) 16px max(28px, env(safe-area-inset-bottom));
+  }
+  main { width: 100%; max-width: 34rem; text-align: center; }
+
+  .icon { width: 132px; height: 132px; margin: 12px auto 18px; display: block;
+          filter: drop-shadow(0 14px 30px rgba(0,0,0,.55)); }
+  .rule { display: flex; align-items: center; gap: 12px; justify-content: center;
+          color: var(--gold); margin: 6px auto 16px; max-width: 16rem; }
+  .rule::before, .rule::after { content: ""; flex: 1; height: 1px;
+          background: linear-gradient(90deg, transparent, var(--gold-deep)); }
+  .rule::after { background: linear-gradient(90deg, var(--gold-deep), transparent); }
+  .rule span { font-size: 14px; letter-spacing: .4em; padding-left: .4em; }
+
+  h1 { margin: 0; font-weight: 700; font-size: clamp(30px, 8vw, 42px);
+       line-height: 1.12; letter-spacing: .01em; }
+  .lead { margin: 4px auto 28px; color: var(--muted); font-style: italic; max-width: 26rem; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 16px 30px; border-radius: 999px; text-decoration: none;
+    font: 700 19px/1 Charis, Georgia, serif; color: #1B1408;
+    background: linear-gradient(180deg, #F0D696, var(--gold) 55%, var(--gold-deep));
+    box-shadow: 0 10px 28px rgba(226,196,126,.25), inset 0 1px 0 rgba(255,255,255,.5);
+    transition: transform .15s ease, box-shadow .15s ease;
+  }
+  .btn:hover { transform: translateY(-1px); box-shadow: 0 14px 34px rgba(226,196,126,.33), inset 0 1px 0 rgba(255,255,255,.5); }
+  .btn:active { transform: translateY(1px); }
+  .btn svg { width: 22px; height: 22px; }
+  .meta { margin: 12px 0 0; font-size: 14px; color: var(--muted); min-height: 1.4em; }
+
+  .features { list-style: none; padding: 0; margin: 36px 0 0;
+              display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+  .features li { padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px;
+                 font-size: 15px; color: #D6CFC2; background: rgba(255,255,255,.02); }
+
+  .card { margin: 36px 0 0; padding: 22px 22px 6px; text-align: left;
+          background: linear-gradient(180deg, var(--bg2), rgba(21,28,41,.6));
+          border: 1px solid var(--line); border-radius: 18px; }
+  .card h2 { margin: 0 0 12px; font-size: 13px; letter-spacing: .22em; text-transform: uppercase;
+             color: var(--gold); font-weight: 700; text-align: center; }
+  ol { margin: 0; padding: 0; list-style: none; counter-reset: s; }
+  ol li { counter-increment: s; position: relative; padding: 0 0 16px 44px; font-size: 16.5px; }
+  ol li::before { content: counter(s); position: absolute; left: 0; top: 1px;
+                  width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+                  border: 1px solid var(--gold-deep); color: var(--gold); font-size: 14px; font-weight: 700; }
+  ol li small { display: block; color: var(--muted); font-size: 14px; }
+
+  /* QR кодът — в разгъваща се секция под „Покажи QR код". Фонът е топъл
+     пергамент (не чисто бяло) — тонът на златото от иконата. */
+  .qrtoggle { margin: 30px auto 0; background: none; border: 0; cursor: pointer;
+              font: italic 16px Charis, Georgia, serif; color: var(--gold);
+              display: inline-flex; align-items: center; gap: 8px; padding: 6px 4px; }
+  .qrtoggle:hover { text-decoration: underline; text-underline-offset: 4px; }
+  .qrtoggle .chev { transition: transform .35s ease; font-style: normal; font-size: 13px; }
+  .qrtoggle[aria-expanded="true"] .chev { transform: rotate(180deg); }
+  .qr { display: grid; grid-template-rows: 0fr; opacity: 0;
+        transition: grid-template-rows .45s ease, opacity .45s ease; }
+  .qr.open { grid-template-rows: 1fr; opacity: 1; }
+  .qr > div { overflow: hidden; }
+  .qr .box { display: inline-block; margin: 16px 0 6px; padding: 14px; background: #E8E0CD;
+             border-radius: 22px; box-shadow: 0 16px 40px rgba(0,0,0,.45), 0 0 0 1px var(--line); }
+  .qr svg { display: block; width: 196px; height: 196px; }
+  .qr p { margin: 6px 0 0; font-size: 14px; color: var(--muted); }
+
+  footer { margin-top: 40px; font-size: 13px; color: #6F7888; text-align: center; max-width: 30rem; }
+  footer a { color: inherit; }
+</style>
+</head>
+<body>
+<main>
+  <img class="icon" src="icon.png" alt="" width="132" height="132">
+  <h1>Православен календар</h1>
+  <div class="rule"><span>✠</span></div>
+  <p class="lead">Жития на светиите, четива за деня, пости, Библия, молитвослов
+     и книги — на български, без интернет.</p>
+
+  <a id="dl" class="btn" href="https://github.com/isihiaBG/orthodox_calendar/releases/tag/app-latest">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 20h14"/></svg>
+    Свали за Android
+  </a>
+  <p id="meta" class="meta"></p>
+
+  <ul class="features">
+    <li>Стар и нов стил</li><li>Жития и тропари</li><li>Евангелие и Апостол</li>
+    <li>Пости</li><li>Библия</li><li>Молитвослов</li><li>Книги и беседи на глас</li>
+  </ul>
+
+  <section class="card">
+    <h2>Как се инсталира</h2>
+    <ol>
+      <li>Натисни „Свали за Android“.</li>
+      <li>Отвори сваления файл.
+        <small>Ако телефонът попита — разреши инсталиране от браузъра. Това е
+        нужно само веднъж.</small></li>
+      <li>Готово.
+        <small>Оттук нататък приложението само ще съобщава, когато има нова версия.</small></li>
+    </ol>
+  </section>
+
+  <button class="qrtoggle" id="qrbtn" aria-expanded="false" aria-controls="qr">
+    <span id="qrlabel">Покажи QR код</span><span class="chev">▾</span>
+  </button>
+  <div class="qr" id="qr">
+    <div>
+      <div class="box" id="qrbox"></div>
+      <p>Сканирай с телефона</p>
+    </div>
+  </div>
+</main>
+<footer>Засега само за Android. Шрифт Charis SIL (<a href="fonts/OFL-CharisSIL.txt">SIL OFL</a>).</footer>
+
+<script>
+  // Размерът, датата и адресът — от update.json (пише ги publish_app.py).
+  var MONTHS = ['януари','февруари','март','април','май','юни','юли','август',
+                'септември','октомври','ноември','декември'];
+  fetch('update.json?t=' + Math.floor(Date.now() / 60000), {cache: 'no-store'})
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (u) {
+      if (!u || !u.apk) return;
+      document.getElementById('dl').href = u.apk;
+      var d = (u.date || '').split('-');
+      var date = d.length === 3 ? (+d[2]) + ' ' + MONTHS[+d[1] - 1] + ' ' + d[0] : '';
+      var mb = Math.round(u.size / 1048576) + ' MB';
+      document.getElementById('meta').textContent =
+        (date ? 'Версия от ' + date + ' · ' : '') + mb;
+    })
+    .catch(function () {});
+</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" defer></script>
+<script>
+  // QR кодът — рисува се при първото разгъване, като SVG: кръгли точки,
+  // заоблени ъглови квадрати, логото в средата. ⚠ Корекция „H“ (30%) —
+  // само с нея логото не пречи на четенето; празното под него е ~12% от
+  // площта (проверено с разчитане и при наполовина смален код).
+  var PAPER = '#E8E0CD', INK = '#16233A', ACC = '#8C2433', drawn = false;
+  function drawQr() {
+    if (drawn || !window.qrcode) return;
+    drawn = true;
+    var url = location.href.split('#')[0].split('?')[0];
+    var qr = qrcode(0, 'H'); qr.addData(url); qr.make();
+    var n = qr.getModuleCount();
+    var hole = Math.ceil(n * 0.34); if ((n - hole) % 2) hole++;
+    var h0 = (n - hole) / 2, cx = n / 2, lr = hole / 2;
+    function finder(r, c) { return (r < 7 && c < 7) || (r < 7 && c >= n - 7) || (r >= n - 7 && c < 7); }
+    var out = [];
+    for (var r = 0; r < n; r++) for (var c = 0; c < n; c++) {
+      if (!qr.isDark(r, c) || finder(r, c)) continue;
+      var dx = c + .5 - cx, dy = r + .5 - cx;
+      if (dx * dx + dy * dy < (lr + .6) * (lr + .6)) continue; // кръгло място за логото
+      out.push('<circle cx="' + (c + .5) + '" cy="' + (r + .5) + '" r=".42"/>');
+    }
+    function eye(x, y) {
+      return '<rect x="' + (x + .5) + '" y="' + (y + .5) + '" width="6" height="6" rx="1.9" fill="none" stroke="' + INK + '" stroke-width="1"/>' +
+             '<rect x="' + (x + 2) + '" y="' + (y + 2) + '" width="3" height="3" rx=".9" fill="' + ACC + '"/>';
+    }
+    document.getElementById('qrbox').innerHTML =
+      '<svg viewBox="-1 -1 ' + (n + 2) + ' ' + (n + 2) + '" xmlns="http://www.w3.org/2000/svg">' +
+      '<g fill="' + INK + '">' + out.join('') + '</g>' +
+      eye(0, 0) + eye(n - 7, 0) + eye(0, n - 7) +
+      '<image href="icon.png" x="' + (cx - lr) + '" y="' + (cx - lr) + '" width="' + hole + '" height="' + hole + '"/>' +
+      '</svg>';
+  }
+  document.getElementById('qrbtn').addEventListener('click', function () {
+    var open = this.getAttribute('aria-expanded') !== 'true';
+    if (open) drawQr();
+    this.setAttribute('aria-expanded', open);
+    document.getElementById('qr').classList.toggle('open', open);
+    document.getElementById('qrlabel').textContent = open ? 'Скрий QR кода' : 'Покажи QR код';
+  });
+</script>
+</body>
+</html>

@@ -83,3 +83,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // FileProvider за актуализацията отвътре (MainActivity.kt).
+    implementation("androidx.core:core:1.13.1")
+}

@@ -225,8 +225,9 @@ class AudioRegistry {
     if (known) revision.value++;
   }
 
-  /// Тегли регистъра — САМО по действие на човека („Провери за звук" или
-  /// сваляне на звук). Подменя тукашния, само ако онзи в GitHub е по-нов.
+  /// Тегли регистъра — по действие на човека („Провери за звук", сваляне
+  /// на звук) И при ежедневната проверка за актуализация (app_update.dart,
+  /// решение на автора 25.10.2026 — само регистърът, без сваляне). Подменя тукашния, само ако онзи в GitHub е по-нов.
   /// Връща грешка или `null`.
   static Future<String?> check() async {
     await load();
@@ -329,11 +330,24 @@ class AudioBook {
   final String assetPath;
   AudioBook._(this.assetPath) {
     AudioRegistry.revision.addListener(_onRegistry);
+    // Точката за обновен звук (app_update.dart) слуша всички книги наведнъж.
+    revision.addListener(() => anyChange.value++);
     // Размерите в етикетите следват избраното качество.
     AudioQuality.low.addListener(() => revision.value++);
   }
 
   static final Map<String, AudioBook> _cache = {};
+
+  /// Расте при промяна в която и да е книга (сваляне, изтриване).
+  static final ValueNotifier<int> anyChange = ValueNotifier(0);
+
+  /// Колко свалени глави имат по-нова версия — сверено наново с диска.
+  /// ⚠ Не бута [revision] (иначе слушателят на [anyChange] се зацикля).
+  Future<int> outdatedCount() async {
+    await load();
+    await _scanDownloaded();
+    return outdatedParts().length;
+  }
 
   /// Всяка книга получава обект — дали има звук, казва регистърът (той може
   /// да дойде и след отварянето на четеца; тогава [revision] расте).

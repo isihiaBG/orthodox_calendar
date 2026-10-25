@@ -3,6 +3,7 @@ import 'audiobook.dart' show AudioQuality;
 import 'audio_outro.dart' show AudioOutroSetting;
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
+import 'app_update.dart';
 import 'app_settings.dart';
 import 'calendar_style_picker.dart';
 import 'database_helper.dart';
@@ -25,9 +26,12 @@ const bool _kUseGraphicalCalendarStylePicker = true;
 /// ЧЕТЕЦ засега е празна категория (общи настройки за двата четеца —
 /// жития и книги — предстоят); съществува тук, за да не се пренарежда
 /// всичко наново, когато се появят.
-enum SettingsSection { calendar, reader, bible, audio }
+/// ⚠ Редът тук е редът на екрана. `app` (актуализацията) е първа — към
+/// нея водят червените точки.
+enum SettingsSection { app, calendar, reader, bible, audio }
 
 const _kAllSections = {
+  SettingsSection.app,
   SettingsSection.calendar,
   SettingsSection.reader,
   SettingsSection.bible,
@@ -40,6 +44,7 @@ const _kAllSections = {
 /// друга асоциация (звучи като раздел с четива), затова там редът се казва
 /// просто „Настройки" — виж kReaderSettingsMenuItem.
 const _kSectionTitles = {
+  SettingsSection.app: 'ПРИЛОЖЕНИЕ',
   SettingsSection.calendar: 'КАЛЕНДАР',
   SettingsSection.reader: 'ЗА ЧЕТИВАТА',
   SettingsSection.bible: 'БИБЛИЯ',
@@ -122,6 +127,124 @@ class _SettingsContentState extends State<SettingsContent> {
         ],
       ),
     );
+  }
+
+  bool _checking = false;
+
+  Future<void> _checkNow() async {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    setState(() => _checking = true);
+    final ok = await AppUpdate.check();
+    if (!mounted) return;
+    setState(() => _checking = false);
+    // Тук човекът сам е поискал — затова се казва и неуспехът.
+    messenger?.showSnackBar(SnackBar(
+      content: Text(!ok
+          ? 'Няма връзка — опитай пак по-късно.'
+          : AppUpdate.available.value != null
+              ? 'Има нова версия.'
+              : 'Приложението е актуално.'),
+    ));
+  }
+
+  static String _when(DateTime? t) {
+    if (t == null) return 'Още не е проверявано.';
+    final now = DateTime.now();
+    String two(int x) => x.toString().padLeft(2, '0');
+    final hm = '${two(t.hour)}:${two(t.minute)}';
+    final d0 = DateTime(now.year, now.month, now.day);
+    final d1 = DateTime(t.year, t.month, t.day);
+    final days = d0.difference(d1).inDays;
+    final day = days == 0
+        ? 'днес'
+        : days == 1
+            ? 'вчера'
+            : '${t.day}.${two(t.month)}.${t.year}';
+    return 'Последна проверка: $day, $hm';
+  }
+
+  /// „ПРИЛОЖЕНИЕ" — актуализацията (app_update.dart). Без нея (уеб, билдът
+  /// за Google Play) секцията е празна и изобщо не се показва.
+  List<Widget> _appSection() {
+    if (!AppUpdate.supported) return const [];
+    return [
+      ListenableBuilder(
+        listenable: Listenable.merge([AppUpdate.available, AppUpdate.lastOk]),
+        builder: (context, _) {
+          final a = AppUpdate.available.value;
+          final checkBtn = _checking
+              ? const Padding(
+                  padding: EdgeInsets.all(12),
+                  child: SizedBox(
+                      width: 18,
+                      height: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2)),
+                )
+              : TextButton(onPressed: _checkNow, child: const Text('Провери'));
+          if (a == null) {
+            return Row(children: [
+              Icon(Icons.verified_outlined, color: AppColors.textMuted, size: 22),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(
+                      AppUpdate.lastOk.value == null
+                          ? 'Проверка за нова версия'
+                          : 'Приложението е актуално',
+                      style: const TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+                  const SizedBox(height: 2),
+                  Text(_when(AppUpdate.lastOk.value),
+                      style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                ]),
+              ),
+              checkBtn,
+            ]);
+          }
+          // Има нова версия — карта, към която водят червените точки.
+          return Container(
+            padding: const EdgeInsets.fromLTRB(16, 14, 10, 6),
+            decoration: BoxDecoration(
+              color: AppColors.backgroundCard,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: kUpdateRed.withValues(alpha: 0.35)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                withUpdateDot(
+                    const Icon(Icons.system_update, color: AppColors.textPrimary, size: 26),
+                    kUpdateRed),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    const Text('Налична е нова версия',
+                        style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
+                    const SizedBox(height: 2),
+                    Text('${a.sizeLabel} · ${_when(AppUpdate.lastOk.value)}',
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                  ]),
+                ),
+              ]),
+              const SizedBox(height: 6),
+              Row(mainAxisAlignment: MainAxisAlignment.end, children: [
+                TextButton(
+                    onPressed: () => showWhatsNew(context),
+                    child: const Text('Какво ново')),
+                const SizedBox(width: 4),
+                FilledButton.icon(
+                  onPressed: () => AppUpdate.downloadAndInstall(context),
+                  icon: const Icon(Icons.download, size: 18),
+                  label: const Text('Свали'),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.sectionTitle,
+                    foregroundColor: Colors.white,
+                  ),
+                ),
+              ]),
+            ]),
+          );
+        },
+      ),
+    ];
   }
 
   List<Widget> _calendarSection() {
@@ -543,6 +666,7 @@ class _SettingsContentState extends State<SettingsContent> {
   @override
   Widget build(BuildContext context) {
     final sectionContent = {
+      SettingsSection.app: _appSection,
       SettingsSection.calendar: _calendarSection,
       SettingsSection.reader: _readerSection,
       SettingsSection.bible: _bibleSection,

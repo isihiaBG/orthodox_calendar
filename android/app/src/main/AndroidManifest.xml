@@ -5,6 +5,11 @@
          azbyka.ru се отварят в БРАУЗЪРА (external_link.dart), което не иска
          разрешение. -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- ⚠ Актуализацията отвътре (lib/app_update.dart) — САМО за периода
+         преди Google Play. Play ограничава това разрешение и забранява
+         самообновяване: в билда за Play редът и провайдерът по-долу се
+         махат заедно с kAppSelfUpdate. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -89,6 +94,15 @@
                       android:pathPrefix="/orthodox_calendar/q"/>
             </intent-filter>
         </activity>
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.update_files"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/update_paths" />
+        </provider>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -22,6 +22,7 @@ import 'molitvoslov_settings.dart';
 import 'molitvoslov_welcome_screen.dart';
 import 'reference_pager.dart';
 import 'settings_screen.dart';
+import 'app_update.dart';
 
 /// Реакцията на календара при промяна в настройките (смяна на стил и др.)
 /// живее в състоянието на CalendarPageView — то се регистрира тук при
@@ -237,12 +238,17 @@ class AppDrawer extends StatelessWidget {
           _item(Icons.info_outline, 'Справочник',
               () => _openSection(context, ReferenceSection.book)),
           _groupRule,
-          _item(Icons.settings, 'Настройки', () {
-            _openScreen(
-              context,
-              (_) => SettingsScreen(onChanged: appSettingsChangedHook),
-            ).then((_) => AppSettings.saveNow());
-          }),
+          // Червена точка — има нова версия (app_update.dart); редът за нея
+          // е най-отгоре в настройките.
+          ValueListenableBuilder<UpdateInfo?>(
+            valueListenable: AppUpdate.available,
+            builder: (_, a, _) => _item(Icons.settings, 'Настройки', () {
+              _openScreen(
+                context,
+                (_) => SettingsScreen(onChanged: appSettingsChangedHook),
+              ).then((_) => AppSettings.saveNow());
+            }, dot: a != null ? kUpdateRed : null),
+          ),
           _itemText('❈', 'Оцени приложението', () {
             // Съобщението иска жив Scaffold — взима се ПРЕДИ менюто да се
             // затвори, иначе контекстът му вече е разрушен.
@@ -286,9 +292,9 @@ class AppDrawer extends StatelessWidget {
     ),
   );
 
-  Widget _item(IconData icon, String title, VoidCallback onTap) {
+  Widget _item(IconData icon, String title, VoidCallback onTap, {Color? dot}) {
     return ListTile(
-      leading: Icon(icon, color: AppColors.drawerIcon, size: 26),
+      leading: withUpdateDot(Icon(icon, color: AppColors.drawerIcon, size: 26), dot),
       title: Text(title,
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 18)),
       onTap: onTap,

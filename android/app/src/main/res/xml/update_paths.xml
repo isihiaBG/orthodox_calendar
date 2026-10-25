@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Свалената актуализация (lib/app_update.dart) — само папката update/ в кеша. -->
+<paths>
+    <cache-path name="update" path="update/" />
+</paths>

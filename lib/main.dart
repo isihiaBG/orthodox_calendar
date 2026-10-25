@@ -12,6 +12,7 @@ import 'open_day.dart';
 import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
 import 'app_drawer.dart';
+import 'app_update.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'quotes_list.dart';
@@ -131,6 +132,9 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   late DateTime _currentDate;
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   bool _isMonthView = false;
+
+  /// Прозорчето „Има нова версия" (app_update.dart) — горе, над деня.
+  bool _updateBanner = false;
   final GlobalKey<MonthScreenState> _monthScreenKey = GlobalKey<MonthScreenState>();
   //int _settingsVersion = 0; //ползвах я в опит да обновява екрана при промяна, но намерих по-добро решение
 
@@ -146,6 +150,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       if (mounted) {
         precacheImage(const AssetImage('assets/icon_drawer.png'), context);
       }
+      // Проверката за актуализация — веднъж на ден, мълчаливо при неуспех.
+      // ⚠ Малко след старта: първо се показва денят, мрежата е второстепенна.
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        AppUpdate.start((_) {
+          if (mounted) setState(() => _updateBanner = true);
+        });
+      });
     });
     final today = DateTime.now();
 
@@ -392,8 +403,14 @@ class _CalendarPageViewState extends State<CalendarPageView> {
   /// Менюто зад трите точки в календара — ОБЩОТО на четците, само с
   /// трите точки, които имат смисъл тук.
   Future<void> _showMainMenu() async {
+    final appDot = AppUpdate.available.value != null ? kUpdateRed : null;
+    final audioDot = AppUpdate.audioOutdated.value > 0 ? kUpdateOrange : null;
     final choice = await showReaderMoreMenu(context, items: [
-      kReaderSettingsMenuItem,
+      ReaderMenuItem(
+        icon: withUpdateDot(kReaderSettingsMenuItem.icon, appDot),
+        label: kReaderSettingsMenuItem.label,
+        value: kReaderSettingsMenuItem.value,
+      ),
       kBookmarksMenuItem,
       kQuotesMenuItem,
       // Звукът (13.10.2026, искане на автора) — проверка и управление.
@@ -402,8 +419,10 @@ class _CalendarPageViewState extends State<CalendarPageView> {
         label: 'Провери за звук',
         value: 'audio_check',
       ),
-      const ReaderMenuItem(
-        icon: Icon(Icons.headphones_outlined, size: 24, color: AppColors.textSecondary),
+      ReaderMenuItem(
+        icon: withUpdateDot(
+            const Icon(Icons.headphones_outlined, size: 24, color: AppColors.textSecondary),
+            audioDot),
         label: 'Звук — свалени и налични',
         value: 'audio_manage',
       ),
@@ -451,7 +470,7 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       },
       endDrawer: SettingsDrawer(
         onChanged: _onSettingsChanged,
-        sections: const {SettingsSection.calendar},
+        sections: const {SettingsSection.app, SettingsSection.calendar},
       ),
       appBar: AppBar(
         backgroundColor: AppColors.toolbar,
@@ -459,7 +478,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
         titleSpacing: 0,
         // ================ Меню бутон =================
         leading: IconButton(
-          icon: const Icon(Icons.menu, color: AppColors.textPrimary, size: 28),
+          // Червена точка: има нова версия — зъбното колело в менюто води до нея.
+          icon: ValueListenableBuilder<UpdateInfo?>(
+            valueListenable: AppUpdate.available,
+            builder: (_, a, _) => withUpdateDot(
+                const Icon(Icons.menu, color: AppColors.textPrimary, size: 28),
+                a != null ? kUpdateRed : null),
+          ),
           onPressed: () => _scaffoldKey.currentState?.openDrawer(),
         ),
         actions: [
@@ -555,7 +580,13 @@ class _CalendarPageViewState extends State<CalendarPageView> {
           IconButton(
             padding: EdgeInsets.zero,
             constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
-            icon: const Icon(Icons.more_vert, color: AppColors.textPrimary, size: 24),
+            // Червена (приложението) над оранжева (звукът).
+            icon: ListenableBuilder(
+              listenable: Listenable.merge([AppUpdate.available, AppUpdate.audioOutdated]),
+              builder: (_, _) => withUpdateDot(
+                  const Icon(Icons.more_vert, color: AppColors.textPrimary, size: 24),
+                  AppUpdate.menuDotColor),
+            ),
             tooltip: 'Още',
             onPressed: _showMainMenu,
           ),
@@ -570,7 +601,8 @@ class _CalendarPageViewState extends State<CalendarPageView> {
       // проблем не е докладван (лентата с инструменти вече е добре), а само
       // ляво/дясно е нужно в легнало положение, докато изрезът на камерата
       // застане отстрани (докладвано 21.08.2026).
-      body: Padding(
+      body: Stack(children: [
+        Padding(
         padding: EdgeInsets.only(
           left: MediaQuery.of(context).padding.left,
           right: MediaQuery.of(context).padding.right,
@@ -635,7 +667,24 @@ class _CalendarPageViewState extends State<CalendarPageView> {
                 date: _dateForPage(index),
               ),
             ),
-      ),
+        ),
+        // ⚠ Плава НАД деня, не го избутва: подредбата отдолу (и сметката
+        // на месечния изглед за средния ред) остава непокътната.
+        if (_updateBanner)
+          Positioned(
+            top: 10,
+            left: 12,
+            right: 12,
+            child: Center(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 520),
+                child: UpdateBanner(
+                  onClose: () => setState(() => _updateBanner = false),
+                ),
+              ),
+            ),
+          ),
+      ]),
     );
   }
 }
