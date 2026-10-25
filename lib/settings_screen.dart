@@ -4,6 +4,7 @@ import 'audio_outro.dart' show AudioOutroSetting;
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_update.dart';
+import 'app_version.dart';
 import 'app_settings.dart';
 import 'calendar_style_picker.dart';
 import 'database_helper.dart';
@@ -168,6 +169,14 @@ class _SettingsContentState extends State<SettingsContent> {
   List<Widget> _appSection() {
     if (!AppUpdate.supported) return const [];
     return [
+      FutureBuilder<String>(
+        future: appVersionLabel(),
+        builder: (_, s) => Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(s.data ?? '',
+              style: TextStyle(color: AppColors.textSecondary, fontSize: 14)),
+        ),
+      ),
       ListenableBuilder(
         listenable: Listenable.merge([AppUpdate.available, AppUpdate.lastOk]),
         builder: (context, _) {

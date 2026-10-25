@@ -23,6 +23,7 @@ import 'molitvoslov_welcome_screen.dart';
 import 'reference_pager.dart';
 import 'settings_screen.dart';
 import 'app_update.dart';
+import 'share_app.dart';
 
 /// Реакцията на календара при промяна в настройките (смяна на стил и др.)
 /// живее в състоянието на CalendarPageView — то се регистрира тук при
@@ -249,7 +250,13 @@ class AppDrawer extends StatelessWidget {
               ).then((_) => AppSettings.saveNow());
             }, dot: a != null ? kUpdateRed : null),
           ),
-          _itemText('❈', 'Оцени приложението', () {
+          // Споделянето — над „Оцени": и двете са неща, които човек прави ЗА
+          // приложението. Общото `_item` пази подравняването с останалите.
+          _item(Icons.share, 'Сподели', () {
+            Navigator.of(context).pop();
+            shareApp();
+          }),
+          _itemText('❈', 'Оцени', () {
             // Съобщението иска жив Scaffold — взима се ПРЕДИ менюто да се
             // затвори, иначе контекстът му вече е разрушен.
             final messenger = ScaffoldMessenger.maybeOf(context);

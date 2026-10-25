@@ -12,6 +12,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
+import 'app_version.dart';
+import 'share_app.dart';
 import 'chitalnya_screen.dart';
 
 const String _titleFamily = 'TamburinModern';
@@ -155,6 +157,22 @@ class _AboutScreenState extends State<AboutScreen> {
 
   Future<void> _openUrl(String url) async {
     await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
+  }
+
+  Widget _quietLink(IconData icon, String text, VoidCallback onTap) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(6),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 2),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 16, color: AppColors.sectionTitle),
+          const SizedBox(width: 6),
+          Text(text,
+              style: const TextStyle(color: AppColors.sectionTitle, fontSize: 14)),
+        ]),
+      ),
+    );
   }
 
   TextSpan _linkSpan(String text, TapGestureRecognizer recognizer) {
@@ -334,7 +352,31 @@ class _AboutScreenState extends State<AboutScreen> {
                     color: _ink,
                   ),
                 ),
-                const SizedBox(height: 32),
+                const SizedBox(height: 8),
+                // Версията — тихо, под името (app_version.dart).
+                FutureBuilder<String>(
+                  future: appVersionLabel(),
+                  builder: (_, s) => Text(
+                    s.data ?? '',
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                        color: AppColors.textMuted, fontSize: 13, letterSpacing: 0.6),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                // Споделяне и страницата за сваляне — тихо, под версията.
+                Wrap(
+                  alignment: WrapAlignment.center,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    _quietLink(Icons.share, 'Сподели приложението', shareApp),
+                    const Text('   ·   ',
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
+                    _quietLink(Icons.download, 'Страница за сваляне',
+                        () => _openUrl(kAppPageUrl)),
+                  ],
+                ),
+                const SizedBox(height: 24),
                 _AboutDropCapParagraph(
                   dropCap: 'П',
                   firstParagraph: _firstParagraph,
