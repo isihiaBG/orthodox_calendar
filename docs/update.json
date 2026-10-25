@@ -1,12 +1,19 @@
 {
- "build": 2195,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2195.apk",
+ "build": 2196,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2196.apk",
  "size": 121287698,
- "sha256": "08e82216e79f6a48da1e4fce476c415fa7728ecf52853ff3f00251a74d1ec019",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2195.apk.gz",
- "gz_size": 106474429,
+ "sha256": "904ed2ad8f6db7f82ed090a8ab0e5d6402fcc711e88bc20b7e4870a6c88eb39e",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2196.apk.gz",
+ "gz_size": 106475023,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2196,
+   "date": "26 октомври 2026",
+   "items": [
+    "„За приложението“: лентата горе се прибира при плъзгане, а връзките са с равно междуредие."
+   ]
+  },
   {
    "build": 2195,
    "date": "26 октомври 2026",

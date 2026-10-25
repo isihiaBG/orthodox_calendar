@@ -183,6 +183,11 @@ class _AboutScreenState extends State<AboutScreen> {
         color: AppColors.sectionTitle,
         decoration: TextDecoration.none,
         fontSize: _fontSize - 4,
+        // ⚠ Същата ВИСОЧИНА НА РЕДА като курсивния текст около връзката
+        // (кегел _fontSize − 2). С по-дребния кегел и същия множител редът
+        // на връзката излизаше по-нисък — тя залепваше за реда отгоре, а
+        // под нея зееше (забелязано от автора, 26.10.2026).
+        height: _lineHeight * (_fontSize - 2) / (_fontSize - 4),
       ),
     );
   }
@@ -322,16 +327,25 @@ class _AboutScreenState extends State<AboutScreen> {
       // Меню вместо стрелка "назад" — от всеки екран потребителят може да
       // скочи направо в друг раздел, без да минава обратно през календара.
       drawer: const AppDrawer(),
-      appBar: AppBar(
-        backgroundColor: AppColors.toolbar,
-        title: const Text('За приложението'),
-      ),
+      // ⚠ Лентата е ВЪТРЕ в скрола и се прибира при плъзгане надолу, както в
+      // четците — в легнало положение иначе заема много място (автора,
+      // 26.10.2026). Ивицата на системната лента остава в цвета на
+      // инструментите: фонът на страницата е Container ВЪТРЕ в SafeArea.
       body: SafeArea(
+        bottom: false,
         child: Container(
           color: AppColors.background,
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.fromLTRB(24, 24, 24, 40),
-            child: Column(
+          child: CustomScrollView(slivers: [
+            const SliverAppBar(
+              backgroundColor: AppColors.toolbar,
+              floating: true,
+              snap: true,
+              title: Text('За приложението'),
+            ),
+            SliverPadding(
+            padding: EdgeInsets.fromLTRB(24, 24, 24,
+                40 + MediaQuery.of(context).padding.bottom),
+            sliver: SliverToBoxAdapter(child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Center(
@@ -365,13 +379,13 @@ class _AboutScreenState extends State<AboutScreen> {
                 ),
                 const SizedBox(height: 10),
                 // Споделяне и страницата за сваляне — тихо, под версията.
+                // ⚠ Без разделител: на тесен екран двете се пренасят една под
+                // друга и точка в края на реда би висяла сама.
                 Wrap(
                   alignment: WrapAlignment.center,
-                  crossAxisAlignment: WrapCrossAlignment.center,
+                  spacing: 22,
                   children: [
                     _quietLink(Icons.share, 'Сподели приложението', shareApp),
-                    const Text('   ·   ',
-                        style: TextStyle(color: AppColors.textMuted, fontSize: 14)),
                     _quietLink(Icons.download, 'Страница за сваляне',
                         () => _openUrl(kAppPageUrl)),
                   ],
@@ -445,7 +459,7 @@ class _AboutScreenState extends State<AboutScreen> {
                     ],
                   ),
                 ),
-                const SizedBox(height: 28),
+                const SizedBox(height: 24),
                 Text.rich(
                   TextSpan(
                     style: smallItalicStyle,
@@ -458,8 +472,9 @@ class _AboutScreenState extends State<AboutScreen> {
                 ),
                 _sources(smallItalicStyle),
               ],
+            )),
             ),
-          ),
+          ]),
         ),
       ),
     );
