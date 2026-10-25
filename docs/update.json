@@ -1,12 +1,21 @@
 {
- "build": 2194,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2194.apk",
- "size": 121287638,
- "sha256": "6fa629a26a2d77541c65af2b285989becf4cfb54c6732dd3db39600aa0d6963e",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2194.apk.gz",
- "gz_size": 106471887,
+ "build": 2195,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2195.apk",
+ "size": 121287698,
+ "sha256": "08e82216e79f6a48da1e4fce476c415fa7728ecf52853ff3f00251a74d1ec019",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2195.apk.gz",
+ "gz_size": 106474429,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2195,
+   "date": "26 октомври 2026",
+   "items": [
+    "След сваляне на нова версия копчето става „Инсталирай“.",
+    "Ако телефонът поиска разрешение за инсталиране, инсталацията продължава сама, щом се върнеш в приложението.",
+    "Проверката за нова версия е при всяко пускане на приложението."
+   ]
+  },
   {
    "build": 2194,
    "date": "25 октомври 2026",

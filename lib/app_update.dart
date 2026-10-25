@@ -9,7 +9,7 @@
 //                 APK-то в GitHub, размерът, SHA-256 и „Какво ново" по билдове.
 //   APK-то        издание `app-latest` в GitHub, име с номера на билда.
 //
-// ⚠⚠ ПРОВЕРКАТА Е ВЕДНЪЖ НА ДЕН, при пускане, и е НАПЪЛНО МЪЛЧАЛИВА при
+// ⚠⚠ ПРОВЕРКАТА Е ПРИ ВСЯКО ПУСКАНЕ (~4 KB) и е НАПЪЛНО МЪЛЧАЛИВА при
 // неуспех (изрично от автора): самолетен режим, лоша връзка, повреден файл —
 // нищо не се съобщава и нищо не се блокира. Часът на проверката се записва
 // САМО при успех, тъй че следващото пускане опитва пак. Точките идват
@@ -109,14 +109,17 @@ class AppUpdate {
   static const _kLastOk = 'app_update_last_ok';
   static const _kDismissed = 'app_update_dismissed';
 
-  /// Проверката при пускане — не по-често от това.
-  static const _kInterval = Duration(hours: 20);
 
   /// По-новият билд, ако има такъв (иначе null). Слушат го точките.
   static final ValueNotifier<UpdateInfo?> available = ValueNotifier(null);
 
   /// Колко свалени глави имат по-нова версия на звука.
   static final ValueNotifier<int> audioOutdated = ValueNotifier(0);
+
+  /// Свалено ли е вече APK-то на наличната версия — тогава „Свали" става
+  /// „Инсталирай" (автора, 26.10.2026: повторно „Свали" изглеждаше като
+  /// развалено копче).
+  static final ValueNotifier<bool> downloaded = ValueNotifier(false);
 
   /// Последната успешна проверка (за реда в настройките).
   static final ValueNotifier<DateTime?> lastOk = ValueNotifier(null);
@@ -164,9 +167,10 @@ class AppUpdate {
       AudioBook.anyChange.addListener(_audioChanged);
       AudioRegistry.revision.addListener(_audioChanged);
       unawaited(_recountAudio());
-      final due = ms == null ||
-          DateTime.now().difference(DateTime.fromMillisecondsSinceEpoch(ms)) > _kInterval;
-      if (due) await check();
+      // ⚠ При ВСЯКО пускане (автора, 26.10.2026): двата файла са ~4 KB, а
+      // „веднъж на ден" криеше новата версия, ако приложението вече е било
+      // отваряно днес.
+      await check();
       final a = available.value;
       if (a != null && a.build > _dismissed) onFound(a);
     } catch (e) {
@@ -216,6 +220,27 @@ class AppUpdate {
   static void _publish() {
     final k = _known;
     available.value = (k != null && k.build > currentBuild) ? k : null;
+    unawaited(_refreshDownloaded());
+  }
+
+  /// Има ли изтеглено APK на наличната версия (размерът стига — SHA-256 е
+  /// проверен при самото сваляне, а `.part` не се брои).
+  static Future<void> _refreshDownloaded() async {
+    final a = available.value;
+    var ok = false;
+    try {
+      if (a != null) {
+        final f = await _apkFile(a.build);
+        ok = await f.exists() && await f.length() == a.size;
+      } else if (currentBuild > 0) {
+        // Обновено (или няма нищо ново) — старите свалени APK-та не трябват.
+        final d = (await _apkFile(0)).parent;
+        await for (final f in d.list()) {
+          await f.delete();
+        }
+      }
+    } catch (_) {}
+    downloaded.value = ok;
   }
 
   static Timer? _audioDebounce;
@@ -272,6 +297,7 @@ class AppUpdate {
   static Future<void> downloadAndInstall(BuildContext context) async {
     final info = available.value;
     if (info == null || _busy) return;
+    if (downloaded.value) return install(context);
     _busy = true;
     final progress = ValueNotifier<double>(0);
     final cancel = Completer<void>();
@@ -325,19 +351,59 @@ class AppUpdate {
       if (err != null) messenger?.showSnackBar(SnackBar(content: Text(err)));
       return;
     }
+    downloaded.value = true;
+    await _install(apk, messenger);
+  }
+
+  /// „Инсталирай" — вече сваленото APK, без нов прозорец.
+  static Future<void> install(BuildContext context) async {
+    final a = available.value;
+    if (a == null) return;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final f = await _apkFile(a.build);
+    if (!await f.exists()) {
+      downloaded.value = false;
+      if (context.mounted) await downloadAndInstall(context);
+      return;
+    }
+    await _install(f, messenger);
+  }
+
+  /// Пътят, чакащ разрешение за инсталиране. Щом човекът се върне в
+  /// приложението с даденото разрешение, инсталаторът се отваря САМ —
+  /// без второ натискане (автора, 26.10.2026).
+  static String? _awaitingPermission;
+  static AppLifecycleListener? _life;
+
+  static Future<void> _install(File apk, ScaffoldMessengerState? messenger) async {
     try {
       final r = await _channel.invokeMethod<String>('install', {'path': apk.path});
       if (r == 'permission') {
+        _awaitingPermission = apk.path;
+        _life ??= AppLifecycleListener(onResume: _resumeAfterPermission);
         messenger?.showSnackBar(const SnackBar(
           duration: Duration(seconds: 8),
-          content: Text('Разреши инсталирането от това приложение и натисни '
-              '„Свали“ още веднъж — файлът вече е свален.'),
+          content: Text('Разреши инсталирането от това приложение и се върни — '
+              'инсталацията ще продължи сама.'),
         ));
       }
     } catch (e) {
       messenger?.showSnackBar(
           const SnackBar(content: Text('Инсталаторът не се отвори.')));
     }
+  }
+
+  static Future<void> _resumeAfterPermission() async {
+    final path = _awaitingPermission;
+    if (path == null) return;
+    try {
+      final can = await _channel.invokeMethod<bool>('canInstall') ?? false;
+      if (!can) return; // още не е разрешено — „Инсталирай" остава под ръка
+      _awaitingPermission = null;
+      if (await File(path).exists()) {
+        await _channel.invokeMethod<String>('install', {'path': path});
+      }
+    } catch (_) {}
   }
 
   /// ⚠ Пише в `.part` и преименува чак след проверката на SHA-256 —
@@ -544,19 +610,22 @@ class UpdateBanner extends StatelessWidget {
                 child: const Text('По-късно'),
               ),
               const SizedBox(width: 4),
-              FilledButton(
-                onPressed: () {
-                  // ⚠ Преди onClose: той маха прозорчето, а с него и контекста.
-                  AppUpdate.downloadAndInstall(context);
-                  AppUpdate.dismiss(info);
-                  onClose();
-                },
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.sectionTitle,
-                  foregroundColor: Colors.white,
-                  visualDensity: VisualDensity.compact,
+              ValueListenableBuilder<bool>(
+                valueListenable: AppUpdate.downloaded,
+                builder: (_, done, _) => FilledButton(
+                  onPressed: () {
+                    // ⚠ Преди onClose: той маха прозорчето, а с него и контекста.
+                    AppUpdate.downloadAndInstall(context);
+                    AppUpdate.dismiss(info);
+                    onClose();
+                  },
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AppColors.sectionTitle,
+                    foregroundColor: Colors.white,
+                    visualDensity: VisualDensity.compact,
+                  ),
+                  child: Text(done ? 'Инсталирай' : 'Свали'),
                 ),
-                child: const Text('Свали'),
               ),
             ]),
           ]),

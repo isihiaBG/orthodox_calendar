@@ -228,8 +228,13 @@ class _SettingsContentState extends State<SettingsContent> {
                     const Text('Налична е нова версия',
                         style: TextStyle(color: AppColors.textPrimary, fontSize: 16)),
                     const SizedBox(height: 2),
-                    Text('${a.sizeLabel} · ${_when(AppUpdate.lastOk.value)}',
-                        style: TextStyle(color: AppColors.textMuted, fontSize: 12)),
+                    ValueListenableBuilder<bool>(
+                      valueListenable: AppUpdate.downloaded,
+                      builder: (_, done, _) => Text(
+                          done
+                              ? 'Свалена е — готова за инсталиране'
+                              : '${a.sizeLabel} · ${_when(AppUpdate.lastOk.value)}',
+                        style: TextStyle(color: AppColors.textMuted, fontSize: 12))),
                   ]),
                 ),
               ]),
@@ -239,13 +244,19 @@ class _SettingsContentState extends State<SettingsContent> {
                     onPressed: () => showWhatsNew(context),
                     child: const Text('Какво ново')),
                 const SizedBox(width: 4),
-                FilledButton.icon(
-                  onPressed: () => AppUpdate.downloadAndInstall(context),
-                  icon: const Icon(Icons.download, size: 18),
-                  label: const Text('Свали'),
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AppColors.sectionTitle,
-                    foregroundColor: Colors.white,
+                // Свалено ли е вече — „Инсталирай" (автора, 26.10.2026).
+                ValueListenableBuilder<bool>(
+                  valueListenable: AppUpdate.downloaded,
+                  builder: (_, done, _) => FilledButton.icon(
+                    onPressed: () => done
+                        ? AppUpdate.install(context)
+                        : AppUpdate.downloadAndInstall(context),
+                    icon: Icon(done ? Icons.install_mobile : Icons.download, size: 18),
+                    label: Text(done ? 'Инсталирай' : 'Свали'),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AppColors.sectionTitle,
+                      foregroundColor: Colors.white,
+                    ),
                   ),
                 ),
               ]),

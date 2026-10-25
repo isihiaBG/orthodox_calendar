@@ -18,6 +18,12 @@ class MainActivity : FlutterActivity() {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "isihiabg/update")
             .setMethodCallHandler { call, result ->
+                if (call.method == "canInstall") {
+                    // Даде ли човекът разрешението — Dart пуска инсталатора сам.
+                    result.success(Build.VERSION.SDK_INT < Build.VERSION_CODES.O ||
+                        packageManager.canRequestPackageInstalls())
+                    return@setMethodCallHandler
+                }
                 if (call.method != "install") {
                     result.notImplemented(); return@setMethodCallHandler
                 }
