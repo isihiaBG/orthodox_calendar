@@ -14,6 +14,7 @@ import 'app_drawer.dart';
 import 'app_theme.dart';
 import 'app_version.dart';
 import 'share_app.dart';
+import 'release_notes_screen.dart';
 import 'chitalnya_screen.dart';
 
 const String _titleFamily = 'TamburinModern';
@@ -388,6 +389,9 @@ class _AboutScreenState extends State<AboutScreen> {
                     _quietLink(Icons.share, 'Сподели приложението', shareApp),
                     _quietLink(Icons.download, 'Страница за сваляне',
                         () => _openUrl(kAppPageUrl)),
+                    _quietLink(Icons.history, 'История на промените',
+                        () => Navigator.of(context).push(MaterialPageRoute(
+                            builder: (_) => const ReleaseNotesScreen()))),
                   ],
                 ),
                 const SizedBox(height: 24),

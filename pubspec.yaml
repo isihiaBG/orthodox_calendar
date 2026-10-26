@@ -124,6 +124,8 @@ flutter:
     - assets/cover_light/
     - assets/audio_outro/
     - assets/audio_index.json
+    # „История на промените" и „Какво ново" — един извор (release_notes_screen.dart).
+    - assets/release_notes.json
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #

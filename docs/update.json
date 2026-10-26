@@ -1,17 +1,25 @@
 {
- "build": 2197,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2197.apk",
- "size": 121343396,
- "sha256": "a821ce845235a8bf5e9db704ec45ace03f2e5b6ed5ac8dc348f15e02b5ef6b42",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2197.apk.gz",
- "gz_size": 106529726,
+ "build": 2198,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2198.apk",
+ "size": 121345757,
+ "sha256": "3449c41af71d10f47200f1e1fab5a18d7b211f83b89eeaaf17cce0073b4d5742",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2198.apk.gz",
+ "gz_size": 106536197,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2198,
+   "date": "26 октомври 2026",
+   "items": [
+    "„История на промените“ в „За приложението“ — версиите и кратка история на приложението от началото."
+   ]
+  },
   {
    "build": 2197,
    "date": "26 октомври 2026",
    "items": [
-    "Ново житие на св. преподобна Петка (по Патриаршията) — по-пълно и с икони."
+    "Ново житие на св. преподобна Петка (по Патриаршията) — по-пълно и с икони.",
+    "Пс. 44:12 в житието на св. Петка — на църковнославянски, с църковнославянския шрифт."
    ]
   },
   {

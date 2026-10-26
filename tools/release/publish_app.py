@@ -9,7 +9,7 @@
    кешира ПРЕНАСОЧВАНЕТО по име с часове (виж CLAUDE.md, звукът) — със
    същото име телефонът би теглил старото APK.
 2. docs/update.json — последният билд, адрес, размер, SHA-256 и „Какво
-   ново" от tools/release/news.json. Чете го и приложението, и страницата
+   ново" от assets/release_notes.json (вграден и в приложението). Чете го и приложението, и страницата
    за сваляне (docs/index.html). ⚠ Влиза в сила чак след commit + push
    (GitHub Pages), затова скриптът НЕ комитва сам — така първо се вижда.
 
@@ -33,7 +33,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parents[2]
 APK = ROOT / 'build/app/outputs/flutter-apk/app-release.apk'
-NEWS = Path(__file__).with_name('news.json')
+NEWS = ROOT / 'assets/release_notes.json'   # общият извор — виж „_“ в него
 OUT = ROOT / 'docs/update.json'
 API = 'https://api.github.com/repos/isihiaBG/orthodox_calendar'
 TAG = 'app-latest'
@@ -74,7 +74,7 @@ def main():
     data = APK.read_bytes()
     sha = hashlib.sha256(data).hexdigest()
     name = f'pravoslaven-kalendar-{a.build}.apk'
-    news = json.loads(NEWS.read_text(encoding='utf-8'))
+    news = json.loads(NEWS.read_text(encoding='utf-8'))['versions']
     if not any(n['build'] == a.build for n in news):
         sys.exit(f'В {NEWS.name} няма „Какво ново" за билд {a.build} — първо го напиши.')
     print(f'{name}: {len(data) / 1048576:.1f} MB, sha256 {sha[:12]}…, версия в APK: {vc}')
