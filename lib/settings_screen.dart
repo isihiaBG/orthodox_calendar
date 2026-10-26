@@ -704,8 +704,12 @@ class _SettingsContentState extends State<SettingsContent> {
       isFirst = false;
     }
 
+    // Изричното `padding` изключва автоматичния отстъп на ListView от
+    // системната лента отдолу — затова той се добавя на ръка, плюс въздух,
+    // за да не опира последното каре в чертата за жестове.
     return ListView(
-      padding: const EdgeInsets.all(16),
+      padding: EdgeInsets.fromLTRB(
+          16, 16, 16, 32 + MediaQuery.paddingOf(context).bottom),
       children: children,
     );
   }
