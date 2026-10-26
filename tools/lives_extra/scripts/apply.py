@@ -66,6 +66,34 @@ RE_TAG = re.compile(r'<[^>]+>')
 RE_BLOCK = re.compile(r'<p\b[^>]*>(.*?)</p>|<img\b[^>]*>', re.S | re.I)
 RE_SRC = re.compile(r'src="([^"]+)"', re.I)
 
+# ⚠ САЙТОВЕ СЪС СТРАНИЧНА ЛЕНТА — статията се изрязва ПРЕДИ разчитането.
+# bg-patriarshia.bg (26.10.2026): статията е в `page-content`, а до нея стои
+# колона с „Галерия снимки", „Важно", „Лествица"… — чужди снимки и заглавия,
+# които иначе влизат като илюстрации към житието. Ключ: част от адреса →
+# (начало, край) като регулярни изрази. Вътре в изрязаното се четат и
+# заглавията `<h1>`–`<h3>` (там те са на самата статия, а не на сайта):
+# `<h1>` дава заглавието, а `<h2>`/`<h3>` — подзаглавия в четивото.
+CONTENT_BOUNDS = {
+    'bg-patriarshia.bg': (r'class="[^"]*\bpage-content\b[^"]*"',
+                          r'class="col-12 col-lg-4"'),
+}
+RE_BLOCK_H = re.compile(
+    r'<p\b[^>]*>(.*?)</p>|<img\b[^>]*>|<(h[23])\b[^>]*>(.*?)</\2>',
+    re.S | re.I)
+
+# ⚠ ТОЧКОВИ ПОПРАВКИ по адрес — (старо, ново) в HTML фрагмента на абзаца.
+# bg-patriarshia.bg/sv-petka: цитатът Пс. 44:12 е на църковнославянски като
+# две GIF картинки (изключени в exclude_images.csv); на тяхно място — същият
+# стих като текст с цс шрифт.
+TEXT_FIXES = {
+    'bg-patriarshia.bg/sv-petka': [
+        # Църковнославянският — от bible.db (utfcs), с цс шрифта (`.cs`),
+        # а преводът остава в скоби, както е подредено на сайта.
+        ('" " ("Ще пожелае Царят (да види) твоята красота" (Пс. 44:12)).',
+         '„<span class="cs">Возжела́етъ цр҃ь добро́ты твоеѧ̀</span>“ („Ще пожелае Царят (да види) твоята красота“ (Пс. 44:12)).'),
+    ],
+}
+
 # ⚠⚠ ПРАГЪТ ПО ДЪЛЖИНА Е МАХНАТ (05.09.2026).
 #
 # Дотук блок под 60 знака отпадаше. Прагът беше груб инструмент: той не
@@ -329,7 +357,9 @@ RE_CREDIT = re.compile(
 # `<strong>` вътре и се четеше като ПОДЗАГЛАВИЕ на молитвата над него.
 # (Докладвано от потребителя, 11.09.2026.)
 RE_BOOK_CREDIT = re.compile(
-    r'^\s*(из|по)\s+(книгата|книга|сборника|изданието)\b', re.I)
+    r'^\s*((из|по)\s+(книгата|книга|сборника|изданието)\b'
+    # „От: Жития на светиите. Синодално издателство…" (bg-patriarshia.bg)
+    r'|от:\s)', re.I)
 
 # ⚠ РЕДЪТ С АВТОРА И ДАТАТА в началото на статията („от · Православие Бг ·
 # 29/09/2021"). Той НЕ е разказ, а служебен ред на сайта — а понеже стоеше
@@ -397,10 +427,23 @@ def parse(raw_html: str, page_url: str,
     """Заглавието и блоковете: [('p', текст) | ('img', абсолютен адрес)]."""
     if section:
         raw_html = cut_section(raw_html, section)
-    t = RE_DROP.sub(' ', raw_html)
-    m = re.search(r'<title>(.*?)</title>', t, re.S | re.I)
+    bounds = next((b for k, b in CONTENT_BOUNDS.items() if k in page_url), None)
+    m = re.search(r'<title>(.*?)</title>', raw_html, re.S | re.I)
     title = html.unescape(re.sub(r'\s+', ' ', m.group(1))).strip() if m else ''
-    if section:
+    if bounds:
+        a = re.search(bounds[0], raw_html)
+        z = re.search(bounds[1], raw_html[a.end():]) if a else None
+        if a and z:
+            raw_html = raw_html[a.end():a.end() + z.start()]
+            h1 = re.search(r'<h1\b[^>]*>(.*?)</h1>', raw_html, re.S | re.I)
+            if h1:
+                # „Житие на св. преподобна Петка<br />~ 14 октомври" — датата
+                # отпада: приложението сам показва деня.
+                title = re.sub(r'\s+', ' ', html.unescape(RE_TAG.sub(
+                    ' ', re.split(r'<br\s*/?>\s*~', h1.group(1))[0]))).strip()
+                raw_html = raw_html[:h1.start()] + raw_html[h1.end():]
+    t = RE_DROP.sub(' ', raw_html)
+    if section and not bounds:
         # ⚠ Изрязаният раздел няма `<title>` — той е на цялата страница и
         # остава извън изрязаното. Заглавието е ПЪЛНОТО име на раздела, а не
         # ключът, по който сме го търсили (той е нарочно къс).
@@ -415,8 +458,14 @@ def parse(raw_html: str, page_url: str,
 
     out: list[tuple[str, str]] = []
     seen_text: set[str] = set()
-    for m in RE_BLOCK.finditer(t):
+    fixes = next((f for k, f in TEXT_FIXES.items() if k in page_url), [])
+    for m in (RE_BLOCK_H if bounds else RE_BLOCK).finditer(t):
         chunk = m.group(0)
+        if bounds and m.lastindex and m.lastindex >= 2 and m.group(2):
+            head = re.sub(r'\s+', ' ', html.unescape(RE_TAG.sub('', m.group(3)))).strip()
+            if head:
+                out.append(('heading', html.escape(head)))
+            continue
         if chunk.lower().startswith('<img'):
             src = RE_SRC.search(chunk)
             if not src:
@@ -455,6 +504,10 @@ def parse(raw_html: str, page_url: str,
             out.append(('img', iurl))
 
         frag = keep_inline(inner, page_url)
+        # Съседни курсиви се сливат — „<em>От: </em><em>Жития…</em>".
+        frag = re.sub(r'</(em|i)>(\s*)<\1>', r'\2', frag)
+        for old, new in fixes:
+            frag = frag.replace(old, new)
         plain = html.unescape(RE_TAG.sub('', frag)).strip()
         # ⚠ Шумът се маха ПРЪВ: късото изключение по-долу не бива да върне
         # блок, който иначе би отпаднал като меню или шаблон.
@@ -697,6 +750,9 @@ def build_html(title: str, blocks: list[tuple[str, str]],
                 body = re.sub(r'(?:\s*</(?:strong|b|em|i)>)+\s*$', '', body)
             out.append(f'<p class="{kind}">{body}</p>')
             continue
+        if kind == 'heading':
+            out.append(f'<h3>{val}</h3>')
+            continue
         if kind == 'img':
             rec = images.get(val)
             if rec:
@@ -821,13 +877,21 @@ def main() -> None:
             old_src = row[1] if row else None
             originals[key] = {'slug': slug, 'life': old_life, 'source': old_src}
 
-        if old_life and RE_TAG.sub('', old_life).strip():
+        # ⚠ mode=replace (колона в sources.csv): новото четиво ЗАМЕНЯ старото,
+        # вместо да се лепи под него като „Допълнение" — когато изворът е
+        # по-издържан от наличния (св. Петка, 26.10.2026). Старото остава в
+        # originals.json, тъй че е обратимо; източникът е само новият.
+        replace = (r.get('mode') or '').strip() == 'replace'
+        if replace:
+            life = life_new
+        elif old_life and RE_TAG.sub('', old_life).strip():
             life = (f'{old_life.rstrip()}\n<h3>Допълнение</h3>\n'
                     + re.sub(r'^\s*<h3>.*?</h3>\s*', '', life_new,
                              count=1, flags=re.S))
         else:
             life = life_new
-        srcs = [u.strip() for u in (old_src or '').split('\n') if u.strip()]
+        srcs = [] if replace else [
+            u.strip() for u in (old_src or '').split('\n') if u.strip()]
         if r['url'] not in srcs:
             srcs.append(r['url'])
 

@@ -1,12 +1,19 @@
 {
- "build": 2196,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2196.apk",
- "size": 121287698,
- "sha256": "904ed2ad8f6db7f82ed090a8ab0e5d6402fcc711e88bc20b7e4870a6c88eb39e",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2196.apk.gz",
- "gz_size": 106475023,
+ "build": 2197,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2197.apk",
+ "size": 121343396,
+ "sha256": "a821ce845235a8bf5e9db704ec45ace03f2e5b6ed5ac8dc348f15e02b5ef6b42",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2197.apk.gz",
+ "gz_size": 106529726,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2197,
+   "date": "26 октомври 2026",
+   "items": [
+    "Ново житие на св. преподобна Петка (по Патриаршията) — по-пълно и с икони."
+   ]
+  },
   {
    "build": 2196,
    "date": "26 октомври 2026",
