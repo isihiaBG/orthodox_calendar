@@ -1,12 +1,19 @@
 {
- "build": 2198,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2198.apk",
- "size": 121345757,
- "sha256": "3449c41af71d10f47200f1e1fab5a18d7b211f83b89eeaaf17cce0073b4d5742",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2198.apk.gz",
- "gz_size": 106536197,
+ "build": 2199,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2199.apk",
+ "size": 121345805,
+ "sha256": "85c4afc2e6c34399a85f8d528dee5bedd284219072bf705a9042f2503f055a81",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2199.apk.gz",
+ "gz_size": 106536260,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2199,
+   "date": "26 октомври 2026",
+   "items": [
+    "Повече място под настройките над системната лента."
+   ]
+  },
   {
    "build": 2198,
    "date": "26 октомври 2026",
