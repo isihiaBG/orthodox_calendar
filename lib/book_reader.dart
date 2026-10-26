@@ -31,6 +31,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
+import 'audio_background.dart';
 import 'audio_outro.dart';
 import 'audio_ui.dart';
 import 'audiobook.dart';
@@ -545,8 +546,18 @@ class _BookReaderState extends State<BookReader>
     // Друга глава — звукът на старата спира (и осветяването с него).
     if (i != _index) await _stopAudio();
 
+    // ⚠ Във фонов режим (следващата беседа, докато човек е в навигацията)
+    // кадри няма и анимацията не свършва никога — следващата беседа чакаше
+    // връщането в приложението. Там пелената се прескача.
+    final inBackground =
+        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
+
     // Фаза 1: пелената пада. Смяната става зад нея.
-    await _veil.forward(from: 0);
+    if (inBackground) {
+      _veil.value = 1;
+    } else {
+      await _veil.forward(from: 0);
+    }
     if (!mounted) return;
 
     _positionTimer?.cancel();
@@ -576,8 +587,13 @@ class _BookReaderState extends State<BookReader>
 
     // Фаза 2: пелената се вдига, новото се плъзга навътре. Двете вървят
     // заедно — иначе се вижда първо гола смяна, после движение.
-    _enter.forward(from: 0);
-    _veil.reverse();
+    if (inBackground) {
+      _enter.value = 1;
+      _veil.value = 0;
+    } else {
+      _enter.forward(from: 0);
+      _veil.reverse();
+    }
 
     // ⚠ Търсенето НЕ се затваря при смяна на четиво — нарочно: така човек
     // обхожда книгата по един и същ критерий, четиво по четиво. Но затова
@@ -1339,6 +1355,9 @@ class _BookReaderState extends State<BookReader>
       _playback = pb;
     });
     _userScrolledAt = DateTime(0);
+    // Услугата „медия“ — без нея Android замразява процеса във фонов режим
+    // и звукът спира след минута-две (виж audio_background.dart).
+    unawaited(AudioBackground.attach(pb, title: _current.title, book: widget.book.title));
     await pb.start(fromSentence: k);
   }
 
@@ -1443,6 +1462,7 @@ class _BookReaderState extends State<BookReader>
     pb.position.removeListener(_onAudioPosition);
     pb.playing.removeListener(_onAudioPlaying);
     _playback = null;
+    AudioBackground.detach(pb);
     // ⚠ При преминаване към следващата беседа музиката продължава да
     // затихва върху заглавието ѝ; при всяко друго спиране си отива.
     if (!_outroCarry) _cancelOutro('спрян звук / друга глава');

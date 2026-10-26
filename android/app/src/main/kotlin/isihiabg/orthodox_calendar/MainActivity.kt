@@ -5,12 +5,15 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
-import io.flutter.embedding.android.FlutterActivity
+import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 
-class MainActivity : FlutterActivity() {
+// ⚠ AudioServiceActivity (audio_service): двигателят на Flutter е общ с
+// услугата „медия“, тъй че четенето на глас продължава във фонов режим
+// (lib/audio_background.dart).
+class MainActivity : AudioServiceActivity() {
     // Актуализацията отвътре (lib/app_update.dart): отваря инсталатора на
     // Android за вече свалено и проверено APK. ⚠ Тихо инсталиране няма —
     // последната дума е на човека.

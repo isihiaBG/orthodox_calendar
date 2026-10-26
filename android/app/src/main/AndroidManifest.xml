@@ -1,4 +1,5 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
     <!-- ⚠ САМО за сваляне на езиковите пакети на Библията
          (lib/bible_packs.dart). Приложението иначе чете изцяло офлайн — от
          базите в assets/ — и не праща нищо навън. Външните препратки към
@@ -10,6 +11,12 @@
          самообновяване: в билда за Play редът и провайдерът по-долу се
          махат заедно с kAppSelfUpdate. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
+    <!-- Четенето на глас във фонов режим (lib/audio_background.dart): без
+         услуга „медия“ Android замразява процеса и звукът спира след
+         минута-две, докато човек е в друго приложение. -->
+    <uses-permission android:name="android.permission.WAKE_LOCK"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />
@@ -108,6 +115,19 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <service android:name="com.ryanheise.audioservice.AudioService"
+            android:foregroundServiceType="mediaPlayback"
+            android:exported="true" tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.media.browse.MediaBrowserService" />
+            </intent-filter>
+        </service>
+        <receiver android:name="com.ryanheise.audioservice.MediaButtonReceiver"
+            android:exported="true" tools:ignore="Instantiatable">
+            <intent-filter>
+                <action android:name="android.intent.action.MEDIA_BUTTON" />
+            </intent-filter>
+        </receiver>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

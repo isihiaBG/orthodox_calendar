@@ -71,6 +71,7 @@ dependencies:
   # Проверка на свалената актуализация (app_update.dart).
   crypto: ^3.0.7
   just_audio: ^0.10.6
+  audio_service: ^0.18.19
 
 dev_dependencies:
   flutter_test:

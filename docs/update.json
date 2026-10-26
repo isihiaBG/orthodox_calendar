@@ -1,12 +1,20 @@
 {
- "build": 2199,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2199.apk",
- "size": 121345805,
- "sha256": "85c4afc2e6c34399a85f8d528dee5bedd284219072bf705a9042f2503f055a81",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2199.apk.gz",
- "gz_size": 106536260,
+ "build": 2200,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2200.apk",
+ "size": 121576613,
+ "sha256": "0f4403285fe5eb28cc55a845e1674fd7ea0fcbe9fedbd54a53612794ff5731f5",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2200.apk.gz",
+ "gz_size": 106660079,
  "date": "2026-10-26",
  "news": [
+  {
+   "build": 2200,
+   "date": "26 октомври 2026",
+   "items": [
+    "Четенето на глас не спира, докато сте в друго приложение (например навигация).",
+    "Бутони за пауза и превъртане в известията и на заключения екран."
+   ]
+  },
   {
    "build": 2199,
    "date": "26 октомври 2026",
