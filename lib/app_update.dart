@@ -220,6 +220,11 @@ class AppUpdate {
   static void _publish() {
     final k = _known;
     available.value = (k != null && k.build > currentBuild) ? k : null;
+    // ⚠ Проверката намери ПО-НОВ билд, докато се тегли предишният: старото
+    // сваляне спира и на негово място тръгва новото (в същия прозорец или
+    // кръгче). Иначе довършеното старо APK би минало за новото.
+    final a = available.value, r = _running;
+    if (a != null && r != null && r.build != a.build) unawaited(_run(a));
     unawaited(_refreshDownloaded());
   }
 
@@ -305,6 +310,9 @@ class AppUpdate {
 
   static Completer<void>? _cancel;
 
+  /// Кой билд се тегли в момента (null — нищо не тече).
+  static UpdateInfo? _running;
+
   static ScaffoldMessengerState? get _messenger {
     final c = navigatorKey?.currentContext;
     return c == null ? null : ScaffoldMessenger.maybeOf(c);
@@ -358,12 +366,18 @@ class AppUpdate {
       WidgetsBinding.instance.addObserver(_BackObserver());
 
   static Future<void> _run(UpdateInfo info) async {
+    // Тече ли друго (по-стар билд) — спира се; неговото `.part` се трие от
+    // _download на новия.
+    final old = _cancel;
+    if (old != null && !old.isCompleted) old.complete();
     final cancel = _cancel = Completer<void>();
+    _running = info;
     download.value = DownloadState(DownloadPhase.running, 0, 0, info.downloadSize);
     // Скоростта — плъзгаща се средна по ~1 s, за да не скача цифрата.
     var lastT = DateTime.now(), lastWire = 0, speed = 0.0;
     var lastPush = DateTime.fromMillisecondsSinceEpoch(0);
     void onProgress(double frac, int wire) {
+      if (!identical(_cancel, cancel)) return; // заменено от по-нов билд
       final now = DateTime.now();
       final dt = now.difference(lastT).inMilliseconds;
       if (dt >= 800) {
@@ -390,7 +404,10 @@ class AppUpdate {
           : 'Свалянето не успя.';
       debugPrint('AppUpdate._run: $e');
     }
-    if (identical(_cancel, cancel)) _cancel = null;
+    // ⚠ Заменено от по-ново сваляне — то вече държи състоянието.
+    if (!identical(_cancel, cancel)) return;
+    _cancel = null;
+    _running = null;
     final frac = download.value.fraction;
     if (cancel.isCompleted) {
       download.value = const DownloadState.idle();
@@ -402,7 +419,7 @@ class AppUpdate {
           DownloadState(DownloadPhase.failed, frac, 0, info.downloadSize, err);
       return;
     }
-    downloaded.value = true;
+    downloaded.value = available.value?.build == info.build;
     download.value = DownloadState(DownloadPhase.done, 1, 0, info.downloadSize);
     if (view.value == DownloadView.expanded) {
       // Човекът гледа прозореца — направо инсталаторът, както досега.
@@ -419,7 +436,14 @@ class AppUpdate {
     final a = available.value;
     if (a == null) return;
     final f = await _apkFile(a.build);
-    if (await f.exists()) await _install(f, _messenger);
+    if (await f.exists()) {
+      await _install(f, _messenger);
+    } else {
+      // ⚠ Не мълчаливо: файлът го няма (изчистен кеш и т.н.) — сваля се.
+      downloaded.value = false;
+      view.value = DownloadView.expanded;
+      unawaited(_run(a));
+    }
   }
 
   /// „Инсталирай" — вече сваленото APK, без нов прозорец.
