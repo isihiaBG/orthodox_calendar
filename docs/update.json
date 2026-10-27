@@ -1,12 +1,20 @@
 {
- "build": 2202,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2202.apk",
- "size": 121593233,
- "sha256": "1e59b9fa68ac91ceb6c723c7232cbd98465f9ed76b1917ff53af332031eea758",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2202.apk.gz",
- "gz_size": 106668973,
+ "build": 2203,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2203.apk",
+ "size": 121593693,
+ "sha256": "b4bc95bfeab5c11a922e45f8c9f7355fe33da6e5738ef971bfcbd025b640adeb",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2203.apk.gz",
+ "gz_size": 106675059,
  "date": "2026-10-27",
  "news": [
+  {
+   "build": 2203,
+   "date": "27 октомври 2026",
+   "items": [
+    "Новата версия може да се сваля във фонов режим: прозорецът се свива в кръгче под менюто, което показва напредъка, а приложението се ползва свободно.",
+    "Прекъснато сваляне продължава оттам, докъдето е стигнало."
+   ]
+  },
   {
    "build": 2202,
    "date": "27 октомври 2026",
