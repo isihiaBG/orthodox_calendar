@@ -2,10 +2,12 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'app_theme.dart';
 import 'audiobook.dart';
+import 'main.dart' show OrthodoxCalendarApp;
 
 /// Звукът във фонов режим (26.10.2026, доклад на автора: „Разговори…“ +
 /// навигация в колата — на всяка минута-две звукът спира, а при връщане в
@@ -90,8 +92,38 @@ class AudioBackground {
     try {
       final prefs = await SharedPreferences.getInstance();
       if (prefs.getBool(_kNotifAsked) ?? false) return;
-      final r = await _channel.invokeMethod<String>('notifRequest');
+      if (await _channel.invokeMethod<bool>('notifEnabled') ?? true) {
+        await prefs.setBool(_kNotifAsked, true);
+        return;
+      }
+      // ⚠ Кратко обяснение ПРЕДИ прозорчето на системата (автора): защо се
+      // иска и уверение, че други известия няма. Навигаторът — през
+      // currentState (виж CLAUDE.md), диалогът — в неговия overlay.
+      final ctx = OrthodoxCalendarApp.navigatorKey.currentState?.overlay?.context;
+      if (ctx == null || !ctx.mounted) return; // не е отбелязано — ще пита при следващата беседа
+      final ok = await showDialog<bool>(
+        context: ctx,
+        builder: (c) => AlertDialog(
+          backgroundColor: AppColors.backgroundCard,
+          title: const Text('Управление на звука'),
+          content: const Text(
+            'За да можете да спирате и пускате четенето от горната лента и '
+            'от заключения екран, Android изисква разрешение за известия.\n\n'
+            'Приложението никога не изпраща други известия.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Не сега')),
+            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Позволи')),
+          ],
+        ),
+      );
+      if (ok == null) return; // затворено с „назад" — пак при следващата беседа
       await prefs.setBool(_kNotifAsked, true);
+      if (!ok) {
+        audioLogAdd('известия: „Не сега“');
+        return;
+      }
+      final r = await _channel.invokeMethod<String>('notifRequest');
       audioLogAdd('известия: $r');
     } catch (e) {
       audioLogAdd('известия: питането не мина ($e)');

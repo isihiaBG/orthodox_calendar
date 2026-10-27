@@ -111,6 +111,11 @@ class MainActivity : AudioServiceActivity() {
                         return@setMethodCallHandler
                     }
                 }
+                if (call.method == "notifEnabled") {
+                    result.success(androidx.core.app.NotificationManagerCompat.from(this)
+                        .areNotificationsEnabled())
+                    return@setMethodCallHandler
+                }
                 if (call.method == "notifRequest") {
                     // Разрешението за известия (Android 13+): панелът на плейъра.
                     // „granted" — вече е дадено; „asked" — показано е прозорчето.
