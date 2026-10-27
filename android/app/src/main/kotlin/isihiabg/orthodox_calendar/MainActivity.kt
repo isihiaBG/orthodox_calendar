@@ -1,8 +1,11 @@
 package isihiabg.orthodox_calendar
 
+import android.app.ActivityManager
 import android.content.Intent
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
+import android.util.Log
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.ryanheise.audioservice.AudioServiceActivity
@@ -14,6 +17,46 @@ import java.io.File
 // услугата „медия“, тъй че четенето на глас продължава във фонов режим
 // (lib/audio_background.dart).
 class MainActivity : AudioServiceActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        dropStaleTasksAfterUpdate()
+    }
+
+    // След обновяване отвътре „Отвори" в инсталатора пуска приложението в
+    // НОВА задача (taskAffinity=""), а картата на старата остава в скорошните
+    // — изглежда като две приложения (автора, 27.10.2026). Процесът на
+    // старата версия Android вече го е спрял; остава само картата. Затова при
+    // ПЪРВОТО пускане след обновяване се махат старите карти.
+    // ⚠⚠ Само карти на ОСНОВНОТО приложение (MAIN — от иконата или от
+    // „Отвори"). Прегледът на цитат, отворен по линк (VIEW), е нарочно
+    // отделна задача със свои настройки (автора) — не се пипа. И чистенето
+    // става само при пускане като MAIN: отвори ли се първо линк, основната
+    // карта е жива работа на човека, не остатък. ⚠ appTasks са само НАШИТЕ
+    // задачи — чужди приложения не се виждат и не могат да се засегнат.
+    private fun dropStaleTasksAfterUpdate() {
+        try {
+            if (intent?.action != Intent.ACTION_MAIN) return
+            val updated = packageManager.getPackageInfo(packageName, 0).lastUpdateTime
+            val prefs = getSharedPreferences("app_update_tasks", MODE_PRIVATE)
+            if (prefs.getLong("seen_update", 0L) == updated) return
+            prefs.edit().putLong("seen_update", updated).apply()
+            val am = getSystemService(ACTIVITY_SERVICE) as ActivityManager
+            var n = 0
+            for (t in am.appTasks) {
+                @Suppress("DEPRECATION")
+                val id = if (Build.VERSION.SDK_INT >= 29) t.taskInfo.taskId
+                         else t.taskInfo.persistentId
+                if (id != taskId && t.taskInfo.baseIntent.action == Intent.ACTION_MAIN) {
+                    t.finishAndRemoveTask()
+                    n++
+                }
+            }
+            Log.i("AppUpdate", "след обновяване: махнати стари задачи — $n")
+        } catch (e: Exception) {
+            Log.w("AppUpdate", "старите задачи не се махнаха: $e")
+        }
+    }
+
     // Актуализацията отвътре (lib/app_update.dart): отваря инсталатора на
     // Android за вече свалено и проверено APK. ⚠ Тихо инсталиране няма —
     // последната дума е на човека.
