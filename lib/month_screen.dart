@@ -286,7 +286,7 @@ class _MonthPageState extends State<_MonthPage>
   void initState() {
     super.initState();
 
-    // Flash анимация — плавно изсветляване и изчезване (~1.5 сек)
+    // Flash анимация — бързо изсветляване и плавно изчезване (~5 сек)
     _flashController = AnimationController(
       duration: const Duration(milliseconds: 5000),
       vsync: this,
@@ -616,11 +616,6 @@ class _MonthPageState extends State<_MonthPage>
         dbDate.month == today.month &&
         dbDate.day == today.day;
 
-    final bool isFlashing = _flashingDate != null &&
-        day.day == _flashingDate!.day &&
-        day.month == _flashingDate!.month &&
-        day.year == _flashingDate!.year;
-
     if (isSunday) {
       if (isToday) return AppColors.sundayTodayBg;
       return AppColors.appBarSundayBg;
@@ -866,17 +861,10 @@ class _MonthPageState extends State<_MonthPage>
                               day.month == _flashingDate!.month &&
                               day.year == _flashingDate!.year;
 
+                          // Самият цвят на мигането се смята в AnimatedBuilder-а
+                          // по-долу, за да следва анимацията кадър по кадър.
                           Color baseColor = _rowBackground(day, isSunday);
-                          
-                          Color rowColor = baseColor;
-                          if (isFlashing) {
-                            final flashColor = isSunday
-                                ? AppColors.sundayFlash
-                                : AppColors.todayFlash;
-                            rowColor = Color.lerp(
-                                baseColor, flashColor, _flashAnimation.value)!;
-                          }
-                          
+
                           _rowKeys[index] ??= GlobalKey();
 
                           return GestureDetector(
