@@ -1380,7 +1380,8 @@ class _BookReaderState extends State<BookReader>
     _userScrolledAt = DateTime(0);
     // Услугата „медия“ — без нея Android замразява процеса във фонов режим
     // и звукът спира след минута-две (виж audio_background.dart).
-    unawaited(AudioBackground.attach(pb, title: _current.title, book: widget.book.title));
+    unawaited(AudioBackground.attach(pb,
+        title: _current.title, book: widget.book.title, epub: widget.book.assetPath));
     await pb.start(fromSentence: k);
   }
 

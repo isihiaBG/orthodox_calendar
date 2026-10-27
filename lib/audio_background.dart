@@ -1,12 +1,15 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/services.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
 import 'audiobook.dart';
+import 'chitalnya_books.dart';
 import 'main.dart' show OrthodoxCalendarApp;
 
 /// Звукът във фонов режим (26.10.2026, доклад на автора: „Разговори…“ +
@@ -53,6 +56,9 @@ class AudioBackground {
             androidStopForegroundOnPause: false,
             fastForwardInterval: Duration(seconds: 15),
             rewindInterval: Duration(seconds: 15),
+            // Картинката в панела — смалена, иконата е 1417 px.
+            artDownscaleWidth: 512,
+            artDownscaleHeight: 512,
           ),
         );
         audioLogAdd('фонова услуга: готова за ${sw.elapsedMilliseconds} ms');
@@ -130,11 +136,37 @@ class AudioBackground {
     }
   }
 
-  /// Беседата [pb] започва — известието минава на нея.
-  static Future<void> attach(AudioPlayback pb, {required String title, required String book}) async {
+  /// Картинката в панела (автора, 27.10.2026): книга от „Читалня“ — корицата
+  /// ѝ; всичко друго (житията от „Месецослов“ и пр.) — иконата на
+  /// приложението. Услугата чете картинката от ФАЙЛ, не от assets/ —
+  /// затова се копира веднъж във временната папка.
+  static Future<Uri?> _art(String epubAsset) async {
+    String asset = 'assets/icon.png';
+    for (final b in kChitalnyaBooks) {
+      if (b.epub == epubAsset) asset = b.cover;
+    }
+    try {
+      final dir = Directory('${(await getTemporaryDirectory()).path}/audio_art');
+      final f = File('${dir.path}/${asset.split('/').last}');
+      if (!await f.exists()) {
+        await dir.create(recursive: true);
+        final data = await rootBundle.load(asset);
+        await f.writeAsBytes(data.buffer.asUint8List(), flush: true);
+      }
+      return f.uri;
+    } catch (e) {
+      audioLogAdd('фонова услуга: без картинка ($e)');
+      return null;
+    }
+  }
+
+  /// Беседата [pb] започва — известието минава на нея. [epub] — пътят на
+  /// книгата в assets/ (по него се избира картинката).
+  static Future<void> attach(AudioPlayback pb,
+      {required String title, required String book, required String epub}) async {
     unawaited(_askNotificationsOnce());
     final h = await _ensure();
-    h?._attach(pb, title, book);
+    h?._attach(pb, title, book, await _art(epub));
     if (h != null) audioLogAdd('фонова услуга: „$title“');
   }
 
@@ -150,7 +182,7 @@ class _Handler extends BaseAudioHandler with SeekHandler {
   Timer? _idleTimer;
   int _lastSecond = -1;
 
-  void _attach(AudioPlayback pb, String title, String book) {
+  void _attach(AudioPlayback pb, String title, String book, Uri? art) {
     _idleTimer?.cancel();
     _unlisten();
     _pb = pb;
@@ -158,6 +190,7 @@ class _Handler extends BaseAudioHandler with SeekHandler {
       id: '${pb.book.hashCode}:${pb.chapter.part}',
       title: title,
       album: book,
+      artUri: art,
       duration: Duration(milliseconds: (pb.chapter.duration * 1000).round()),
     ));
     pb.playing.addListener(_push);
