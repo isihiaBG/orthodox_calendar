@@ -701,6 +701,21 @@ class _BookReaderState extends State<BookReader>
     final path = url.split('#').first;
     if (path.isEmpty) return;
     final full = p.normalize(p.join(p.dirname(_current.href), path));
+
+    // ⚠ Препратка към ДРУГО ЧЕТИВО В СЪЩИЯ ТОМ („index_split_852.xhtml#850"
+    // — Андрей юродиви в сказанието за Покров, 27.10.2026; ~160 такива в
+    // дванайсетте тома). Дотук минаваше за бележка и цялото житие излизаше
+    // в панела отдолу. Глава от съдържанието се ОТВАРЯ (четивото, не
+    // дневният възел — [chapterForHref]); „назад" връща тук.
+    final target = chapterForHref(widget.book, full);
+    if (target != null) {
+      if (!mounted) return;
+      await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => BookReader(book: widget.book, start: target),
+      ));
+      return;
+    }
+
     final raw = widget.book.readFile(full);
     if (raw == null) {
       debugPrint('epub: няма $full');

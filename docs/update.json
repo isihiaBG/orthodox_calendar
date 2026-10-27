@@ -1,12 +1,19 @@
 {
- "build": 2201,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2201.apk",
- "size": 121593173,
- "sha256": "344d9712dd4f42c73bdb26b8cd1b5e7c13a154f22f3479256e47e6333f287b6f",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2201.apk.gz",
- "gz_size": 106669187,
+ "build": 2202,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2202.apk",
+ "size": 121593233,
+ "sha256": "1e59b9fa68ac91ceb6c723c7232cbd98465f9ed76b1917ff53af332031eea758",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2202.apk.gz",
+ "gz_size": 106668973,
  "date": "2026-10-27",
  "news": [
+  {
+   "build": 2202,
+   "date": "27 октомври 2026",
+   "items": [
+    "Препратка към друго житие в същия том на свт. Димитрий Ростовски го отваря, вместо да го показва като бележка."
+   ]
+  },
   {
    "build": 2201,
    "date": "27 октомври 2026",
