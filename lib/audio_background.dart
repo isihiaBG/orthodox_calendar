@@ -1,8 +1,9 @@
 import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'audiobook.dart';
 
@@ -76,8 +77,30 @@ class AudioBackground {
     }
   }
 
+  static const _kNotifAsked = 'audio_notif_asked';
+
+  /// Разрешението за известия — ВЕДНЪЖ, при първото пускане на беседа
+  /// (27.10.2026). ⚠ Без него Honor скрива панела на плейъра, макар Android
+  /// да обещава, че медийното известие не го иска. Пита се точно сега,
+  /// защото човек сам е пуснал звука — тогава прозорчето има смисъл и не
+  /// плаши. Само докато приложението е отпред: следващата беседа може да
+  /// тръгне и във фонов режим, а там прозорче не бива да изскача.
+  static Future<void> _askNotificationsOnce() async {
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(_kNotifAsked) ?? false) return;
+      final r = await _channel.invokeMethod<String>('notifRequest');
+      await prefs.setBool(_kNotifAsked, true);
+      audioLogAdd('известия: $r');
+    } catch (e) {
+      audioLogAdd('известия: питането не мина ($e)');
+    }
+  }
+
   /// Беседата [pb] започва — известието минава на нея.
   static Future<void> attach(AudioPlayback pb, {required String title, required String book}) async {
+    unawaited(_askNotificationsOnce());
     final h = await _ensure();
     h?._attach(pb, title, book);
     if (h != null) audioLogAdd('фонова услуга: „$title“');

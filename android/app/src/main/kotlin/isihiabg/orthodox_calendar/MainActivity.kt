@@ -111,6 +111,18 @@ class MainActivity : AudioServiceActivity() {
                         return@setMethodCallHandler
                     }
                 }
+                if (call.method == "notifRequest") {
+                    // Разрешението за известия (Android 13+): панелът на плейъра.
+                    // „granted" — вече е дадено; „asked" — показано е прозорчето.
+                    if (Build.VERSION.SDK_INT < 33 ||
+                        androidx.core.app.NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+                        result.success("granted")
+                    } else {
+                        requestPermissions(arrayOf("android.permission.POST_NOTIFICATIONS"), 7301)
+                        result.success("asked")
+                    }
+                    return@setMethodCallHandler
+                }
                 if (call.method == "audioDiag") {
                     // Дневникът на звука (lib/audio_background.dart): тече ли
                     // услугата „медия“ на преден план, пести ли системата

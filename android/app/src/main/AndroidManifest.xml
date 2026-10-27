@@ -17,6 +17,11 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- Панелът на плейъра в известията и на заключения екран (27.10.2026).
+         ⚠ Медийното известие уж е изключено от това разрешение, но Honor
+         без него го СКРИВА и не дава дори ръчно да се включат известията.
+         Пита се веднъж — при първото пускане на беседа (audio_background.dart). -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
     <!-- ⚠ GOOGLE PLAY ограничава това разрешение — виж CLAUDE.md, „Актуализация отвътре“. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <queries>
