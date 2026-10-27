@@ -24,9 +24,10 @@ import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_update.dart';
 
-/// Синьото на напредъка — по-наситено от акцента (sectionTitle е сиво-син
-/// и върху сивата следа почти не се различава).
-const Color kDownloadBlue = Color(0xFF5FA3EE);
+/// Синьото на напредъка — избрано от автора (27.10.2026): като синьото на
+/// въртящото се кръгче в приложението на Claude (взето от снимка на екрана).
+/// sectionTitle (сиво-син) върху сивата следа почти не се различава.
+const Color kDownloadBlue = Color(0xFF4276CE);
 
 class UpdateDownloadOverlay extends StatefulWidget {
   const UpdateDownloadOverlay({super.key});
