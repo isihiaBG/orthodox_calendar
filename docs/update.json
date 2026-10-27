@@ -1,12 +1,21 @@
 {
- "build": 2204,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2204.apk",
- "size": 121593737,
- "sha256": "bc0bb2374bbbd07b2b96e57f68356f259aa97acd0ba0d58eccc1bcadc654735c",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2204.apk.gz",
- "gz_size": 106674885,
+ "build": 2205,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2205.apk",
+ "size": 121889959,
+ "sha256": "8a1fc152235ec2acf0821ba0ff551c99279d02c91b39be1f12f95216325bab84",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2205.apk.gz",
+ "gz_size": 106969173,
  "date": "2026-10-27",
  "news": [
+  {
+   "build": 2205,
+   "date": "27 октомври 2026",
+   "items": [
+    "Поясненията за поста в сряда и петък: освободени са и кърмещите жени, не само бременните.",
+    "След обновяване в списъка с отворени приложения остава само новата версия.",
+    "По-хубави икони на св. Петка и св. Гавриил Лесновски."
+   ]
+  },
   {
    "build": 2204,
    "date": "27 октомври 2026",
