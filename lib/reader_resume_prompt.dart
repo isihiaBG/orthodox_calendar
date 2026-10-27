@@ -31,6 +31,7 @@ class ResumePrompt extends StatefulWidget {
   final VoidCallback onClosed;
 
   const ResumePrompt({
+    super.key,
     required this.background,
     required this.ink,
     required this.dim,

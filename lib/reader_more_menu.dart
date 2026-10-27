@@ -144,7 +144,7 @@ Future<String?> showReaderMoreMenu(
     barrierLabel: 'Затвори менюто',
     barrierColor: Colors.black26,
     transitionDuration: const Duration(milliseconds: 240),
-    pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+    pageBuilder: (_, _, _) => const SizedBox.shrink(),
     transitionBuilder: (ctx, anim, _, _) {
       final curved = CurvedAnimation(
         parent: anim,

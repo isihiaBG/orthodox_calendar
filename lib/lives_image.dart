@@ -131,7 +131,7 @@ class LivesImageExtension extends HtmlExtension {
               // ⚠ Без това липсващ файл хвърля изключение при рисуване и
               // цялото житие остава празно — една липсваща картинка не бива
               // да отнася четивото със себе си.
-              errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              errorBuilder: (_, _, _) => const SizedBox.shrink(),
             ),
           ),
         ),

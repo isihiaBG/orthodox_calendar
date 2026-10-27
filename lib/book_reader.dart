@@ -28,7 +28,6 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:flutter_html/flutter_html.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
 import 'audio_background.dart';
@@ -72,7 +71,6 @@ import 'reader_theme.dart';
 import 'round_icon_button.dart';
 import 'background_permission.dart';
 import 'reader_toolbar.dart';
-import 'selection_toolbar.dart';
 
 /// Чистият текст на едно четиво, както го вижда търсенето в четеца —
 /// за търсенето в ЦЕЛИЯ ТОМ ([searchBook]). ⚠ Минава през СЪЩАТА
@@ -2755,7 +2753,7 @@ class _BookReaderState extends State<BookReader>
               data: d,
               style: styles,
               extensions: _htmlExtensions,
-              onLinkTap: (u, _, __) => _onLinkTap(u),
+              onLinkTap: (u, _, _) => _onLinkTap(u),
             ),
           );
           _regionWidgets[i] = w;
@@ -3402,7 +3400,7 @@ class _BookReaderState extends State<BookReader>
         child: Theme(
           data: Theme.of(context).copyWith(
             textSelectionTheme: TextSelectionThemeData(
-              selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+              selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
               selectionHandleColor: AppColors.sectionTitle,
               cursorColor: AppColors.sectionTitle,
             ),
@@ -3757,7 +3755,7 @@ class _TocSheetState extends State<_TocSheet> {
       ];
 
   void _startSelecting([String? part]) =>
-      setState(() => _selected = {if (part != null) part});
+      setState(() => _selected = {?part});
 
   void _stopSelecting() {
     _commitPending();
@@ -4309,7 +4307,7 @@ class _TocSheetState extends State<_TocSheet> {
         child: _hasToggle(entry)
             ? Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
                 Expanded(child: RichText(text: _spanFor(i))),
-                if (_audioChip(entry, at) case final chip?) chip,
+                ?_audioChip(entry, at),
                 // Тапът по ЗАГЛАВИЕТО отваря четивото, а по стрелката —
                 // само разгъва групата.
                 SizedBox(
@@ -4485,7 +4483,7 @@ class _NoteSheet extends StatelessWidget {
             child: Theme(
               data: Theme.of(context).copyWith(
                 textSelectionTheme: TextSelectionThemeData(
-                  selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                  selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
                   selectionHandleColor: AppColors.sectionTitle,
                 ),
               ),
@@ -4493,7 +4491,7 @@ class _NoteSheet extends StatelessWidget {
             child: Html(
               data: html,
               extensions: extensions,
-              onLinkTap: (u, _, __) {
+              onLinkTap: (u, _, _) {
                 if (u != null) onLinkTap(u);
               },
               // Бележката е пояснение, не част от разказа: една степен

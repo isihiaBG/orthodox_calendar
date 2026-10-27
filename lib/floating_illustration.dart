@@ -212,7 +212,7 @@ class FloatingIllustration extends StatelessWidget {
                 width: imgW,
                 height: imgH,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
               if (caption != null)
                 Padding(

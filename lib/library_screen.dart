@@ -17,7 +17,6 @@
 // най-хубавият.
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import 'app_drawer.dart';
 import 'app_theme.dart';
@@ -315,7 +314,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       flowKey: _flow,
       // Хамбургер вместо стрелка „назад" — както във всяка друга секция.
       drawer: const AppDrawer(),
-      infoBuilder: (_, __) => _info(),
+      infoBuilder: (_, _) => _info(),
       landscapeLabel: (i) => _volumes[i].slova
           ? 'Слова и поучения'
           : '${_volumes[i].month} · том ${_volumes[i].roman}',

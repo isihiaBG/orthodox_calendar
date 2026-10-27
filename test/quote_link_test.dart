@@ -53,7 +53,7 @@ void main() {
       // ⚠ СЛЪГЪТ СЕ СВИВА ДО ОТПЕЧАТЪК — 28 знака стават 4 байта. Обратно се
       // разгъва чак при отваряне, срещу базата (виж [resolveQuoteLocator]),
       // затова тук стои МАРКЕР, а не самият слъг.
-      expect(p.anchor.locator, '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
+      expect(p.anchor.locator, '$kLocatorMarker${locatorFingerprint('sv-ioan-rilski')}');
       expect(p.text, isEmpty,
           reason: 'от версия 3 откъсът изобщо не пътува — целият цитат и без '
               'това стои в самото съобщение, над линка');
@@ -413,7 +413,7 @@ void shareTests() {
     final link = quoteShareText(q).split('\n').last;
     final parsed = parseQuoteLink(Uri.parse(link))!;
     expect(parsed.anchor.locator,
-        '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
+        '$kLocatorMarker${locatorFingerprint('sv-ioan-rilski')}');
     expect(parsed.anchor.block, 3);
     expect(parsed.anchor.charStart, 10);
     expect(parsed.fingerprint, fingerprint(q.text));
@@ -630,7 +630,7 @@ void separatorTests() {
       savedAtMs: 0,
     );
     final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
-    expect(p.anchor.locator, '${kLocatorMarker}${locatorFingerprint('sv-x')}');
+    expect(p.anchor.locator, '$kLocatorMarker${locatorFingerprint('sv-x')}');
   });
 
   test('обикновен житиен locator минава непроменен (съвместимост)', () {
@@ -644,7 +644,7 @@ void separatorTests() {
     );
     final p = parseQuoteLink(Uri.parse(buildQuoteLink(q)))!;
     expect(p.anchor.locator,
-        '${kLocatorMarker}${locatorFingerprint('sv-ioan-rilski')}');
+        '$kLocatorMarker${locatorFingerprint('sv-ioan-rilski')}');
     expect(p.anchor.block, 4);
   });
 }

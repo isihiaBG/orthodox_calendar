@@ -2250,7 +2250,7 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
         textAlign: pw.TextAlign.justify,
         text: pw.TextSpan(
             style: style,
-            children: [if (indent != null) indent, ...spans]),
+            children: [?indent, ...spans]),
       ));
       budget -= needed;
       consumed++;
@@ -2270,7 +2270,7 @@ int _countLines(String text, double width, PdfFont font, double fontSize) {
       textAlign: pw.TextAlign.justify,
       maxLines: maxLines,
       text: pw.TextSpan(
-          style: style, children: [if (indent != null) indent, ...spans]),
+          style: style, children: [?indent, ...spans]),
     ));
     tail
       ..add(pw.SizedBox(height: blockGap))
@@ -2934,7 +2934,7 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                 text: pw.TextSpan(
                   style: style,
                   children: [
-                    if (indent != null) indent,
+                    ?indent,
                     ...bodySpans,
                   ],
                 ),
@@ -3007,7 +3007,7 @@ Future<({Uint8List bytes, String fileName})> buildPdfBytes({
                       textAlign: pw.TextAlign.justify,
                       maxLines: 2,
                       text: pw.TextSpan(style: style, children: [
-                        if (indent != null) indent,
+                        ?indent,
                         ...bodySpans,
                       ]),
                     ),

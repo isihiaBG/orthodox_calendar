@@ -33,7 +33,7 @@ class RoundIconButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = enabled ? color : color.withOpacity(0.35);
+    final c = enabled ? color : color.withValues(alpha: 0.35);
     return Tooltip(
       message: tooltip,
       child: InkWell(
@@ -126,7 +126,7 @@ class _InfoSheetState extends State<_InfoSheet> {
           borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.3),
+              color: Colors.black.withValues(alpha: 0.3),
               blurRadius: 20,
               offset: const Offset(0, -4),
             ),
@@ -213,7 +213,7 @@ class _InfoSheetState extends State<_InfoSheet> {
                 padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 shrinkWrap: true,
                 itemCount: widget.items.length,
-                separatorBuilder: (_, __) => const SizedBox(height: 14),
+                separatorBuilder: (_, _) => const SizedBox(height: 14),
                 itemBuilder: (context, index) {
                   final e = widget.items[index];
                   final hasTitle = (e.title ?? '').isNotEmpty;

@@ -51,7 +51,9 @@ String hyphenateWord(String w) {
       // "ъ" пред я/е/ю/ё/и е руски твърд знак → не е гласна
       if ((ch[i] == 'ъ' || ch[i] == 'Ъ') && i + 1 < n) {
         var j = i + 1;
-        while (j < n && mark[j]) j++;
+        while (j < n && mark[j]) {
+          j++;
+        }
         if (j < n && _afterHardSign.contains(ch[j])) continue;
       }
       vowel[i] = true;

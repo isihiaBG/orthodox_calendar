@@ -500,7 +500,7 @@ class _DayScreenState extends State<DayScreen>
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: _saints.map((saint) {
-        final (iconPath, iconColor) = AppIcons.forRank(saint.rank ?? 6);
+        final (iconPath, iconColor) = AppIcons.forRank(saint.rank);
 
         // Редът както досега — знак + име (визуално непроменен)
         final row = Padding(

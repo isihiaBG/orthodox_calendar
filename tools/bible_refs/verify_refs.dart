@@ -6,7 +6,7 @@
 // „Act.14,22" прочетено като две глави) излиза наяве.
 
 import 'dart:io';
-import '../../lib/bible_ref.dart';
+import 'package:orthodox_calendar/bible_ref.dart';
 
 /// Сглобява обратно съкратения запис от разчетеното.
 String rebuild(BibleRef ref) {
@@ -87,8 +87,8 @@ void main() {
   check('Jn.15:20-21,26-27', '[Jn.15:20-21,26-27]');
   check('Mt.5:17', '[Mt.5:17]');
   check('1Sam.1,2:1-21', '[1Sam.1, 1Sam.2:1-21]');
-  print('Mt.22,:21 -> ' + parseBibleRef('Mt.22,:21').passages.toString());
-  print('Ps.33,20  -> ' + parseBibleRef('Ps.33,20').passages.toString());
-  print('Mk.12:35-37,14:62 -> ' + parseBibleRef('Mk.12:35-37,14:62').passages.toString());
-  print('Jn.3:1-21,7:50-52,19:38-42 -> ' + parseBibleRef('Jn.3:1-21,7:50-52,19:38-42').passages.toString());
+  print('Mt.22,:21 -> ${parseBibleRef('Mt.22,:21').passages}');
+  print('Ps.33,20  -> ${parseBibleRef('Ps.33,20').passages}');
+  print('Mk.12:35-37,14:62 -> ${parseBibleRef('Mk.12:35-37,14:62').passages}');
+  print('Jn.3:1-21,7:50-52,19:38-42 -> ${parseBibleRef('Jn.3:1-21,7:50-52,19:38-42').passages}');
 }

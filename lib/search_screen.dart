@@ -722,7 +722,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
         borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withOpacity(0.3),
+            color: Colors.black.withValues(alpha: 0.3),
             blurRadius: 20,
             offset: const Offset(0, -4),
           ),
@@ -820,7 +820,7 @@ class _SearchBottomSheetState extends State<SearchBottomSheet> {
                 padding: EdgeInsets.zero,
                 shrinkWrap: true,
                 itemCount: _results.length,
-                separatorBuilder: (_, __) => Divider(
+                separatorBuilder: (_, _) => Divider(
                   color: AppColors.sectionDivider,
                   height: 1,
                   indent: 16,

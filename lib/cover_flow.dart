@@ -651,7 +651,7 @@ class CoverFlowState extends State<CoverFlow> {
             PageView.builder(
               controller: _pc,
               itemCount: widget.covers.length,
-              itemBuilder: (_, __) => const SizedBox.expand(),
+              itemBuilder: (_, _) => const SizedBox.expand(),
             ),
             // Върху него — самото тесте, което не пипа събития.
             //

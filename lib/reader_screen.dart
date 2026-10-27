@@ -23,17 +23,14 @@
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show compute;
-import 'package:flutter/gestures.dart' show TapGestureRecognizer;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_html/flutter_html.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import 'app_theme.dart';
 import 'bookmarks.dart';
@@ -2489,13 +2486,13 @@ class _ReaderScreenState extends State<ReaderScreen>
               decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Търсене в текста…',
-                hintStyle: TextStyle(color: fg.withOpacity(0.5)),
+                hintStyle: TextStyle(color: fg.withValues(alpha: 0.5)),
                 contentPadding: const EdgeInsets.symmetric(
                   vertical: 8,
                   horizontal: 10,
                 ),
                 filled: true,
-                fillColor: Colors.black.withOpacity(0.15),
+                fillColor: Colors.black.withValues(alpha: 0.15),
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(8),
                   borderSide: BorderSide.none,
@@ -2594,7 +2591,7 @@ class _ReaderScreenState extends State<ReaderScreen>
     // прекъсва със страница за всяка. Същото прави и четецът на книги.
     if (url.startsWith('note://')) {
       final n = url.substring('note://'.length);
-      final noteText = await LivesPlusDb.noteOf(widget.texts.slug ?? '', n);
+      final noteText = await LivesPlusDb.noteOf(widget.texts.slug, n);
       if (!mounted || noteText == null || noteText.isEmpty) return;
       final palette = ReaderTheme.palette;
       await showModalBottomSheet<void>(
@@ -3185,7 +3182,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             ),
           );
     final sliverChildren = <Widget>[
-      if (titleWidget != null) titleWidget,
+      ?titleWidget,
       ...regionWidgets,
     ];
 
@@ -3319,7 +3316,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     shape: BoxShape.circle,
                     color: _searchOpen
                   ? (AppBarTheme.of(context).foregroundColor ?? Colors.white)
-                            .withOpacity(0.28)
+                            .withValues(alpha: 0.28)
                         : Colors.transparent,
                   ),
                   child: Icon(
@@ -3384,7 +3381,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                     shape: BoxShape.circle,
                     color: _isBookmarked
                   ? (AppBarTheme.of(context).foregroundColor ?? Colors.white)
-                            .withOpacity(0.28)
+                            .withValues(alpha: 0.28)
                         : Colors.transparent,
                   ),
                   child: Icon(
@@ -3505,7 +3502,7 @@ class _ReaderScreenState extends State<ReaderScreen>
           child: Theme(
             data: Theme.of(context).copyWith(
               textSelectionTheme: TextSelectionThemeData(
-                selectionColor: AppColors.sectionTitle.withOpacity(0.35),
+                selectionColor: AppColors.sectionTitle.withValues(alpha: 0.35),
                 selectionHandleColor: AppColors.sectionTitle,
                 cursorColor: AppColors.sectionTitle,
               ),
@@ -3594,7 +3591,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             child: Stack(
               children: [
                 mainContent,
-                if (measurementTree != null) measurementTree,
+                ?measurementTree,
                 _buildMatchTicksOverlay(context),
                 if (_showResumePrompt)
                   Positioned(
@@ -3932,7 +3929,7 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
             key: p.key,
             child: Html(
               data: p.html,
-              onLinkTap: (url, _, __) => widget.onLinkTap(url),
+              onLinkTap: (url, _, _) => widget.onLinkTap(url),
               style: widget.styles,
             ),
           ),
@@ -4136,7 +4133,7 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
               if (imageAsset.isEmpty && _parts.isEmpty)
                 Html(
                   data: blockHtml,
-                  onLinkTap: (url, _, __) => onLinkTap(url),
+                  onLinkTap: (url, _, _) => onLinkTap(url),
                   style: styles,
                   extensions: const [LivesImageExtension()],
                 ),
@@ -4188,7 +4185,7 @@ class _IllustrationRegionState extends State<_IllustrationRegion> {
                 width: imgW,
                 height: aspect > 0 ? imgW / aspect : null,
                 fit: BoxFit.contain,
-                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                errorBuilder: (_, _, _) => const SizedBox.shrink(),
               ),
               // ⚠ Надписът е ТОЧНО колкото картинката, не колкото колоната:
               // той принадлежи на нея. Затова и в [_parts] влиза с ширина

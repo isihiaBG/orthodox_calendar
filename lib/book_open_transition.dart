@@ -145,7 +145,7 @@ Route<T> bookOpenRoute<T>(Widget page) {
   return PageRouteBuilder<T>(
     transitionDuration: kPageArriveDuration,
     reverseTransitionDuration: const Duration(milliseconds: 260),
-    pageBuilder: (_, __, ___) => page,
+    pageBuilder: (_, _, _) => page,
     transitionsBuilder: (context, animation, secondary, child) {
       final t = CurvedAnimation(parent: animation, curve: Curves.easeOutCubic);
       return ScaleTransition(
