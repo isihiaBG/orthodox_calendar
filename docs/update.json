@@ -1,12 +1,20 @@
 {
- "build": 2200,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2200.apk",
- "size": 121576613,
- "sha256": "0f4403285fe5eb28cc55a845e1674fd7ea0fcbe9fedbd54a53612794ff5731f5",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2200.apk.gz",
- "gz_size": 106660079,
- "date": "2026-10-26",
+ "build": 2201,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2201.apk",
+ "size": 121593173,
+ "sha256": "344d9712dd4f42c73bdb26b8cd1b5e7c13a154f22f3479256e47e6333f287b6f",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2201.apk.gz",
+ "gz_size": 106669187,
+ "date": "2026-10-27",
  "news": [
+  {
+   "build": 2201,
+   "date": "27 октомври 2026",
+   "items": [
+    "Ако устройството спре четенето на глас, за да пести батерия, приложението предлага да го позволи — само когато това се случи.",
+    "Нов ред в Настройки → „Звук“: „Работа във фонов режим“."
+   ]
+  },
   {
    "build": 2200,
    "date": "26 октомври 2026",

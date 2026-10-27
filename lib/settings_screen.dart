@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'audiobook.dart' show AudioQuality;
 import 'audio_outro.dart' show AudioOutroSetting;
+import 'background_permission.dart' show BackgroundAudioTile;
 import 'package:flutter/material.dart';
 import 'app_theme.dart';
 import 'app_update.dart';
@@ -680,6 +681,8 @@ class _SettingsContentState extends State<SettingsContent> {
           style: TextStyle(color: AppColors.textMuted, fontSize: 12),
         ),
       ),
+      const Divider(height: 28, color: AppColors.sectionDivider, thickness: 1),
+      const BackgroundAudioTile(),
     ];
   }
 

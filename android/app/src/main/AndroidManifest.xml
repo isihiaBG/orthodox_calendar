@@ -17,6 +17,8 @@
     <uses-permission android:name="android.permission.WAKE_LOCK"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK"/>
+    <!-- ⚠ GOOGLE PLAY ограничава това разрешение — виж CLAUDE.md, „Актуализация отвътре“. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS"/>
     <queries>
         <intent>
             <action android:name="android.intent.action.VIEW" />

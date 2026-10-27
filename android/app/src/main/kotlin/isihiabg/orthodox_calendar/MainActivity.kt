@@ -27,6 +27,54 @@ class MainActivity : AudioServiceActivity() {
                         packageManager.canRequestPackageInstalls())
                     return@setMethodCallHandler
                 }
+                // Четенето на глас във фонов режим (lib/background_permission.dart):
+                // пести ли системата батерията на приложението и как да се
+                // разреши — стандартното прозорче на Android, а на
+                // Honor/Huawei и техният екран „Стартиране на приложения“.
+                when (call.method) {
+                    "bgState" -> {
+                        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+                        result.success(mapOf(
+                            "allowed" to (Build.VERSION.SDK_INT < Build.VERSION_CODES.M ||
+                                pm.isIgnoringBatteryOptimizations(packageName)),
+                            "vendor" to Build.MANUFACTURER.lowercase()))
+                        return@setMethodCallHandler
+                    }
+                    "bgRequest" -> {
+                        result.success(tryStart(listOf(
+                            Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+                                Uri.parse("package:$packageName")),
+                            Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))))
+                        return@setMethodCallHandler
+                    }
+                    "bgAppInfo" -> {
+                        result.success(tryStart(listOf(
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:$packageName")))))
+                        return@setMethodCallHandler
+                    }
+                    "bgVendor" -> {
+                        result.success(tryStart(listOf(
+                            Intent("hihonor.intent.action.HSM_STARTUPAPP_MANAGER"),
+                            Intent().setClassName("com.hihonor.systemmanager",
+                                "com.hihonor.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                            Intent("huawei.intent.action.HSM_STARTUPAPP_MANAGER"),
+                            Intent().setClassName("com.huawei.systemmanager",
+                                "com.huawei.systemmanager.startupmgr.ui.StartupNormalAppListActivity"),
+                            Intent().setClassName("com.huawei.systemmanager",
+                                "com.huawei.systemmanager.optimize.process.ProtectActivity"),
+                            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                Uri.parse("package:$packageName")))))
+                        return@setMethodCallHandler
+                    }
+                }
+                if (call.method == "audioDiag") {
+                    // Дневникът на звука (lib/audio_background.dart): тече ли
+                    // услугата „медия“ на преден план, пести ли системата
+                    // батерията на приложението, разрешени ли са известията.
+                    result.success(audioDiag())
+                    return@setMethodCallHandler
+                }
                 if (call.method != "install") {
                     result.notImplemented(); return@setMethodCallHandler
                 }
@@ -53,5 +101,39 @@ class MainActivity : AudioServiceActivity() {
                     result.error("install", e.message, null)
                 }
             }
+    }
+
+    // Първото намерение, което системата приема; false — нито едно.
+    private fun tryStart(intents: List<Intent>): Boolean {
+        for (i in intents) {
+            try {
+                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                return true
+            } catch (_: Exception) {}
+        }
+        return false
+    }
+
+    private fun audioDiag(): String = try {
+        val am = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        @Suppress("DEPRECATION")
+        val svc = am.getRunningServices(50).firstOrNull {
+            it.service.packageName == packageName &&
+                it.service.className == "com.ryanheise.audioservice.AudioService"
+        }
+        val service = when {
+            svc == null -> "няма"
+            svc.foreground -> "на преден план"
+            else -> "тече, НЕ на преден план"
+        }
+        val pm = getSystemService(POWER_SERVICE) as android.os.PowerManager
+        val battery = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M &&
+            !pm.isIgnoringBatteryOptimizations(packageName)) "пести" else "свободно"
+        val notif = androidx.core.app.NotificationManagerCompat.from(this)
+            .areNotificationsEnabled()
+        "услуга: $service; батерия: $battery; известия: ${if (notif) "да" else "НЕ"}; " +
+            "${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE}"
+    } catch (e: Exception) {
+        "грешка: ${e.message}"
     }
 }

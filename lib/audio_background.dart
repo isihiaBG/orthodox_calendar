@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'audiobook.dart';
 
@@ -37,6 +38,8 @@ class AudioBackground {
   static Future<_Handler?> _ensure() {
     if (_handler != null) return Future.value(_handler);
     return _initing ??= () async {
+      final sw = Stopwatch()..start();
+      audioLogAdd('фонова услуга: стартира…');
       try {
         _handler = await AudioService.init(
           builder: _Handler.new,
@@ -49,6 +52,7 @@ class AudioBackground {
             rewindInterval: Duration(seconds: 15),
           ),
         );
+        audioLogAdd('фонова услуга: готова за ${sw.elapsedMilliseconds} ms');
       } catch (e) {
         // Без услугата звукът пак върви — само не и дълго във фонов режим.
         audioLogAdd('фонова услуга: НЕ тръгна ($e)');
@@ -58,10 +62,25 @@ class AudioBackground {
     }();
   }
 
+  static const _channel = MethodChannel('isihiabg/update');
+
+  /// Записва в дневника на звука състоянието на услугата според самия
+  /// Android (на преден план ли е, пести ли се батерията, известията).
+  /// ⚠ Диагностика (27.10.2026): след 2200 звукът пак замръзваше.
+  static Future<void> logDiag(String when) async {
+    try {
+      final s = await _channel.invokeMethod<String>('audioDiag');
+      audioLogAdd('$when — $s');
+    } catch (e) {
+      audioLogAdd('$when — диагностика: $e');
+    }
+  }
+
   /// Беседата [pb] започва — известието минава на нея.
   static Future<void> attach(AudioPlayback pb, {required String title, required String book}) async {
     final h = await _ensure();
     h?._attach(pb, title, book);
+    if (h != null) audioLogAdd('фонова услуга: „$title“');
   }
 
   /// Беседата [pb] се затваря. ⚠ Услугата спира СЛЕД малко, не веднага: при

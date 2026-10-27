@@ -70,6 +70,7 @@ import 'reader_sup_extension.dart';
 import 'reader_text_utils.dart';
 import 'reader_theme.dart';
 import 'round_icon_button.dart';
+import 'background_permission.dart';
 import 'reader_toolbar.dart';
 import 'selection_toolbar.dart';
 
@@ -263,6 +264,14 @@ class _BookReaderState extends State<BookReader>
   ScaffoldMessengerState? _scaffoldMessenger;
 
   Timer? _positionTimer;
+
+  // Засичане на замръзване във фонов режим (27.10.2026): докато звукът е
+  // пуснат и приложението е отзад, часовник през 1 s; изостане ли с над
+  // 5 s, процесът е бил замразен от системата (пестене на батерия). При
+  // връщане — питането в background_permission.dart.
+  Timer? _bgTicker;
+  DateTime? _bgLastTick;
+  bool _bgFroze = false;
   BookPosition? _saved;
   bool _promptShown = false;
 
@@ -465,6 +474,7 @@ class _BookReaderState extends State<BookReader>
 
   @override
   void dispose() {
+    _bgTicker?.cancel();
     _audio?.revision.removeListener(_onAudioRevision);
     unawaited(_stopAudio(quiet: true));
     unawaited(_outro.dispose());
@@ -1427,9 +1437,46 @@ class _BookReaderState extends State<BookReader>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
-    if (_playback != null) audioLogAdd('приложението: ${state.name}');
+    if (_playback != null) {
+      audioLogAdd('приложението: ${state.name}');
+      // ⚠ Диагностика: какво вижда Android, щом приложението отиде във
+      // фонов режим и щом се върне (след замръзване).
+      if (state == AppLifecycleState.paused || state == AppLifecycleState.resumed) {
+        unawaited(AudioBackground.logDiag(state.name));
+      }
+    }
     // Връщане в приложението — иконката ▶/⏸ се сверява с плейъра.
     if (state == AppLifecycleState.resumed) _playback?.resync();
+    _watchFreeze(state);
+  }
+
+  void _watchFreeze(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused && _playback != null) {
+      _bgTicker?.cancel();
+      _bgLastTick = DateTime.now();
+      _bgTicker = Timer.periodic(const Duration(seconds: 1), (_) => _bgTick());
+    } else if (state == AppLifecycleState.resumed) {
+      if (_bgTicker != null) _bgTick();
+      _bgTicker?.cancel();
+      _bgTicker = null;
+      _bgLastTick = null;
+      if (_bgFroze) {
+        _bgFroze = false;
+        unawaited(BackgroundAudio.askAfterFreeze(context));
+      }
+    }
+  }
+
+  void _bgTick() {
+    final now = DateTime.now();
+    final last = _bgLastTick;
+    _bgLastTick = now;
+    if (last == null || _playback == null) return;
+    final gap = now.difference(last).inMilliseconds;
+    if (gap > 5000) {
+      _bgFroze = true;
+      audioLogAdd('замръзване във фонов режим: $gap ms');
+    }
   }
 
   Future<void> _goNextAudio() async {
