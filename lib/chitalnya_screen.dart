@@ -229,6 +229,8 @@ class _ChitalnyaScreenState extends State<ChitalnyaScreen>
               padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
             ),
           ),
+          // Въздух между двете копчета — иначе изглеждат залепени (автора, 27.10.2026).
+          if (b.hasPdf) const SizedBox(height: 10),
           if (b.hasPdf)
             TextButton.icon(
               onPressed: _opening ? null : () => _sharePdf(b),
