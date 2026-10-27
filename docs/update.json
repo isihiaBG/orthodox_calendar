@@ -1,12 +1,20 @@
 {
- "build": 2205,
- "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2205.apk",
- "size": 121889959,
- "sha256": "8a1fc152235ec2acf0821ba0ff551c99279d02c91b39be1f12f95216325bab84",
- "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2205.apk.gz",
- "gz_size": 106969173,
+ "build": 2206,
+ "apk": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2206.apk",
+ "size": 121890083,
+ "sha256": "1246e67a2220d055839bf7763b53fdab22f70d8e8d5def0ed54966caa6245bab",
+ "apk_gz": "https://github.com/isihiaBG/orthodox_calendar/releases/download/app-latest/pravoslaven-kalendar-2206.apk.gz",
+ "gz_size": 106970444,
  "date": "2026-10-27",
  "news": [
+  {
+   "build": 2206,
+   "date": "27 октомври 2026",
+   "items": [
+    "Четене на глас: панел за управление в горната лента и на заключения екран — с корицата на книгата (при първата беседа приложението пита за разрешение; други известия не изпраща).",
+    "Страницата на споделен цитат обяснява какво дава приложението."
+   ]
+  },
   {
    "build": 2205,
    "date": "27 октомври 2026",
