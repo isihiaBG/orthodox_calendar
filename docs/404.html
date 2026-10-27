@@ -36,14 +36,17 @@
   a.btn { display:inline-block; padding:.7rem 1.2rem; border-radius:8px;
           background:#8A9BB0; color:#fff; text-decoration:none; font-weight:600; }
   .note { margin-top:1.5rem; font-size:.9rem; opacity:.7; }
+  [hidden] { display:none !important; }  /* иначе a.btn{display} го надделява */
 </style>
 <main>
   <div class="ref" id="r" hidden></div>
   <blockquote id="q"></blockquote>
   <div class="src" id="s"></div>
-  <a class="btn" id="open" href="#">Отвори в приложението</a>
-  <p class="note" id="n">Ако приложението е инсталирано, линкът се отваря право
-     на мястото на цитата.</p>
+  <a class="btn" id="get" href="/orthodox_calendar/">Изтегли приложението</a>
+  <p class="note" id="ios" hidden>Приложението засега е само за Android.
+     Версия за iPhone и iPad е планирана в близко бъдеще.</p>
+  <p class="note" id="n">Ако приложението е инсталирано, линкът се отваря
+     направо в него, на мястото на цитата.</p>
 </main>
 <script>
 // Съкращенията на библейските книги — от `books.bg_abbr` в bible.db.
@@ -101,25 +104,25 @@ function readableRef(tail) {
   const m = location.pathname.match(/\/q\/(.+)$/);
   const q = document.getElementById('q'), s = document.getElementById('s'),
         r = document.getElementById('r');
-  // ⚠⚠ ЗАЩО НЕ `location.href`.
+  // ⚠⚠ ЕДИН БУТОН — „Изтегли" (автора, 27.10.2026). Дотук се стига, когато
+  // приложението НЕ е поело линка — значи най-често го няма. Затова няма
+  // „Отвори в приложението" (беше `intent://` с резерв install.html): за
+  // човек без приложението то беше излишно стъпало, а на iPhone — грешка.
+  // ⚠ Известно изключение: линк, отворен направо в Chrome или във вграден
+  // браузър (Facebook и др.), не стига до приложението дори ако го има.
+  // Решено е съзнателно; ако потрябва — дребен текстов линк с `intent://`
+  // (пакет isihiabg.orthodox_calendar), не втори бутон.
   //
-  // Бутонът сочеше СЪЩИЯ адрес, на който браузърът вече стои. Android не
-  // задейства App Links за връзка към страницата, която сам показва — тъй че
-  // натискането изглеждаше като нищо: Chrome започваше да зарежда и оставаше
-  // на място. (Докладвано от потребителя, 06.09.2026.)
-  //
-  // `intent://` заявява ИЗРИЧНО кое приложение да поеме адреса, а
-  // `S.browser_fallback_url` казва къде да отиде браузърът, ако то не е
-  // инсталирано — с което се решава и второто: човек без приложението вече
-  // получава страница, вместо мълчание.
-  //
-  // ⚠ Пакетът трябва да съвпада с `applicationId` в build.gradle.kts.
-  const PKG = 'isihiabg.orthodox_calendar';
-  const FALLBACK = location.origin + '/orthodox_calendar/install.html';
-  document.getElementById('open').href =
-    'intent://' + location.host + location.pathname +
-    '#Intent;scheme=https;package=' + PKG +
-    ';S.browser_fallback_url=' + encodeURIComponent(FALLBACK) + ';end';
+  // iPhone/iPad: приложението е само за Android — бутонът се крие и стои
+  // обяснение. (iPadOS се представя като Mac — оттам и проверката за допир.)
+  const ua = navigator.userAgent;
+  const ios = /iPhone|iPad|iPod/.test(ua) ||
+      (/Macintosh/.test(ua) && navigator.maxTouchPoints > 1);
+  if (ios) {
+    document.getElementById('get').hidden = true;
+    document.getElementById('ios').hidden = false;
+    document.getElementById('n').hidden = true; // „ако е инсталирано" — безсмислено тук
+  }
   if (!m) { q.textContent = 'Няма цитат в този адрес.'; return; }
 
   const tail = decodeURIComponent(m[1]);
@@ -150,10 +153,9 @@ function readableRef(tail) {
     r.hidden = false;
     r.textContent = 'Цитат от Православния календар';
     q.textContent = '';
-    document.getElementById('n').textContent =
-      'Самият цитат стои в съобщението, с което ви е изпратен този линк. '
-      + 'Ако приложението не е инсталирано, копчето води към страница с '
-      + 'указания.';
+    const n = document.getElementById('n');
+    n.textContent = 'Самият цитат стои в съобщението, с което ви е изпратен този линк.';
+    n.hidden = false;
     return;
   }
 
