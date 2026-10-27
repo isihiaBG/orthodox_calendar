@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- ⚠⚠ Иконките на бутоните в панела на плейъра (audio_service) се търсят
+     ПО ИМЕ (getIdentifier) — при release билд чистачът на ресурси не го
+     вижда и ги ТРИЕ. Тогава бутонът −15 s не може да се създаде, грешката
+     прекъсва минаването на преден план и панел няма — тихо (27.10.2026,
+     намерено в logcat: „You must specify an icon resource id to build a
+     CustomAction“). -->
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:keep="@drawable/audio_service_*" />

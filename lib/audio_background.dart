@@ -2,15 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
-import 'app_theme.dart';
 import 'audiobook.dart';
 import 'chitalnya_books.dart';
-import 'main.dart' show OrthodoxCalendarApp;
 
 /// Звукът във фонов режим (26.10.2026, доклад на автора: „Разговори…“ +
 /// навигация в колата — на всяка минута-две звукът спира, а при връщане в
@@ -35,6 +32,12 @@ import 'main.dart' show OrthodoxCalendarApp;
 /// остава на преден план, инак ▶ от известието или волана при приложение
 /// във фонов режим гърми на Android 12+ (стартиране на услуга от фонов
 /// режим). Известието изчезва, щом беседата се затвори.
+///
+/// ⚠⚠ ИКОНКИТЕ НА БУТОНИТЕ (27.10.2026): `audio_service` ги търси по име, а
+/// чистачът на ресурси при release ги триеше — грешка при бутона −15 s,
+/// услугата не минаваше на преден план, панел нямаше. Пази ги
+/// `android/app/src/main/res/raw/keep.xml`. Разрешение за известия НЕ трябва
+/// (медийното известие е изключено — мерено на Honor с отнето разрешение).
 class AudioBackground {
   AudioBackground._();
 
@@ -85,57 +88,6 @@ class AudioBackground {
     }
   }
 
-  static const _kNotifAsked = 'audio_notif_asked';
-
-  /// Разрешението за известия — ВЕДНЪЖ, при първото пускане на беседа
-  /// (27.10.2026). ⚠ Без него Honor скрива панела на плейъра, макар Android
-  /// да обещава, че медийното известие не го иска. Пита се точно сега,
-  /// защото човек сам е пуснал звука — тогава прозорчето има смисъл и не
-  /// плаши. Само докато приложението е отпред: следващата беседа може да
-  /// тръгне и във фонов режим, а там прозорче не бива да изскача.
-  static Future<void> _askNotificationsOnce() async {
-    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(_kNotifAsked) ?? false) return;
-      if (await _channel.invokeMethod<bool>('notifEnabled') ?? true) {
-        await prefs.setBool(_kNotifAsked, true);
-        return;
-      }
-      // ⚠ Кратко обяснение ПРЕДИ прозорчето на системата (автора): защо се
-      // иска и уверение, че други известия няма. Навигаторът — през
-      // currentState (виж CLAUDE.md), диалогът — в неговия overlay.
-      final ctx = OrthodoxCalendarApp.navigatorKey.currentState?.overlay?.context;
-      if (ctx == null || !ctx.mounted) return; // не е отбелязано — ще пита при следващата беседа
-      final ok = await showDialog<bool>(
-        context: ctx,
-        builder: (c) => AlertDialog(
-          backgroundColor: AppColors.backgroundCard,
-          title: const Text('Управление на звука'),
-          content: const Text(
-            'За да можете да спирате и пускате четенето от горната лента и '
-            'от заключения екран, Android изисква разрешение за известия.\n\n'
-            'Приложението никога не изпраща други известия.',
-          ),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Не сега')),
-            TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Позволи')),
-          ],
-        ),
-      );
-      if (ok == null) return; // затворено с „назад" — пак при следващата беседа
-      await prefs.setBool(_kNotifAsked, true);
-      if (!ok) {
-        audioLogAdd('известия: „Не сега“');
-        return;
-      }
-      final r = await _channel.invokeMethod<String>('notifRequest');
-      audioLogAdd('известия: $r');
-    } catch (e) {
-      audioLogAdd('известия: питането не мина ($e)');
-    }
-  }
-
   /// Картинката в панела (автора, 27.10.2026): книга от „Читалня“ — корицата
   /// ѝ; всичко друго (житията от „Месецослов“ и пр.) — иконата на
   /// приложението. Услугата чете картинката от ФАЙЛ, не от assets/ —
@@ -164,7 +116,6 @@ class AudioBackground {
   /// книгата в assets/ (по него се избира картинката).
   static Future<void> attach(AudioPlayback pb,
       {required String title, required String book, required String epub}) async {
-    unawaited(_askNotificationsOnce());
     final h = await _ensure();
     h?._attach(pb, title, book, await _art(epub));
     if (h != null) audioLogAdd('фонова услуга: „$title“');
