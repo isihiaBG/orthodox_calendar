@@ -13,6 +13,7 @@ import 'calendar_style_picker.dart';
 import 'settings_screen.dart';
 import 'app_drawer.dart';
 import 'app_update.dart';
+import 'update_download_overlay.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'quotes_list.dart';
@@ -33,6 +34,9 @@ void main() async {
   // ⚠ ПРЕДИ всяко отваряне на база — в браузъра подменя фабриката на sqflite.
   initDatabasePlatform();
   await AppSettings.load();
+  // ⚠ ПРЕДИ runApp: „назад" първо свива прозореца на свалянето, а не
+  // затваря екрана под него (наблюдателите се питат по реда на записване).
+  AppUpdate.installBackHandler();
   runApp(const OrthodoxCalendarApp());
 }
 
@@ -57,6 +61,7 @@ class _OrthodoxCalendarAppState extends State<OrthodoxCalendarApp> {
   @override
   void initState() {
     super.initState();
+    AppUpdate.navigatorKey = OrthodoxCalendarApp.navigatorKey;
     IncomingQuoteLinks.start(
       navigatorKey: OrthodoxCalendarApp.navigatorKey,
       lookup: lookupBySlug,
@@ -109,6 +114,11 @@ class _OrthodoxCalendarAppState extends State<OrthodoxCalendarApp> {
 			  ),
 			),
       home: const CalendarPageView(),
+      // Свалянето на новата версия — над ВСИЧКИ екрани (кръгчето под ☰).
+      builder: (context, child) => Stack(children: [
+        ?child,
+        const Positioned.fill(child: UpdateDownloadOverlay()),
+      ]),
     );
   }
 }

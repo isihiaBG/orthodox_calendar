@@ -290,69 +290,136 @@ class AppUpdate {
     return File(join(d.path, 'pravoslaven-kalendar-$build.apk'));
   }
 
-  static bool _busy = false;
+  /// Сегашното сваляне — ЕДИНСТВЕНОТО състояние. Прозорецът и плаващото
+  /// кръгче ([UpdateDownloadOverlay]) са само изгледи върху него: свиване и
+  /// разгъване не пипат свалянето (автора, 27.10.2026).
+  static final ValueNotifier<DownloadState> download =
+      ValueNotifier(const DownloadState.idle());
 
-  /// Сваля (с напредък в прозорец), проверява SHA-256 и отваря инсталатора
-  /// на Android. Грешките се казват — тук човекът сам е поискал.
+  /// Как се вижда свалянето: скрито, разгънат прозорец или кръгче.
+  static final ValueNotifier<DownloadView> view = ValueNotifier(DownloadView.hidden);
+
+  /// За съобщенията, когато свалянето завършва далеч от екрана, който го е
+  /// пуснал (⚠ ключ, не BuildContext — виж CLAUDE.md). Задава го main.dart.
+  static GlobalKey<NavigatorState>? navigatorKey;
+
+  static Completer<void>? _cancel;
+
+  static ScaffoldMessengerState? get _messenger {
+    final c = navigatorKey?.currentContext;
+    return c == null ? null : ScaffoldMessenger.maybeOf(c);
+  }
+
+  /// „Свали" — пуска свалянето (или продължава прекъснатото) и показва
+  /// прозореца. Вече свалено — направо инсталаторът. Тече ли вече — само
+  /// разгъва прозореца.
   static Future<void> downloadAndInstall(BuildContext context) async {
     final info = available.value;
-    if (info == null || _busy) return;
-    if (downloaded.value) return install(context);
-    _busy = true;
-    final progress = ValueNotifier<double>(0);
-    final cancel = Completer<void>();
-    final nav = Navigator.of(context, rootNavigator: true);
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    var dialogOpen = true;
-    unawaited(showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (ctx) => PopScope(
-        canPop: false,
-        child: AlertDialog(
-          backgroundColor: AppColors.backgroundCard,
-          title: const Text('Сваляне на новата версия'),
-          content: ValueListenableBuilder<double>(
-            valueListenable: progress,
-            builder: (_, v, _) => Column(mainAxisSize: MainAxisSize.min, children: [
-              LinearProgressIndicator(
-                value: v,
-                color: AppColors.sectionTitle,
-                backgroundColor: AppColors.sectionDivider,
-              ),
-              const SizedBox(height: 10),
-              Text('${(v * info.downloadSize / 1048576).round()} / ${info.sizeLabel}',
-                  style: TextStyle(color: AppColors.textMuted, fontSize: 13)),
-            ]),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () {
-                if (!cancel.isCompleted) cancel.complete();
-              },
-              child: const Text('Отказ'),
-            ),
-          ],
-        ),
-      ),
-    ).whenComplete(() => dialogOpen = false));
+    if (info == null) return;
+    if (downloaded.value && download.value.phase != DownloadPhase.running) {
+      return install(context);
+    }
+    view.value = DownloadView.expanded;
+    if (download.value.phase != DownloadPhase.running) unawaited(_run(info));
+  }
+
+  /// „Продължи" след прекъсване.
+  static void retry() {
+    final info = available.value;
+    if (info == null || download.value.phase == DownloadPhase.running) return;
+    unawaited(_run(info));
+  }
+
+  /// „Отказ" — спира, но ⚠ ПАЗИ изтегленото: следващото „Свали" продължава
+  /// оттам (при бавна връзка всеки мегабайт е скъп).
+  static void cancel() {
+    final c = _cancel;
+    if (c != null && !c.isCompleted) c.complete();
+    view.value = DownloadView.hidden;
+  }
+
+  /// Към фонов режим — прозорецът се свива в кръгчето.
+  static void collapse() {
+    if (view.value == DownloadView.expanded) view.value = DownloadView.collapsed;
+  }
+
+  /// Затваря прозореца, когато нищо не тече („По-късно", „Затвори").
+  static void close() {
+    view.value = DownloadView.hidden;
+    if (download.value.phase != DownloadPhase.running) {
+      download.value = const DownloadState.idle();
+    }
+  }
+
+  /// „Назад" докато прозорецът е разгънат: при сваляне — свиване, иначе
+  /// затваряне. ⚠ Наблюдателят се записва в main() ПРЕДИ runApp, за да е
+  /// преди този на навигатора — иначе „назад" би затворил екрана отдолу.
+  static void installBackHandler() =>
+      WidgetsBinding.instance.addObserver(_BackObserver());
+
+  static Future<void> _run(UpdateInfo info) async {
+    final cancel = _cancel = Completer<void>();
+    download.value = DownloadState(DownloadPhase.running, 0, 0, info.downloadSize);
+    // Скоростта — плъзгаща се средна по ~1 s, за да не скача цифрата.
+    var lastT = DateTime.now(), lastWire = 0, speed = 0.0;
+    var lastPush = DateTime.fromMillisecondsSinceEpoch(0);
+    void onProgress(double frac, int wire) {
+      final now = DateTime.now();
+      final dt = now.difference(lastT).inMilliseconds;
+      if (dt >= 800) {
+        final s = (wire - lastWire) * 1000 / dt;
+        speed = speed == 0 ? s : speed * 0.6 + s * 0.4;
+        lastT = now;
+        lastWire = wire;
+      }
+      // Най-много ~10 пъти в секунда — по-често е само прерисуване.
+      if (now.difference(lastPush).inMilliseconds < 100 && frac < 1) return;
+      lastPush = now;
+      download.value =
+          DownloadState(DownloadPhase.running, frac, speed, info.downloadSize);
+    }
 
     String? err;
     File? apk;
     try {
-      apk = await _download(info, progress, cancel.future);
-      if (apk == null) err = cancel.isCompleted ? null : 'Свалянето не успя.';
+      apk = await _download(info, onProgress, cancel.future);
+      if (apk == null && !cancel.isCompleted) err = 'Свалянето не успя.';
     } catch (e) {
-      err = e is SocketException ? 'Няма връзка с интернет.' : 'Свалянето не успя.';
+      err = (e is SocketException || e is TimeoutException || e is HttpException)
+          ? 'Връзката прекъсна.'
+          : 'Свалянето не успя.';
+      debugPrint('AppUpdate._run: $e');
     }
-    if (dialogOpen) nav.pop();
-    _busy = false;
+    if (identical(_cancel, cancel)) _cancel = null;
+    final frac = download.value.fraction;
+    if (cancel.isCompleted) {
+      download.value = const DownloadState.idle();
+      return;
+    }
     if (apk == null) {
-      if (err != null) messenger?.showSnackBar(SnackBar(content: Text(err)));
+      // ⚠ Не мълчаливо: кръгчето става „прекъснато", прозорецът казва защо.
+      download.value =
+          DownloadState(DownloadPhase.failed, frac, 0, info.downloadSize, err);
       return;
     }
     downloaded.value = true;
-    await _install(apk, messenger);
+    download.value = DownloadState(DownloadPhase.done, 1, 0, info.downloadSize);
+    if (view.value == DownloadView.expanded) {
+      // Човекът гледа прозореца — направо инсталаторът, както досега.
+      close();
+      await _install(apk, _messenger);
+    }
+    // Свито — кръгчето се допълва, пулсира и само се разгъва в „Свалянето
+    // приключи успешно" (виж UpdateDownloadOverlay).
+  }
+
+  /// „Инсталирай" от прозореца на свалянето.
+  static Future<void> installDownloaded() async {
+    close();
+    final a = available.value;
+    if (a == null) return;
+    final f = await _apkFile(a.build);
+    if (await f.exists()) await _install(f, _messenger);
   }
 
   /// „Инсталирай" — вече сваленото APK, без нов прозорец.
@@ -408,22 +475,32 @@ class AppUpdate {
 
   /// ⚠ Пише в `.part` и преименува чак след проверката на SHA-256 —
   /// прекъснато тегление не оставя половин APK, което да изглежда годно.
-  static Future<File?> _download(
-      UpdateInfo info, ValueNotifier<double> progress, Future<void> cancel) async {
+  ///
+  /// Прекъснатото се ПРОДЪЛЖАВА: `.part` е винаги начало на разархивираното
+  /// APK, тъй че остатъкът се иска от обикновеното APK с `Range` (GitHub го
+  /// спазва и след пренасочването — мерено, 27.10.2026). Не върне ли 206 —
+  /// отначало. [onProgress] получава дял от APK-то и байтовете по жицата.
+  static Future<File?> _download(UpdateInfo info,
+      void Function(double frac, int wire) onProgress, Future<void> cancel) async {
     final out = await _apkFile(info.build);
     if (await out.exists() && await out.length() == info.size) {
       if ((await sha256.bind(out.openRead()).first).toString() == info.sha256) {
-        progress.value = 1;
+        onProgress(1, 0);
         return out;
       }
     }
-    // Старите свалени версии не трябват.
+    final part = File('${out.path}.part');
+    // Старите свалени версии не трябват (своето `.part` остава).
     try {
       await for (final f in out.parent.list()) {
-        if (f.path != out.path) await f.delete();
+        if (f.path != out.path && f.path != part.path) await f.delete();
       }
     } catch (_) {}
-    final part = File('${out.path}.part');
+    var offset = await part.exists() ? await part.length() : 0;
+    if (offset >= info.size) {
+      await part.delete();
+      offset = 0;
+    }
     final client = HttpClient()..connectionTimeout = const Duration(seconds: 10);
     var cancelled = false;
     unawaited(cancel.then((_) {
@@ -431,28 +508,38 @@ class AppUpdate {
       client.close(force: true);
     }));
     try {
-      final packed = info.gz != null && info.gzSize != null;
-      final resp =
-          await (await client.getUrl(Uri.parse(packed ? info.gz! : info.apk))).close();
-      if (resp.statusCode != 200) return null;
-      final sink = part.openWrite();
-      var wire = 0, got = 0;
-      // Напредъкът е по ИЗТЕГЛЕНОТО (свитото); на диска пада разархивираното.
+      final packed = offset == 0 && info.gz != null && info.gzSize != null;
+      final rq = await client.getUrl(Uri.parse(packed ? info.gz! : info.apk));
+      if (offset > 0) rq.headers.set(HttpHeaders.rangeHeader, 'bytes=$offset-');
+      final resp = await rq.close();
+      if (offset > 0 && resp.statusCode == 200) {
+        offset = 0; // сървърът не продължава — цялото отначало
+      } else if (resp.statusCode != (offset > 0 ? 206 : 200)) {
+        throw HttpException('HTTP ${resp.statusCode}');
+      }
+      final sink = part.openWrite(mode: offset > 0 ? FileMode.append : FileMode.write);
+      var wire = 0, got = offset;
+      onProgress(got / info.size, 0);
       Stream<List<int>> body = resp.timeout(const Duration(seconds: 30)).map((c) {
         wire += c.length;
-        progress.value = (wire / info.downloadSize).clamp(0, 1);
         return c;
       });
       if (packed) body = body.transform(gzip.decoder);
+      // Напредъкът е по РАЗАРХИВИРАНОТО на диска — той е общ за свитото и
+      // за продължението от обикновеното.
       try {
         await for (final c in body) {
           sink.add(c);
           got += c.length;
+          onProgress((got / info.size).clamp(0, 1), wire);
         }
       } finally {
         await sink.close();
       }
-      if (got != info.size) return null;
+      if (got != info.size) {
+        if (got > info.size) await part.delete();
+        return null;
+      }
       final sum = (await sha256.bind(part.openRead()).first).toString();
       if (sum != info.sha256) {
         await part.delete();
@@ -465,6 +552,46 @@ class AppUpdate {
     } finally {
       client.close(force: true);
     }
+  }
+}
+
+enum DownloadPhase { idle, running, failed, done }
+
+enum DownloadView { hidden, expanded, collapsed }
+
+class DownloadState {
+  final DownloadPhase phase;
+
+  /// 0…1 — дял от APK-то.
+  final double fraction;
+
+  /// Байта в секунда (0 — още не е измерена).
+  final double speed;
+
+  /// Колко се тегли общо (за „47 / 106 MB" — същото число като в прозорчето
+  /// „Има нова версия").
+  final int total;
+  final String? error;
+
+  const DownloadState(this.phase, this.fraction, this.speed, this.total, [this.error]);
+  const DownloadState.idle()
+      : phase = DownloadPhase.idle,
+        fraction = 0,
+        speed = 0,
+        total = 0,
+        error = null;
+}
+
+class _BackObserver extends WidgetsBindingObserver {
+  @override
+  Future<bool> didPopRoute() async {
+    if (AppUpdate.view.value != DownloadView.expanded) return false;
+    if (AppUpdate.download.value.phase == DownloadPhase.running) {
+      AppUpdate.collapse();
+    } else {
+      AppUpdate.close();
+    }
+    return true;
   }
 }
 
