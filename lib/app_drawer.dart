@@ -183,7 +183,12 @@ class AppDrawer extends StatelessWidget {
                 // ⚠ Отделно малко копие (300×300, 112 KB): оригиналът е
                 // 1024×1024 и 766 KB, а тук стои на 100 точки. Оригиналът
                 // остава за „За приложението", където логото е едро.
-                Image.asset('assets/icon_drawer.png', width: 100, height: 100),
+                // Иконата води към „За приложението“ (автора, 27.10.2026);
+                // редът долу си остава.
+                _PressableLogo(
+                  onTap: () => _openScreen(context, (_) => const AboutScreen()),
+                  child: Image.asset('assets/icon_drawer.png', width: 100, height: 100),
+                ),
                 const SizedBox(height: 0),
                 const Text(
                   'Православен календар',
@@ -337,6 +342,70 @@ class AppDrawer extends StatelessWidget {
           style: const TextStyle(color: AppColors.textPrimary, fontSize: 18)),
       onTap: onTap,
       dense: true,
+    );
+  }
+}
+
+/// Иконата в горната част на менюто — „хлътва“ при допир и се връща
+/// (автора, 27.10.2026). Смалява се и леко потъмнява; при бърз тап
+/// анимацията се изиграва докрай и чак тогава се отваря екранът, иначе
+/// натискането не се вижда.
+class _PressableLogo extends StatefulWidget {
+  final Widget child;
+  final VoidCallback onTap;
+  const _PressableLogo({required this.child, required this.onTap});
+
+  @override
+  State<_PressableLogo> createState() => _PressableLogoState();
+}
+
+class _PressableLogoState extends State<_PressableLogo>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _c = AnimationController(
+      vsync: this, duration: const Duration(milliseconds: 110));
+  bool _busy = false;
+
+  @override
+  void dispose() {
+    _c.dispose();
+    super.dispose();
+  }
+
+  Future<void> _tap() async {
+    if (_busy) return;
+    _busy = true;
+    await _c.forward();
+    await _c.reverse();
+    _busy = false;
+    widget.onTap();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'За приложението',
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (_) => _c.forward(),
+        onTapCancel: () { if (!_busy) _c.reverse(); },
+        onTap: _tap,
+        child: AnimatedBuilder(
+          animation: _c,
+          builder: (context, child) {
+            final t = Curves.easeOut.transform(_c.value);
+            return Transform.scale(
+              scale: 1 - 0.08 * t,
+              child: ColorFiltered(
+                colorFilter: ColorFilter.mode(
+                    Colors.black.withValues(alpha: 0.18 * t), BlendMode.srcATop),
+                child: child,
+              ),
+            );
+          },
+          child: widget.child,
+        ),
+      ),
     );
   }
 }
