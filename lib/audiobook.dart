@@ -765,6 +765,37 @@ class AudioAutoNext {
   }
 }
 
+/// Скоростта на четене (×, 1 — обичайната) — САМО за гласа на телефона; при
+/// запис е сива (автора, 29.10.2026). От зъбното колело в плейъра.
+class AudioSpeed {
+  static const _key = 'audio_speed';
+  static const min = 0.7, max = 1.5;
+  static final ValueNotifier<double> notifier = ValueNotifier(1.0);
+  static bool _loaded = false;
+
+  static double get value => notifier.value;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      notifier.value = (p.getDouble(_key) ?? 1.0).clamp(min, max);
+    } catch (_) {}
+  }
+
+  static Future<void> set(double v) async {
+    notifier.value = v.clamp(min, max);
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setDouble(_key, notifier.value);
+    } catch (_) {}
+  }
+
+  /// „1,2×"
+  static String label(double v) => '${v.toStringAsFixed(1).replaceAll('.', ',')}×';
+}
+
 /// Плейърът на една беседа.
 ///
 /// ⚠ Бележката се пуска СЛЕД изречението си, в отделен плейър, а беседата

@@ -72,7 +72,10 @@ class PhoneVoice {
       if (local != null) {
         await _tts.setVoice({'name': '${local['name']}', 'locale': '${local['locale']}'});
       }
-      await _tts.setSpeechRate(0.5);
+      // 0.5 е обичайното темпо на Android; скоростта от плейъра — отгоре.
+      await AudioSpeed.loadOnce();
+      await _tts.setSpeechRate(0.5 * AudioSpeed.value);
+      AudioSpeed.notifier.addListener(_onSpeed);
       await PhoneStress.loadOnce();
       await _tts.awaitSpeakCompletion(false);
       _tts.setProgressHandler((_, s, e, _) => _owner?._onProgress(s, e));
@@ -90,6 +93,16 @@ class PhoneVoice {
 
   /// „Чуй" в панела за ударението: казва [text] веднага; четенето, ако
   /// върви, спира (продължава от изречението с ▶).
+  /// Нова скорост: важи от следващото изговаряне, затова звучащото
+  /// изречение се почва отново с нея.
+  static Future<void> _onSpeed() async {
+    await _tts.setSpeechRate(0.5 * AudioSpeed.value);
+    final o = _owner;
+    if (o != null && o.playing.value && o.sentence.value >= 0) {
+      await o._speakFrom(o.sentence.value);
+    }
+  }
+
   static Future<void> preview(String text) async {
     if (await ready() != PhoneVoiceState.ready) return;
     final o = _owner;

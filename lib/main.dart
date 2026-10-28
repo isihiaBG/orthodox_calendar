@@ -40,6 +40,8 @@ void main() async {
   // Тестовият режим (lib/test_mode.dart) — без чакане; менюто при маркиране
   // го пита по-късно.
   unawaited(TestMode.loadOnce());
+  unawaited(AudioSpeed.loadOnce());
+  unawaited(AudioAutoNext.loadOnce());
   // ⚠ ПРЕДИ runApp: „назад" първо свива прозореца на свалянето, а не
   // затваря екрана под него (наблюдателите се питат по реда на записване).
   AppUpdate.installBackHandler();

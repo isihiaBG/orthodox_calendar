@@ -879,6 +879,131 @@ class AudioRecordingChip extends StatelessWidget {
       );
 }
 
+/// Зъбното колело в плейъра: „следващото четиво след края" и скоростта
+/// (само при гласа на телефона — при запис е сива). Тук ще влизат и
+/// бъдещите настройки на слушането.
+class _PlayerSettings extends StatelessWidget {
+  final bool phone;
+  const _PlayerSettings({required this.phone});
+
+  @override
+  Widget build(BuildContext context) => MenuAnchor(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(AppColors.backgroundCard),
+          shape: WidgetStatePropertyAll(
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12))),
+          padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 6)),
+          elevation: const WidgetStatePropertyAll(4),
+        ),
+        // Десният ръб на менюто — под десния ръб на колелото (не опрян в
+        // ръба на екрана).
+        alignmentOffset: const Offset(48 - _PlayerSettingsPanel.width, 0),
+        menuChildren: [_PlayerSettingsPanel(phone: phone)],
+        builder: (_, menu, _) => IconButton(
+          tooltip: 'Настройки на слушането',
+          onPressed: () => menu.isOpen ? menu.close() : menu.open(),
+          iconSize: 26,
+          icon: const Icon(Icons.settings_outlined, color: Colors.white70),
+        ),
+      );
+}
+
+class _PlayerSettingsPanel extends StatefulWidget {
+  final bool phone;
+  const _PlayerSettingsPanel({required this.phone});
+  static const width = 280.0;
+
+  @override
+  State<_PlayerSettingsPanel> createState() => _PlayerSettingsPanelState();
+}
+
+class _PlayerSettingsPanelState extends State<_PlayerSettingsPanel> {
+  // Докато се влачи — само тук; гласът получава скоростта при пускане
+  // (иначе би почвал изречението наново на всяка стъпка).
+  late double _speed = AudioSpeed.value;
+
+  @override
+  Widget build(BuildContext context) {
+    const ink = Color(0xDEFFFFFF);
+    const dim = Color(0x8AFFFFFF);
+    const off = Color(0x4DFFFFFF);
+    final on = widget.phone;
+    return SizedBox(
+      width: _PlayerSettingsPanel.width,
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        ValueListenableBuilder<bool>(
+          valueListenable: AudioAutoNext.notifier,
+          builder: (_, next, _) => SwitchListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: const Text('Следващото четиво след края',
+                style: TextStyle(color: ink, fontSize: 15)),
+            value: next,
+            activeThumbColor: AppColors.toolbar,
+            activeTrackColor: AppColors.sectionTitle,
+            inactiveThumbColor: dim,
+            inactiveTrackColor: AppColors.drawerDivider,
+            trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+            onChanged: (_) => AudioAutoNext.toggle(),
+          ),
+        ),
+        const Divider(height: 10, color: AppColors.drawerDivider),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+          child: Row(children: [
+            Text('Скорост', style: TextStyle(color: on ? ink : off, fontSize: 15)),
+            const Spacer(),
+            // Докосване по стойността — обратно на обичайната.
+            GestureDetector(
+              onTap: on && _speed != 1.0
+                  ? () {
+                      setState(() => _speed = 1.0);
+                      AudioSpeed.set(1.0);
+                    }
+                  : null,
+              child: Text(AudioSpeed.label(_speed),
+                  style: TextStyle(
+                      color: on ? ink : off,
+                      fontSize: 15,
+                      fontFeatures: const [FontFeature.tabularFigures()])),
+            ),
+          ]),
+        ),
+        SliderTheme(
+          data: SliderTheme.of(context).copyWith(
+            activeTrackColor: AppColors.sectionTitle,
+            inactiveTrackColor: AppColors.drawerDivider,
+            thumbColor: AppColors.sectionTitle,
+            disabledActiveTrackColor: off,
+            disabledInactiveTrackColor: AppColors.drawerDivider,
+            disabledThumbColor: const Color(0xFF5A5A5A),
+            activeTickMarkColor: Colors.transparent,
+            inactiveTickMarkColor: Colors.transparent,
+            disabledActiveTickMarkColor: Colors.transparent,
+            disabledInactiveTickMarkColor: Colors.transparent,
+            overlayColor: AppColors.sectionTitle.withValues(alpha: 0.16),
+            trackHeight: 3,
+          ),
+          child: Slider(
+            value: _speed,
+            min: AudioSpeed.min,
+            max: AudioSpeed.max,
+            divisions: 8,
+            onChanged: on ? (v) => setState(() => _speed = v) : null,
+            onChangeEnd: on ? AudioSpeed.set : null,
+          ),
+        ),
+        if (!on)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Text('Само за гласа на телефона — записът е в своето темпо.',
+                style: TextStyle(color: dim, fontSize: 12.5, height: 1.3)),
+          ),
+      ]),
+    );
+  }
+}
+
 /// Лентата на плейъра отдолу.
 class AudioMiniPlayer extends StatelessWidget {
   final ReadAloud playback;
@@ -950,19 +1075,7 @@ class AudioMiniPlayer extends StatelessWidget {
                           fontFeatures: [FontFeature.tabularFigures()])),
                 ),
               ),
-              // Продължи със следващата беседа (включено по подразбиране).
-              ValueListenableBuilder<bool>(
-                valueListenable: AudioAutoNext.notifier,
-                builder: (_, on, _) => IconButton(
-                  tooltip: on
-                      ? 'След края — следващата беседа (вкл.)'
-                      : 'След края — спри (следващата беседа е изкл.)',
-                  onPressed: AudioAutoNext.toggle,
-                  iconSize: 28,
-                  icon: Icon(Icons.playlist_play,
-                      color: on ? AppColors.sectionTitle : Colors.white38),
-                ),
-              ),
+              _PlayerSettings(phone: phone),
               IconButton(
                 tooltip: 'Затвори плейъра',
                 onPressed: onClose,
