@@ -141,5 +141,10 @@
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
         </intent>
+        <!-- Гласът на телефона (lib/phone_voice.dart): без това от Android 11
+             нататък двигателите за четене на глас не се виждат. -->
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE"/>
+        </intent>
     </queries>
 </manifest>

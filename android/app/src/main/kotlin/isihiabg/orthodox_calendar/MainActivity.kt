@@ -110,6 +110,16 @@ class MainActivity : AudioServiceActivity() {
                                 Uri.parse("package:$packageName")))))
                         return@setMethodCallHandler
                     }
+                    // Гласът на телефона (lib/phone_voice.dart): българският
+                    // глас не е свален — екранът за сваляне на Google, с едно
+                    // докосване, а не обяснение къде е в настройките.
+                    "ttsInstall" -> {
+                        val install = android.speech.tts.TextToSpeech.Engine.ACTION_INSTALL_TTS_DATA
+                        result.success(tryStart(listOf(
+                            Intent(install).setPackage("com.google.android.tts"),
+                            Intent(install))))
+                        return@setMethodCallHandler
+                    }
                 }
                 if (call.method == "audioDiag") {
                     // Дневникът на звука (lib/audio_background.dart): тече ли

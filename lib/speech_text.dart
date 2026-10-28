@@ -165,13 +165,18 @@ typedef SpeechLink = (int start, int end, String href);
 /// РАЗЧЕТЕНАТА връзка (същата, по която се отваря „Библия"), не по текста ѝ
 /// (бележка на автора, 28.10.2026): там съкращенията са какви ли не, а
 /// връзките са проверени.
-SpokenText speechText(String shown, {List<SpeechLink> links = const []}) =>
-    _forPhoneVoice(speechExpand(shown, links: links));
+///
+/// [drop] — обхвати, които гласът прескача (номерата на бележките).
+SpokenText speechText(String shown,
+        {List<SpeechLink> links = const [], List<(int, int)> drop = const []}) =>
+    _forPhoneVoice(speechExpand(shown, links: links, drop: drop));
 
 /// Само разгъването — общото с ElevenLabs (сверява се с Python).
-SpokenText speechExpand(String shown, {List<SpeechLink> links = const []}) {
+SpokenText speechExpand(String shown,
+    {List<SpeechLink> links = const [], List<(int, int)> drop = const []}) {
   final t = SpokenText(shown);
-  _bibleLinks(t, links);
+  _bibleLinks(t, links, drop);
+  _unescape(t);
   csConvert(t);
   expandAbbr(t);
   return t;
@@ -438,6 +443,18 @@ void miscText(SpokenText t) {
   t.sub(_re(r'(^|\s)\(?([1-9])\)\s+'), (m) => '${m[1]}${ordinal(_i(m[2]), 'n')}, ');
 }
 
+/// Знаците от HTML, оцелели в текста (Python ги разкодира с html.unescape).
+const _entities = {
+  '&nbsp;': ' ', '&amp;': '&', '&quot;': '"', '&ndash;': '–', '&mdash;': '—',
+  '&laquo;': '«', '&raquo;': '»', '&bdquo;': '„', '&ldquo;': '“', '&rdquo;': '”',
+  '&hellip;': '…', '&#160;': ' ', '&lt;': '<', '&gt;': '>',
+};
+
+void _unescape(SpokenText t) {
+  if (!t.text.contains('&')) return;
+  t.sub(RegExp('&[a-z]+;|&#160;'), (m) => _entities[m[0]] ?? m[0]!);
+}
+
 // ── Писанието (bible_speak.py) ───────────────────────────────────────────
 
 final _bibleRe = _re(r'(?<![\p{L}\p{N}_])([1-4]\s*)?([А-Яа-яЁё]{2,8})\.?\s*'
@@ -523,8 +540,8 @@ String? speakBibleRef(BibleRef r) {
   return '$title, $spoken';
 }
 
-void _bibleLinks(SpokenText t, List<SpeechLink> links) {
-  final spans = <(int, int, String)>[];
+void _bibleLinks(SpokenText t, List<SpeechLink> links, List<(int, int)> drop) {
+  final spans = <(int, int, String)>[for (final (a, b) in drop) (a, b, '')];
   for (final (a, b, href) in links) {
     final ref = bibleRefFromUrl(href);
     final spoken = ref == null ? null : speakBibleRef(ref);

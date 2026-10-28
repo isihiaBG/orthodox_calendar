@@ -10,10 +10,13 @@
 //   askAudioDownload прозорчето „колко MB, безплатно" преди сваляне
 //   AudioMiniPlayer  лентата отдолу: −5, пауза, +5, време, затваряне
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'app_theme.dart';
 import 'audiobook.dart';
+import 'phone_voice.dart';
 import 'reader_theme.dart';
 
 /// Пита, преди да свали. Връща `true` при „Свали".
@@ -38,6 +41,34 @@ Future<bool> askAudioDownload(BuildContext context, AudioBook book, String part,
     ),
   );
   return ok == true;
+}
+
+/// Няма български глас на устройството — едно докосване до екрана на
+/// Google за сваляне, без обяснения къде е в настройките (автора, 28.10.2026).
+Future<void> askPhoneVoiceInstall(BuildContext context) async {
+  final palette = ReaderTheme.palette;
+  final messenger = ScaffoldMessenger.of(context);
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (ctx) => AlertDialog(
+      backgroundColor: palette.sheet,
+      title: Text('Четене на глас', style: TextStyle(color: palette.ink, fontSize: 19)),
+      content: Text(
+        'На устройството няма български глас.\n'
+        'Google го дава безплатно — сваля се веднъж.',
+        style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('Назад')),
+        FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('Свали гласа')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  if (!await PhoneVoice.install()) {
+    messenger.showSnackBar(
+        const SnackBar(content: Text('Екранът за сваляне на гласа не се отвори.')));
+  }
 }
 
 /// Сваля с прозорчето отпред; грешката се казва с човешки думи.
@@ -322,73 +353,198 @@ class AudioChip extends StatelessWidget {
   }
 }
 
-/// Плаващото копче долу вдясно — видно само при глава със звук.
+/// Печатът „екстра" — записът (ElevenLabs/Azure) на четивото, по-хубав от
+/// гласа на телефона (замисъл на автора, 28.10.2026). Назъбено кръгче в
+/// старо злато; вътре ⤓ (има запис, не е свален) или 🔈 (свален).
+///
+/// ⚠ ЦВЕТОВЕТЕ СА МЕРЕНИ, не на око (правило на автора: тъмното не е чисто
+/// черно, светлото не е чисто бяло):
+///   тъмна тема — печат #CDA757 върху копче #4D4943: 3.9x; знакът #34290F
+///                върху печата 6.3:1;
+///   светла     — печат #8F6420 (по-плътно злато: светлото се сливаше с
+///                бежовото копче #C8B995, 2.0x) — 2.7x; знакът #FBEFD3 4.6:1.
+/// Обиколката е в цвета на СТРАНИЦАТА — изрязва печата от копчето, без
+/// да се вижда върху страницата.
+class ExtraSeal extends StatelessWidget {
+  /// true — свален (високоговорител), false — за сваляне (⤓).
+  final bool downloaded;
+
+  /// 0..1 докато се сваля.
+  final double? progress;
+  final bool dark;
+  final Color cut;
+  final double size;
+  const ExtraSeal(
+      {super.key,
+      required this.downloaded,
+      required this.dark,
+      required this.cut,
+      this.progress,
+      this.size = 20});
+
+  @override
+  Widget build(BuildContext context) {
+    final fill = dark ? const Color(0xFFCDA757) : const Color(0xFF8F6420);
+    final mark = dark ? const Color(0xFF34290F) : const Color(0xFFFBEFD3);
+    return SizedBox(
+      width: size,
+      height: size,
+      child: CustomPaint(
+        painter: _SealPainter(fill: fill, cut: cut, progress: progress),
+        child: Center(
+          child: Icon(
+            downloaded ? Icons.volume_up_rounded : Icons.download_rounded,
+            size: size * 0.6,
+            color: progress != null ? mark.withValues(alpha: 0.55) : mark,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SealPainter extends CustomPainter {
+  final Color fill, cut;
+  final double? progress;
+  _SealPainter({required this.fill, required this.cut, this.progress});
+
+  static const _teeth = 12;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final c = size.center(Offset.zero);
+    final r = size.shortestSide / 2;
+    // Мек печат: зъбците са плитки (вътрешният радиус 0.86) и заоблени —
+    // остри изглеждаха като звезда, не като печат.
+    final path = Path();
+    const n = _teeth * 2;
+    for (var i = 0; i <= n; i++) {
+      final a = -math.pi / 2 + i * math.pi / _teeth;
+      final rr = i.isEven ? r : r * 0.86;
+      final p = c + Offset(math.cos(a), math.sin(a)) * rr;
+      if (i == 0) {
+        path.moveTo(p.dx, p.dy);
+      } else {
+        path.lineTo(p.dx, p.dy);
+      }
+    }
+    path.close();
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = cut
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.4
+          ..strokeJoin = StrokeJoin.round);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = fill
+          ..style = PaintingStyle.fill);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..color = fill
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 0.8
+          ..strokeJoin = StrokeJoin.round);
+    final p = progress;
+    if (p != null) {
+      // Напредъкът — тънка дъга в цвета на изрязването, по ръба.
+      canvas.drawArc(
+          Rect.fromCircle(center: c, radius: r * 0.7),
+          -math.pi / 2,
+          2 * math.pi * p.clamp(0.02, 1.0),
+          false,
+          Paint()
+            ..color = cut
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..strokeCap = StrokeCap.round);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_SealPainter old) =>
+      old.fill != fill || old.cut != cut || old.progress != progress;
+}
+
+/// Плаващото копче долу вдясно — при всяко четиво (гласът на телефона), а
+/// при четиво със запис — с печата „екстра" в горния десен ъгъл, който
+/// излиза леко извън копчето.
 ///
 /// ⚠⚠ НЕ В ЛЕНТАТА (решено с автора, 11.10.2026). На изправен телефон лентата
 /// на четеца е пълна — стрелка и съдържание отляво, шест копчета отдясно —
 /// и седмото се блъскаше в съдържанието. Плаващото копче е като това в
-/// молитвослова (същият `palette.fab`): самата му поява казва „тук има звук",
-/// а щом звукът тръгне, на мястото му идва мини плейърът.
+/// молитвослова (същият `palette.fab`), а щом звукът тръгне, на мястото му
+/// идва мини плейърът.
+///
+/// Копчето винаги ЧЕТЕ веднага (записа, ако е свален, иначе гласа на
+/// телефона). Печатът е отделно докосване — сваля записа.
 class AudioFab extends StatelessWidget {
-  final AudioBook book;
-  final String part;
+  final AudioBook? book;
+  final String? part;
   final VoidCallback onTap;
-  const AudioFab({super.key, required this.book, required this.part, required this.onTap});
+  final VoidCallback? onSeal;
+  const AudioFab({super.key, this.book, this.part, required this.onTap, this.onSeal});
 
   @override
   Widget build(BuildContext context) {
+    final b = book;
+    if (b == null) return _build(null);
     return ValueListenableBuilder<int>(
-      valueListenable: book.revision,
-      builder: (context, _, _) {
-        if (!book.has(part)) return const SizedBox.shrink();
-        final p = ReaderTheme.palette;
-        final done = book.isDownloaded(part);
-        final busy = book.isDownloading(part);
-        return Padding(
-          padding: const EdgeInsets.only(right: 14, bottom: 8),
-          child: FloatingActionButton.small(
-            heroTag: null,
-            tooltip: done ? 'Слушай беседата' : 'Свали звука на беседата',
-            backgroundColor: p.fab,
-            foregroundColor: p.ink,
-            onPressed: busy ? null : onTap,
-            child: busy
-                ? SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, value: book.progress[part], color: p.ink))
-                : done
-                    ? const Icon(Icons.headphones)
-                    // ⚠ Знакът „свали" е ДО слушалките, не върху тях
-                    // (бележка на автора: стрелката ги застъпваше). Слушалките
-                    // са по-малки и горе вляво, кръжецът — в долния десен
-                    // ъгъл, а тънкият пръстен в цвета на копчето ги разделя.
-                    : SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: Stack(children: [
-                          const Positioned(
-                              left: 0, top: 0, child: Icon(Icons.headphones_outlined, size: 20)),
-                          Positioned(
-                            right: 0,
-                            bottom: 0,
-                            child: Container(
-                              width: 14,
-                              height: 14,
-                              decoration: BoxDecoration(
-                                color: p.ink,
-                                shape: BoxShape.circle,
-                                border: Border.all(color: p.fab, width: 1.5),
-                              ),
-                              child: Icon(Icons.arrow_downward, size: 9, color: p.fab),
-                            ),
-                          ),
-                        ]),
+      valueListenable: b.revision,
+      builder: (context, _, _) => _build(b),
+    );
+  }
+
+  Widget _build(AudioBook? b) {
+    final p = ReaderTheme.palette;
+    final hasRec = b != null && part != null && b.has(part);
+    final done = hasRec && b.isDownloaded(part);
+    final busy = hasRec && b.isDownloading(part);
+    final fab = FloatingActionButton.small(
+      heroTag: null,
+      tooltip: done ? 'Слушай записа' : 'Слушай',
+      backgroundColor: p.fab,
+      foregroundColor: p.ink,
+      onPressed: onTap,
+      child: const Icon(Icons.headphones),
+    );
+    if (!hasRec) {
+      return Padding(padding: const EdgeInsets.only(right: 14, bottom: 8), child: fab);
+    }
+    // ⚠ Копчето е отместено с 7 px навътре, за да е и печатът ВЪТРЕ в
+    // стека — докосване извън стека не стига до него. Копчето стои на
+    // същото място (14 − 7 отдясно). Печатът излиза ~7 px извън кръга.
+    return Padding(
+      padding: const EdgeInsets.only(right: 7, bottom: 8),
+      child: Stack(clipBehavior: Clip.none, children: [
+              Padding(padding: const EdgeInsets.only(top: 7, right: 7), child: fab),
+              Positioned(
+                right: 3,
+                top: 3,
+                child: Tooltip(
+                  message: done
+                      ? 'Записът е свален'
+                      : 'Свали записа · ${audioSizeLabel(b.sizeOf(part!))}',
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: done || busy ? null : onSeal,
+                    // Зоната за допир е по-голяма от рисунката (32 px).
+                    child: Padding(
+                      padding: const EdgeInsets.all(6),
+                      child: ExtraSeal(
+                        downloaded: done,
+                        dark: p.dark,
+                        cut: p.bg,
+                        progress: busy ? (b.progress[part] ?? 0) : null,
                       ),
-          ),
-        );
-      },
+                    ),
+                  ),
+                ),
+              ),
+            ]),
     );
   }
 }
@@ -670,16 +826,73 @@ String _clock(double s) {
   return '${t ~/ 60}:${(t % 60).toString().padLeft(2, '0')}';
 }
 
+/// „Запис · 14 MB" в плейъра отдолу, докато чете гласът на телефона — тих
+/// надпис с печата „екстра"; докосване — сваля записа, после плейърът минава
+/// към него от същото изречение.
+class AudioRecordingChip extends StatelessWidget {
+  final AudioBook book;
+  final String part;
+  final VoidCallback onTap;
+  const AudioRecordingChip(
+      {super.key, required this.book, required this.part, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<int>(
+        valueListenable: book.revision,
+        builder: (context, _, _) {
+          final busy = book.isDownloading(part);
+          final pr = book.progress[part] ?? 0;
+          final label = busy
+              ? 'запис · ${(pr * 100).round()}%'
+              : 'запис · ${audioSizeLabel(book.sizeOf(part))}';
+          return Tooltip(
+            message: 'Свали записа — по-хубав глас',
+            child: InkWell(
+              borderRadius: BorderRadius.circular(16),
+              onTap: busy ? null : onTap,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  ExtraSeal(
+                    downloaded: false,
+                    dark: true,
+                    cut: AppColors.toolbar,
+                    progress: busy ? pr : null,
+                    size: 18,
+                  ),
+                  const SizedBox(width: 7),
+                  Flexible(
+                    child: Text(label,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: Color(0xFFCDA757),
+                            fontSize: 15,
+                            fontFeatures: [FontFeature.tabularFigures()])),
+                  ),
+                ]),
+              ),
+            ),
+          );
+        },
+      );
+}
+
 /// Лентата на плейъра отдолу.
 class AudioMiniPlayer extends StatelessWidget {
-  final AudioPlayback playback;
+  final ReadAloud playback;
   final VoidCallback onClose;
-  const AudioMiniPlayer({super.key, required this.playback, required this.onClose});
+
+  /// Само при гласа на телефона и четиво със запис — [AudioRecordingChip]
+  /// на мястото на часовника.
+  final Widget? recording;
+  const AudioMiniPlayer(
+      {super.key, required this.playback, required this.onClose, this.recording});
 
   @override
   Widget build(BuildContext context) {
     const fg = Colors.white;
     final total = playback.chapter.duration;
+    final phone = playback.isPhoneVoice;
     return Material(
       color: AppColors.toolbar,
       child: SafeArea(
@@ -700,10 +913,10 @@ class AudioMiniPlayer extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
             child: Row(children: [
               IconButton(
-                tooltip: 'Назад 5 секунди',
+                tooltip: phone ? 'Предишното изречение' : 'Назад 5 секунди',
                 onPressed: () => playback.skip(-5),
                 iconSize: 30,
-                icon: const Icon(Icons.replay_5, color: fg),
+                icon: Icon(phone ? Icons.skip_previous_rounded : Icons.replay_5, color: fg),
               ),
               ValueListenableBuilder<bool>(
                 valueListenable: playback.playing,
@@ -715,16 +928,20 @@ class AudioMiniPlayer extends StatelessWidget {
                 ),
               ),
               IconButton(
-                tooltip: 'Напред 5 секунди',
+                tooltip: phone ? 'Следващото изречение' : 'Напред 5 секунди',
                 onPressed: () => playback.skip(5),
                 iconSize: 30,
-                icon: const Icon(Icons.forward_5, color: fg),
+                icon: Icon(phone ? Icons.skip_next_rounded : Icons.forward_5, color: fg),
               ),
               const SizedBox(width: 8),
               Expanded(
-                child: ValueListenableBuilder<double>(
+                child: recording != null && phone
+                    ? Align(alignment: Alignment.centerLeft, child: recording)
+                    : ValueListenableBuilder<double>(
                   valueListenable: playback.position,
-                  builder: (_, t, _) => Text('${_clock(t)} / ${_clock(total)}',
+                  // Гласът на телефона — времето е приблизително (по броя
+                  // на знаците), затова с „≈".
+                  builder: (_, t, _) => Text('${phone ? '≈ ' : ''}${_clock(t)} / ${_clock(total)}',
                       style: const TextStyle(
                           color: Colors.white70,
                           fontSize: 16,

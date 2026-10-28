@@ -770,15 +770,50 @@ class AudioAutoNext {
 /// ⚠ Бележката се пуска СЛЕД изречението си, в отделен плейър, а беседата
 /// чака: така е и в печатната книга — бележката се чете, когато стигнеш до
 /// номера ѝ, не в края на главата.
-class AudioPlayback {
+/// Общото на двата извора на четене на глас: записът ([AudioPlayback]) и
+/// гласът на телефона (`PhoneVoicePlayback`, phone_voice.dart). Четецът,
+/// плейърът отдолу и услугата „медия" знаят само това.
+abstract class ReadAloud {
+  AudioChapter get chapter;
+
+  /// Кое изречение звучи (-1 — нищо).
+  ValueNotifier<int> get sentence;
+  ValueNotifier<bool> get playing;
+
+  /// Секунди от началото (при гласа на телефона — приблизително).
+  ValueNotifier<double> get position;
+  bool get completed;
+  abstract VoidCallback? onFinished;
+  abstract VoidCallback? onUserAction;
+  abstract Future<Duration> Function(int to)? onCaptionSkip;
+
+  /// Ключ за услугата „медия" — различен за всяка глава.
+  String get mediaId;
+
+  /// Гласът на телефона, не запис.
+  bool get isPhoneVoice;
+
+  Future<void> start({int fromSentence = 0});
+  Future<void> seekToSentence(int i, {bool user = true});
+  Future<void> toggle();
+  Future<void> skip(double seconds);
+  void resync();
+  Future<void> dispose();
+}
+
+class AudioPlayback implements ReadAloud {
   final AudioBook book;
+  @override
   final AudioChapter chapter;
   final AudioPlayer _main = AudioPlayer();
   final AudioPlayer _note = AudioPlayer();
 
   /// Кое изречение звучи (-1 — нищо).
+  @override
   final ValueNotifier<int> sentence = ValueNotifier(-1);
+  @override
   final ValueNotifier<bool> playing = ValueNotifier(false);
+  @override
   final ValueNotifier<double> position = ValueNotifier(0);
 
   /// Да се четат ли бележките под линия.
@@ -789,16 +824,19 @@ class AudioPlayback {
   final List<StreamSubscription> _subs = [];
 
   /// Вика се веднъж, щом беседата свърши докрай (за [AudioAutoNext]).
+  @override
   VoidCallback? onFinished;
 
   /// Вика се при ДЕЙСТВИЕ НА ЧОВЕКА — пауза/пускане, превъртане, преход към
   /// изречение. ⚠ Само по него музиката в края се прекъсва: сигналите на
   /// плейъра около края (особено във фонов режим) я спираха без причина
   /// (автора, 15.10.2026).
+  @override
   VoidCallback? onUserAction;
 
   /// Сверява иконката ▶/⏸ с плейъра — при връщане в приложението тя
   /// оставаше „пауза" (автора, 15.10.2026).
+  @override
   void resync() {
     if (_inNote || _skipping || _endedEarly) return;
     final v = _main.playing && _main.processingState != ProcessingState.completed;
@@ -811,8 +849,15 @@ class AudioPlayback {
 
   AudioPlayback(this.book, this.chapter);
 
+  @override
+  String get mediaId => '${book.hashCode}:${chapter.part}';
+
+  @override
+  bool get isPhoneVoice => false;
+
   /// Свършила ли е беседата докрай (а не просто на пауза) — включително
   /// когато след последната дума остават само надписи под илюстрации.
+  @override
   bool get completed => _endedEarly || _main.processingState == ProcessingState.completed;
 
   // ── Надписите под илюстрациите НЕ се четат (автор, 13.10.2026) ──────
@@ -832,6 +877,7 @@ class AudioPlayback {
 
   /// Вика се при прескачане на надпис към изречение [to]; върнатото време
   /// е пауза ПРЕДИ продължаването (заглавната: дудукът влиза в нея).
+  @override
   Future<Duration> Function(int to)? onCaptionSkip;
 
   Future<void> _skipCaptions(int i) async {
@@ -865,6 +911,7 @@ class AudioPlayback {
     }
   }
 
+  @override
   Future<void> start({int fromSentence = 0}) async {
     await _main.setFilePath(chapter.mp3Path);
     _subs.add(_main.positionStream.listen(_onPosition));
@@ -951,6 +998,7 @@ class AudioPlayback {
     await _main.play();
   }
 
+  @override
   Future<void> seekToSentence(int i, {bool user = true}) async {
     if (chapter.sentences.isEmpty) return;
     if (user) {
@@ -977,6 +1025,7 @@ class AudioPlayback {
     await _main.seek(Duration(milliseconds: (chapter.sentences[i].start * 1000).round()));
   }
 
+  @override
   Future<void> toggle() async {
     audioLogAdd('${chapter.part}: човек → ▶/⏸ (playing=${_main.playing})');
     onUserAction?.call();
@@ -994,6 +1043,7 @@ class AudioPlayback {
     }
   }
 
+  @override
   Future<void> skip(double seconds) async {
     audioLogAdd('${chapter.part}: човек → превъртане ${seconds}s');
     onUserAction?.call();
@@ -1009,6 +1059,7 @@ class AudioPlayback {
     await _main.seek(Duration(milliseconds: (t * 1000).round()));
   }
 
+  @override
   Future<void> dispose() async {
     for (final s in _subs) {
       await s.cancel();

@@ -54,6 +54,7 @@ import 'reader_font_size.dart';
 import 'reader_footer.dart';
 import 'reader_match_ticks.dart';
 import 'pdf_export.dart';
+import 'phone_voice.dart';
 import 'quote_capture.dart' show CapturedSpot;
 import 'quote_link.dart';
 import 'quote_menu.dart';
@@ -372,7 +373,7 @@ class _BookReaderState extends State<BookReader>
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await AudioRegistry.load();
         await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) await _onAudioTap();
+        if (mounted) await _onAudioTap(recording: true);
       });
     }
     // Кое четиво е било последно в този том — решава какво пише опашката
@@ -1290,7 +1291,7 @@ class _BookReaderState extends State<BookReader>
   // регионите и да го покрие с фон, включително през няколко абзаца.
   // ---------------------------------------------------------------
   late final AudioBook? _audio = AudioBook.forAsset(widget.book.assetPath);
-  AudioPlayback? _playback;
+  ReadAloud? _playback;
 
   // Музиката в края на беседата — виж audio_outro.dart.
   final AudioOutro _outro = AudioOutro();
@@ -1316,21 +1317,141 @@ class _BookReaderState extends State<BookReader>
     if (mounted) setState(() {});
   }
 
-  /// Тап по слушалките (лента, меню, съдържание): несвалено — пита и сваля;
-  /// свалено — пуска (или паузира, ако вече звучи).
-  Future<void> _onAudioTap({CapturedSpot? from}) async {
+  /// Ключът на главата, докато я чете гласът на телефона — различен от
+  /// този на записа, за да не се бъркат двата.
+  String get _phonePart => 'phone:${_current.href}';
+
+  /// Тап по слушалките (копче, меню, съдържание, ▶ при маркиране).
+  /// Свален запис — пуска него; иначе ВЕДНАГА гласа на телефона (28.10.2026),
+  /// а записът се сваля от печата „екстра". [recording] — поискан е изрично
+  /// записът (екранът „Звук", етикетът в съдържанието): несвален — пита и
+  /// сваля, както досега. Звучи ли вече — пауза/пускане.
+  Future<void> _onAudioTap({CapturedSpot? from, bool recording = false}) async {
     final a = _audio, part = _audioPart;
-    if (a == null || part == null || !a.has(part)) return;
-    if (!a.isDownloaded(part)) {
+    final has = a != null && part != null && a.has(part);
+    if (recording && has && !a.isDownloaded(part)) {
       final ok = await downloadAudioWithPrompt(context, a, part, title: _current.title);
       if (!ok || !mounted) return;
     }
+    final rec = has && a.isDownloaded(part);
     final pb = _playback;
-    if (pb != null && pb.chapter.part == part && from == null) {
+    if (pb != null && pb.chapter.part == (rec ? part : _phonePart) && from == null) {
       await pb.toggle();
       return;
     }
-    await _startAudio(from: from);
+    // Гласът на телефона четеше, а записът междувременно се свали —
+    // записът продължава от същото изречение.
+    if (rec && from == null && pb != null && pb.isPhoneVoice && pb.chapter.part == _phonePart) {
+      from = _spotOfSentence(pb.sentence.value);
+    }
+    if (rec) {
+      await _startAudio(from: from);
+    } else {
+      await _startPhoneVoice(from: from);
+    }
+  }
+
+  CapturedSpot? _spotOfSentence(int k) {
+    final loc = k >= 0 && k < _sentLoc.length ? _sentLoc[k] : null;
+    return loc == null ? null : CapturedSpot(loc.$1, loc.$2, 0);
+  }
+
+  /// Печатът „екстра" (копчето или плейърът): сваля записа без питане —
+  /// докосването е изричното желание. Чете ли гласът на телефона същото
+  /// четиво — минава към записа от същото изречение.
+  Future<void> _downloadRecording() async {
+    final a = _audio, part = _audioPart;
+    if (a == null || part == null || !a.has(part) || a.isDownloading(part)) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final href = _current.href;
+    final err = await a.download(part);
+    if (!mounted) return;
+    if (err != null) {
+      messenger.showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    final pb = _playback;
+    if (pb != null && pb.isPhoneVoice && _current.href == href &&
+        pb.chapter.part == _phonePart && pb.playing.value) {
+      await _onAudioTap(from: _spotOfSentence(pb.sentence.value));
+    }
+  }
+
+  /// Блоковете за гласа на телефона — същият текст като [_quoteBlocks]
+  /// (по него се маркира), плюс връзките и бележките от HTML-а.
+  List<ReadingBlock> _speechBlocks(List<String> quote) {
+    final cap = _currentDropCap();
+    final regions = _currentRegions();
+    return [
+      for (var i = 0; i < quote.length; i++)
+        () {
+          if (i < regions.length) {
+            final r = regions[i];
+            var x = readingBlockOf(r.content)
+                .prefixed(r.kind == RegionKind.dropCap ? cap : '');
+            for (final y in r.rest) {
+              x = x.join(readingBlockOf(y), '\n');
+            }
+            if (x.text == quote[i]) return x;
+            audioLogAdd('гласът на телефона: блок $i се разминава с текста — без връзките');
+          }
+          return ReadingBlock(quote[i]);
+        }(),
+    ];
+  }
+
+  Future<void> _startPhoneVoice({CapturedSpot? from, int tries = 0}) async {
+    final quote = _quoteBlocks();
+    if (quote.isEmpty) {
+      // Главата още не е разчетена — опитай на следващия кадър.
+      if (tries < 8) {
+        WidgetsBinding.instance.addPostFrameCallback(
+            (_) { if (mounted) _startPhoneVoice(from: from, tries: tries + 1); });
+      }
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    final state = await PhoneVoice.ready();
+    if (!mounted) return;
+    if (state != PhoneVoiceState.ready) {
+      await askPhoneVoiceInstall(context);
+      return;
+    }
+    final pb = PhoneVoicePlayback(widget.book.assetPath, _phonePart, _speechBlocks(quote));
+    if (pb.sents.isEmpty) {
+      await pb.dispose();
+      return;
+    }
+    final loc = <(int, int, int, int)?>[for (final (b, st, en) in pb.sents) (b, st, b, en)];
+    final k = from == null ? 0 : _sentenceAt(loc, from.block, from.charStart);
+    await _stopAudio();
+    if (!mounted) {
+      await pb.dispose();
+      return;
+    }
+    pb.onError = (msg) =>
+        messenger.showSnackBar(SnackBar(content: Text('Гласът на телефона спря ($msg).')));
+    _wireAudio(pb, outroAt: double.infinity);
+    setState(() {
+      _sentLoc = loc;
+      _playback = pb;
+    });
+    _userScrolledAt = DateTime(0);
+    unawaited(AudioBackground.attach(pb,
+        title: _current.title, book: widget.book.title, epub: widget.book.assetPath));
+    await pb.start(fromSentence: k);
+  }
+
+  /// Слушателите на плейъра — общи за записа и гласа на телефона.
+  void _wireAudio(ReadAloud pb, {required double outroAt}) {
+    pb.sentence.addListener(_onSentence);
+    pb.onFinished = _onAudioFinished;
+    pb.position.addListener(_onAudioPosition);
+    pb.onUserAction = _onAudioUserAction;
+    pb.playing.addListener(_onAudioPlaying);
+    _outroAt = outroAt;
+    _outroBegun = false;
+    _lastPlaying = false;
   }
 
   Future<void> _startAudio({CapturedSpot? from, int tries = 0}) async {
@@ -1355,10 +1476,7 @@ class _BookReaderState extends State<BookReader>
     }
     await _stopAudio();
     final pb = AudioPlayback(a, ch);
-    pb.sentence.addListener(_onSentence);
-    pb.onFinished = _onAudioFinished;
-    pb.position.addListener(_onAudioPosition);
-    pb.onUserAction = _onAudioUserAction;
+    _wireAudio(pb, outroAt: outroStartOf(ch, titlePage: part == 'title'));
     // Заглавната: надписът под иконата се прескача, а в паузата преди
     // посвещението изплува дудукът (автор, 13.10.2026).
     pb.onCaptionSkip = (to) async {
@@ -1369,10 +1487,6 @@ class _BookReaderState extends State<BookReader>
           seconds: OutroTiming.titleLeadIn));
       return Duration(milliseconds: (OutroTiming.titleLeadIn * 1000).round());
     };
-    pb.playing.addListener(_onAudioPlaying);
-    _outroAt = outroStartOf(ch, titlePage: part == 'title');
-    _outroBegun = false;
-    _lastPlaying = false;
     setState(() {
       _sentLoc = loc;
       _playback = pb;
@@ -1494,6 +1608,17 @@ class _BookReaderState extends State<BookReader>
   }
 
   Future<void> _goNextAudio() async {
+    // Гласът на телефона — следващото четиво, каквото и да е (свален ли е
+    // записът му, пуска него).
+    final cur = _playback;
+    if (mounted && cur != null && cur.isPhoneVoice && AudioAutoNext.value) {
+      final next = _index + 1;
+      if (next >= _chapters.length) return;
+      await _goTo(next);
+      if (!mounted || _index != next) return;
+      await _onAudioTap();
+      return;
+    }
     final a = _audio;
     if (!mounted || a == null || !AudioAutoNext.value) return;
     int? next;
@@ -2279,18 +2404,15 @@ class _BookReaderState extends State<BookReader>
     // Книга с оригинален PDF получава и точка за цялата книга.
     final items = [...kReaderMenuItems];
     final disabled = <String>{};
-    if (_audio != null) {
+    {
+      // Слуша се ВСЯКО четиво — без запис чете гласът на телефона.
       final String label;
-      if (!AudioRegistry.known) {
+      if (_audio != null && !AudioRegistry.known) {
         label = 'Провери за звук';
-      } else if (_hasAudio) {
-        final a = _audio, part = _audioPart!;
-        label = a.isDownloaded(part)
-            ? 'Слушай беседата'
-            : 'Слушай беседата (${audioSizeLabel(a.sizeOf(part))})';
+      } else if (_hasAudio && _audio!.isDownloaded(_audioPart)) {
+        label = 'Слушай записа';
       } else {
-        label = 'Звук: още няма';
-        disabled.add(_kListenValue);
+        label = 'Слушай';
       }
       items.insert(
           0,
@@ -2298,7 +2420,7 @@ class _BookReaderState extends State<BookReader>
               icon: const Icon(Icons.headphones, size: 24, color: AppColors.textSecondary),
               label: label,
               value: _kListenValue));
-      if (_hasAudio && _audio.isDownloaded(_audioPart)) {
+      if (_hasAudio && _audio!.isDownloaded(_audioPart)) {
         items.insert(
             1,
             ReaderMenuItem(
@@ -2318,13 +2440,13 @@ class _BookReaderState extends State<BookReader>
       return;
     }
     if (choice == _kListenValue) {
-      if (!AudioRegistry.known) {
+      if (_audio != null && !AudioRegistry.known) {
         final err = await AudioRegistry.check();
         if (!mounted) return;
         final msg = err ??
             (_hasAudio
-                ? 'Тази беседа има звук — слушалките са долу вдясно.'
-                : 'За тази беседа още няма звук.');
+                ? 'Тази беседа има запис — печатът до слушалките долу вдясно.'
+                : 'Записи още няма — слушалките долу вдясно четат с гласа на телефона.');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         return;
       }
@@ -2454,7 +2576,7 @@ class _BookReaderState extends State<BookReader>
     if (chosen is int) _goTo(chosen);
     if (chosen is _ListenAt) {
       await _goTo(chosen.index);
-      if (mounted) await _onAudioTap();
+      if (mounted) await _onAudioTap(recording: true);
     }
     if (chosen is String) _runBookSearch(chosen);
   }
@@ -2477,12 +2599,22 @@ class _BookReaderState extends State<BookReader>
       // Мини плейърът — само докато звучи беседа (четене на глас).
       bottomNavigationBar: _playback == null
           ? null
-          : AudioMiniPlayer(playback: _playback!, onClose: () => _stopAudio()),
-      // Копчето със слушалките — само при глава със звук и докато плейърът е
-      // затворен (виж AudioFab защо не е в лентата).
-      floatingActionButton: _playback != null || _audio == null || _audioPart == null
+          : AudioMiniPlayer(
+              playback: _playback!,
+              onClose: () => _stopAudio(),
+              recording: _playback!.isPhoneVoice && _hasAudio
+                  ? AudioRecordingChip(
+                      book: _audio!, part: _audioPart!, onTap: _downloadRecording)
+                  : null),
+      // Копчето със слушалките — при всяко четиво, докато плейърът е затворен
+      // (виж AudioFab защо не е в лентата); при запис — с печата „екстра".
+      floatingActionButton: _playback != null
           ? null
-          : AudioFab(book: _audio, part: _audioPart!, onTap: _onAudioTap),
+          : AudioFab(
+              book: _audio,
+              part: _audioPart,
+              onTap: _onAudioTap,
+              onSeal: _downloadRecording),
       body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
@@ -3418,7 +3550,7 @@ class _BookReaderState extends State<BookReader>
             // ⚠ Виж същото място в reader_screen.dart.
             blockKey: (i) =>
                 i >= 0 && i < _regionKeys.length ? _regionKeys[i] : null,
-            onListen: _hasAudio ? (spot) => _onAudioTap(from: spot) : null,
+            onListen: (spot) => _onAudioTap(from: spot),
             child: NotificationListener<UserScrollNotification>(
               onNotification: (n) {
                 if (n.direction != ScrollDirection.idle) _userScrolledAt = DateTime.now();
@@ -3516,9 +3648,8 @@ class _BookReaderState extends State<BookReader>
       void go() => _goTo(target);
       return ReaderFooter(
         color: ReaderTheme.palette.dim,
-        bottomGap: _audio != null && _audioPart != null
-            ? kFooterBottomGapWithFab
-            : kFooterBottomGap,
+        // Копчето със слушалките е при ВСЯКО четиво (гласът на телефона).
+        bottomGap: kFooterBottomGapWithFab,
         centerLabel: resume == null
             ? 'към първото четиво'
             : 'продължете от последно отваряното четиво',
@@ -3535,10 +3666,9 @@ class _BookReaderState extends State<BookReader>
     // заглавната страница — щом тя е достъпна от съдържанието, няма
     // причина да е недостъпна от навигацията.
     final prevTarget = _adjacentReading(-1);
-    // Под бутоните — място колкото да излязат над копчето на звука.
-    final gap = _audio != null && _audioPart != null
-        ? kFooterBottomGapWithFab
-        : kFooterBottomGap;
+    // Под бутоните — място колкото да излязат над копчето на звука (то е
+    // при всяко четиво — гласът на телефона).
+    const gap = kFooterBottomGapWithFab;
     final nextTarget = _adjacentReading(1);
     return ReaderFooter(
       color: ReaderTheme.palette.dim,

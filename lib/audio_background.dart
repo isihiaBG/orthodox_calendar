@@ -114,7 +114,7 @@ class AudioBackground {
 
   /// Беседата [pb] започва — известието минава на нея. [epub] — пътят на
   /// книгата в assets/ (по него се избира картинката).
-  static Future<void> attach(AudioPlayback pb,
+  static Future<void> attach(ReadAloud pb,
       {required String title, required String book, required String epub}) async {
     final h = await _ensure();
     h?._attach(pb, title, book, await _art(epub));
@@ -125,20 +125,20 @@ class AudioBackground {
   /// преминаване към следващата беседа старата се затваря, а новата идва
   /// след секунда — спряна междувременно, услугата не може да тръгне пак,
   /// докато приложението е във фонов режим.
-  static void detach(AudioPlayback pb) => _handler?._detach(pb);
+  static void detach(ReadAloud pb) => _handler?._detach(pb);
 }
 
 class _Handler extends BaseAudioHandler with SeekHandler {
-  AudioPlayback? _pb;
+  ReadAloud? _pb;
   Timer? _idleTimer;
   int _lastSecond = -1;
 
-  void _attach(AudioPlayback pb, String title, String book, Uri? art) {
+  void _attach(ReadAloud pb, String title, String book, Uri? art) {
     _idleTimer?.cancel();
     _unlisten();
     _pb = pb;
     mediaItem.add(MediaItem(
-      id: '${pb.book.hashCode}:${pb.chapter.part}',
+      id: pb.mediaId,
       title: title,
       album: book,
       artUri: art,
@@ -154,7 +154,7 @@ class _Handler extends BaseAudioHandler with SeekHandler {
     _pb?.position.removeListener(_onPosition);
   }
 
-  void _detach(AudioPlayback pb) {
+  void _detach(ReadAloud pb) {
     if (_pb != pb) return;
     _unlisten();
     _pb = null;
