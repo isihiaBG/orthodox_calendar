@@ -12,6 +12,7 @@ import json
 from pathlib import Path
 
 import bible_speak
+import numbers_bg
 import pilot
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -29,7 +30,16 @@ def dart_set(name, s):
     return f'const Set<String> {name} = {{\n{rows}}};\n'
 
 
+def dart_map_list(name, d):
+    rows = ''.join(f'  {json.dumps(k, ensure_ascii=False)}: {json.dumps(list(v), ensure_ascii=False)},\n'
+                   for k, v in sorted(d.items()))
+    return f'const Map<String, List<String>> {name} = {{\n{rows}}};\n'
+
+
 def main():
+    missing = set(pilot.TITLES) - numbers_bg.NOT_END
+    assert not missing, f'numbers_bg.NOT_END няма: {missing}'
+
     src = ('// ⚠ ГЕНЕРИРАН ФАЙЛ — не го пипай на ръка.\n'
            '// Изворът: tools/tts/gen_speech_dart.py (таблиците на bible_speak.py и pilot.py).\n\n'
            '/// Съкращение на книга (ключ като `linkify._key`) → код.\n'
@@ -39,7 +49,13 @@ def main():
            + '\n/// Мъжки имена на -а/-я след „св." (инак „света").\n'
            + dart_set('kSpeechSvMale', pilot.SV_MALE)
            + '\n/// Печатни грешки в изворите, поправени само за четенето.\n'
-           + dart_map('kSpeechTextFixes', pilot.TEXT_FIXES))
+           + dart_map('kSpeechTextFixes', pilot.TEXT_FIXES)
+           + '\n/// Титлите: съкращение → (мъжки, женски) или (множествено,).\n'
+           + dart_map_list('kSpeechTitles', pilot.TITLES)
+           + '\n/// Съкращения, след чиято точка изречението не свършва (кръстчето).\n'
+           + dart_set('kSpeechNotEnd', numbers_bg.NOT_END)
+           + '\n/// Мъжки имена на -а/-я (кръстчето).\n'
+           + dart_set('kSpeechMaleA', numbers_bg._MALE_A))
     OUT.write_text(src)
     print(OUT, len(bible_speak._TABLE), 'съкращения,', len(bible_speak._TITLES), 'книги')
 

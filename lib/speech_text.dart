@@ -333,10 +333,49 @@ const _eras = [
   (r'\s*(?:сл\.|след)\s*Хр\.', ' след Христа'),
 ];
 
+// Годината с кръстче — кончината (numbers_bg._death): „почил" е руско.
+// Мъченик — „пострадал/а/и", иначе — „преставил/а/и се"; по титлата и
+// името ПРЕД скобата.
+final _martyr = RegExp(
+    r'(?<![А-Яа-я])(?:[а-я]*мч[а-я]*|[а-я]*мц[а-я]*|[а-я]*мъченик[а-я]*|'
+    r'[а-я]*мъченица|[а-я]*мъченици)\.?(?![А-Яа-я])',
+    caseSensitive: false,
+    unicode: true);
+final _plural = RegExp(
+    r'(?<![А-Яа-я])(?:мчч|мцц|мчци|свщмчч|сщмчч|прпмчч|прмчч|свв|апп|'
+    r'свтт|прпп|препп|мъченици|светите)\.?(?![А-Яа-я])',
+    caseSensitive: false,
+    unicode: true);
+final _sentBreak = RegExp(r'([А-Яа-я]+)[.!?]\s+(?=[А-Я])');
+final _capWord = RegExp(r'[А-Я][а-я]+');
+
+String _death(RegExpMatch m, int year) {
+  final before = m.input.substring(0, m.start);
+  var ctx = before.length > 80 ? before.substring(before.length - 80) : before;
+  // ⚠ Точка след съкращение („Мц. Татяна") не е край на изречение.
+  for (final e in _sentBreak.allMatches(ctx).toList().reversed) {
+    if (!kSpeechNotEnd.contains(e[1]!.toLowerCase())) {
+      ctx = ctx.substring(e.end);
+      break;
+    }
+  }
+  final names = _capWord.allMatches(ctx).toList();
+  final plural = _plural.hasMatch(ctx);
+  final martyr = _martyr.hasMatch(ctx);
+  final name = names.isEmpty ? '' : names.last[0]!.toLowerCase();
+  final fem = !plural &&
+      (name.endsWith('а') || name.endsWith('я')) &&
+      !kSpeechMaleA.contains(name);
+  final w = martyr
+      ? (plural ? 'пострадали' : fem ? 'пострадала' : 'пострадал')
+      : (plural ? 'преставили се' : fem ? 'преставила се' : 'преставил се');
+  return '($w през ${ordinal(year)} година)';
+}
+
 void yearsText(SpokenText t) {
   // „(+235 г.)" — кончина, с „г." (без „г." го поема miscText).
   t.sub(_re(r'\(\s*[+†]\s*([1-9]\d{1,3})\s*г\.\s*\)'),
-      (m) => '(почил през ${ordinal(_i(m[1]))} година)');
+      (m) => _death(m, _i(m[1])));
   // Диапазон с „г.": „(343–356 г.)", „от 813–820 г.", „между 471–474 г.".
   t.sub(
       _re('($_wb(?:от|между|през|в)\\s+)?$_wb([1-9]\\d{0,3})$_dash([1-9]\\d{0,3})$_yearSuffix'),
@@ -402,7 +441,7 @@ void miscText(SpokenText t) {
   t.sub(_re(r'\s*\(\s*0\s*K\s*\)'), (_) => '');
   // „(+637)" — годината на кончината.
   t.sub(_re(r'\(\s*[+†]\s*([1-9]\d{2,3})\s*\)'),
-      (m) => '(почил през ${ordinal(_i(m[1]))} година)');
+      (m) => _death(m, _i(m[1])));
   // „(ок. 306–373)"
   t.sub(_re('\\(\\s*ок\\.\\s*([1-9]\\d{1,3})$_dash([1-9]\\d{1,3})\\s*\\)'),
       (m) => '(около ${ordinal(_i(m[1]))} – ${ordinal(_i(m[2]))} година)');
@@ -598,6 +637,19 @@ void expandAbbr(SpokenText t) {
   t.sub(_re('$nb([Вв])ж\\.'), (m) => m[1] == 'В' ? 'Виж' : 'виж');
   t.sub(_re('$nb([Сс])рв\\.'), (m) => '${m[1]}равни');
   t.sub(_re(r'(\d)\s*гл\.'), (m) => '${m[1]} глава');
+  // Титлите — СЛЕД годините: „(ок. 306–373)" е тяхно правило.
+  t.sub(_titleRe, (m) {
+    final forms = kSpeechTitles[m[1]!.toLowerCase()]!;
+    final name = m[3]!.toLowerCase();
+    final fem = forms.length > 1 &&
+        (name.endsWith('а') || name.endsWith('я')) &&
+        !kSpeechSvMale.contains(name);
+    var w = fem ? forms[1] : forms[0];
+    if (m[1]![0] != m[1]![0].toLowerCase()) w = w[0].toUpperCase() + w.substring(1);
+    // Името не се поглъща (поглед напред) — инак втората от две титли
+    // („Свв. мчч. Гурий") оставаше неразгъната.
+    return w + (m[2]!.isEmpty ? ' ' : m[2]!);
+  });
   // Знаци, които гласът би прочел като нещо странно.
   t.sub(_re(r'^\s*[•▪◦·]\s*'), (_) => '');
   t.sub(_re(r'\s*[•▪◦]\s*'), (_) => ', ');
@@ -607,6 +659,12 @@ void expandAbbr(SpokenText t) {
     return n < 10000 ? 'параграф ${cardinal(n)}' : m[0]!;
   });
 }
+
+final _titleRe = RegExp(
+    '(?<![А-Яа-я])(${(kSpeechTitles.keys.toList()..sort((a, b) => b.length - a.length)).join('|')})'
+    r'\.(\s*)(?=([А-Яа-я]*))',
+    caseSensitive: false,
+    unicode: true);
 
 // ── църковнославянското (cs_translit.py) ─────────────────────────────────
 
