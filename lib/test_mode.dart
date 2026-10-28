@@ -413,7 +413,7 @@ class _StressSheetState extends State<_StressSheet> {
       child: Padding(
         padding: EdgeInsets.fromLTRB(24, 0, 24, 20 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('УДАРЕНИЕТО ЗА ГЛАСА НА ТЕЛЕФОНА',
+          Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
               style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
           const SizedBox(height: 6),
           Text('Докоснете ударената гласна',

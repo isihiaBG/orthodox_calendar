@@ -39,8 +39,12 @@ class PhoneVoice {
   static const _channel = MethodChannel('isihiabg/update');
   static const _google = 'com.google.android.tts';
 
-  /// Знаци в секунда — за приблизителното време в плейъра.
-  static const charsPerSecond = 15.0;
+  /// „1,0×" в плейъра. Обичайното на Android (0.5) звучеше бързо и
+  /// напрегнато (автора, 29.10.2026) — със степен и половина по-бавно.
+  static const baseRate = 0.425;
+
+  /// Знаци в секунда — за приблизителното време в плейъра (~15 при 0.5).
+  static const charsPerSecond = 15.0 * baseRate / 0.5;
 
   static Future<PhoneVoiceState>? _ready;
   static PhoneVoicePlayback? _owner;
@@ -53,7 +57,7 @@ class PhoneVoice {
       if (engines.contains(_google)) await _tts.setEngine(_google);
       final available = await _tts.isLanguageAvailable('bg-BG');
       if (available != true) {
-        audioLogAdd('гласът на телефона: няма български (двигатели: $engines)');
+        audioLogAdd('гласът на устройството: няма български (двигатели: $engines)');
         _ready = null; // да се провери пак, след като човекът го свали
         return PhoneVoiceState.noBulgarian;
       }
@@ -72,9 +76,9 @@ class PhoneVoice {
       if (local != null) {
         await _tts.setVoice({'name': '${local['name']}', 'locale': '${local['locale']}'});
       }
-      // 0.5 е обичайното темпо на Android; скоростта от плейъра — отгоре.
+      // Темпото: [baseRate] × скоростта от плейъра.
       await AudioSpeed.loadOnce();
-      await _tts.setSpeechRate(0.5 * AudioSpeed.value);
+      await _tts.setSpeechRate(baseRate * AudioSpeed.value);
       AudioSpeed.notifier.addListener(_onSpeed);
       await PhoneStress.loadOnce();
       await _tts.awaitSpeakCompletion(false);
@@ -82,10 +86,10 @@ class PhoneVoice {
       _tts.setStartHandler(() => _owner?._started = true);
       _tts.setCompletionHandler(() => _owner?._onDone());
       _tts.setErrorHandler((msg) => _owner?._onError('$msg'));
-      audioLogAdd('гласът на телефона: готов (${local?['name'] ?? 'по подразбиране'})');
+      audioLogAdd('гласът на устройството: готов (${local?['name'] ?? 'по подразбиране'})');
       return PhoneVoiceState.ready;
     } catch (e) {
-      audioLogAdd('гласът на телефона: грешка при подготовка — $e');
+      audioLogAdd('гласът на устройството: грешка при подготовка — $e');
       _ready = null;
       return PhoneVoiceState.noBulgarian;
     }
@@ -96,7 +100,7 @@ class PhoneVoice {
   /// Нова скорост: важи от следващото изговаряне, затова звучащото
   /// изречение се почва отново с нея.
   static Future<void> _onSpeed() async {
-    await _tts.setSpeechRate(0.5 * AudioSpeed.value);
+    await _tts.setSpeechRate(baseRate * AudioSpeed.value);
     final o = _owner;
     if (o != null && o.playing.value && o.sentence.value >= 0) {
       await o._speakFrom(o.sentence.value);
@@ -428,7 +432,7 @@ class PhoneVoicePlayback implements ReadAloud {
   }
 
   void _onError(String msg) {
-    audioLogAdd('гласът на телефона: грешка — $msg');
+    audioLogAdd('гласът на устройството: грешка — $msg');
     _gen++;
     playing.value = false;
     onError?.call(msg);

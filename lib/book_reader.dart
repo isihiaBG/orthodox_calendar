@@ -1393,7 +1393,7 @@ class _BookReaderState extends State<BookReader>
               x = x.join(readingBlockOf(y), '\n');
             }
             if (x.text == quote[i]) return x;
-            audioLogAdd('гласът на телефона: блок $i се разминава с текста — без връзките');
+            audioLogAdd('гласът на устройството: блок $i се разминава с текста — без връзките');
           }
           return ReadingBlock(quote[i]);
         }(),
@@ -1430,7 +1430,7 @@ class _BookReaderState extends State<BookReader>
       return;
     }
     pb.onError = (msg) =>
-        messenger.showSnackBar(SnackBar(content: Text('Гласът на телефона спря ($msg).')));
+        messenger.showSnackBar(SnackBar(content: Text('Гласът на устройството спря ($msg).')));
     _wireAudio(pb, outroAt: double.infinity);
     setState(() {
       _sentLoc = loc;
@@ -2446,7 +2446,7 @@ class _BookReaderState extends State<BookReader>
         final msg = err ??
             (_hasAudio
                 ? 'Тази беседа има запис — печатът до слушалките долу вдясно.'
-                : 'Записи още няма — слушалките долу вдясно четат с гласа на телефона.');
+                : 'Записи още няма — слушалките долу вдясно четат с гласа на устройството.');
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
         return;
       }

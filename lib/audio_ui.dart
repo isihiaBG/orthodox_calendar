@@ -94,7 +94,7 @@ Future<bool> askAudioDelete(BuildContext context, AudioBook book, String part,
       title: Text('Изтриване на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
       content: Text(
         '„$title“\n\n'
-        'Да изтрия ли звука от телефона? Освобождава ${audioSizeLabel(book.sizeOf(part))}. '
+        'Да изтрия ли звука от устройството? Освобождава ${audioSizeLabel(book.sizeOf(part))}. '
         'Може да се свали пак по всяко време.',
         style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
       ),
@@ -122,7 +122,7 @@ Future<void> askAudioDownloadAll(BuildContext context, AudioBook book) async {
       title: Text('Сваляне на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
       content: Text(
         'Да сваля ли звука на всички ${todo.length} '
-        '${todo.length == 1 ? 'глава' : 'глави'}, които още ги няма на телефона? '
+        '${todo.length == 1 ? 'глава' : 'глави'}, които още ги няма на устройството? '
         'Общо ${audioSizeLabel(bytes)}, безплатно. После се слушат и без интернет.',
         style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
       ),
@@ -210,7 +210,7 @@ Future<bool> askAudioDeleteMany(BuildContext context, AudioBook book, List<Strin
       backgroundColor: palette.sheet,
       title: Text('Изтриване на звука', style: TextStyle(color: palette.ink, fontSize: 19)),
       content: Text(
-        'Да изтрия ли $what от телефона? '
+        'Да изтрия ли $what от устройството? '
         'Освобождава ${audioSizeLabel(book.bytesOf(parts))}. '
         'Може да се свали пак по всяко време.',
         style: TextStyle(color: palette.ink, fontSize: 16, height: 1.35),
@@ -996,7 +996,7 @@ class _PlayerSettingsPanelState extends State<_PlayerSettingsPanel> {
         if (!on)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text('Само за гласа на телефона — записът е в своето темпо.',
+            child: Text('Само за гласа на устройството — записът е в своето темпо.',
                 style: TextStyle(color: dim, fontSize: 12.5, height: 1.3)),
           ),
       ]),

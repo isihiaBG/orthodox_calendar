@@ -2839,7 +2839,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
     next.onError = (msg) =>
-        messenger.showSnackBar(SnackBar(content: Text('Гласът на телефона спря ($msg).')));
+        messenger.showSnackBar(SnackBar(content: Text('Гласът на устройството спря ($msg).')));
     next.sentence.addListener(_onSentence);
     // Едно житие — в края плейърът просто спира.
     next.onFinished = () {};

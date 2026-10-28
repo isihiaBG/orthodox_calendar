@@ -769,7 +769,8 @@ class AudioAutoNext {
 /// запис е сива (автора, 29.10.2026). От зъбното колело в плейъра.
 class AudioSpeed {
   static const _key = 'audio_speed';
-  static const min = 0.7, max = 1.5;
+  // 1,0× — точно в средата (автора).
+  static const min = 0.6, max = 1.4;
   static final ValueNotifier<double> notifier = ValueNotifier(1.0);
   static bool _loaded = false;
 
