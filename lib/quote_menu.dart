@@ -13,6 +13,7 @@
 import 'package:flutter/material.dart';
 import 'package:share_plus/share_plus.dart';
 
+import 'test_mode.dart';
 import 'quote_capture.dart';
 import 'quote_link.dart';
 import 'quotes.dart';
@@ -211,6 +212,16 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
     widget.onListen!(spot);
   }
 
+  /// Една маркирана дума в тестовия режим — иначе null.
+  String? _stressWord() =>
+      widget.onListen != null && TestMode.showTools ? stressWordOf(_selectedText()) : null;
+
+  void _stress(SelectableRegionState region) {
+    final w = _stressWord();
+    region.hideToolbar();
+    if (w != null) showStressSheet(context, w);
+  }
+
   Future<void> _save(SelectableRegionState region) async {
     final text = _selectedText();
     if (text == null || text.isEmpty) {
@@ -283,6 +294,7 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
           onSaveQuote: () => _save(region),
           onShareQuote: () => _share(region),
           onListen: widget.onListen == null ? null : () => _listen(region),
+          onStress: _stressWord() == null ? null : () => _stress(region),
         );
       },
       child: widget.child,

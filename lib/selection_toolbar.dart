@@ -82,6 +82,10 @@ class IconSelectionToolbar extends StatelessWidget {
   /// „Слушай оттук" — стои ПЪРВО (искане на автора, 11.10.2026).
   final VoidCallback? onListen;
 
+  /// „Грешно ударение" — само в тестовия режим и при една маркирана дума
+  /// (lib/test_mode.dart).
+  final VoidCallback? onStress;
+
   const IconSelectionToolbar({
     super.key,
     required this.anchors,
@@ -89,6 +93,7 @@ class IconSelectionToolbar extends StatelessWidget {
     this.onSaveQuote,
     this.onShareQuote,
     this.onListen,
+    this.onStress,
   });
 
   @override
@@ -127,6 +132,23 @@ class IconSelectionToolbar extends StatelessWidget {
             icon: Icon(Icons.play_arrow, size: _kIconSize, color: ink),
             tooltip: 'Слушай оттук',
             onPressed: onListen,
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+            constraints: const BoxConstraints(),
+          ),
+        if (onStress != null)
+          IconButton(
+            // „а́" — буква с ударение, не икона: по-ясно от всяка икона.
+            icon: SizedBox(
+              width: _kIconSize,
+              height: _kIconSize,
+              child: Center(
+                child: Text('а\u0301',
+                    style: TextStyle(
+                        fontSize: _kIconSize * 0.95, height: 1, color: ink, fontWeight: FontWeight.w500)),
+              ),
+            ),
+            tooltip: 'Грешно ударение',
+            onPressed: onStress,
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
             constraints: const BoxConstraints(),
           ),

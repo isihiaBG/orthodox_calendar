@@ -128,6 +128,8 @@ flutter:
     - assets/audio_index.json
     # „История на промените" и „Какво ново" — един извор (release_notes_screen.dart).
     - assets/release_notes.json
+    # Речникът на ударенията за гласа на телефона (lib/test_mode.dart).
+    - assets/speech/phone_accents.txt
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #

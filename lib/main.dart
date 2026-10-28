@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'audio_manage_screen.dart';
 import 'audiobook.dart';
 import 'package:flutter/material.dart';
+
+import 'test_mode.dart';
 import 'style_dates.dart';
 import 'database_helper.dart';
 import 'db_platform.dart';
@@ -34,6 +37,9 @@ void main() async {
   // ⚠ ПРЕДИ всяко отваряне на база — в браузъра подменя фабриката на sqflite.
   initDatabasePlatform();
   await AppSettings.load();
+  // Тестовият режим (lib/test_mode.dart) — без чакане; менюто при маркиране
+  // го пита по-късно.
+  unawaited(TestMode.loadOnce());
   // ⚠ ПРЕДИ runApp: „назад" първо свива прозореца на свалянето, а не
   // затваря екрана под него (наблюдателите се питат по реда на записване).
   AppUpdate.installBackHandler();

@@ -8,6 +8,8 @@
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+import 'test_mode.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'app_drawer.dart';
@@ -369,13 +371,21 @@ class _AboutScreenState extends State<AboutScreen> {
                 ),
                 const SizedBox(height: 8),
                 // Версията — тихо, под името (app_version.dart).
+                // ⚠ 7 докосвания — тестовият режим (lib/test_mode.dart).
                 FutureBuilder<String>(
                   future: appVersionLabel(),
-                  builder: (_, s) => Text(
-                    s.data ?? '',
-                    textAlign: TextAlign.center,
-                    style: const TextStyle(
-                        color: AppColors.textMuted, fontSize: 13, letterSpacing: 0.6),
+                  builder: (_, s) => GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () => TestMode.tapVersion(context),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        s.data ?? '',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            color: AppColors.textMuted, fontSize: 13, letterSpacing: 0.6),
+                      ),
+                    ),
                   ),
                 ),
                 const SizedBox(height: 10),

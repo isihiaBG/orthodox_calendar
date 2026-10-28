@@ -24,7 +24,7 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:flutter/foundation.dart' show compute;
+import 'package:flutter/foundation.dart' show compute, kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -33,6 +33,10 @@ import 'package:flutter_svg/flutter_svg.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'app_theme.dart';
+import 'audio_background.dart';
+import 'audio_ui.dart';
+import 'audiobook.dart' show ReadAloud;
+import 'phone_voice.dart';
 import 'bookmarks.dart';
 import 'bookmarks_all.dart';
 import 'pdf_export.dart';
@@ -2538,6 +2542,13 @@ class _ReaderScreenState extends State<ReaderScreen>
 
   @override
   void dispose() {
+    final pb = _playback;
+    if (pb != null) {
+      pb.sentence.removeListener(_onSentence);
+      _playback = null;
+      AudioBackground.detach(pb);
+      unawaited(pb.dispose());
+    }
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
     // Прибираме евентуален висящ SnackBar веднага — иначе остава да виси и
@@ -2746,6 +2757,166 @@ class _ReaderScreenState extends State<ReaderScreen>
     final (fp, fpLen) = quoteFingerprint(q.text);
     return ParsedQuoteLink(
         anchor: q.anchor, fingerprint: fp, fingerprintLength: fpLen, text: q.text);
+  }
+
+  // ---------------------------------------------------------------
+  // Четене на глас с гласа на телефона (28.10.2026) — виж phone_voice.dart.
+  // Записи за житията от базата няма, затова тук е само гласът на телефона.
+  // Изречението светва със СЪЩИЯ механизъм като цитата, а текстът се плъзга
+  // плавно след него — както в четеца на книгите (book_reader.dart).
+  // ---------------------------------------------------------------
+  ReadAloud? _playback;
+  List<(int, int, int, int)?> _sentLoc = const [];
+  DateTime _userScrolledAt = DateTime(0);
+
+  /// Блоковете за гласа — същият текст като [_quoteBlocks] плюс връзките и
+  /// бележките; надписът под илюстрацията се прескача (и при записите).
+  List<ReadingBlock> _speechBlocks(List<String> quote) {
+    final p = _prepared;
+    if (p == null) return const [];
+    final cap = _dropCapBlockIndex;
+    final out = <ReadingBlock>[];
+    for (var i = 0; i < quote.length; i++) {
+      ReadingBlock? b;
+      if (i < p.regions.length) {
+        final r = p.regions[i];
+        final parts = <(ReadingBlock, bool)>[
+          if (r.captionHtml != null && r.captionHtml!.isNotEmpty)
+            (readingBlockOf(r.captionHtml!, decode: decodeEntities), true),
+          (readingBlockOf(r.content, decode: decodeEntities), false),
+          for (final x in r.rest) (readingBlockOf(x, decode: decodeEntities), false),
+        ].where((e) => e.$1.text.isNotEmpty).toList();
+        ReadingBlock? x;
+        for (final (y, caption) in parts) {
+          final z = caption ? ReadingBlock(y.text, const [], [(0, y.text.length)]) : y;
+          x = x == null ? z : x.join(z, '\n');
+        }
+        x ??= const ReadingBlock('');
+        if (i == cap && p.dropCap.isNotEmpty) x = x.prefixed(p.dropCap);
+        if (x.text == quote[i]) b = x;
+      }
+      out.add(b ?? ReadingBlock(quote[i]));
+    }
+    return out;
+  }
+
+  Future<void> _onListen({CapturedSpot? from}) async {
+    final pb = _playback;
+    if (pb != null && from == null) {
+      await pb.toggle();
+      return;
+    }
+    final quote = _quoteBlocks();
+    if (quote.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final state = await PhoneVoice.ready();
+    if (!mounted) return;
+    if (state != PhoneVoiceState.ready) {
+      await askPhoneVoiceInstall(context);
+      return;
+    }
+    final next = PhoneVoicePlayback(
+        'life', '${widget.texts.slug}|${widget._mode.name}', _speechBlocks(quote));
+    if (next.sents.isEmpty) {
+      await next.dispose();
+      return;
+    }
+    final loc = <(int, int, int, int)?>[for (final (b, st, en) in next.sents) (b, st, b, en)];
+    var k = 0;
+    if (from != null) {
+      for (var j = 0; j < loc.length; j++) {
+        final l = loc[j]!;
+        if (l.$1 < from.block || (l.$1 == from.block && l.$2 <= from.charStart)) {
+          k = j;
+        } else {
+          break;
+        }
+      }
+    }
+    await _stopListening();
+    if (!mounted) {
+      await next.dispose();
+      return;
+    }
+    next.onError = (msg) =>
+        messenger.showSnackBar(SnackBar(content: Text('Гласът на телефона спря ($msg).')));
+    next.sentence.addListener(_onSentence);
+    // Едно житие — в края плейърът просто спира.
+    next.onFinished = () {};
+    setState(() {
+      _sentLoc = loc;
+      _playback = next;
+      _showResumePrompt = false;
+    });
+    _userScrolledAt = DateTime(0);
+    unawaited(AudioBackground.attach(next,
+        title: widget.texts.name, book: 'Жития на светиите', epub: ''));
+    await next.start(fromSentence: k);
+  }
+
+  Future<void> _stopListening() async {
+    final pb = _playback;
+    if (pb == null) return;
+    pb.sentence.removeListener(_onSentence);
+    _playback = null;
+    AudioBackground.detach(pb);
+    if (mounted) {
+      setState(() {
+        _quoteRegion = -1;
+        _quoteRegionEnd = -1;
+        _quoteText = '';
+      });
+    }
+    await pb.dispose();
+  }
+
+  void _onSentence() {
+    final pb = _playback;
+    if (pb == null || !mounted) return;
+    final k = pb.sentence.value;
+    final loc = (k >= 0 && k < _sentLoc.length) ? _sentLoc[k] : null;
+    if (loc == null) return;
+    final (b, c, bEnd, cEnd) = loc;
+    final blocks = _quoteBlocks();
+    if (bEnd >= blocks.length) return;
+    final capLen = (b == _dropCapBlockIndex) ? (_prepared?.dropCap.length ?? 0) : 0;
+    setState(() {
+      _quoteRegion = b;
+      _quoteRegionEnd = bEnd;
+      _quoteStart = (c - capLen).clamp(0, 1 << 30);
+      final raw = blocks[b];
+      _quoteText = raw.substring(c.clamp(0, raw.length), cEnd.clamp(c, raw.length));
+      _quoteLength = _quoteText.length;
+    });
+    if (DateTime.now().difference(_userScrolledAt).inSeconds >= 5) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _glideToSentence(b, c - capLen));
+    }
+  }
+
+  /// ⚠ ПЛАВНО (изрично от автора) — плъзга се само когато изречението излезе
+  /// от удобната ивица на екрана (12–62% отгоре), до 30% отгоре.
+  void _glideToSentence(int region, int charInRegion) {
+    if (!mounted || !_scrollController.hasClients) return;
+    if (region < 0 || region >= _regionKeys.length) return;
+    final box = _regionKeys[region].currentContext?.findRenderObject() as RenderBox?;
+    if (box == null) {
+      // Регионът още не е построен (далеч от екрана) — първо грубо до него.
+      _jumpToBookmarkRegion(region, charInRegion, 0.3, const Duration(milliseconds: 1400));
+      return;
+    }
+    final line = _lineForChar(region, charInRegion.clamp(0, 1 << 30), box.size.width);
+    if (line == null) return;
+    final position = _scrollController.position;
+    final top = RenderAbstractViewport.of(box)
+        .getOffsetToReveal(box, 0, rect: Rect.fromLTWH(0, line.$1, box.size.width, line.$2))
+        .offset;
+    final vp = position.viewportDimension;
+    final y = top - position.pixels;
+    if (y >= vp * 0.12 && y <= vp * 0.62) return;
+    _scrollController.animateTo(
+        (top - vp * 0.3).clamp(position.minScrollExtent, position.maxScrollExtent),
+        duration: const Duration(milliseconds: 1400),
+        curve: Curves.easeInOutCubic);
   }
 
   List<String> _quoteBlocks() {
@@ -3530,7 +3701,13 @@ class _ReaderScreenState extends State<ReaderScreen>
               // подравнени с `_quoteBlocks` (и двете вървят по регионите).
               blockKey: (i) =>
                   i >= 0 && i < _regionKeys.length ? _regionKeys[i] : null,
-              child: CustomScrollView(
+              onListen: (spot) => _onListen(from: spot),
+              child: NotificationListener<UserScrollNotification>(
+                onNotification: (n) {
+                  if (n.direction != ScrollDirection.idle) _userScrolledAt = DateTime.now();
+                  return false;
+                },
+                child: CustomScrollView(
                 controller: _scrollController,
                 slivers: [
                   if (includeHeaderSliver) sliverHeader,
@@ -3545,7 +3722,10 @@ class _ReaderScreenState extends State<ReaderScreen>
                   ),
                   if (widget.footer != null)
                     SliverToBoxAdapter(child: widget.footer!(_dim)),
+                  // Място под всичко, за да не остава зад копчето/плейъра.
+                  const SliverToBoxAdapter(child: SizedBox(height: 72)),
                 ],
+              ),
               ),
             ),
           ),
@@ -3581,7 +3761,14 @@ class _ReaderScreenState extends State<ReaderScreen>
       child: Scaffold(
         key: _scaffoldKey,
         backgroundColor: AppColors.toolbar,
-        endDrawer: const SettingsDrawer(sections: {SettingsSection.reader}),
+        endDrawer: const SettingsDrawer(sections: {SettingsSection.reader, SettingsSection.audio}),
+        // Четене на глас — гласът на телефона (phone_voice.dart).
+        bottomNavigationBar: _playback == null
+            ? null
+            : AudioMiniPlayer(playback: _playback!, onClose: _stopListening),
+        floatingActionButton: _playback != null || _showResumePrompt || _searchOpen || kIsWeb
+            ? null
+            : AudioFab(onTap: () => _onListen()),
         body: SafeArea(
           // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
           // SafeArea я поеме и той, отстъпът горе се удвоява.

@@ -514,13 +514,15 @@ class AudioFab extends StatelessWidget {
     if (!hasRec) {
       return Padding(padding: const EdgeInsets.only(right: 14, bottom: 8), child: fab);
     }
-    // ⚠ Копчето е отместено с 7 px навътре, за да е и печатът ВЪТРЕ в
+    // ⚠ Копчето е отместено с 11 px навътре, за да е и печатът ВЪТРЕ в
     // стека — докосване извън стека не стига до него. Копчето стои на
-    // същото място (14 − 7 отдясно). Печатът излиза ~7 px извън кръга.
+    // същото място (14 − 11 отдясно). Мястото на печата — избрано от автора
+    // по рисунки (28.10.2026): 4 px по-вдясно и по-нагоре от първото, за да
+    // не застъпва дъгата на слушалките.
     return Padding(
-      padding: const EdgeInsets.only(right: 7, bottom: 8),
+      padding: const EdgeInsets.only(right: 3, bottom: 8),
       child: Stack(clipBehavior: Clip.none, children: [
-              Padding(padding: const EdgeInsets.only(top: 7, right: 7), child: fab),
+              Padding(padding: const EdgeInsets.only(top: 11, right: 11), child: fab),
               Positioned(
                 right: 3,
                 top: 3,

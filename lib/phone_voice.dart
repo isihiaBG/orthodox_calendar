@@ -21,6 +21,7 @@ import 'package:flutter_tts/flutter_tts.dart';
 
 import 'audiobook.dart';
 import 'speech_text.dart';
+import 'test_mode.dart' show PhoneStress;
 
 /// Готов ли е гласът на телефона.
 enum PhoneVoiceState {
@@ -72,6 +73,7 @@ class PhoneVoice {
         await _tts.setVoice({'name': '${local['name']}', 'locale': '${local['locale']}'});
       }
       await _tts.setSpeechRate(0.5);
+      await PhoneStress.loadOnce();
       await _tts.awaitSpeakCompletion(false);
       _tts.setProgressHandler((_, s, e, _) => _owner?._onProgress(s, e));
       _tts.setStartHandler(() => _owner?._started = true);
@@ -84,6 +86,16 @@ class PhoneVoice {
       _ready = null;
       return PhoneVoiceState.noBulgarian;
     }
+  }
+
+  /// „Чуй" в панела за ударението: казва [text] веднага; четенето, ако
+  /// върви, спира (продължава от изречението с ▶).
+  static Future<void> preview(String text) async {
+    if (await ready() != PhoneVoiceState.ready) return;
+    final o = _owner;
+    if (o != null && o.playing.value) await o.toggle();
+    await _tts.stop();
+    await _tts.speak(text);
   }
 
   /// Отваря екрана на Google за сваляне на гласовете. false — не се отвори.
@@ -127,15 +139,20 @@ final _href = RegExp(r'''href\s*=\s*["']([^"']*)["']''');
 /// HTML → [ReadingBlock]. Текстът е ТОЧНО като в четеца (`_plainOf`: без
 /// таговете, празното свито до един интервал, без краищата) — инак позициите
 /// не съвпадат с маркирането.
-ReadingBlock readingBlockOf(String html) {
+///
+/// [decode] — разкодиране на знаците (`&ndash;`…), ако четецът го прави
+/// (reader_screen: `decodeEntities`). Прилага се на всяко парче между
+/// таговете — знак никога не минава през таг, тъй че позициите остават.
+ReadingBlock readingBlockOf(String html, {String Function(String)? decode}) {
   final raw = StringBuffer();
   final links = <(int, int, String)>[];
   final drop = <(int, int)>[];
   final openA = <(int, String?)>[];
   final openSup = <int>[];
   var last = 0;
+  String piece(String x) => decode == null ? x : decode(x);
   for (final m in _tag.allMatches(html)) {
-    raw.write(html.substring(last, m.start));
+    raw.write(piece(html.substring(last, m.start)));
     last = m.end;
     final t = m[0]!.toLowerCase();
     final at = raw.length;
@@ -155,7 +172,7 @@ ReadingBlock readingBlockOf(String html) {
       }
     }
   }
-  raw.write(html.substring(last));
+  raw.write(piece(html.substring(last)));
   final r = raw.toString();
   // Свиване на празното, с карта стара позиция → нова.
   final out = StringBuffer();
@@ -164,7 +181,11 @@ ReadingBlock readingBlockOf(String html) {
   for (var i = 0; i < r.length; i++) {
     map[i] = out.length;
     final c = r.codeUnitAt(i);
-    final ws = c == 0x20 || c == 0x09 || c == 0x0A || c == 0x0D || c == 0x0C || c == 0x0B;
+    // Като `\s` в RegExp на Dart (с което работят четците): и NBSP, и
+    // другите празни знаци на Unicode.
+    final ws = (c >= 0x09 && c <= 0x0D) || c == 0x20 || c == 0xA0 || c == 0x1680 ||
+        (c >= 0x2000 && c <= 0x200A) || c == 0x2028 || c == 0x2029 || c == 0x202F ||
+        c == 0x205F || c == 0x3000 || c == 0xFEFF;
     if (ws) {
       if (!inSpace) out.write(' ');
       inSpace = true;
@@ -332,6 +353,7 @@ class PhoneVoicePlayback implements ReadAloud {
       for (final (x, y) in blk.drop)
         if (x >= from && y <= end) (x - from, y - from),
     ]);
+    PhoneStress.apply(spoken);
     _uBlock = b;
     _uFrom = from;
     _uEnd = end;
