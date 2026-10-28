@@ -765,36 +765,53 @@ class AudioAutoNext {
   }
 }
 
-/// Скоростта на четене (×, 1 — обичайната) — САМО за гласа на телефона; при
-/// запис е сива (автора, 29.10.2026). От зъбното колело в плейъра.
-class AudioSpeed {
-  static const _key = 'audio_speed';
-  // 1,0× — точно в средата (автора).
-  static const min = 0.6, max = 1.4;
-  static final ValueNotifier<double> notifier = ValueNotifier(1.0);
-  static bool _loaded = false;
+/// Настройка на гласа на устройството от менюто в плейъра (скорост,
+/// височина, паузи) — САМО за него; при запис е сива (автора, 29.10.2026).
+class VoiceSetting {
+  final String _key;
+  final double min, max, normal;
+  final int divisions;
+  final String Function(double) label;
+  final ValueNotifier<double> notifier;
+  VoiceSetting._(this._key, this.min, this.max, this.normal, this.divisions, this.label)
+      : notifier = ValueNotifier(normal);
 
-  static double get value => notifier.value;
+  static String _n(double v, int d) => v.toStringAsFixed(d).replaceAll('.', ',');
 
-  static Future<void> loadOnce() async {
-    if (_loaded) return;
-    _loaded = true;
-    try {
-      final p = await SharedPreferences.getInstance();
-      notifier.value = (p.getDouble(_key) ?? 1.0).clamp(min, max);
-    } catch (_) {}
-  }
+  /// ×, 1,0 — в средата.
+  static final speed = VoiceSetting._('audio_speed', 0.6, 1.4, 1.0, 8, (v) => '${_n(v, 1)}×');
 
-  static Future<void> set(double v) async {
+  /// Височина: 1 — гласът, както е.
+  static final pitch = VoiceSetting._('voice_pitch', 0.8, 1.2, 1.0, 8, (v) {
+    final p = ((v - 1) * 100).round();
+    return p == 0 ? 'обичайна' : '${p > 0 ? '+' : '−'}${p.abs()} %';
+  });
+
+  /// Добавена пауза след изречение, в секунди (между абзаците — двойна).
+  static final pause = VoiceSetting._('voice_pause', 0, 1, 0, 10,
+      (v) => v < 0.05 ? 'без' : '${_n(v, 1)} с');
+
+  static final all = [speed, pitch, pause];
+
+  double get value => notifier.value;
+
+  static Future<void>? _loading;
+  static Future<void> loadOnce() => _loading ??= () async {
+        try {
+          final p = await SharedPreferences.getInstance();
+          for (final s in all) {
+            s.notifier.value = (p.getDouble(s._key) ?? s.normal).clamp(s.min, s.max);
+          }
+        } catch (_) {}
+      }();
+
+  Future<void> set(double v) async {
     notifier.value = v.clamp(min, max);
     try {
       final p = await SharedPreferences.getInstance();
       await p.setDouble(_key, notifier.value);
     } catch (_) {}
   }
-
-  /// „1,2×"
-  static String label(double v) => '${v.toStringAsFixed(1).replaceAll('.', ',')}×';
 }
 
 /// Плейърът на една беседа.

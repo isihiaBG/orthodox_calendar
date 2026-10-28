@@ -879,8 +879,9 @@ class AudioRecordingChip extends StatelessWidget {
       );
 }
 
-/// Зъбното колело в плейъра: „следващото четиво след края" и скоростта
-/// (само при гласа на телефона — при запис е сива). Тук ще влизат и
+/// Копчето с плъзгачите в плейъра: „следващото четиво след края", скорост,
+/// височина и паузи (последните три — само при гласа на устройството; при
+/// запис са сиви). Тук ще влизат и
 /// бъдещите настройки на слушането.
 class _PlayerSettings extends StatelessWidget {
   final bool phone;
@@ -903,7 +904,8 @@ class _PlayerSettings extends StatelessWidget {
           tooltip: 'Настройки на слушането',
           onPressed: () => menu.isOpen ? menu.close() : menu.open(),
           iconSize: 26,
-          icon: const Icon(Icons.settings_outlined, color: Colors.white70),
+          // Плъзгачите — като при разширеното търсене (автора).
+          icon: const Icon(Icons.tune, color: Colors.white70),
         ),
       );
 }
@@ -918,15 +920,16 @@ class _PlayerSettingsPanel extends StatefulWidget {
 }
 
 class _PlayerSettingsPanelState extends State<_PlayerSettingsPanel> {
-  // Докато се влачи — само тук; гласът получава скоростта при пускане
+  static const _ink = Color(0xDEFFFFFF);
+  static const _dim = Color(0x8AFFFFFF);
+  static const _off = Color(0x4DFFFFFF);
+
+  // Докато се влачи — само тук; гласът получава стойността при пускане
   // (иначе би почвал изречението наново на всяка стъпка).
-  late double _speed = AudioSpeed.value;
+  late final _v = {for (final s in VoiceSetting.all) s: s.value};
 
   @override
   Widget build(BuildContext context) {
-    const ink = Color(0xDEFFFFFF);
-    const dim = Color(0x8AFFFFFF);
-    const off = Color(0x4DFFFFFF);
     final on = widget.phone;
     return SizedBox(
       width: _PlayerSettingsPanel.width,
@@ -937,70 +940,79 @@ class _PlayerSettingsPanelState extends State<_PlayerSettingsPanel> {
             dense: true,
             contentPadding: const EdgeInsets.symmetric(horizontal: 16),
             title: const Text('Следващото четиво след края',
-                style: TextStyle(color: ink, fontSize: 15)),
+                style: TextStyle(color: _ink, fontSize: 15)),
             value: next,
             activeThumbColor: AppColors.toolbar,
             activeTrackColor: AppColors.sectionTitle,
-            inactiveThumbColor: dim,
+            inactiveThumbColor: _dim,
             inactiveTrackColor: AppColors.drawerDivider,
             trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
             onChanged: (_) => AudioAutoNext.toggle(),
           ),
         ),
         const Divider(height: 10, color: AppColors.drawerDivider),
-        Padding(
-          padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
-          child: Row(children: [
-            Text('Скорост', style: TextStyle(color: on ? ink : off, fontSize: 15)),
-            const Spacer(),
-            // Докосване по стойността — обратно на обичайната.
-            GestureDetector(
-              onTap: on && _speed != 1.0
-                  ? () {
-                      setState(() => _speed = 1.0);
-                      AudioSpeed.set(1.0);
-                    }
-                  : null,
-              child: Text(AudioSpeed.label(_speed),
-                  style: TextStyle(
-                      color: on ? ink : off,
-                      fontSize: 15,
-                      fontFeatures: const [FontFeature.tabularFigures()])),
-            ),
-          ]),
-        ),
-        SliderTheme(
-          data: SliderTheme.of(context).copyWith(
-            activeTrackColor: AppColors.sectionTitle,
-            inactiveTrackColor: AppColors.drawerDivider,
-            thumbColor: AppColors.sectionTitle,
-            disabledActiveTrackColor: off,
-            disabledInactiveTrackColor: AppColors.drawerDivider,
-            disabledThumbColor: const Color(0xFF5A5A5A),
-            activeTickMarkColor: Colors.transparent,
-            inactiveTickMarkColor: Colors.transparent,
-            disabledActiveTickMarkColor: Colors.transparent,
-            disabledInactiveTickMarkColor: Colors.transparent,
-            overlayColor: AppColors.sectionTitle.withValues(alpha: 0.16),
-            trackHeight: 3,
-          ),
-          child: Slider(
-            value: _speed,
-            min: AudioSpeed.min,
-            max: AudioSpeed.max,
-            divisions: 8,
-            onChanged: on ? (v) => setState(() => _speed = v) : null,
-            onChangeEnd: on ? AudioSpeed.set : null,
-          ),
-        ),
+        _slider(context, 'Скорост', VoiceSetting.speed, on),
+        _slider(context, 'Височина', VoiceSetting.pitch, on),
+        _slider(context, 'Паузи', VoiceSetting.pause, on),
         if (!on)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Text('Само за гласа на устройството — записът е в своето темпо.',
-                style: TextStyle(color: dim, fontSize: 12.5, height: 1.3)),
+            child: Text('Само за гласа на устройството — записът е такъв, какъвто е.',
+                style: TextStyle(color: _dim, fontSize: 12.5, height: 1.3)),
           ),
       ]),
     );
+  }
+
+  Widget _slider(BuildContext context, String title, VoiceSetting s, bool on) {
+    final v = _v[s]!;
+    return Column(mainAxisSize: MainAxisSize.min, children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 0),
+        child: Row(children: [
+          Text(title, style: TextStyle(color: on ? _ink : _off, fontSize: 15)),
+          const Spacer(),
+          // Докосване по стойността — обратно на обичайната.
+          GestureDetector(
+            onTap: on && v != s.normal
+                ? () {
+                    setState(() => _v[s] = s.normal);
+                    s.set(s.normal);
+                  }
+                : null,
+            child: Text(s.label(v),
+                style: TextStyle(
+                    color: on ? _ink : _off,
+                    fontSize: 15,
+                    fontFeatures: const [FontFeature.tabularFigures()])),
+          ),
+        ]),
+      ),
+      SliderTheme(
+        data: SliderTheme.of(context).copyWith(
+          activeTrackColor: AppColors.sectionTitle,
+          inactiveTrackColor: AppColors.drawerDivider,
+          thumbColor: AppColors.sectionTitle,
+          disabledActiveTrackColor: _off,
+          disabledInactiveTrackColor: AppColors.drawerDivider,
+          disabledThumbColor: const Color(0xFF5A5A5A),
+          activeTickMarkColor: Colors.transparent,
+          inactiveTickMarkColor: Colors.transparent,
+          disabledActiveTickMarkColor: Colors.transparent,
+          disabledInactiveTickMarkColor: Colors.transparent,
+          overlayColor: AppColors.sectionTitle.withValues(alpha: 0.16),
+          trackHeight: 3,
+        ),
+        child: Slider(
+          value: v,
+          min: s.min,
+          max: s.max,
+          divisions: s.divisions,
+          onChanged: on ? (x) => setState(() => _v[s] = x) : null,
+          onChangeEnd: on ? s.set : null,
+        ),
+      ),
+    ]);
   }
 }
 

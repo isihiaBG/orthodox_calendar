@@ -76,10 +76,12 @@ class PhoneVoice {
       if (local != null) {
         await _tts.setVoice({'name': '${local['name']}', 'locale': '${local['locale']}'});
       }
-      // Темпото: [baseRate] × скоростта от плейъра.
-      await AudioSpeed.loadOnce();
-      await _tts.setSpeechRate(baseRate * AudioSpeed.value);
-      AudioSpeed.notifier.addListener(_onSpeed);
+      // Темпото ([baseRate] × скоростта) и височината — от плейъра.
+      await VoiceSetting.loadOnce();
+      await _tts.setSpeechRate(baseRate * VoiceSetting.speed.value);
+      await _tts.setPitch(VoiceSetting.pitch.value);
+      VoiceSetting.speed.notifier.addListener(_onTone);
+      VoiceSetting.pitch.notifier.addListener(_onTone);
       await PhoneStress.loadOnce();
       await _tts.awaitSpeakCompletion(false);
       _tts.setProgressHandler((_, s, e, _) => _owner?._onProgress(s, e));
@@ -95,18 +97,19 @@ class PhoneVoice {
     }
   }
 
-  /// „Чуй" в панела за ударението: казва [text] веднага; четенето, ако
-  /// върви, спира (продължава от изречението с ▶).
-  /// Нова скорост: важи от следващото изговаряне, затова звучащото
-  /// изречение се почва отново с нея.
-  static Future<void> _onSpeed() async {
-    await _tts.setSpeechRate(baseRate * AudioSpeed.value);
+  /// Нова скорост или височина: важи от следващото изговаряне, затова
+  /// звучащото изречение се почва отново с нея.
+  static Future<void> _onTone() async {
+    await _tts.setSpeechRate(baseRate * VoiceSetting.speed.value);
+    await _tts.setPitch(VoiceSetting.pitch.value);
     final o = _owner;
     if (o != null && o.playing.value && o.sentence.value >= 0) {
       await o._speakFrom(o.sentence.value);
     }
   }
 
+  /// „Чуй" в панела за ударението: казва [text] веднага; четенето, ако
+  /// върви, спира (продължава от изречението с ▶).
   static Future<void> preview(String text) async {
     if (await ready() != PhoneVoiceState.ready) return;
     final o = _owner;
@@ -356,7 +359,10 @@ class PhoneVoicePlayback implements ReadAloud {
     // Дълъг абзац — до края на изречение под ~3500 знака (таванът на
     // Android е 4000).
     var end = text.length;
-    if (end - from > 3500) {
+    // Паузи (от плейъра) — по едно изречение, паузата идва между тях.
+    if (VoiceSetting.pause.value >= 0.05) {
+      end = sents[k].$3;
+    } else if (end - from > 3500) {
       for (var j = k; j < sents.length && sents[j].$1 == b; j++) {
         if (sents[j].$3 - from > 3500 && j > k) break;
         end = sents[j].$3;
@@ -428,7 +434,18 @@ class PhoneVoicePlayback implements ReadAloud {
       onFinished?.call();
       return;
     }
-    unawaited(_speakFrom(next));
+    final pause = VoiceSetting.pause.value;
+    if (pause < 0.05) {
+      unawaited(_speakFrom(next));
+      return;
+    }
+    // Между абзаците — двойна. Спре ли човекът или прескочи междувременно,
+    // [_gen] вече е друг.
+    final gen = _gen;
+    final ms = (pause * (sents[next].$1 != _uBlock ? 2 : 1) * 1000).round();
+    Future.delayed(Duration(milliseconds: ms), () {
+      if (gen == _gen && playing.value) unawaited(_speakFrom(next));
+    });
   }
 
   void _onError(String msg) {
