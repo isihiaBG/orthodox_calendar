@@ -114,7 +114,11 @@ enum StressWay {
   double('двойна'),
 
   /// Тире след ударената сричка: „Ком-нин", „немота-та". Естествено.
-  dash('тире');
+  dash('тире'),
+
+  /// Свой изговор, изписан на ръка — когато трите не стигат (автора,
+  /// 29.10.2026): тирета, интервали, латиница, каквото сработи на слух.
+  custom('свой');
 
   final String label;
   const StressWay(this.label);
@@ -127,20 +131,39 @@ enum StressWay {
   }
 }
 
-/// Една поправка: думата (малки букви), мястото на ударената гласна,
-/// начинът (null — сам: латинска за о/у, иначе двойна) и дали е пратена
+/// Една поправка: думата (малки букви), мястото на ударената гласна (-1 —
+/// няма, при свой изговор), начинът (null — сам: латинска за о/у, иначе
+/// двойна), своят изговор (при [StressWay.custom]) и дали е пратена
 /// (копирана) към автора на речника.
 class StressFix {
   final String word;
   final int index;
   final StressWay? way;
+  final String? custom;
   final bool sent;
-  const StressFix(this.word, this.index, {this.way, this.sent = false});
+  const StressFix(this.word, this.index, {this.way, this.custom, this.sent = false});
 
-  /// „Ко́мнин (тире)" — с ударението, както се чете от човек.
-  String get marked =>
-      '${word.substring(0, index + 1)}\u0301${word.substring(index + 1)}'
-      '${way == null ? '' : ' (${way!.label})'}';
+  StressFix asSent() => StressFix(word, index, way: way, custom: custom, sent: true);
+
+  /// „Ко́мнин (тире)" — с ударението, както се чете от човек; при свой
+  /// изговор „ко́мнин → ко мнин (свой)".
+  String get marked {
+    final w = index < 0 || index >= word.length
+        ? word
+        : '${word.substring(0, index + 1)}\u0301${word.substring(index + 1)}';
+    if (way == StressWay.custom) return '$w → $custom (${way!.label})';
+    return '$w${way == null ? '' : ' (${way!.label})'}';
+  }
+
+  /// Какво получава гласът вместо [w] (думата, както е в текста).
+  String spoken(String w) {
+    if (way == StressWay.custom && custom != null && custom!.isNotEmpty) {
+      // Главна начална буква в текста — и в изговора.
+      final c = custom!;
+      return w.isNotEmpty && w[0] != w[0].toLowerCase() ? c[0].toUpperCase() + c.substring(1) : c;
+    }
+    return PhoneStress.spokenForm(w, index, way);
+  }
 }
 
 class PhoneStress {
@@ -149,7 +172,7 @@ class PhoneStress {
   static const _asset = 'assets/speech/phone_accents.txt';
   static const _kFixes = 'phone_stress_fixes';
 
-  static final Map<String, (int, StressWay?)> _bundled = {};
+  static final Map<String, StressFix> _bundled = {};
   static final List<StressFix> _fixes = [];
 
   /// Расте при всяка промяна — за реда в настройките.
@@ -160,12 +183,24 @@ class PhoneStress {
         try {
           final txt = await rootBundle.loadString(_asset);
           for (var line in txt.split('\n')) {
+            line = line.split('#').first.trim();
+            // Свой изговор: „комнин = ко мнин" (вдясно — дословно).
+            final eq = line.indexOf(' = ');
+            if (eq > 0) {
+              final w = line.substring(0, eq).trim();
+              final c = line.substring(eq + 3).trim();
+              if (c.isEmpty) continue;
+              _bundled[w.toLowerCase()] = StressFix(w.toLowerCase(), _stressIndex(w) ?? -1,
+                  way: StressWay.custom, custom: c);
+              continue;
+            }
             // „кОмнин" или „кОмнин тире" (начинът — по желание).
-            final f = line.split('#').first.trim().split(RegExp(r'\s+'));
+            final f = line.split(RegExp(r'\s+'));
             if (f.first.isEmpty || f.length > 2) continue;
             final i = _stressIndex(f.first);
-            if (i != null) {
-              _bundled[f.first.toLowerCase()] = (i, f.length > 1 ? StressWay.byLabel(f[1]) : null);
+            final way = f.length > 1 ? StressWay.byLabel(f[1]) : null;
+            if (i != null && way != StressWay.custom) {
+              _bundled[f.first.toLowerCase()] = StressFix(f.first.toLowerCase(), i, way: way);
             }
           }
         } catch (_) {}
@@ -176,9 +211,11 @@ class PhoneStress {
             if (f.length < 2) continue;
             final i = int.tryParse(f[1]);
             if (i == null) continue;
+            final way = f.length > 3 ? StressWay.byLabel(f[3]) : null;
+            final custom = f.length > 4 && f[4].isNotEmpty ? f[4] : null;
+            if (way == StressWay.custom && custom == null) continue;
             _fixes.add(StressFix(f[0], i,
-                sent: f.length > 2 && f[2] == '1',
-                way: f.length > 3 ? StressWay.byLabel(f[3]) : null));
+                sent: f.length > 2 && f[2] == '1', way: way, custom: custom));
           }
         } catch (_) {}
         revision.value++;
@@ -200,9 +237,9 @@ class PhoneStress {
 
   /// Ударението за думата: поправката на устройството, иначе речникът в
   /// пакета.
-  static (int, StressWay?)? lookup(String lower) {
+  static StressFix? lookup(String lower) {
     for (final f in _fixes.reversed) {
-      if (f.word == lower) return (f.index, f.way);
+      if (f.word == lower) return f;
     }
     return _bundled[lower];
   }
@@ -215,9 +252,12 @@ class PhoneStress {
   /// Как да го каже гласът. Без [way]: латинска за о/у, иначе двойна.
   static String spokenForm(String w, int i, [StressWay? way]) {
     if (i < 0 || i >= w.length) return w;
+    if (way == StressWay.custom) way = null; // своят е в StressFix.spoken
     way ??= latinFits(w, i) ? StressWay.latin : StressWay.double;
     final v = w[i];
     switch (way) {
+      case StressWay.custom:
+        return w;
       case StressWay.latin:
         final l = _latin[v];
         if (l != null) return w.substring(0, i) + l + w.substring(i + 1);
@@ -244,14 +284,14 @@ class PhoneStress {
     t.sub(_word, (m) {
       final w = m[0]!;
       final f = lookup(w.toLowerCase());
-      return f == null ? w : spokenForm(w, f.$1, f.$2);
+      return f == null ? w : f.spoken(w);
     });
   }
 
-  static Future<void> add(String word, int index, StressWay? way) async {
+  static Future<void> add(String word, int index, StressWay? way, {String? custom}) async {
     final low = word.toLowerCase();
     _fixes.removeWhere((f) => f.word == low);
-    _fixes.add(StressFix(low, index, way: way));
+    _fixes.add(StressFix(low, index, way: way, custom: custom));
     await _save();
   }
 
@@ -260,7 +300,7 @@ class PhoneStress {
     final words = {for (final f in list) f.word};
     for (var i = 0; i < _fixes.length; i++) {
       final f = _fixes[i];
-      if (words.contains(f.word)) _fixes[i] = StressFix(f.word, f.index, way: f.way, sent: true);
+      if (words.contains(f.word)) _fixes[i] = f.asSent();
     }
     await _save();
   }
@@ -275,7 +315,7 @@ class PhoneStress {
     try {
       final p = await SharedPreferences.getInstance();
       await p.setStringList(_kFixes,
-          [for (final f in _fixes) '${f.word}\t${f.index}\t${f.sent ? 1 : 0}\t${f.way?.name ?? ''}']);
+          [for (final f in _fixes) '${f.word}\t${f.index}\t${f.sent ? 1 : 0}\t${f.way?.name ?? ''}\t${f.custom ?? ''}']);
     } catch (_) {}
   }
 
@@ -307,6 +347,8 @@ Future<void> showStressSheet(BuildContext context, String word) async {
     context: context,
     backgroundColor: ReaderTheme.palette.sheet,
     showDragHandle: true,
+    // Своят изговор се пише — панелът се вдига над клавиатурата.
+    isScrollControlled: true,
     builder: (_) => _StressSheet(word: word),
   );
   if (saved != null) {
@@ -325,16 +367,41 @@ class _StressSheet extends StatefulWidget {
 }
 
 class _StressSheetState extends State<_StressSheet> {
-  late final (int, StressWay?)? _saved = PhoneStress.lookup(widget.word.toLowerCase());
-  late int? _i = _saved?.$1;
-  late StressWay? _way = _saved?.$2;
+  late final StressFix? _saved = PhoneStress.lookup(widget.word.toLowerCase());
+  late int? _i = (_saved?.index ?? -1) < 0 ? null : _saved!.index;
+  late StressWay? _way = _saved?.way;
+  late final _custom = TextEditingController(
+      text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : '');
+
+  bool get _isCustom => _way == StressWay.custom;
 
   /// Избраният начин, ако става за тази гласна; иначе — сам.
   StressWay? get _wayFor =>
       _way == StressWay.latin && !PhoneStress.latinFits(widget.word, _i ?? -1) ? null : _way;
 
-  String get _spoken =>
-      _i == null ? widget.word : PhoneStress.spokenForm(widget.word, _i!, _wayFor);
+  /// Своят изговор — без табулации и нови редове (те делят полетата при
+  /// запис).
+  String get _customText => _custom.text.replaceAll(RegExp(r'[\t\n\r#]'), ' ').trim();
+
+  String get _spoken {
+    if (_isCustom) return _customText.isEmpty ? widget.word : _customText;
+    return _i == null ? widget.word : PhoneStress.spokenForm(widget.word, _i!, _wayFor);
+  }
+
+  bool get _canSave => _isCustom ? _customText.isNotEmpty : _i != null;
+
+  void _pickWay(StressWay? v) => setState(() {
+        // „Свой" започва от това, което гласът получава сега — остава само
+        // да се доизправи.
+        if (v == StressWay.custom && _customText.isEmpty) _custom.text = _spoken;
+        _way = v;
+      });
+
+  @override
+  void dispose() {
+    _custom.dispose();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -344,7 +411,7 @@ class _StressSheetState extends State<_StressSheet> {
     final w = widget.word;
     return SafeArea(
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
+        padding: EdgeInsets.fromLTRB(24, 0, 24, 20 + MediaQuery.viewInsetsOf(context).bottom),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Text('УДАРЕНИЕТО ЗА ГЛАСА НА ТЕЛЕФОНА',
               style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
@@ -375,18 +442,43 @@ class _StressSheetState extends State<_StressSheet> {
                   label: const Text('латинска')),
               const ButtonSegment(value: StressWay.double, label: Text('двойна')),
               const ButtonSegment(value: StressWay.dash, label: Text('тире')),
+              const ButtonSegment(value: StressWay.custom, label: Text('свой')),
             ],
             selected: {
-              if (_i != null)
+              if (_isCustom)
+                StressWay.custom
+              else if (_i != null)
                 _wayFor ??
                     (PhoneStress.latinFits(w, _i!) ? StressWay.latin : StressWay.double)
             },
-            onSelectionChanged: (v) => setState(() => _way = v.isEmpty ? null : v.first),
+            onSelectionChanged: (v) => _pickWay(v.isEmpty ? null : v.first),
           ),
           const SizedBox(height: 10),
-          // Какво точно получава гласът.
-          Text(_i == null ? ' ' : 'гласът получава: $_spoken',
-              style: TextStyle(color: p.dim, fontSize: 14)),
+          if (_isCustom) ...[
+            // Свой изговор: пише се, както трябва да прозвучи.
+            TextField(
+              controller: _custom,
+              autofocus: _customText.isEmpty,
+              textAlign: TextAlign.center,
+              style: TextStyle(color: p.ink, fontSize: 24),
+              cursorColor: gold,
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: w.toLowerCase(),
+                hintStyle: TextStyle(color: p.dim.withValues(alpha: 0.6)),
+                enabledBorder: UnderlineInputBorder(
+                    borderSide: BorderSide(color: p.dim.withValues(alpha: 0.4))),
+                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: gold, width: 1.5)),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text('както да прозвучи: тире, интервал, удвоена буква, латиница…',
+                textAlign: TextAlign.center, style: TextStyle(color: p.dim, fontSize: 13)),
+          ] else
+            // Какво точно получава гласът.
+            Text(_i == null ? ' ' : 'гласът получава: $_spoken',
+                style: TextStyle(color: p.dim, fontSize: 14)),
           const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             OutlinedButton.icon(
@@ -396,12 +488,13 @@ class _StressSheetState extends State<_StressSheet> {
             ),
             const SizedBox(width: 14),
             FilledButton(
-              onPressed: _i == null
+              onPressed: !_canSave
                   ? null
                   : () async {
                       final nav = Navigator.of(context);
-                      await PhoneStress.add(w, _i!, _wayFor);
-                      nav.pop(StressFix(w, _i!, way: _wayFor).marked);
+                      final custom = _isCustom ? _customText : null;
+                      await PhoneStress.add(w, _i ?? -1, _wayFor, custom: custom);
+                      nav.pop(StressFix(w.toLowerCase(), _i ?? -1, way: _wayFor, custom: custom).marked);
                     },
               child: const Text('Запази'),
             ),
@@ -424,6 +517,8 @@ class _StressSheetState extends State<_StressSheet> {
     if (!vowel) return Padding(padding: const EdgeInsets.symmetric(horizontal: 1), child: t);
     return InkWell(
       borderRadius: BorderRadius.circular(6),
+      // При „свой" гласната само се отбелязва (за прегледа), изговорът е
+      // написаният.
       onTap: () => setState(() => _i = k),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 3),
