@@ -706,7 +706,30 @@ void csConvert(SpokenText t) {
 /// Гласът на Google ПРЕСКАЧА дума със знак за ударение (проба, 28.10.2026).
 /// Ударено „о"/„у" става латинското „ó"/„ú" — то се чете правилно; другите
 /// знаци се махат. Дължината на „о́" → „ó" пада с едно, позициите се пазят.
+/// Числата — разговорно, както се казват (автора, 28.10.2026): „дванайсет",
+/// „двайсет", „четиресет", „шейсет" вместо книжовното „-надесет/-десет".
+/// Само за гласа на телефона — записите не се пипат.
+const _spokenNumbers = [
+  ('двадесет', 'двайсет'),
+  ('тридесет', 'трийсет'),
+  ('четиридесет', 'четиресет'),
+  ('шестдесет', 'шейсет'),
+];
+final _teenStem = RegExp(r'(?<![А-Яа-я])(един|два|три|четири|пет|шест|седем|осем|девет)надесет',
+    caseSensitive: false);
+
+void _colloquialNumbers(SpokenText t) {
+  t.sub(_teenStem, (m) => '${m[1]}найсет');
+  for (final (book, said) in _spokenNumbers) {
+    t.sub(RegExp('(?<![А-Яа-я])$book', caseSensitive: false), (m) {
+      final first = m[0]![0];
+      return first == first.toLowerCase() ? said : said[0].toUpperCase() + said.substring(1);
+    });
+  }
+}
+
 SpokenText _forPhoneVoice(SpokenText t) {
+  _colloquialNumbers(t);
   t.sub(RegExp('([оОуУ])[́̀̑]'), (m) => switch (m[1]) {
         'о' => 'ó',
         'О' => 'Ó',
