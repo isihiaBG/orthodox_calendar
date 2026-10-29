@@ -349,7 +349,22 @@ final _plural = RegExp(
 final _sentBreak = RegExp(r'([А-Яа-я]+)[.!?]\s+(?=[А-Я])');
 final _capWord = RegExp(r'[А-Я][а-я]+');
 
-String _death(RegExpMatch m, int year) {
+String _death(RegExpMatch m, int year) => '(${_deathWord(m)} през ${ordinal(year)} година)';
+
+// Кръстче с век: „(† I)", „(† IV–V)", „(† XI в.)", „(† VIII в. пр. Хр.)",
+// „(† в I век)", „(† XIV в.; памет 1 октомври)" — „(пострадал през първи
+// век)" (автора, 29.10.2026). Останалото („пр. Хр.", „; памет …") — както е.
+final _deathCentury = _re('\\(\\s*[+†]\\s*(?:(ок\\.|около|след|в)\\s*)?([IVXLC]+)(?:$_dash([IVXLC]+))?'
+    r'(?:\s*(?:вв?\.|века?))?((?:\s*пр\.\s*Хр\.)?(?:\s*[;,][^()]*)?)\s*\)');
+
+String _deathInCentury(RegExpMatch m) {
+  final pre = switch (m[1]) { 'ок.' || 'около' => 'около', 'след' => 'след', _ => 'през' };
+  var c = ordinal(roman(m[2]!), 'm');
+  if (m[3] != null) c += ' – ${ordinal(roman(m[3]!), 'm')}';
+  return '(${_deathWord(m)} $pre $c век${m[4]})';
+}
+
+String _deathWord(RegExpMatch m) {
   final before = m.input.substring(0, m.start);
   var ctx = before.length > 80 ? before.substring(before.length - 80) : before;
   // ⚠ Точка след съкращение („Мц. Татяна") не е край на изречение.
@@ -366,13 +381,13 @@ String _death(RegExpMatch m, int year) {
   final fem = !plural &&
       (name.endsWith('а') || name.endsWith('я')) &&
       !kSpeechMaleA.contains(name);
-  final w = martyr
+  return martyr
       ? (plural ? 'пострадали' : fem ? 'пострадала' : 'пострадал')
       : (plural ? 'преставили се' : fem ? 'преставила се' : 'преставил се');
-  return '($w през ${ordinal(year)} година)';
 }
 
 void yearsText(SpokenText t) {
+  t.sub(_deathCentury, _deathInCentury);
   // „(+235 г.)" — кончина, с „г." (без „г." го поема miscText).
   t.sub(_re(r'\(\s*[+†]\s*([1-9]\d{1,3})\s*г\.\s*\)'),
       (m) => _death(m, _i(m[1])));
@@ -662,7 +677,8 @@ void expandAbbr(SpokenText t) {
 
 final _titleRe = RegExp(
     '(?<![А-Яа-я])(${(kSpeechTitles.keys.toList()..sort((a, b) => b.length - a.length)).join('|')})'
-    r'\.(\s*)(?=([А-Яа-я]*))',
+    // „Мчк Иполит" — в календара и без точка.
+    r'(?:\.|(?<=[Мм]чк)(?=\s))(\s*)(?=([А-Яа-я]*))',
     caseSensitive: false,
     unicode: true);
 
