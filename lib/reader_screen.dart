@@ -1106,6 +1106,7 @@ class _ReaderScreenState extends State<ReaderScreen>
   int? _bookmarkedRegionIndex; // последно известната запазена позиция
   int _bookmarkedChar = 0;     // и знакът в нея (виж _BookmarkRecord)
   bool _showResumePrompt = false; // показваме ли долния widget при отваряне
+  final _promptHeight = ValueNotifier<double>(0); // височината му — за копчето
   // Докато resume-подканата виси на екрана (в което и да е от двете ѝ
   // състояния), автозаписът при скрол СПИРА — не бива да презаписваме
   // старата позиция, докато потребителят още не е решил какво иска.
@@ -3769,9 +3770,11 @@ class _ReaderScreenState extends State<ReaderScreen>
         bottomNavigationBar: _playback == null
             ? null
             : AudioMiniPlayer(playback: _playback!, onClose: _stopListening),
-        floatingActionButton: _playback != null || _showResumePrompt || _searchOpen || kIsWeb
+        // Над прозорчето със запазената позиция — вдига се, не се скрива (на
+        // пауза то стои, докато човекът реши).
+        floatingActionButton: _playback != null || _searchOpen || kIsWeb
             ? null
-            : AudioFab(onTap: () => _onListen()),
+            : AboveResumePrompt(height: _promptHeight, child: AudioFab(onTap: () => _onListen())),
         body: SafeArea(
           // top: false — SliverAppBar/AppBar сам отчита статус лентата; ако
           // SafeArea я поеме и той, отстъпът горе се удвоява.
@@ -3798,6 +3801,7 @@ class _ReaderScreenState extends State<ReaderScreen>
                                    // страницата.
                         ink: _ink,
                         dim: _dim,
+                        height: _promptHeight,
                         onJump: _onResumePromptJump,
                         onDeleted: _onResumePromptDeleted,
                         onClosed: _onResumePromptClosed,

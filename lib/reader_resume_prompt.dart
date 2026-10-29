@@ -30,6 +30,11 @@ class ResumePrompt extends StatefulWidget {
   final VoidCallback onDeleted;
   final VoidCallback onClosed;
 
+  /// Височината на прозорчето, докато е на екрана (0 — няма го). По нея
+  /// копчето със слушалките се вдига над него и слиза, когато то олекне на
+  /// пауза (автора, 29.10.2026: прозорчето го закриваше).
+  final ValueNotifier<double>? height;
+
   const ResumePrompt({
     super.key,
     required this.background,
@@ -38,6 +43,7 @@ class ResumePrompt extends StatefulWidget {
     required this.onJump,
     required this.onDeleted,
     required this.onClosed,
+    this.height,
   });
 
   @override
@@ -123,7 +129,21 @@ class ResumePromptState extends State<ResumePrompt> {
   @override
   void dispose() {
     _timer?.cancel();
+    // След кадъра — в dispose дървото е заключено за нови построявания.
+    final h = widget.height;
+    if (h != null) WidgetsBinding.instance.addPostFrameCallback((_) => h.value = 0);
     super.dispose();
+  }
+
+  /// Мерената височина — след всяко построяване (броячът, пауза ↔ пълно).
+  void _report() {
+    final h = widget.height;
+    if (h == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final size = context.size;
+      if (size != null && h.value != size.height) h.value = size.height;
+    });
   }
 
   Widget _circleButton({
@@ -207,6 +227,7 @@ class ResumePromptState extends State<ResumePrompt> {
 
   @override
   Widget build(BuildContext context) {
+    _report();
     final card = Container(
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       decoration: BoxDecoration(
@@ -244,4 +265,26 @@ class ResumePromptState extends State<ResumePrompt> {
       child: card,
     );
   }
+}
+
+/// Плаващото копче [child], вдигнато над [ResumePrompt] с височина
+/// [height] — плавно, и слиза, когато прозорчето олекне или изчезне.
+class AboveResumePrompt extends StatelessWidget {
+  final ValueNotifier<double> height;
+  final Widget child;
+  const AboveResumePrompt({super.key, required this.height, required this.child});
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<double>(
+        valueListenable: height,
+        builder: (_, h, c) => AnimatedPadding(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          // Прозорчето стои ~на мястото на копчето (отдолу 16–20 px) —
+          // копчето сяда над горния му ръб с малка междина.
+          padding: EdgeInsets.only(bottom: h > 0 ? h + 12 : 0),
+          child: c,
+        ),
+        child: child,
+      );
 }

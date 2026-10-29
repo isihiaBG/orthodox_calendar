@@ -269,6 +269,8 @@ class _BookReaderState extends State<BookReader>
   // 5 s, процесът е бил замразен от системата (пестене на батерия). При
   // връщане — питането в background_permission.dart.
   Timer? _bgTicker;
+  // Височината на прозорчето със запазената позиция — копчето се вдига над него.
+  final _promptHeight = ValueNotifier<double>(0);
   ReadAloud? _bgWaitOn; // на пауза във фонов режим — чака звука
   DateTime? _bgLastTick;
   bool _bgFroze = false;
@@ -2639,11 +2641,14 @@ class _BookReaderState extends State<BookReader>
       // (виж AudioFab защо не е в лентата); при запис — с печата „екстра".
       floatingActionButton: _playback != null
           ? null
-          : AudioFab(
-              book: _audio,
-              part: _audioPart,
-              onTap: _onAudioTap,
-              onSeal: _downloadRecording),
+          : AboveResumePrompt(
+              height: _promptHeight,
+              child: AudioFab(
+                  book: _audio,
+                  part: _audioPart,
+                  onTap: _onAudioTap,
+                  onSeal: _downloadRecording),
+            ),
       body: SafeArea(
         bottom: false,
         // Лентата се ПРИБИРА при плъзгане надолу и се връща при плъзгане
@@ -2692,6 +2697,7 @@ class _BookReaderState extends State<BookReader>
                                    // страницата.
               ink: palette.ink,
               dim: palette.dim,
+              height: _promptHeight,
               onJump: _jumpToSaved,
               onDeleted: () {
                 BookPositionStore.clear(
