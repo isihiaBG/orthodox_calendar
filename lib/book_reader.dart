@@ -1392,6 +1392,10 @@ class _BookReaderState extends State<BookReader>
             for (final y in r.rest) {
               x = x.join(readingBlockOf(y), '\n');
             }
+            // Източникът накрая (`.source`) не се чете (автора, 29.10.2026).
+            if (x.text == quote[i] && r.content.contains('class="source"')) {
+              return ReadingBlock(x.text, const [], [(0, x.text.length)]);
+            }
             if (x.text == quote[i]) return x;
             audioLogAdd('гласът на устройството: блок $i се разминава с текста — без връзките');
           }

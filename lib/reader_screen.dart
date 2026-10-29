@@ -2769,8 +2769,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   List<(int, int, int, int)?> _sentLoc = const [];
   DateTime _userScrolledAt = DateTime(0);
 
+  static bool _isSource(String html) => html.contains('class="source"');
+
   /// Блоковете за гласа — същият текст като [_quoteBlocks] плюс връзките и
-  /// бележките; надписът под илюстрацията се прескача (и при записите).
+  /// бележките; надписът под илюстрацията и източникът накрая се прескачат.
   List<ReadingBlock> _speechBlocks(List<String> quote) {
     final p = _prepared;
     if (p == null) return const [];
@@ -2783,12 +2785,13 @@ class _ReaderScreenState extends State<ReaderScreen>
         final parts = <(ReadingBlock, bool)>[
           if (r.captionHtml != null && r.captionHtml!.isNotEmpty)
             (readingBlockOf(r.captionHtml!, decode: decodeEntities), true),
-          (readingBlockOf(r.content, decode: decodeEntities), false),
-          for (final x in r.rest) (readingBlockOf(x, decode: decodeEntities), false),
+          // Източникът накрая (адресите) не се чете (автора, 29.10.2026).
+          (readingBlockOf(r.content, decode: decodeEntities), _isSource(r.content)),
+          for (final x in r.rest) (readingBlockOf(x, decode: decodeEntities), _isSource(x)),
         ].where((e) => e.$1.text.isNotEmpty).toList();
         ReadingBlock? x;
-        for (final (y, caption) in parts) {
-          final z = caption ? ReadingBlock(y.text, const [], [(0, y.text.length)]) : y;
+        for (final (y, skip) in parts) {
+          final z = skip ? ReadingBlock(y.text, const [], [(0, y.text.length)]) : y;
           x = x == null ? z : x.join(z, '\n');
         }
         x ??= const ReadingBlock('');
