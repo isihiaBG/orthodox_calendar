@@ -218,8 +218,20 @@ class _QuotableSelectionAreaState extends State<QuotableSelectionArea> {
 
   void _stress(SelectableRegionState region) {
     final w = _stressWord();
+    final blocks = widget.blocks();
+    final hint = _hintFor(region, blocks);
     region.hideToolbar();
-    if (w != null) showStressSheet(context, w);
+    if (w == null) return;
+    // Съседните думи — за поправка „само в израза" („пред Господа").
+    final spot = captureSelection(blocks, w,
+        dropCapBlock: widget.dropCapBlock?.call() ?? -1, hint: hint);
+    String? prev, next;
+    if (spot != null && spot.block < blocks.length) {
+      final b = blocks[spot.block];
+      final a = spot.charStart.clamp(0, b.length);
+      (prev, next) = PhoneStress.neighbours(b, a, (a + w.length).clamp(0, b.length));
+    }
+    showStressSheet(context, w, prev: prev, next: next);
   }
 
   Future<void> _save(SelectableRegionState region) async {

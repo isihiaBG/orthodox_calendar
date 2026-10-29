@@ -131,28 +131,74 @@ enum StressWay {
   }
 }
 
+/// С каква буква трябва да е думата в текста, за да важи поправката:
+/// „Го́спода" (Бог) е с главна, „господа́" — с малка (автора, 29.10.2026).
+enum StressCase {
+  any(''),
+  upper('главна'),
+  lower('малка');
+
+  final String label;
+  const StressCase(this.label);
+
+  static StressCase byLabel(String s) {
+    for (final c in values) {
+      if (c != any && (c.label == s || c.name == s)) return c;
+    }
+    return any;
+  }
+
+  bool fits(String w) => switch (this) {
+        any => true,
+        upper => w.isNotEmpty && w[0] != w[0].toLowerCase(),
+        lower => w.isNotEmpty && w[0] == w[0].toLowerCase(),
+      };
+}
+
 /// Една поправка: думата (малки букви), мястото на ударената гласна (-1 —
 /// няма, при свой изговор), начинът (null — сам: латинска за о/у, иначе
-/// двойна), своят изговор (при [StressWay.custom]) и дали е пратена
-/// (копирана) към автора на речника.
+/// двойна), своят изговор (при [StressWay.custom]), буквата ([StressCase]),
+/// изразът (думата преди и/или след нея — тогава важи само там) и дали е
+/// пратена (копирана) към автора на речника.
 class StressFix {
   final String word;
   final int index;
   final StressWay? way;
   final String? custom;
+  final StressCase letter;
+  final String? before, after;
   final bool sent;
-  const StressFix(this.word, this.index, {this.way, this.custom, this.sent = false});
+  const StressFix(this.word, this.index,
+      {this.way, this.custom, this.letter = StressCase.any, this.before, this.after, this.sent = false});
 
-  StressFix asSent() => StressFix(word, index, way: way, custom: custom, sent: true);
+  StressFix asSent() => StressFix(word, index,
+      way: way, custom: custom, letter: letter, before: before, after: after, sent: true);
 
-  /// „Ко́мнин (тире)" — с ударението, както се чете от човек; при свой
-  /// изговор „ко́мнин → ко мнин (свой)".
+  /// Едно и също място в речника (думата, буквата и изразът).
+  bool sameSlot(StressFix o) =>
+      o.word == word && o.letter == letter && o.before == before && o.after == after;
+
+  /// Колко е тясна — по-тясната печели.
+  int get _narrow => (before != null ? 2 : 0) + (after != null ? 2 : 0) + (letter != StressCase.any ? 1 : 0);
+
+  /// Важи ли за [w] между [prev] и [next] (малки букви; null — няма дума).
+  bool fits(String w, String? prev, String? next) =>
+      letter.fits(w) && (before == null || before == prev) && (after == null || after == next);
+
+  /// „ко́мнин (тире)", „го́спода (тире, с главна, „пред … бога")",
+  /// „ко́мнин → ко мнин (свой)" — както се чете от човек.
   String get marked {
     final w = index < 0 || index >= word.length
         ? word
-        : '${word.substring(0, index + 1)}\u0301${word.substring(index + 1)}';
-    if (way == StressWay.custom) return '$w → $custom (${way!.label})';
-    return '$w${way == null ? '' : ' (${way!.label})'}';
+        : '${word.substring(0, index + 1)}́${word.substring(index + 1)}';
+    final notes = [
+      if (way != null) way!.label,
+      if (letter != StressCase.any) 'с ${letter.label}',
+      if (before != null || after != null)
+        '„${[if (before != null) before, '…', if (after != null) after].join(' ')}“',
+    ];
+    final head = way == StressWay.custom ? '$w → $custom' : w;
+    return notes.isEmpty ? head : '$head (${notes.join(', ')})';
   }
 
   /// Какво получава гласът вместо [w] (думата, както е в текста).
@@ -172,7 +218,7 @@ class PhoneStress {
   static const _asset = 'assets/speech/phone_accents.txt';
   static const _kFixes = 'phone_stress_fixes';
 
-  static final Map<String, StressFix> _bundled = {};
+  static final Map<String, List<StressFix>> _bundled = {};
   static final List<StressFix> _fixes = [];
 
   /// Расте при всяка промяна — за реда в настройките.
@@ -182,26 +228,9 @@ class PhoneStress {
   static Future<void> loadOnce() => _loading ??= () async {
         try {
           final txt = await rootBundle.loadString(_asset);
-          for (var line in txt.split('\n')) {
-            line = line.split('#').first.trim();
-            // Свой изговор: „комнин = ко мнин" (вдясно — дословно).
-            final eq = line.indexOf(' = ');
-            if (eq > 0) {
-              final w = line.substring(0, eq).trim();
-              final c = line.substring(eq + 3).trim();
-              if (c.isEmpty) continue;
-              _bundled[w.toLowerCase()] = StressFix(w.toLowerCase(), _stressIndex(w) ?? -1,
-                  way: StressWay.custom, custom: c);
-              continue;
-            }
-            // „кОмнин" или „кОмнин тире" (начинът — по желание).
-            final f = line.split(RegExp(r'\s+'));
-            if (f.first.isEmpty || f.length > 2) continue;
-            final i = _stressIndex(f.first);
-            final way = f.length > 1 ? StressWay.byLabel(f[1]) : null;
-            if (i != null && way != StressWay.custom) {
-              _bundled[f.first.toLowerCase()] = StressFix(f.first.toLowerCase(), i, way: way);
-            }
+          for (final line in txt.split('\n')) {
+            final f = parseLine(line);
+            if (f != null) (_bundled[f.word] ??= []).add(f);
           }
         } catch (_) {}
         try {
@@ -211,15 +240,56 @@ class PhoneStress {
             if (f.length < 2) continue;
             final i = int.tryParse(f[1]);
             if (i == null) continue;
-            final way = f.length > 3 ? StressWay.byLabel(f[3]) : null;
-            final custom = f.length > 4 && f[4].isNotEmpty ? f[4] : null;
-            if (way == StressWay.custom && custom == null) continue;
+            String? at(int k) => f.length > k && f[k].isNotEmpty ? f[k] : null;
+            final way = at(3) == null ? null : StressWay.byLabel(f[3]);
+            if (way == StressWay.custom && at(4) == null) continue;
             _fixes.add(StressFix(f[0], i,
-                sent: f.length > 2 && f[2] == '1', way: way, custom: custom));
+                sent: at(2) == '1',
+                way: way,
+                custom: at(4),
+                letter: StressCase.byLabel(at(5) ?? ''),
+                before: at(6),
+                after: at(7)));
           }
         } catch (_) {}
         revision.value++;
       }();
+
+  /// Ред от речника:
+  ///   „кОмнин", „кОмнин тире", „комнин = ко мнин" (свой — вдясно дословно)
+  /// и по желание, след „ | ": „главна" / „малка", „преди: пред",
+  /// „след: бога" — напр. „госпОда тире | главна".
+  static StressFix? parseLine(String line) {
+    final parts = line.split('#').first.split(' | ').map((s) => s.trim()).toList();
+    if (parts.first.isEmpty) return null;
+    var letter = StressCase.any;
+    String? before, after;
+    for (final p in parts.skip(1)) {
+      if (p.startsWith('преди:')) {
+        before = p.substring(6).trim().toLowerCase();
+      } else if (p.startsWith('след:')) {
+        after = p.substring(5).trim().toLowerCase();
+      } else {
+        letter = StressCase.byLabel(p);
+      }
+    }
+    final head = parts.first;
+    final eq = head.indexOf(' = ');
+    if (eq > 0) {
+      final w = head.substring(0, eq).trim();
+      final c = head.substring(eq + 3).trim();
+      if (c.isEmpty) return null;
+      return StressFix(w.toLowerCase(), _stressIndex(w) ?? -1,
+          way: StressWay.custom, custom: c, letter: letter, before: before, after: after);
+    }
+    final f = head.split(RegExp(r'\s+'));
+    if (f.length > 2) return null;
+    final i = _stressIndex(f.first);
+    final way = f.length > 1 ? StressWay.byLabel(f[1]) : null;
+    if (i == null || way == StressWay.custom) return null;
+    return StressFix(f.first.toLowerCase(), i,
+        way: way, letter: letter, before: before, after: after);
+  }
 
   /// „кОмнин" → 1: ГЛАВНАТА гласна (начална главна на име не се брои, ако
   /// има и друга — както в tools/tts/accent.py).
@@ -235,13 +305,17 @@ class PhoneStress {
   static List<StressFix> get fixes => List.unmodifiable(_fixes);
   static List<StressFix> get unsent => [for (final f in _fixes) if (!f.sent) f];
 
-  /// Ударението за думата: поправката на устройството, иначе речникът в
-  /// пакета.
-  static StressFix? lookup(String lower) {
-    for (final f in _fixes.reversed) {
-      if (f.word == lower) return f;
+  /// Поправката за думата [w] (както е в текста) между [prev] и [next]:
+  /// най-тясната, която важи — изразът пред буквата, буквата пред „всякак";
+  /// при равни — тази на устройството пред речника в пакета.
+  static StressFix? lookup(String w, {String? prev, String? next}) {
+    final low = w.toLowerCase();
+    StressFix? best;
+    for (final f in [..._fixes.reversed, ...?_bundled[low]]) {
+      if (f.word != low || !f.fits(w, prev, next)) continue;
+      if (best == null || f._narrow > best._narrow) best = f;
     }
-    return _bundled[lower];
+    return best;
   }
 
   static const _latin = {'о': 'ó', 'О': 'Ó', 'у': 'ú', 'У': 'Ú'};
@@ -277,30 +351,38 @@ class PhoneStress {
   }
 
   static final _word = RegExp(r'[А-Яа-яЍѝ]+');
+  static final _lastWord = RegExp(r'([А-Яа-яЍѝ]+)[^А-Яа-яЍѝ]*$');
+  static final _firstWord = RegExp(r'^[^А-Яа-яЍѝ]*([А-Яа-яЍѝ]+)');
+
+  /// Съседните думи на [a]..[b] в [s] (малки букви), за изразите.
+  static (String?, String?) neighbours(String s, int a, int b) {
+    final p = _lastWord.firstMatch(s.substring(a < 40 ? 0 : a - 40, a))?[1];
+    final n = _firstWord.firstMatch(s.substring(b, b + 40 > s.length ? s.length : b + 40))?[1];
+    return (p?.toLowerCase(), n?.toLowerCase());
+  }
 
   /// Прилага речника върху текста за гласа.
   static void apply(SpokenText t) {
     if (_bundled.isEmpty && _fixes.isEmpty) return;
     t.sub(_word, (m) {
       final w = m[0]!;
-      final f = lookup(w.toLowerCase());
+      final (prev, next) = neighbours(m.input, m.start, m.end);
+      final f = lookup(w, prev: prev, next: next);
       return f == null ? w : f.spoken(w);
     });
   }
 
-  static Future<void> add(String word, int index, StressWay? way, {String? custom}) async {
-    final low = word.toLowerCase();
-    _fixes.removeWhere((f) => f.word == low);
-    _fixes.add(StressFix(low, index, way: way, custom: custom));
+  static Future<void> add(StressFix fix) async {
+    _fixes.removeWhere(fix.sameSlot);
+    _fixes.add(fix);
     await _save();
   }
 
   /// Отбелязва поправките като пратени (след „Копирай").
   static Future<void> markSent(Iterable<StressFix> list) async {
-    final words = {for (final f in list) f.word};
     for (var i = 0; i < _fixes.length; i++) {
       final f = _fixes[i];
-      if (words.contains(f.word)) _fixes[i] = f.asSent();
+      if (list.any(f.sameSlot)) _fixes[i] = f.asSent();
     }
     await _save();
   }
@@ -314,8 +396,13 @@ class PhoneStress {
     revision.value++;
     try {
       final p = await SharedPreferences.getInstance();
-      await p.setStringList(_kFixes,
-          [for (final f in _fixes) '${f.word}\t${f.index}\t${f.sent ? 1 : 0}\t${f.way?.name ?? ''}\t${f.custom ?? ''}']);
+      await p.setStringList(_kFixes, [
+        for (final f in _fixes)
+          [
+            f.word, f.index, f.sent ? 1 : 0, f.way?.name ?? '', f.custom ?? '',
+            f.letter == StressCase.any ? '' : f.letter.name, f.before ?? '', f.after ?? '',
+          ].join('\t')
+      ]);
     } catch (_) {}
   }
 
@@ -340,7 +427,8 @@ String? stressWordOf(String? selected) {
 // ── панелът „Грешно ударение" ────────────────────────────────────────────
 
 /// Думата, разделена на букви; докосване по гласна я прави ударена.
-Future<void> showStressSheet(BuildContext context, String word) async {
+/// [prev]/[next] — съседните думи в текста (за „само в израза").
+Future<void> showStressSheet(BuildContext context, String word, {String? prev, String? next}) async {
   await PhoneStress.loadOnce();
   if (!context.mounted) return;
   final messenger = ScaffoldMessenger.of(context);
@@ -350,7 +438,7 @@ Future<void> showStressSheet(BuildContext context, String word) async {
     showDragHandle: true,
     // Своят изговор се пише — панелът се вдига над клавиатурата.
     isScrollControlled: true,
-    builder: (_) => _StressSheet(word: word),
+    builder: (_) => _StressSheet(word: word, prev: prev, next: next),
   );
   if (saved != null) {
     messenger
@@ -361,14 +449,19 @@ Future<void> showStressSheet(BuildContext context, String word) async {
 
 class _StressSheet extends StatefulWidget {
   final String word;
-  const _StressSheet({required this.word});
+  final String? prev, next;
+  const _StressSheet({required this.word, this.prev, this.next});
 
   @override
   State<_StressSheet> createState() => _StressSheetState();
 }
 
 class _StressSheetState extends State<_StressSheet> {
-  late final StressFix? _saved = PhoneStress.lookup(widget.word.toLowerCase());
+  late final StressFix? _saved =
+      PhoneStress.lookup(widget.word, prev: widget.prev, next: widget.next);
+  late StressCase _case = _saved?.letter ?? StressCase.any;
+  late bool _withPrev = _saved?.before != null;
+  late bool _withNext = _saved?.after != null;
   // Едносрична дума — гласната е само една, избрана отначало.
   late int? _i = (_saved?.index ?? -1) >= 0 ? _saved!.index : _onlyVowel(widget.word);
 
@@ -487,6 +580,43 @@ class _StressSheetState extends State<_StressSheet> {
             Text(_i == null ? ' ' : 'гласът получава: $_spoken',
                 style: TextStyle(color: p.dim, fontSize: 14)),
           const SizedBox(height: 16),
+          // Кога важи: с каква буква и дали само до съседна дума.
+          SegmentedButton<StressCase>(
+            showSelectedIcon: false,
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: gold.withValues(alpha: p.dark ? 0.28 : 0.22),
+              selectedForegroundColor: p.ink,
+              foregroundColor: p.dim,
+              side: BorderSide(color: p.dim.withValues(alpha: 0.4)),
+              visualDensity: VisualDensity.compact,
+            ),
+            segments: const [
+              ButtonSegment(value: StressCase.any, label: Text('всякак')),
+              ButtonSegment(value: StressCase.upper, label: Text('с главна')),
+              ButtonSegment(value: StressCase.lower, label: Text('с малка')),
+            ],
+            selected: {_case},
+            onSelectionChanged: (v) => setState(() => _case = v.first),
+          ),
+          if (widget.prev != null || widget.next != null) ...[
+            const SizedBox(height: 12),
+            Text('само в израза — докоснете съседна дума',
+                style: TextStyle(color: p.dim, fontSize: 13)),
+            const SizedBox(height: 6),
+            Wrap(
+              alignment: WrapAlignment.center,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              children: [
+                if (widget.prev != null)
+                  _neighbour(widget.prev!, _withPrev, () => setState(() => _withPrev = !_withPrev), gold, p),
+                Text(w, style: TextStyle(color: p.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+                if (widget.next != null)
+                  _neighbour(widget.next!, _withNext, () => setState(() => _withNext = !_withNext), gold, p),
+              ],
+            ),
+          ],
+          const SizedBox(height: 16),
           Row(mainAxisAlignment: MainAxisAlignment.center, children: [
             OutlinedButton.icon(
               onPressed: () => PhoneVoice.preview(_spoken),
@@ -499,9 +629,14 @@ class _StressSheetState extends State<_StressSheet> {
                   ? null
                   : () async {
                       final nav = Navigator.of(context);
-                      final custom = _isCustom ? _customText : null;
-                      await PhoneStress.add(w, _i ?? -1, _wayFor, custom: custom);
-                      nav.pop(StressFix(w.toLowerCase(), _i ?? -1, way: _wayFor, custom: custom).marked);
+                      final fix = StressFix(w.toLowerCase(), _i ?? -1,
+                          way: _wayFor,
+                          custom: _isCustom ? _customText : null,
+                          letter: _case,
+                          before: _withPrev ? widget.prev : null,
+                          after: _withNext ? widget.next : null);
+                      await PhoneStress.add(fix);
+                      nav.pop(fix.marked);
                     },
               child: const Text('Запази'),
             ),
@@ -510,6 +645,21 @@ class _StressSheetState extends State<_StressSheet> {
       ),
     );
   }
+
+  /// Съседна дума за израза — включена е в златно.
+  Widget _neighbour(String word, bool on, VoidCallback tap, Color gold, ReaderPalette p) => InkWell(
+        borderRadius: BorderRadius.circular(8),
+        onTap: tap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: on ? gold.withValues(alpha: p.dark ? 0.28 : 0.22) : null,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: on ? gold : p.dim.withValues(alpha: 0.4)),
+          ),
+          child: Text(word, style: TextStyle(color: on ? p.ink : p.dim, fontSize: 16)),
+        ),
+      );
 
   Widget _letter(String c, int k, Color gold, Color ink) {
     final vowel = _vowels.contains(c.toLowerCase());
