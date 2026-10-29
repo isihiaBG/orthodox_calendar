@@ -364,6 +364,46 @@ String _deathInCentury(RegExpMatch m) {
   return '(${_deathWord(m)} $pre $c век${m[4]})';
 }
 
+// Кръстче с година, във всичките ѝ облици (numbers_bg.DEATH_YEAR): „(† ок. 67 г.)",
+// „(† 1237; памет 12 януари)", „(† 371–372)", „(† 28 март 1172 г.)",
+// „(Левшин; † 1812)". Разгъва се само кръстчето с датата.
+const _deathPre = {'ок.': 'около', 'около': 'около', 'след': 'след', 'преди': 'преди', 'през': 'през'};
+final _deathYear = _re('(\\(|[;,])\\s*[+†]\\s*(?:(ок\\.|около|след|преди|през)\\s*)?'
+    '(?:(?:([1-9]|[12]\\d|3[01])\\s+)?($_months)\\s+)?'
+    r'([1-9]\d{1,3})(?:\s*(?:([-–—])|/|\s+или\s+)\s*([1-9]\d{1,3}))?'
+    r'(?:\s*(?:г\.|година))?(?=\s*(?:[;,)]|(?:сл|пр)\.\s*Хр\.|на\s))');
+
+String _deathInYear(RegExpMatch m) {
+  var pre = _deathPre[m[2]];
+  final a = _i(m[5]);
+  String y;
+  if (m[7] == null) {
+    y = '${ordinal(a)} година';
+  } else {
+    final b = _second(a, _i(m[7]));
+    if (m[6] == null) {
+      y = '${ordinal(a)} или ${ordinal(b)} година';
+    } else if (b <= a) {
+      return m[0]!;
+    } else if (pre != null) {
+      y = '${ordinal(a)} – ${ordinal(b)} година';
+    } else {
+      y = 'между ${ordinal(a)} и ${ordinal(b)} година';
+      pre = '';
+    }
+  }
+  final String when;
+  if (m[3] != null) {
+    when = '${pre ?? 'на'} ${ordinal(_i(m[3]), 'm')} ${m[4]} $y';
+  } else if (m[4] != null) {
+    when = '${pre ?? 'през'} ${m[4]} $y';
+  } else {
+    when = '${pre ?? 'през'} $y'.trim();
+  }
+  final lead = m[1] == '(' ? '(' : '${m[1]} ';
+  return '$lead${_deathWord(m)} $when';
+}
+
 String _deathWord(RegExpMatch m) {
   final before = m.input.substring(0, m.start);
   var ctx = before.length > 80 ? before.substring(before.length - 80) : before;
@@ -388,6 +428,7 @@ String _deathWord(RegExpMatch m) {
 
 void yearsText(SpokenText t) {
   t.sub(_deathCentury, _deathInCentury);
+  t.sub(_deathYear, _deathInYear);
   // „(+235 г.)" — кончина, с „г." (без „г." го поема miscText).
   t.sub(_re(r'\(\s*[+†]\s*([1-9]\d{1,3})\s*г\.\s*\)'),
       (m) => _death(m, _i(m[1])));
@@ -446,6 +487,12 @@ void suffixedText(SpokenText t) {
   });
 }
 
+const _monthShort = {
+  'ян': 'януари', 'февр': 'февруари', 'фев': 'февруари', 'мар': 'март', 'апр': 'април',
+  'авг': 'август', 'септ': 'септември', 'сеп': 'септември', 'окт': 'октомври',
+  'ноем': 'ноември', 'ное': 'ноември', 'дек': 'декември',
+};
+
 const _months = 'януари|февруари|март|април|май|юни|юли|август|септември|октомври|ноември|декември';
 
 /// Останалите числа, които гласът би прочел криво.
@@ -460,6 +507,15 @@ void miscText(SpokenText t) {
   // „(ок. 306–373)"
   t.sub(_re('\\(\\s*ок\\.\\s*([1-9]\\d{1,3})$_dash([1-9]\\d{1,3})\\s*\\)'),
       (m) => '(около ${ordinal(_i(m[1]))} – ${ordinal(_i(m[2]))} година)');
+  // Съкратените: „пам. 5 дек.", „19 ян.", „15 юли ст. ст.". Точката в края
+  // на изречение остава.
+  String Function(RegExpMatch) short(String Function(RegExpMatch) full) =>
+      (m) => full(m) + (m[m.groupCount] != null ? '.' : '');
+  const end = '(?:(?=(\\s+[А-Я„"(]|\\s*\$))|)';
+  t.sub(_re('(?<![А-Яа-я])пам\\.$end'), short((_) => 'памет'));
+  t.sub(_re('(?<![А-Яа-я])ст\\.\\s*ст\\.$end'), short((_) => 'стар стил'));
+  t.sub(_re('$_wb([1-9]|[12]\\d|3[01])\\s+(${_monthShort.keys.join('|')})\\.$end'),
+      short((m) => '${m[1]} ${_monthShort[m[2]]}'));
   // „28 декември 1895" — денят е редно в мъжки род; годината след месеца — също.
   t.sub(
       _re('$_wb([1-9]|[12]\\d|3[01])\\s+($_months)$_we'

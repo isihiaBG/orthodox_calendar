@@ -168,6 +168,15 @@ _MALE_A = {'исаия', 'сава', 'фока', 'мина', 'варипсава
            'осия', 'малахия', 'ахия', 'азария', 'исайя'}
 
 
+MONTHS = ('януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август',
+          'септември', 'октомври', 'ноември', 'декември')
+
+
+_MONTH_SHORT = {'ян': 'януари', 'февр': 'февруари', 'фев': 'февруари', 'мар': 'март',
+                'апр': 'април', 'авг': 'август', 'септ': 'септември', 'сеп': 'септември',
+                'окт': 'октомври', 'ноем': 'ноември', 'ное': 'ноември', 'дек': 'декември'}
+
+
 def _death(m, year):
     return f'({_death_word(m)} през {ordinal(year)} година)'
 
@@ -185,6 +194,43 @@ def _death_century(m):
     if m.group(3):
         c += ' – ' + ordinal(roman(m.group(3)), 'm')
     return f'({_death_word(m)} {pre} {c} век{m.group(4)})'
+
+
+# Кръстче с година, във всичките ѝ облици (автора, 29.10.2026): „(† ок. 67 г.)",
+# „(† 1237; памет 12 януари)", „(† 371–372)", „(† 333/334 г.)", „(† 28 март
+# 1172 г.)", „(† през август 449 или 459 година)", „(Левшин; † 1812)",
+# „(† 14 г. сл. Хр.)", „(† около 362 г. на 107-годишна възраст)". Разгъва
+# се само кръстчето с датата; останалото в скобата („; памет …") — както е.
+_DEATH_PRE = {'ок.': 'около', 'около': 'около', 'след': 'след', 'преди': 'преди', 'през': 'през'}
+DEATH_YEAR = (r'(\(|[;,])\s*[+†]\s*(?:(ок\.|около|след|преди|през)\s*)?'
+              r'(?:(?:([1-9]|[12]\d|3[01])\s+)?(' + '|'.join(MONTHS) + r')\s+)?'
+              r'([1-9]\d{1,3})(?:\s*(?:([-–—])|/|\s+или\s+)\s*([1-9]\d{1,3}))?'
+              r'(?:\s*(?:г\.|година))?(?=\s*(?:[;,)]|(?:сл|пр)\.\s*Хр\.|на\s))')
+
+
+def _death_year(m):
+    pre = _DEATH_PRE.get(m.group(2))
+    a = int(m.group(5))
+    if m.group(7) is None:
+        y = f'{ordinal(a)} година'
+    else:
+        b = _second(a, int(m.group(7)))
+        if not m.group(6):
+            y = f'{ordinal(a)} или {ordinal(b)} година'
+        elif b <= a:
+            return m.group(0)
+        elif pre:
+            y = f'{ordinal(a)} – {ordinal(b)} година'
+        else:
+            y, pre = f'между {ordinal(a)} и {ordinal(b)} година', ''
+    if m.group(3):
+        when = f'{pre or "на"} {ordinal(int(m.group(3)), "m")} {m.group(4)} {y}'
+    elif m.group(4):
+        when = f'{pre or "през"} {m.group(4)} {y}'
+    else:
+        when = f'{"през" if pre is None else pre} {y}'.strip()
+    lead = '(' if m.group(1) == '(' else m.group(1) + ' '
+    return f'{lead}{_death_word(m)} {when}'
 
 
 def _death_word(m):
@@ -213,6 +259,7 @@ def years_text(txt):
         return r if r else m.group(0)
 
     txt = re.sub(DEATH_CENTURY, _death_century, txt)
+    txt = re.sub(DEATH_YEAR, _death_year, txt)
     # „(+235 г.)" — кончина, с „г." (без „г." го поема misc_text).
     txt = re.sub(r'\(\s*[+†]\s*([1-9]\d{1,3})\s*г\.\s*\)',
                  lambda m: _death(m, int(m.group(1))), txt)
@@ -276,10 +323,6 @@ def suffixed_text(txt):
     return re.sub(r'\b([1-9]\d{0,3})\s*[-–]\s*([а-я]{1,4})\b', _suffixed, txt)
 
 
-MONTHS = ('януари', 'февруари', 'март', 'април', 'май', 'юни', 'юли', 'август',
-          'септември', 'октомври', 'ноември', 'декември')
-
-
 def misc_text(txt):
     """Останалите числа, които гласът би прочел криво (11.10.2026)."""
     # Празни скоби — от махнатия номер на бележка („888()", „виж тук []").
@@ -292,6 +335,15 @@ def misc_text(txt):
     # „(ок. 306–373)"
     txt = re.sub(r'\(\s*ок\.\s*([1-9]\d{1,3})' + _DASH + r'([1-9]\d{1,3})\s*\)',
                  lambda m: f'(около {ordinal(int(m.group(1)))} – {ordinal(int(m.group(2)))} година)', txt)
+    # Съкратените: „пам. 5 дек.", „19 ян.", „15 юли ст. ст." (кръстчетата в
+    # житията). Точката в края на изречение остава.
+    def short(full):
+        return lambda m: full(m) + ('.' if m.group(m.re.groups) is not None else '')
+    end = r'(?:(?=(\s+[А-Я„"(]|\s*$))|)'
+    txt = re.sub(r'(?<![А-Яа-я])пам\.' + end, short(lambda m: 'памет'), txt)
+    txt = re.sub(r'(?<![А-Яа-я])ст\.\s*ст\.' + end, short(lambda m: 'стар стил'), txt)
+    txt = re.sub(r'\b([1-9]|[12]\d|3[01])\s+(' + '|'.join(_MONTH_SHORT) + r')\.' + end,
+                 short(lambda m: f'{m.group(1)} {_MONTH_SHORT[m.group(2)]}'), txt)
     # „28 декември 1895" — денят е редно в мъжки род; годината след месеца — също.
     mon = '|'.join(MONTHS)
     txt = re.sub(r'\b([1-9]|[12]\d|3[01])\s+(' + mon + r')\b(?:\s+([1-9]\d{3})\b(?!\s*(?:г\.|година)))?',
