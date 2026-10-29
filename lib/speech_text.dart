@@ -167,15 +167,21 @@ typedef SpeechLink = (int start, int end, String href);
 /// връзките са проверени.
 ///
 /// [drop] — обхвати, които гласът прескача (номерата на бележките).
+/// [spans] — обхвати, заменени преди всичко друго (откъсите от речника на
+/// гласа); връзките и [drop] имат предимство при застъпване.
 SpokenText speechText(String shown,
-        {List<SpeechLink> links = const [], List<(int, int)> drop = const []}) =>
-    _forPhoneVoice(speechExpand(shown, links: links, drop: drop));
+        {List<SpeechLink> links = const [],
+        List<(int, int)> drop = const [],
+        List<(int, int, String)> spans = const []}) =>
+    _forPhoneVoice(speechExpand(shown, links: links, drop: drop, spans: spans));
 
 /// Само разгъването — общото с ElevenLabs (сверява се с Python).
 SpokenText speechExpand(String shown,
-    {List<SpeechLink> links = const [], List<(int, int)> drop = const []}) {
+    {List<SpeechLink> links = const [],
+    List<(int, int)> drop = const [],
+    List<(int, int, String)> spans = const []}) {
   final t = SpokenText(shown);
-  _bibleLinks(t, links, drop);
+  _bibleLinks(t, links, drop, spans);
   _unescape(t);
   csConvert(t);
   expandAbbr(t);
@@ -679,12 +685,17 @@ String? speakBibleRef(BibleRef r) {
   return '$title, $spoken';
 }
 
-void _bibleLinks(SpokenText t, List<SpeechLink> links, List<(int, int)> drop) {
+void _bibleLinks(SpokenText t, List<SpeechLink> links, List<(int, int)> drop,
+    List<(int, int, String)> extra) {
   final spans = <(int, int, String)>[for (final (a, b) in drop) (a, b, '')];
   for (final (a, b, href) in links) {
     final ref = bibleRefFromUrl(href);
     final spoken = ref == null ? null : speakBibleRef(ref);
     if (spoken != null) spans.add((a, b, spoken));
+  }
+  final taken = [...spans];
+  for (final s in extra) {
+    if (!taken.any((o) => s.$1 < o.$2 && o.$1 < s.$2)) spans.add(s);
   }
   t.replaceSpans(spans);
 }

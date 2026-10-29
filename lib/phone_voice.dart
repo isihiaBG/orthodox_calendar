@@ -369,7 +369,9 @@ class PhoneVoicePlayback implements ReadAloud {
       }
     }
     final blk = blocks[b];
-    final spoken = speechText(text.substring(from, end), links: [
+    final shown = text.substring(from, end);
+    final (shielded, said) = PhoneStress.shield(shown);
+    final spoken = speechText(shown, spans: shielded, links: [
       for (final (x, y, h) in blk.links)
         if (x >= from && y <= end) (x - from, y - from, h),
     ], drop: [
@@ -377,6 +379,7 @@ class PhoneVoicePlayback implements ReadAloud {
         if (x >= from && y <= end) (x - from, y - from),
     ]);
     PhoneStress.apply(spoken);
+    PhoneStress.unshield(spoken, said);
     _uBlock = b;
     _uFrom = from;
     _uEnd = end;

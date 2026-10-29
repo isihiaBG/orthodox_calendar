@@ -253,6 +253,7 @@ class PhoneStress {
           }
         } catch (_) {}
         _matcher = null;
+        _phraseMatcher = null;
         revision.value++;
       }();
 
@@ -382,24 +383,55 @@ class PhoneStress {
   }
 
   static RegExp? _matcher;
+  static RegExp? _phraseMatcher;
 
   /// Откъсите (най-дългите първи), после думата. Буква в края на откъса —
   /// граница на дума от тази страна.
-  static RegExp _buildMatcher() {
+  static RegExp _buildMatcher() =>
+      RegExp([..._phraseAlts(), _word.pattern].join('|'),
+          caseSensitive: false, unicode: true);
+
+  static List<String> _phraseAlts() {
     final phrases = {
       for (final f in [..._fixes, for (final l in _bundled.values) ...l])
         if (_isPhrase(f.word)) f.word
     }.toList()
       ..sort((a, b) => b.length.compareTo(a.length));
     const l = '[А-Яа-яЍѝ]';
-    final alts = [
+    return [
       for (final p in phrases)
         '${RegExp('^$l').hasMatch(p) ? '(?<!$l)' : ''}'
             '${p.split(' ').map(RegExp.escape).join(r'\s+')}'
             '${RegExp('$l\$').hasMatch(p) ? '(?!$l)' : ''}',
-      _word.pattern,
     ];
-    return RegExp(alts.join('|'), caseSensitive: false, unicode: true);
+  }
+
+  /// Откъсите се търсят и в ПОКАЗАНИЯ текст — преди разгъването, което
+  /// иначе ги променя („Св. Писание" → „Свети Писание") и поправката не се
+  /// намира. Всеки намерен откъс става знак-пазач (U+E000…), който
+  /// разгъването не пипа; [unshield] го връща в поправката след речника.
+  static (List<(int, int, String)>, Map<String, String>) shield(String shown) {
+    if (_bundled.isEmpty && _fixes.isEmpty) return (const [], const {});
+    final alts = _phraseAlts();
+    if (alts.isEmpty) return (const [], const {});
+    final re = _phraseMatcher ??=
+        RegExp(alts.join('|'), caseSensitive: false, unicode: true);
+    final spans = <(int, int, String)>[];
+    final said = <String, String>{};
+    for (final m in re.allMatches(shown)) {
+      final w = m[0]!;
+      final f = lookup(w.replaceAll(RegExp(r'\s+'), ' ').toLowerCase());
+      if (f == null || !f.letter.fits(w) || said.length > 6000) continue;
+      final mark = String.fromCharCode(0xE000 + said.length);
+      said[mark] = f.spoken(w);
+      spans.add((m.start, m.end, mark));
+    }
+    return (spans, said);
+  }
+
+  static void unshield(SpokenText t, Map<String, String> said) {
+    if (said.isEmpty) return;
+    t.sub(RegExp('[\uE000-\uF8FF]'), (m) => said[m[0]!] ?? '');
   }
 
   static Future<void> add(StressFix fix) async {
@@ -424,6 +456,7 @@ class PhoneStress {
 
   static Future<void> _save() async {
     _matcher = null;
+    _phraseMatcher = null;
     revision.value++;
     try {
       final p = await SharedPreferences.getInstance();
