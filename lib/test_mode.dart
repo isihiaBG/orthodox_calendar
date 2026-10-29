@@ -252,6 +252,7 @@ class PhoneStress {
                 after: at(7)));
           }
         } catch (_) {}
+        _matcher = null;
         revision.value++;
       }();
 
@@ -361,15 +362,44 @@ class PhoneStress {
     return (p?.toLowerCase(), n?.toLowerCase());
   }
 
-  /// Прилага речника върху текста за гласа.
+  /// Прилага речника върху текста за гласа. Откъсите („по-") и думите —
+  /// с ЕДНО минаване: откъсът е пръв в алтернативата и печели на същото
+  /// място, а замененото не се търси пак (инак „по-" → „по -" щеше да
+  /// хване и поправката на предлога „по").
   static void apply(SpokenText t) {
     if (_bundled.isEmpty && _fixes.isEmpty) return;
-    t.sub(_word, (m) {
+    t.sub(_matcher ??= _buildMatcher(), (m) {
       final w = m[0]!;
+      final key = w.replaceAll(RegExp(r'\s+'), ' ').toLowerCase();
+      if (_isPhrase(key)) {
+        final f = lookup(key);
+        return f != null && f.letter.fits(w) ? f.spoken(w) : w;
+      }
       final (prev, next) = neighbours(m.input, m.start, m.end);
       final f = lookup(w, prev: prev, next: next);
       return f == null ? w : f.spoken(w);
     });
+  }
+
+  static RegExp? _matcher;
+
+  /// Откъсите (най-дългите първи), после думата. Буква в края на откъса —
+  /// граница на дума от тази страна.
+  static RegExp _buildMatcher() {
+    final phrases = {
+      for (final f in [..._fixes, for (final l in _bundled.values) ...l])
+        if (_isPhrase(f.word)) f.word
+    }.toList()
+      ..sort((a, b) => b.length.compareTo(a.length));
+    const l = '[А-Яа-яЍѝ]';
+    final alts = [
+      for (final p in phrases)
+        '${RegExp('^$l').hasMatch(p) ? '(?<!$l)' : ''}'
+            '${p.split(' ').map(RegExp.escape).join(r'\s+')}'
+            '${RegExp('$l\$').hasMatch(p) ? '(?!$l)' : ''}',
+      _word.pattern,
+    ];
+    return RegExp(alts.join('|'), caseSensitive: false, unicode: true);
   }
 
   static Future<void> add(StressFix fix) async {
@@ -393,6 +423,7 @@ class PhoneStress {
   }
 
   static Future<void> _save() async {
+    _matcher = null;
     revision.value++;
     try {
       final p = await SharedPreferences.getInstance();
@@ -419,10 +450,18 @@ class PhoneStress {
 /// едносричните („гняв"), и предлозите без гласна („с", „в"; автора,
 /// 29.10.2026: „искам пълен контрол"). Поправката важи само за цялата
 /// дума — „с" не пипа „село" (речникът търси цели думи).
+///
+/// И откъс, който не е една дума — „по-" (превъзходната степен, не
+/// предлогът „по"): търси се и се заменя дословно, като „find & replace"
+/// (автора, 29.10.2026). Буква в края му не бива да е част от по-дълга дума.
 String? stressWordOf(String? selected) {
-  final w = selected?.trim() ?? '';
-  return RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w) ? w : null;
+  final w = (selected ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
+  if (w.isEmpty || w.length > 40 || !w.contains(PhoneStress._word)) return null;
+  return w;
 }
+
+/// Откъс, не дума: „по-", „света Петка".
+bool _isPhrase(String w) => !RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w);
 
 // ── панелът „Грешно ударение" ────────────────────────────────────────────
 
@@ -463,14 +502,17 @@ class _StressSheetState extends State<_StressSheet> {
   late bool _withPrev = _saved?.before != null;
   late bool _withNext = _saved?.after != null;
   // Едносрична дума — гласната е само една, избрана отначало.
-  late int? _i = (_saved?.index ?? -1) >= 0 ? _saved!.index : _onlyVowel(widget.word);
+  late int? _i = _phrase ? null : (_saved?.index ?? -1) >= 0 ? _saved!.index : _onlyVowel(widget.word);
 
   static int? _onlyVowel(String w) {
     final v = [for (var k = 0; k < w.length; k++) if (_vowels.contains(w[k].toLowerCase())) k];
     return v.length == 1 ? v.first : null;
   }
   // Без гласна („с", „в") ударение няма — остава само своят изговор.
-  late final bool _noVowel = !widget.word.toLowerCase().split('').any(_vowels.contains);
+  // Откъсът („по-") — също: заменя се дословно, без ударена гласна и без
+  // съседни думи.
+  late final bool _phrase = _isPhrase(widget.word);
+  late final bool _noVowel = _phrase || !widget.word.toLowerCase().split('').any(_vowels.contains);
   late StressWay? _way = _saved?.way ?? (_noVowel ? StressWay.custom : null);
   late final _custom = TextEditingController(
       text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : _noVowel ? widget.word : '');
@@ -524,10 +566,13 @@ class _StressSheetState extends State<_StressSheet> {
             Text(_noVowel ? 'Напишете как да прозвучи' : 'Докоснете ударената гласна',
                 style: TextStyle(color: p.dim, fontSize: 14)),
             const SizedBox(height: 18),
-            Wrap(alignment: WrapAlignment.center, children: [
-              for (var k = 0; k < w.length; k++)
-                _letter(w[k], k, gold, p.ink),
-            ]),
+            if (_phrase)
+              Text(w, style: TextStyle(fontSize: 34, height: 1.3, color: p.ink))
+            else
+              Wrap(alignment: WrapAlignment.center, children: [
+                for (var k = 0; k < w.length; k++)
+                  _letter(w[k], k, gold, p.ink),
+              ]),
             const SizedBox(height: 18),
             // Начинът — кой сработва, се чува: „Чуй" след всяка смяна.
             SegmentedButton<StressWay>(
@@ -632,7 +677,7 @@ class _StressSheetState extends State<_StressSheet> {
               selected: {_case},
               onSelectionChanged: (v) => setState(() => _case = v.first),
             ),
-            if (widget.prev != null || widget.next != null) ...[
+            if (!_phrase && (widget.prev != null || widget.next != null)) ...[
               const SizedBox(height: 12),
               Text('само в израза — докоснете съседна дума',
                   style: TextStyle(color: p.dim, fontSize: 13)),
