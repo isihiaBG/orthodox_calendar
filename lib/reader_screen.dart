@@ -534,8 +534,8 @@ class _PreparedContent {
 /// през compute() в отделен isolate, затова е ЧИСТА функция: никакви
 /// референции към BuildContext/State/widget.
 _PreparedContent _prepareReaderContent(_PrepareArgs args) {
-  final html = _buildHtmlFor(args.mode, args.texts,
-      oldStyle: args.oldStyle, oldFirst: args.oldFirst);
+  final html = _plainHeadings(_buildHtmlFor(args.mode, args.texts,
+      oldStyle: args.oldStyle, oldFirst: args.oldFirst));
   final isLife = args.mode == _ReaderMode.life;
   final (beforeHtml, _, dropCap, firstP, afterHtml) = isLife
       ? splitDropCap(html)
@@ -4707,3 +4707,14 @@ int? _sentenceCutNear(String inner, int target) {
   if (head.split('<').length != head.split('>').length) return null;
   return best;
 }
+
+/// Удебеляване, обвило ЦЯЛО заглавие (`<h3><strong>…</strong></h3>`), се
+/// пренебрегва: заглавието и без това е удебелено, а двойното излиза като
+/// размазано (автора, 29.10.2026 — житията от azbyka). Само тагът — текстът
+/// и позициите не се мерят по него.
+final _boldHeading = RegExp(
+    r'(<h[1-6][^>]*>)\s*<(strong|b)>((?:(?!</?(?:strong|b)>).)*?)</\2>\s*(</h[1-6]>)',
+    dotAll: true);
+
+String _plainHeadings(String html) =>
+    html.replaceAllMapped(_boldHeading, (m) => '${m[1]}${m[3]}${m[4]}');
