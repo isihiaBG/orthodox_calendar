@@ -177,23 +177,31 @@ _MONTH_SHORT = {'ян': 'януари', 'февр': 'февруари', 'фев'
                 'окт': 'октомври', 'ноем': 'ноември', 'ное': 'ноември', 'дек': 'декември'}
 
 
+def _say(lead, word, pre, rest):
+    # Спорно ли е кое да е (word == '') — само годината, без „през"/„на"
+    # по подразбиране (автора, 29.10.2026).
+    return lead + ' '.join(x for x in (word, pre if word or pre not in ('през', 'на') else '', rest) if x)
+
+
 def _death(m, year):
-    return f'({_death_word(m)} през {ordinal(year)} година)'
+    return _say('(', _death_word(m), 'през', f'{ordinal(year)} година)')
 
 
 # Кръстче с век: „(† I)", „(† IV–V)", „(† XI в.)", „(† VIII в. пр. Хр.)",
 # „(† в I век)", „(† XIV в.; памет 1 октомври)" — „(пострадал през първи
 # век)" (автора, 29.10.2026). Останалото („пр. Хр.", „; памет …") — както е.
-DEATH_CENTURY = (r'\(\s*[+†]\s*(?:(ок\.|около|след|в)\s*)?([IVXLC]+)(?:' + _DASH + r'([IVXLC]+))?'
+DEATH_CENTURY = (r'\(\s*[+†]\s*(?:(ок\.|около|след|в|(?:в\s+)?(?:края|средата|началото)\s+на)\s*)?([IVXLC]+)(?:' + _DASH + r'([IVXLC]+))?'
                  r'(?:\s*(?:вв?\.|века?))?((?:\s*пр\.\s*Хр\.)?(?:\s*[;,][^()]*)?)\s*\)')
 
 
 def _death_century(m):
     pre = {'ок.': 'около', 'около': 'около', 'след': 'след'}.get(m.group(1), 'през')
+    if m.group(1) and m.group(1).endswith(' на'):
+        pre = 'в ' + m.group(1).split()[-2] + ' на'
     c = ordinal(roman(m.group(2)), 'm')
     if m.group(3):
         c += ' – ' + ordinal(roman(m.group(3)), 'm')
-    return f'({_death_word(m)} {pre} {c} век{m.group(4)})'
+    return _say('(', _death_word(m), pre, f'{c} век{m.group(4)})')
 
 
 # Кръстче с година, във всичките ѝ облици (автора, 29.10.2026): „(† ок. 67 г.)",
@@ -224,13 +232,13 @@ def _death_year(m):
         else:
             y, pre = f'между {ordinal(a)} и {ordinal(b)} година', ''
     if m.group(3):
-        when = f'{pre or "на"} {ordinal(int(m.group(3)), "m")} {m.group(4)} {y}'
+        pre, y = pre or 'на', f'{ordinal(int(m.group(3)), "m")} {m.group(4)} {y}'
     elif m.group(4):
-        when = f'{pre or "през"} {m.group(4)} {y}'
-    else:
-        when = f'{"през" if pre is None else pre} {y}'.strip()
+        pre, y = pre or 'през', f'{m.group(4)} {y}'
+    elif pre is None:
+        pre = 'през'
     lead = '(' if m.group(1) == '(' else m.group(1) + ' '
-    return f'{lead}{_death_word(m)} {when}'
+    return _say(lead, _death_word(m), pre, y)
 
 
 def _death_word(m):
@@ -243,7 +251,17 @@ def _death_word(m):
             ctx = ctx[e.end():]
             break
     names = re.findall(r'[А-Я][а-я]+', ctx)
-    plural = bool(_PLURAL.search(ctx))
+    if not names:
+        return ''           # „гр. Ειρήνη" — няма за кого да се съди
+    # Името е в самата скоба („(Българина; † 1473)") — прякор или фамилия,
+    # родът му не е родът на светеца.
+    inner = ctx[ctx.rfind('(') + 1:] if '(' in ctx else ''
+    if inner and names[-1] in inner and names[-1][-1] in 'ая':
+        return ''
+    # „Кир и Йоан", „Агапия, Хиония и Ирина" — множествено (но не
+    # „Смоленски и Киевски").
+    plural = bool(_PLURAL.search(ctx) or re.search(
+        r'[А-Я][а-я]+(?<!ски)\s+и\s+[А-Я][а-я]+(?<!ски)\s*$', ctx))
     martyr = bool(_MARTYR.search(ctx))
     name = names[-1].lower() if names else ''
     fem = not plural and name[-1:] in ('а', 'я') and name not in _MALE_A
@@ -258,6 +276,9 @@ def years_text(txt):
         r = _range(m.group(1) or '', int(m.group(2)), int(m.group(3)))
         return r if r else m.group(0)
 
+    # „кр. на IV в.", „ср. на IV в.", „нач. на V в." (автора, 29.10.2026).
+    for short, full in (('кр', 'края'), ('ср', 'средата'), ('нач', 'началото')):
+        txt = re.sub(r'(?<![А-Яа-я])' + short + r'\.\s*на(?=\s)', full + ' на', txt)
     txt = re.sub(DEATH_CENTURY, _death_century, txt)
     txt = re.sub(DEATH_YEAR, _death_year, txt)
     # „(+235 г.)" — кончина, с „г." (без „г." го поема misc_text).

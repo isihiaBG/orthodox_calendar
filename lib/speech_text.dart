@@ -348,20 +348,34 @@ final _plural = RegExp(
     unicode: true);
 final _sentBreak = RegExp(r'([А-Яа-я]+)[.!?]\s+(?=[А-Я])');
 final _capWord = RegExp(r'[А-Я][а-я]+');
+final _twoNames = RegExp(r'[А-Я][а-я]+(?<!ски)\s+и\s+[А-Я][а-я]+(?<!ски)\s*$');
 
-String _death(RegExpMatch m, int year) => '(${_deathWord(m)} през ${ordinal(year)} година)';
+// Спорно ли е кое да е (word == '') — само годината, без „през"/„на" по
+// подразбиране (numbers_bg._say).
+String _say(String lead, String word, String pre, String rest) =>
+    lead +
+    [word, (word != '' || (pre != 'през' && pre != 'на')) ? pre : '', rest]
+        .where((x) => x != '')
+        .join(' ');
+
+String _death(RegExpMatch m, int year) =>
+    _say('(', _deathWord(m), 'през', '${ordinal(year)} година)');
 
 // Кръстче с век: „(† I)", „(† IV–V)", „(† XI в.)", „(† VIII в. пр. Хр.)",
 // „(† в I век)", „(† XIV в.; памет 1 октомври)" — „(пострадал през първи
 // век)" (автора, 29.10.2026). Останалото („пр. Хр.", „; памет …") — както е.
-final _deathCentury = _re('\\(\\s*[+†]\\s*(?:(ок\\.|около|след|в)\\s*)?([IVXLC]+)(?:$_dash([IVXLC]+))?'
+final _deathCentury = _re('\\(\\s*[+†]\\s*(?:(ок\\.|около|след|в|(?:в\\s+)?(?:края|средата|началото)\\s+на)\\s*)?([IVXLC]+)(?:$_dash([IVXLC]+))?'
     r'(?:\s*(?:вв?\.|века?))?((?:\s*пр\.\s*Хр\.)?(?:\s*[;,][^()]*)?)\s*\)');
 
 String _deathInCentury(RegExpMatch m) {
-  final pre = switch (m[1]) { 'ок.' || 'около' => 'около', 'след' => 'след', _ => 'през' };
+  var pre = switch (m[1]) { 'ок.' || 'около' => 'около', 'след' => 'след', _ => 'през' };
+  if (m[1] != null && m[1]!.endsWith(' на')) {
+    final w = m[1]!.split(RegExp(r'\s+'));
+    pre = 'в ${w[w.length - 2]} на';
+  }
   var c = ordinal(roman(m[2]!), 'm');
   if (m[3] != null) c += ' – ${ordinal(roman(m[3]!), 'm')}';
-  return '(${_deathWord(m)} $pre $c век${m[4]})';
+  return _say('(', _deathWord(m), pre, '$c век${m[4]})');
 }
 
 // Кръстче с година, във всичките ѝ облици (numbers_bg.DEATH_YEAR): „(† ок. 67 г.)",
@@ -392,16 +406,15 @@ String _deathInYear(RegExpMatch m) {
       pre = '';
     }
   }
-  final String when;
   if (m[3] != null) {
-    when = '${pre ?? 'на'} ${ordinal(_i(m[3]), 'm')} ${m[4]} $y';
+    pre ??= 'на';
+    y = '${ordinal(_i(m[3]), 'm')} ${m[4]} $y';
   } else if (m[4] != null) {
-    when = '${pre ?? 'през'} ${m[4]} $y';
-  } else {
-    when = '${pre ?? 'през'} $y'.trim();
+    pre ??= 'през';
+    y = '${m[4]} $y';
   }
   final lead = m[1] == '(' ? '(' : '${m[1]} ';
-  return '$lead${_deathWord(m)} $when';
+  return _say(lead, _deathWord(m), pre ?? 'през', y);
 }
 
 String _deathWord(RegExpMatch m) {
@@ -415,7 +428,18 @@ String _deathWord(RegExpMatch m) {
     }
   }
   final names = _capWord.allMatches(ctx).toList();
-  final plural = _plural.hasMatch(ctx);
+  if (names.isEmpty) return ''; // „гр. Ειρήνη" — няма за кого да се съди
+  // Името е в самата скоба („(Българина; † 1473)") — прякор или фамилия.
+  final last = names.last[0]!;
+  final open = ctx.lastIndexOf('(');
+  if (open >= 0 &&
+      ctx.substring(open + 1).contains(last) &&
+      (last.endsWith('а') || last.endsWith('я'))) {
+    return '';
+  }
+  // „Кир и Йоан", „Агапия, Хиония и Ирина" — множествено (но не
+  // „Смоленски и Киевски").
+  final plural = _plural.hasMatch(ctx) || _twoNames.hasMatch(ctx);
   final martyr = _martyr.hasMatch(ctx);
   final name = names.isEmpty ? '' : names.last[0]!.toLowerCase();
   final fem = !plural &&
@@ -427,6 +451,10 @@ String _deathWord(RegExpMatch m) {
 }
 
 void yearsText(SpokenText t) {
+  // „кр. на IV в.", „ср. на IV в.", „нач. на V в.".
+  for (final (short, full) in [('кр', 'края'), ('ср', 'средата'), ('нач', 'началото')]) {
+    t.sub(_re('(?<![А-Яа-я])$short\\.\\s*на(?=\\s)'), (_) => '$full на');
+  }
   t.sub(_deathCentury, _deathInCentury);
   t.sub(_deathYear, _deathInYear);
   // „(+235 г.)" — кончина, с „г." (без „г." го поема miscText).
