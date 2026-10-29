@@ -328,12 +328,13 @@ class PhoneStress {
   }
 }
 
-/// Може ли маркираното да се поправя: една дума, поне две гласни.
+/// Може ли маркираното да се поправя: една дума с поне една гласна —
+/// и едносричните („гняв"), гласът може да ги каже криво (автора,
+/// 29.10.2026).
 String? stressWordOf(String? selected) {
   final w = selected?.trim() ?? '';
   if (!RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w)) return null;
-  final n = w.toLowerCase().split('').where(_vowels.contains).length;
-  return n >= 2 ? w : null;
+  return w.toLowerCase().split('').any(_vowels.contains) ? w : null;
 }
 
 // ── панелът „Грешно ударение" ────────────────────────────────────────────
@@ -368,7 +369,13 @@ class _StressSheet extends StatefulWidget {
 
 class _StressSheetState extends State<_StressSheet> {
   late final StressFix? _saved = PhoneStress.lookup(widget.word.toLowerCase());
-  late int? _i = (_saved?.index ?? -1) < 0 ? null : _saved!.index;
+  // Едносрична дума — гласната е само една, избрана отначало.
+  late int? _i = (_saved?.index ?? -1) >= 0 ? _saved!.index : _onlyVowel(widget.word);
+
+  static int? _onlyVowel(String w) {
+    final v = [for (var k = 0; k < w.length; k++) if (_vowels.contains(w[k].toLowerCase())) k];
+    return v.length == 1 ? v.first : null;
+  }
   late StressWay? _way = _saved?.way;
   late final _custom = TextEditingController(
       text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : '');
