@@ -512,136 +512,144 @@ class _StressSheetState extends State<_StressSheet> {
     return SafeArea(
       child: Padding(
         padding: EdgeInsets.fromLTRB(24, 0, 24, 20 + MediaQuery.viewInsetsOf(context).bottom),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
-              style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
-          const SizedBox(height: 6),
-          Text('Докоснете ударената гласна',
-              style: TextStyle(color: p.dim, fontSize: 14)),
-          const SizedBox(height: 18),
-          Wrap(alignment: WrapAlignment.center, children: [
-            for (var k = 0; k < w.length; k++)
-              _letter(w[k], k, gold, p.ink),
-          ]),
-          const SizedBox(height: 18),
-          // Начинът — кой сработва, се чува: „Чуй" след всяка смяна.
-          SegmentedButton<StressWay>(
-            showSelectedIcon: false,
-            emptySelectionAllowed: true,
-            style: SegmentedButton.styleFrom(
-              selectedBackgroundColor: gold.withValues(alpha: p.dark ? 0.28 : 0.22),
-              selectedForegroundColor: p.ink,
-              foregroundColor: p.dim,
-              side: BorderSide(color: p.dim.withValues(alpha: 0.4)),
-              visualDensity: VisualDensity.compact,
-            ),
-            segments: [
-              ButtonSegment(
-                  value: StressWay.latin,
-                  enabled: _i != null && PhoneStress.latinFits(w, _i!),
-                  label: const Text('латинска')),
-              const ButtonSegment(value: StressWay.double, label: Text('двойна')),
-              const ButtonSegment(value: StressWay.dash, label: Text('тире')),
-              const ButtonSegment(value: StressWay.custom, label: Text('свой')),
-            ],
-            selected: {
-              if (_isCustom)
-                StressWay.custom
-              else if (_i != null)
-                _wayFor ??
-                    (PhoneStress.latinFits(w, _i!) ? StressWay.latin : StressWay.double)
-            },
-            onSelectionChanged: (v) => _pickWay(v.isEmpty ? null : v.first),
-          ),
-          const SizedBox(height: 10),
-          if (_isCustom) ...[
-            // Свой изговор: пише се, както трябва да прозвучи.
-            TextField(
-              controller: _custom,
-              autofocus: _customText.isEmpty,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: p.ink, fontSize: 24),
-              cursorColor: gold,
-              onChanged: (_) => setState(() {}),
-              decoration: InputDecoration(
-                isDense: true,
-                hintText: w.toLowerCase(),
-                hintStyle: TextStyle(color: p.dim.withValues(alpha: 0.6)),
-                enabledBorder: UnderlineInputBorder(
-                    borderSide: BorderSide(color: p.dim.withValues(alpha: 0.4))),
-                focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: gold, width: 1.5)),
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text('както да прозвучи: тире, интервал, удвоена буква, латиница…',
-                textAlign: TextAlign.center, style: TextStyle(color: p.dim, fontSize: 13)),
-          ] else
-            // Какво точно получава гласът.
-            Text(_i == null ? ' ' : 'гласът получава: $_spoken',
-                style: TextStyle(color: p.dim, fontSize: 14)),
-          const SizedBox(height: 16),
-          // Кога важи: с каква буква и дали само до съседна дума.
-          SegmentedButton<StressCase>(
-            showSelectedIcon: false,
-            style: SegmentedButton.styleFrom(
-              selectedBackgroundColor: gold.withValues(alpha: p.dark ? 0.28 : 0.22),
-              selectedForegroundColor: p.ink,
-              foregroundColor: p.dim,
-              side: BorderSide(color: p.dim.withValues(alpha: 0.4)),
-              visualDensity: VisualDensity.compact,
-            ),
-            segments: const [
-              ButtonSegment(value: StressCase.any, label: Text('всякак')),
-              ButtonSegment(value: StressCase.upper, label: Text('с главна')),
-              ButtonSegment(value: StressCase.lower, label: Text('с малка')),
-            ],
-            selected: {_case},
-            onSelectionChanged: (v) => setState(() => _case = v.first),
-          ),
-          if (widget.prev != null || widget.next != null) ...[
-            const SizedBox(height: 12),
-            Text('само в израза — докоснете съседна дума',
-                style: TextStyle(color: p.dim, fontSize: 13)),
+        // С клавиатурата не се събира — долното („всякак…", съседите) се
+        // превърта, горното остава.
+        child: SingleChildScrollView(
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
+                style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
             const SizedBox(height: 6),
-            Wrap(
-              alignment: WrapAlignment.center,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 8,
-              children: [
-                if (widget.prev != null)
-                  _neighbour(widget.prev!, _withPrev, () => setState(() => _withPrev = !_withPrev), gold, p),
-                Text(w, style: TextStyle(color: p.ink, fontSize: 16, fontWeight: FontWeight.w600)),
-                if (widget.next != null)
-                  _neighbour(widget.next!, _withNext, () => setState(() => _withNext = !_withNext), gold, p),
+            Text('Докоснете ударената гласна',
+                style: TextStyle(color: p.dim, fontSize: 14)),
+            const SizedBox(height: 18),
+            Wrap(alignment: WrapAlignment.center, children: [
+              for (var k = 0; k < w.length; k++)
+                _letter(w[k], k, gold, p.ink),
+            ]),
+            const SizedBox(height: 18),
+            // Начинът — кой сработва, се чува: „Чуй" след всяка смяна.
+            SegmentedButton<StressWay>(
+              showSelectedIcon: false,
+              emptySelectionAllowed: true,
+              style: SegmentedButton.styleFrom(
+                selectedBackgroundColor: gold.withValues(alpha: p.dark ? 0.28 : 0.22),
+                selectedForegroundColor: p.ink,
+                foregroundColor: p.dim,
+                side: BorderSide(color: p.dim.withValues(alpha: 0.4)),
+                visualDensity: VisualDensity.compact,
+                // „латинска" се пренасяше на два реда.
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+              ),
+              segments: [
+                ButtonSegment(
+                    value: StressWay.latin,
+                    enabled: _i != null && PhoneStress.latinFits(w, _i!),
+                    label: const Text('латинска')),
+                const ButtonSegment(value: StressWay.double, label: Text('двойна')),
+                const ButtonSegment(value: StressWay.dash, label: Text('тире')),
+                const ButtonSegment(value: StressWay.custom, label: Text('свой')),
               ],
+              selected: {
+                if (_isCustom)
+                  StressWay.custom
+                else if (_i != null)
+                  _wayFor ??
+                      (PhoneStress.latinFits(w, _i!) ? StressWay.latin : StressWay.double)
+              },
+              onSelectionChanged: (v) => _pickWay(v.isEmpty ? null : v.first),
             ),
-          ],
-          const SizedBox(height: 16),
-          Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-            OutlinedButton.icon(
-              onPressed: () => PhoneVoice.preview(_spoken),
-              icon: const Icon(Icons.volume_up_rounded, size: 20),
-              label: const Text('Чуй'),
+            const SizedBox(height: 10),
+            if (_isCustom) ...[
+              // Свой изговор: пише се, както трябва да прозвучи.
+              TextField(
+                controller: _custom,
+                autofocus: _customText.isEmpty,
+                textAlign: TextAlign.center,
+                style: TextStyle(color: p.ink, fontSize: 24),
+                cursorColor: gold,
+                onChanged: (_) => setState(() {}),
+                decoration: InputDecoration(
+                  isDense: true,
+                  hintText: w.toLowerCase(),
+                  hintStyle: TextStyle(color: p.dim.withValues(alpha: 0.6)),
+                  enabledBorder: UnderlineInputBorder(
+                      borderSide: BorderSide(color: p.dim.withValues(alpha: 0.4))),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: gold, width: 1.5)),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text('както да прозвучи: тире, интервал, удвоена буква, латиница…',
+                  textAlign: TextAlign.center, style: TextStyle(color: p.dim, fontSize: 13)),
+            ] else
+              // Какво точно получава гласът.
+              Text(_i == null ? ' ' : 'гласът получава: $_spoken',
+                  style: TextStyle(color: p.dim, fontSize: 14)),
+            // „Чуй" и „Запази" — веднага под написаното: при „свой" клавиатурата
+            // закрива долната част, а тук се пробва често (автора, 29.10.2026).
+            const SizedBox(height: 16),
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              OutlinedButton.icon(
+                onPressed: () => PhoneVoice.preview(_spoken),
+                icon: const Icon(Icons.volume_up_rounded, size: 20),
+                label: const Text('Чуй'),
+              ),
+              const SizedBox(width: 14),
+              FilledButton(
+                onPressed: !_canSave
+                    ? null
+                    : () async {
+                        final nav = Navigator.of(context);
+                        final fix = StressFix(w.toLowerCase(), _i ?? -1,
+                            way: _wayFor,
+                            custom: _isCustom ? _customText : null,
+                            letter: _case,
+                            before: _withPrev ? widget.prev : null,
+                            after: _withNext ? widget.next : null);
+                        await PhoneStress.add(fix);
+                        nav.pop(fix.marked);
+                      },
+                child: const Text('Запази'),
+              ),
+            ]),
+            const SizedBox(height: 20),
+            // Кога важи: с каква буква и дали само до съседна дума.
+            SegmentedButton<StressCase>(
+              showSelectedIcon: false,
+              style: SegmentedButton.styleFrom(
+                selectedBackgroundColor: gold.withValues(alpha: p.dark ? 0.28 : 0.22),
+                selectedForegroundColor: p.ink,
+                foregroundColor: p.dim,
+                side: BorderSide(color: p.dim.withValues(alpha: 0.4)),
+                visualDensity: VisualDensity.compact,
+              ),
+              segments: const [
+                ButtonSegment(value: StressCase.any, label: Text('всякак')),
+                ButtonSegment(value: StressCase.upper, label: Text('с главна')),
+                ButtonSegment(value: StressCase.lower, label: Text('с малка')),
+              ],
+              selected: {_case},
+              onSelectionChanged: (v) => setState(() => _case = v.first),
             ),
-            const SizedBox(width: 14),
-            FilledButton(
-              onPressed: !_canSave
-                  ? null
-                  : () async {
-                      final nav = Navigator.of(context);
-                      final fix = StressFix(w.toLowerCase(), _i ?? -1,
-                          way: _wayFor,
-                          custom: _isCustom ? _customText : null,
-                          letter: _case,
-                          before: _withPrev ? widget.prev : null,
-                          after: _withNext ? widget.next : null);
-                      await PhoneStress.add(fix);
-                      nav.pop(fix.marked);
-                    },
-              child: const Text('Запази'),
-            ),
+            if (widget.prev != null || widget.next != null) ...[
+              const SizedBox(height: 12),
+              Text('само в израза — докоснете съседна дума',
+                  style: TextStyle(color: p.dim, fontSize: 13)),
+              const SizedBox(height: 6),
+              Wrap(
+                alignment: WrapAlignment.center,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
+                children: [
+                  if (widget.prev != null)
+                    _neighbour(widget.prev!, _withPrev, () => setState(() => _withPrev = !_withPrev), gold, p),
+                  Text(w, style: TextStyle(color: p.ink, fontSize: 16, fontWeight: FontWeight.w600)),
+                  if (widget.next != null)
+                    _neighbour(widget.next!, _withNext, () => setState(() => _withNext = !_withNext), gold, p),
+                ],
+              ),
+            ],
           ]),
-        ]),
+        ),
       ),
     );
   }
