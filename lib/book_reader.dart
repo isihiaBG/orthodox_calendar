@@ -269,6 +269,7 @@ class _BookReaderState extends State<BookReader>
   // 5 s, процесът е бил замразен от системата (пестене на батерия). При
   // връщане — питането в background_permission.dart.
   Timer? _bgTicker;
+  ReadAloud? _bgWaitOn; // на пауза във фонов режим — чака звука
   DateTime? _bgLastTick;
   bool _bgFroze = false;
   BookPosition? _saved;
@@ -474,6 +475,7 @@ class _BookReaderState extends State<BookReader>
   @override
   void dispose() {
     _bgTicker?.cancel();
+    _bgWaitOn?.playing.removeListener(_bgRearm);
     _audio?.revision.removeListener(_onAudioRevision);
     unawaited(_stopAudio(quiet: true));
     unawaited(_outro.dispose());
@@ -1589,6 +1591,8 @@ class _BookReaderState extends State<BookReader>
       _bgTicker = Timer.periodic(const Duration(seconds: 1), (_) => _bgTick());
     } else if (state == AppLifecycleState.resumed) {
       if (_bgTicker != null) _bgTick();
+      _bgWaitOn?.playing.removeListener(_bgRearm);
+      _bgWaitOn = null;
       _bgTicker?.cancel();
       _bgTicker = null;
       _bgLastTick = null;
@@ -1600,15 +1604,36 @@ class _BookReaderState extends State<BookReader>
   }
 
   void _bgTick() {
+    final pb = _playback;
+    if (pb != null && !pb.playing.value) {
+      // На пауза няма какво да се пази, а телефонът ТРЯБВА да може да заспи
+      // (не е замръзване) — броячът спира и тръгва пак със звука.
+      _bgTicker?.cancel();
+      _bgTicker = null;
+      _bgLastTick = null;
+      _bgWaitOn?.playing.removeListener(_bgRearm);
+      _bgWaitOn = pb..playing.addListener(_bgRearm);
+      return;
+    }
     final now = DateTime.now();
     final last = _bgLastTick;
     _bgLastTick = now;
-    if (last == null || _playback == null) return;
+    if (last == null || pb == null) return;
     final gap = now.difference(last).inMilliseconds;
     if (gap > 5000) {
       _bgFroze = true;
       audioLogAdd('замръзване във фонов режим: $gap ms');
     }
+  }
+
+  void _bgRearm() {
+    final pb = _bgWaitOn;
+    if (pb == null || !pb.playing.value) return;
+    pb.playing.removeListener(_bgRearm);
+    _bgWaitOn = null;
+    if (_bgTicker != null || pb != _playback) return;
+    _bgLastTick = DateTime.now();
+    _bgTicker = Timer.periodic(const Duration(seconds: 1), (_) => _bgTick());
   }
 
   Future<void> _goNextAudio() async {

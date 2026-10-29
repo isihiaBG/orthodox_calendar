@@ -33,6 +33,12 @@ import 'chitalnya_books.dart';
 /// във фонов режим гърми на Android 12+ (стартиране на услуга от фонов
 /// режим). Известието изчезва, щом беседата се затвори.
 ///
+/// ⚠ НО на преден план услугата държи и процесора буден (PARTIAL_WAKE_LOCK
+/// на audio_service се пуска само при спиране на предния план) — Android
+/// се оплакваше от „приложение, което харчи батерията“ при оставен на пауза
+/// плейър (автора, 29.10.2026). Затова след [_Handler.sleepAfter] на пауза
+/// услугата спира изцяло; ▶ в приложението я пуска пак, от същото място.
+///
 /// ⚠⚠ ИКОНКИТЕ НА БУТОНИТЕ (27.10.2026): `audio_service` ги търси по име, а
 /// чистачът на ресурси при release ги триеше — грешка при бутона −15 s,
 /// услугата не минаваше на преден план, панел нямаше. Пази ги
@@ -129,15 +135,25 @@ class AudioBackground {
 }
 
 class _Handler extends BaseAudioHandler with SeekHandler {
+  /// Колко да чака на пауза, преди да пусне телефона да заспи — дотогава
+  /// плейърът в известията остава (автора, 29.10.2026: 3 мин; после нищо не
+  /// се губи, ▶ в приложението продължава).
+  static const sleepAfter = Duration(minutes: 3);
+
   ReadAloud? _pb;
+  MediaItem? _item;
   Timer? _idleTimer;
+  Timer? _sleepTimer;
+  bool _asleep = false;
   int _lastSecond = -1;
 
   void _attach(ReadAloud pb, String title, String book, Uri? art) {
     _idleTimer?.cancel();
+    _sleepTimer?.cancel();
+    _asleep = false;
     _unlisten();
     _pb = pb;
-    mediaItem.add(MediaItem(
+    mediaItem.add(_item = MediaItem(
       id: pb.mediaId,
       title: title,
       album: book,
@@ -159,6 +175,7 @@ class _Handler extends BaseAudioHandler with SeekHandler {
     _unlisten();
     _pb = null;
     _idleTimer?.cancel();
+    _sleepTimer?.cancel();
     _idleTimer = Timer(const Duration(seconds: 8), () {
       if (_pb != null) return;
       playbackState.add(playbackState.value.copyWith(
@@ -182,6 +199,21 @@ class _Handler extends BaseAudioHandler with SeekHandler {
     final pb = _pb;
     if (pb == null) return;
     final playing = pb.playing.value;
+    if (playing) {
+      _sleepTimer?.cancel();
+      _sleepTimer = null;
+      if (_asleep) {
+        // Услугата е спряна — тръгва пак с известието (приложението е
+        // отпред: ▶ е натиснато в него).
+        _asleep = false;
+        audioLogAdd('фонова услуга: събужда се');
+        mediaItem.add(_item);
+      }
+    } else if (_asleep) {
+      return;
+    } else {
+      _sleepTimer ??= Timer(sleepAfter, _sleep);
+    }
     playbackState.add(PlaybackState(
       controls: [
         MediaControl.rewind,
@@ -194,6 +226,17 @@ class _Handler extends BaseAudioHandler with SeekHandler {
       playing: playing,
       updatePosition: Duration(milliseconds: (pb.position.value * 1000).round()),
       speed: 1.0,
+    ));
+  }
+
+  void _sleep() {
+    _sleepTimer = null;
+    if (_pb == null || _pb!.playing.value) return;
+    _asleep = true;
+    audioLogAdd('фонова услуга: спира — пауза от ${sleepAfter.inSeconds} s');
+    playbackState.add(playbackState.value.copyWith(
+      playing: false,
+      processingState: AudioProcessingState.idle,
     ));
   }
 
