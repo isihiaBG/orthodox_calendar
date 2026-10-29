@@ -255,7 +255,7 @@ def _death_word(m):
         return ''           # „гр. Ειρήνη" — няма за кого да се съди
     # Името е в самата скоба („(Българина; † 1473)") — прякор или фамилия,
     # родът му не е родът на светеца.
-    inner = ctx[ctx.rfind('(') + 1:] if '(' in ctx else ''
+    inner = ctx[ctx.rfind('(') + 1:] if m.group(0)[0] in ';,' else ''
     if inner and names[-1] in inner and names[-1][-1] in 'ая':
         return ''
     # „Кир и Йоан", „Агапия, Хиония и Ирина" — множествено (но не

@@ -433,6 +433,7 @@ String _deathWord(RegExpMatch m) {
   final last = names.last[0]!;
   final open = ctx.lastIndexOf('(');
   if (open >= 0 &&
+      ';,'.contains(m[0]![0]) &&
       ctx.substring(open + 1).contains(last) &&
       (last.endsWith('а') || last.endsWith('я'))) {
     return '';
