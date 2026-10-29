@@ -415,13 +415,13 @@ class PhoneStress {
   }
 }
 
-/// Може ли маркираното да се поправя: една дума с поне една гласна —
-/// и едносричните („гняв"), гласът може да ги каже криво (автора,
-/// 29.10.2026).
+/// Може ли маркираното да се поправя: една дума — каквато и да е, и
+/// едносричните („гняв"), и предлозите без гласна („с", „в"; автора,
+/// 29.10.2026: „искам пълен контрол"). Поправката важи само за цялата
+/// дума — „с" не пипа „село" (речникът търси цели думи).
 String? stressWordOf(String? selected) {
   final w = selected?.trim() ?? '';
-  if (!RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w)) return null;
-  return w.toLowerCase().split('').any(_vowels.contains) ? w : null;
+  return RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w) ? w : null;
 }
 
 // ── панелът „Грешно ударение" ────────────────────────────────────────────
@@ -469,9 +469,11 @@ class _StressSheetState extends State<_StressSheet> {
     final v = [for (var k = 0; k < w.length; k++) if (_vowels.contains(w[k].toLowerCase())) k];
     return v.length == 1 ? v.first : null;
   }
-  late StressWay? _way = _saved?.way;
+  // Без гласна („с", „в") ударение няма — остава само своят изговор.
+  late final bool _noVowel = !widget.word.toLowerCase().split('').any(_vowels.contains);
+  late StressWay? _way = _saved?.way ?? (_noVowel ? StressWay.custom : null);
   late final _custom = TextEditingController(
-      text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : '');
+      text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : _noVowel ? widget.word : '');
 
   bool get _isCustom => _way == StressWay.custom;
 
@@ -519,7 +521,7 @@ class _StressSheetState extends State<_StressSheet> {
             Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
                 style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
             const SizedBox(height: 6),
-            Text('Докоснете ударената гласна',
+            Text(_noVowel ? 'Напишете как да прозвучи' : 'Докоснете ударената гласна',
                 style: TextStyle(color: p.dim, fontSize: 14)),
             const SizedBox(height: 18),
             Wrap(alignment: WrapAlignment.center, children: [
@@ -545,8 +547,8 @@ class _StressSheetState extends State<_StressSheet> {
                     value: StressWay.latin,
                     enabled: _i != null && PhoneStress.latinFits(w, _i!),
                     label: const Text('латинска')),
-                const ButtonSegment(value: StressWay.double, label: Text('двойна')),
-                const ButtonSegment(value: StressWay.dash, label: Text('тире')),
+                ButtonSegment(value: StressWay.double, enabled: !_noVowel, label: const Text('двойна')),
+                ButtonSegment(value: StressWay.dash, enabled: !_noVowel, label: const Text('тире')),
                 const ButtonSegment(value: StressWay.custom, label: Text('свой')),
               ],
               selected: {
