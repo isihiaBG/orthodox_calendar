@@ -954,6 +954,24 @@ class _PlayerSettingsPanelState extends State<_PlayerSettingsPanel> {
         _slider(context, 'Скорост', VoiceSetting.speed, on),
         _slider(context, 'Височина', VoiceSetting.pitch, on),
         _slider(context, 'Паузи', VoiceSetting.pause, on),
+        ValueListenableBuilder<bool>(
+          valueListenable: VoiceBibleRefs.notifier,
+          builder: (_, refs, _) => SwitchListTile(
+            dense: true,
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16),
+            title: Text('Препратките към Писанието',
+                style: TextStyle(color: on ? _ink : _off, fontSize: 15)),
+            subtitle: Text(refs ? 'чете и „(Мт. 5:3)“' : 'прескача „(Мт. 5:3)“',
+                style: TextStyle(color: on ? _dim : _off, fontSize: 12.5)),
+            value: refs,
+            activeThumbColor: AppColors.toolbar,
+            activeTrackColor: AppColors.sectionTitle,
+            inactiveThumbColor: _dim,
+            inactiveTrackColor: AppColors.drawerDivider,
+            trackOutlineColor: const WidgetStatePropertyAll(Colors.transparent),
+            onChanged: on ? (_) => VoiceBibleRefs.toggle() : null,
+          ),
+        ),
         if (!on)
           const Padding(
             padding: EdgeInsets.fromLTRB(16, 0, 16, 8),

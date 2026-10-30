@@ -765,6 +765,33 @@ class AudioAutoNext {
   }
 }
 
+/// Гласът на телефона: да чете ли препратките към Писанието в скоби
+/// („( Пс. 112:9 )"). По подразбиране — не: при слушане само разсейват.
+class VoiceBibleRefs {
+  static const _key = 'voice_bible_refs';
+  static final ValueNotifier<bool> notifier = ValueNotifier(false);
+  static bool _loaded = false;
+
+  static bool get value => notifier.value;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      notifier.value = p.getBool(_key) ?? false;
+    } catch (_) {}
+  }
+
+  static Future<void> toggle() async {
+    notifier.value = !notifier.value;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_key, notifier.value);
+    } catch (_) {}
+  }
+}
+
 /// Настройка на гласа на устройството от менюто в плейъра (скорост,
 /// височина, паузи) — САМО за него; при запис е сива (автора, 29.10.2026).
 class VoiceSetting {

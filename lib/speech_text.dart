@@ -685,6 +685,44 @@ String? speakBibleRef(BibleRef r) {
   return '$title, $spoken';
 }
 
+/// Скобите, в които има САМО препратки към Писанието — „( Пс. 112:9 )",
+/// „(Деян. 7 гл.)", „(Мт. 5:3; ср. Лк. 6:20)" — с интервала пред тях.
+/// Гласът на телефона ги прескача, ако препратките не се четат (настройка
+/// „Препратките към Писанието", изключена по подразбиране, 30.10.2026):
+/// при слушане те само разсейват; в текста си остават.
+/// Препратка вън от скоби е част от изречението и не се пипа.
+List<(int, int)> bibleRefParens(String shown, List<SpeechLink> links) {
+  final refs = <(int, int)>[
+    for (final (a, b, href) in links)
+      if (bibleRefFromUrl(href) != null) (a, b),
+    for (final m in _bibleRe.allMatches(shown))
+      if (kSpeechBookAbbr[_bookKey((m[1] ?? '') + m[2]!)] != null) (m.start, m.end),
+  ];
+  if (refs.isEmpty) return const [];
+  final out = <(int, int)>[];
+  for (final m in RegExp(r'\s*\(([^()]*)\)').allMatches(shown)) {
+    final open = shown.indexOf('(', m.start) + 1, close = m.end - 1;
+    final inside = [
+      for (final (a, b) in refs)
+        if (a >= open && b <= close) (a, b),
+    ];
+    if (inside.isEmpty) continue;
+    final rest = StringBuffer();
+    var k = open;
+    inside.sort((x, y) => x.$1.compareTo(y.$1));
+    for (final (a, b) in inside) {
+      if (a > k) rest.write(shown.substring(k, a));
+      if (b > k) k = b;
+    }
+    rest.write(shown.substring(k, close));
+    if (_refResidue.hasMatch(rest.toString())) out.add((m.start, m.end));
+  }
+  return out;
+}
+
+/// Какво още може да има в скобите освен препратките.
+final _refResidue = _re(r'^[\s,;.:\-–—]*(?:(?:гл|глава|ср|срв|вж|виж|ст|стих|и|напр)\.?[\s,;.:\-–—]*)*$');
+
 void _bibleLinks(SpokenText t, List<SpeechLink> links, List<(int, int)> drop,
     List<(int, int, String)> extra) {
   final spans = <(int, int, String)>[for (final (a, b) in drop) (a, b, '')];

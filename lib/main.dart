@@ -42,6 +42,7 @@ void main() async {
   unawaited(TestMode.loadOnce());
   unawaited(VoiceSetting.loadOnce());
   unawaited(AudioAutoNext.loadOnce());
+  unawaited(VoiceBibleRefs.loadOnce());
   // ⚠ ПРЕДИ runApp: „назад" първо свива прозореца на свалянето, а не
   // затваря екрана под него (наблюдателите се питат по реда на записване).
   AppUpdate.installBackHandler();

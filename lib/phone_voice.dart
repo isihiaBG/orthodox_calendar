@@ -371,13 +371,23 @@ class PhoneVoicePlayback implements ReadAloud {
     final blk = blocks[b];
     final shown = text.substring(from, end);
     final (shielded, said) = PhoneStress.shield(shown);
-    final spoken = speechText(shown, spans: shielded, links: [
+    var links = [
       for (final (x, y, h) in blk.links)
         if (x >= from && y <= end) (x - from, y - from, h),
-    ], drop: [
+    ];
+    final drop = [
       for (final (x, y) in blk.drop)
         if (x >= from && y <= end) (x - from, y - from),
-    ]);
+    ];
+    if (!VoiceBibleRefs.value) {
+      final refs = bibleRefParens(shown, links);
+      bool inRef((int, int) s) => refs.any((r) => s.$1 < r.$2 && r.$1 < s.$2);
+      links = [for (final l in links) if (!inRef((l.$1, l.$2))) l];
+      drop
+        ..removeWhere(inRef)
+        ..addAll(refs);
+    }
+    final spoken = speechText(shown, spans: shielded, links: links, drop: drop);
     PhoneStress.apply(spoken);
     PhoneStress.unshield(spoken, said);
     _uBlock = b;
