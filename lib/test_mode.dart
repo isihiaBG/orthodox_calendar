@@ -169,11 +169,32 @@ class StressFix {
   final StressCase letter;
   final String? before, after;
   final bool sent;
+
+  /// ИСТИНСКИТЕ ударения (кръгчетата над гласните; сложната дума може да
+  /// има две) — не зависят от гласа. [index] е друго: къде Google да спъне
+  /// (за тирето — често обратната гласна). По тях ще се правят речниците за
+  /// другите гласове (Azure).
+  final List<int> stress;
   const StressFix(this.word, this.index,
-      {this.way, this.custom, this.letter = StressCase.any, this.before, this.after, this.sent = false});
+      {this.way,
+      this.custom,
+      this.letter = StressCase.any,
+      this.before,
+      this.after,
+      this.sent = false,
+      this.stress = const []});
 
   StressFix asSent() => StressFix(word, index,
-      way: way, custom: custom, letter: letter, before: before, after: after, sent: true);
+      way: way, custom: custom, letter: letter, before: before, after: after, sent: true, stress: stress);
+
+  static String _acute(String w, Iterable<int> at) {
+    final b = StringBuffer();
+    for (var i = 0; i < w.length; i++) {
+      b.write(w[i]);
+      if (at.contains(i)) b.write('\u0301');
+    }
+    return b.toString();
+  }
 
   /// Едно и също място в речника (думата, буквата и изразът).
   bool sameSlot(StressFix o) =>
@@ -189,11 +210,10 @@ class StressFix {
   /// „ко́мнин (тире)", „го́спода (тире, с главна, „пред … бога")",
   /// „ко́мнин → ко мнин (свой)" — както се чете от човек.
   String get marked {
-    final w = index < 0 || index >= word.length
-        ? word
-        : '${word.substring(0, index + 1)}́${word.substring(index + 1)}';
+    final w = _acute(word, [index]);
     final notes = [
       if (way != null) way!.label,
+      if (stress.isNotEmpty) 'ударение: ${_acute(word, stress)}',
       if (letter != StressCase.any) 'с ${letter.label}',
       if (before != null || after != null)
         '„${[if (before != null) before, '…', if (after != null) after].join(' ')}“',
@@ -250,7 +270,8 @@ class PhoneStress {
                 custom: at(4),
                 letter: StressCase.byLabel(at(5) ?? ''),
                 before: at(6),
-                after: at(7)));
+                after: at(7),
+                stress: [for (final x in (at(8) ?? '').split(',')) ?int.tryParse(x)]));
           }
         } catch (_) {}
         _matcher = null;
@@ -267,8 +288,16 @@ class PhoneStress {
     if (parts.first.isEmpty) return null;
     var letter = StressCase.any;
     String? before, after;
+    var stress = const <int>[];
     for (final p in parts.skip(1)) {
-      if (p.startsWith('преди:')) {
+      if (p.startsWith('ударение:')) {
+        // Всички главни гласни — ударенията (може и две).
+        final u = p.substring(9).trim();
+        stress = [
+          for (var i = 0; i < u.length; i++)
+            if (_vowels.contains(u[i].toLowerCase()) && u[i] != u[i].toLowerCase()) i
+        ];
+      } else if (p.startsWith('преди:')) {
         before = p.substring(6).trim().toLowerCase();
       } else if (p.startsWith('след:')) {
         after = p.substring(5).trim().toLowerCase();
@@ -283,7 +312,7 @@ class PhoneStress {
       final c = head.substring(eq + 3).trim();
       if (c.isEmpty) return null;
       return StressFix(w.toLowerCase(), _stressIndex(w) ?? -1,
-          way: StressWay.custom, custom: c, letter: letter, before: before, after: after);
+          way: StressWay.custom, custom: c, letter: letter, before: before, after: after, stress: stress);
     }
     final f = head.split(RegExp(r'\s+'));
     if (f.length > 2) return null;
@@ -291,7 +320,7 @@ class PhoneStress {
     final way = f.length > 1 ? StressWay.byLabel(f[1]) : null;
     if (i == null || way == StressWay.custom) return null;
     return StressFix(f.first.toLowerCase(), i,
-        way: way, letter: letter, before: before, after: after);
+        way: way, letter: letter, before: before, after: after, stress: stress);
   }
 
   /// „кОмнин" → 1: ГЛАВНАТА гласна (начална главна на име не се брои, ако
@@ -472,6 +501,7 @@ class PhoneStress {
           [
             f.word, f.index, f.sent ? 1 : 0, f.way?.name ?? '', f.custom ?? '',
             f.letter == StressCase.any ? '' : f.letter.name, f.before ?? '', f.after ?? '',
+            f.stress.join(','),
           ].join('\t')
       ]);
     } catch (_) {}
@@ -553,7 +583,10 @@ class _StressSheetState extends State<_StressSheet> {
   // съседни думи.
   late final bool _phrase = _isPhrase(widget.word);
   late final bool _noVowel = _phrase || !widget.word.toLowerCase().split('').any(_vowels.contains);
-  late StressWay? _way = _saved?.way ?? (_noVowel ? StressWay.custom : null);
+  // По подразбиране — тире: с него се работи най-често (автора, 30.10.2026).
+  late StressWay? _way = _saved?.way ?? (_noVowel ? StressWay.custom : StressWay.dash);
+  // Истинското ударение — кръгчето над гласната.
+  late final Set<int> _stress = {if (!_phrase) ...?_saved?.stress};
   late final _custom = TextEditingController(
       text: _saved?.way == StressWay.custom ? _saved!.spoken(widget.word) : _noVowel ? widget.word : '');
 
@@ -603,7 +636,7 @@ class _StressSheetState extends State<_StressSheet> {
             Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
                 style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
             const SizedBox(height: 6),
-            Text(_noVowel ? 'Напишете как да прозвучи' : 'Докоснете ударената гласна',
+            Text(_noVowel ? 'Напишете как да прозвучи' : 'кръгчето — ударението · буквата — за гласа',
                 style: TextStyle(color: p.dim, fontSize: 14)),
             const SizedBox(height: 18),
             if (_phrase)
@@ -691,7 +724,8 @@ class _StressSheetState extends State<_StressSheet> {
                             custom: _isCustom ? _customText : null,
                             letter: _case,
                             before: _withPrev ? widget.prev : null,
-                            after: _withNext ? widget.next : null);
+                            after: _withNext ? widget.next : null,
+                            stress: _stress.toList()..sort());
                         await PhoneStress.add(fix);
                         nav.pop(fix.marked);
                       },
@@ -764,6 +798,31 @@ class _StressSheetState extends State<_StressSheet> {
 
   Widget _letter(String c, int k, Color gold, Color ink) {
     final vowel = _vowels.contains(c.toLowerCase());
+    // Над гласната — кръгче за истинското ударение (празно, сиво; избраното —
+    // плътно златно; сложната дума — и две). Отделно е от буквата, която казва на гласа как.
+    final on = _stress.contains(k);
+    final dot = !vowel
+        ? const SizedBox(height: 22)
+        : GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => on ? _stress.remove(k) : _stress.add(k)),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(6, 4, 6, 6),
+              child: Container(
+                width: 12,
+                height: 12,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: on ? gold : null,
+                  border: Border.all(color: on ? gold : ink.withValues(alpha: 0.35), width: 1.3),
+                ),
+              ),
+            ),
+          );
+    return Column(mainAxisSize: MainAxisSize.min, children: [dot, _glyph(c, k, vowel, gold, ink)]);
+  }
+
+  Widget _glyph(String c, int k, bool vowel, Color gold, Color ink) {
     final on = _i == k;
     final style = TextStyle(
       fontSize: 34,
