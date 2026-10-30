@@ -25,6 +25,7 @@ import 'fast_explanation_sheet.dart';
 import 'mini_reader.dart';
 import 'models/day_model.dart';
 import 'saint_expandable_tile.dart';
+import 'today_seal.dart';
 import 'typikon_legend_sheet.dart';
 
 // ─── DayScreen ────────────────────────────────────────────────────────────
@@ -326,7 +327,7 @@ class _DayScreenState extends State<DayScreen>
     final String leftLabel   = showOldStyle ? (oldFirst ? 'нов стил' : 'стар стил') : '';
     final String rightLabel  = showOldStyle ? (oldFirst ? 'стар стил' : 'нов стил') : '';
 
-    return Container(
+    final header = Container(
       width: double.infinity,
       color: headerColor,
       padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 16),
@@ -488,6 +489,19 @@ class _DayScreenState extends State<DayScreen>
         ],
       ),
     );
+
+    // Знакът „днес": 2/3 от звездата в лентата, долу вдясно.
+    final now = DateTime.now();
+    if (date.year != now.year || date.month != now.month || date.day != now.day) return header;
+    const seal = 44.0;
+    return Stack(clipBehavior: Clip.none, children: [
+      header,
+      Positioned(
+        right: 10,
+        bottom: -(seal * 1.3 - seal * 2 / 3),
+        child: IgnorePointer(child: TodaySeal(fill: headerColor, size: seal)),
+      ),
+    ]);
   }
 
   Widget _buildSaintsList() {
