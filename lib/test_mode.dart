@@ -600,8 +600,6 @@ class _StressSheetState extends State<_StressSheet> {
         // превърта, горното остава.
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            _Progress(color: p.dim),
-            const SizedBox(height: 8),
             Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
                 style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
             const SizedBox(height: 6),
@@ -737,6 +735,12 @@ class _StressSheetState extends State<_StressSheet> {
                 ],
               ),
             ],
+            // Най-долу, като лента на състоянието — горе се биеше със
+            // заглавието (автора, 30.10.2026).
+            const SizedBox(height: 22),
+            Divider(height: 1, thickness: 0.6, color: p.dim.withValues(alpha: 0.3)),
+            const SizedBox(height: 8),
+            _Progress(color: p.dim),
           ]),
         ),
       ),
