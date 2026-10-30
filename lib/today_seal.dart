@@ -11,9 +11,11 @@ class TodaySeal extends StatelessWidget {
   final double size;
   /// Наклонът на всяка от двете ленти спрямо отвесното (радиани).
   final double angle;
+  /// Колко по-горе е надписът при големина 44 (пропорционално при друга).
+  final double lift;
   /// Една широка отвесна лента вместо две.
   final bool single;
-  const TodaySeal({super.key, required this.fill, this.size = 44, this.angle = 0.56, this.single = false});
+  const TodaySeal({super.key, required this.fill, this.size = 44, this.angle = 0.56, this.single = false, this.lift = 1});
 
   static const gold = Color(0xFFCDA757);
 
@@ -29,9 +31,9 @@ class TodaySeal extends StatelessWidget {
               width: size,
               height: size,
               child: Center(
-                // 2 px нагоре при 44 — така стои в средата на око (автора).
+                // Малко нагоре — така стои в средата на око (автора).
                 child: Transform.translate(
-                  offset: Offset(0, -size * 2 / 44),
+                  offset: Offset(0, -size * lift / 44),
                   child: Text('днес',
                       style: TextStyle(
                           fontSize: size * 0.235,
