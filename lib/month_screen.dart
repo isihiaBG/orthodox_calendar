@@ -1168,14 +1168,14 @@ class _MonthPageState extends State<_MonthPage>
     final fill = dbDate.weekday == 7
         ? AppColors.sundayTodayBg
         : Color.alphaBlend(AppColors.todayBg, AppColors.background);
-    const size = 32.0;
+    const size = 36.0;
     // Средата — под дясната дата (колона 32 с отстъп 8, числото е в първите 22).
     final right = showOldStyle ? 8 + 32 - 11 - size / 2 : 8.0;
     return Stack(children: [
       Positioned(
         right: right,
         // Звездата е в реда, навън излизат само върховете на лентичките
-        // (9 от 41,6) — над числото на следващия ден (автор, 30.10.2026).
+        // (9 от 46,8) — над числото на следващия ден (автор, 30.10.2026).
         top: rowBottom - size * 1.3 + 9,
         child: TodaySeal(fill: fill, size: size),
       ),
