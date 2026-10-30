@@ -318,6 +318,11 @@ class PhoneStress {
     if (f.length > 2) return null;
     final i = _stressIndex(f.first);
     final way = f.length > 1 ? StressWay.byLabel(f[1]) : null;
+    // Само истинското ударение („клеопа | ударение: клеОпа") — гласът не се пипа.
+    if (i == null && way == null && f.length == 1 && stress.isNotEmpty) {
+      return StressFix(f.first.toLowerCase(), -1,
+          letter: letter, before: before, after: after, stress: stress);
+    }
     if (i == null || way == StressWay.custom) return null;
     return StressFix(f.first.toLowerCase(), i,
         way: way, letter: letter, before: before, after: after, stress: stress);
@@ -605,7 +610,9 @@ class _StressSheetState extends State<_StressSheet> {
     return _i == null ? widget.word : PhoneStress.spokenForm(widget.word, _i!, _wayFor);
   }
 
-  bool get _canSave => _isCustom ? _customText.isNotEmpty : _i != null;
+  // Само кръгче (без буква за гласа) — също се пази: истинското ударение
+  // без поправка на изговора (автора, 30.10.2026).
+  bool get _canSave => _isCustom ? _customText.isNotEmpty : _i != null || _stress.isNotEmpty;
 
   void _pickWay(StressWay? v) => setState(() {
         // „Свой" започва от това, което гласът получава сега — остава само
@@ -720,7 +727,7 @@ class _StressSheetState extends State<_StressSheet> {
                     : () async {
                         final nav = Navigator.of(context);
                         final fix = StressFix(w.toLowerCase(), _i ?? -1,
-                            way: _wayFor,
+                            way: _i == null && !_isCustom ? null : _wayFor,
                             custom: _isCustom ? _customText : null,
                             letter: _case,
                             before: _withPrev ? widget.prev : null,
