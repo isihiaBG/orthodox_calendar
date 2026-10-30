@@ -21,6 +21,7 @@ import 'app_theme.dart';
 import 'phone_voice.dart';
 import 'reader_theme.dart';
 import 'speech_text.dart';
+import 'stress_progress.dart';
 
 class TestMode {
   TestMode._();
@@ -305,6 +306,12 @@ class PhoneStress {
   }
 
   static List<StressFix> get fixes => List.unmodifiable(_fixes);
+
+  /// Думите (не откъсите), които речникът знае — пакетът и устройството.
+  static Set<String> get wordKeys => {
+        for (final k in _bundled.keys) if (!_isPhrase(k)) k.toLowerCase(),
+        for (final f in _fixes) if (!_isPhrase(f.word)) f.word.toLowerCase(),
+      };
   static List<StressFix> get unsent => [for (final f in _fixes) if (!f.sent) f];
 
   /// Поправката за думата [w] (както е в текста) между [prev] и [next]:
@@ -593,6 +600,8 @@ class _StressSheetState extends State<_StressSheet> {
         // превърта, горното остава.
         child: SingleChildScrollView(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
+            _Progress(color: p.dim),
+            const SizedBox(height: 8),
             Text('УДАРЕНИЕТО ЗА ГЛАСА НА УСТРОЙСТВОТО',
                 style: TextStyle(color: p.dim, fontSize: 12, letterSpacing: 1.4)),
             const SizedBox(height: 6),
@@ -774,6 +783,41 @@ class _StressSheetState extends State<_StressSheet> {
         ),
         child: t,
       ),
+    );
+  }
+}
+
+/// Напредъкът на речника за тома на месеца — ситно и посивено, процентът
+/// удебелен (автора, 30.10.2026). Броят се и неизпратените поправки.
+class _Progress extends StatelessWidget {
+  final Color color;
+  const _Progress({required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    final m = churchMonth();
+    return FutureBuilder<Set<String>>(
+      future: volumeForms(m),
+      builder: (context, snap) {
+        final forms = snap.data;
+        final style = TextStyle(color: color.withValues(alpha: 0.75), fontSize: 11.5);
+        if (forms == null) return Text(' ', style: style);
+        final keys = PhoneStress.wordKeys;
+        final done = forms.where(keys.contains).length;
+        final need = (forms.length * kStressNeedShare).round();
+        final pct = (100 * done / need).clamp(0, 100);
+        // „прогрес: 20% (590 / 2961)" — образецът на автора.
+        return Text.rich(
+          TextSpan(style: style, children: [
+            const TextSpan(text: 'прогрес: '),
+            TextSpan(
+                text: '${pct.toStringAsFixed(pct < 10 ? 1 : 0)}%',
+                style: const TextStyle(fontWeight: FontWeight.w700)),
+            TextSpan(text: ' ($done / $need)'),
+          ]),
+          textAlign: TextAlign.center,
+        );
+      },
     );
   }
 }
