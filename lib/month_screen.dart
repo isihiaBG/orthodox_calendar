@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'today_seal.dart';
 import 'style_dates.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'database_helper.dart';
@@ -1116,6 +1117,17 @@ class _MonthPageState extends State<_MonthPage>
                     ),
                   ),
 
+                // ─── Знакът „днес" върху долния ръб на днешния ред ───────
+                if (_initialScrollDone)
+                  Positioned.fill(
+                    child: IgnorePointer(
+                      child: AnimatedBuilder(
+                        animation: _scrollController,
+                        builder: (context, _) => _buildTodaySeal(days, showOldStyle),
+                      ),
+                    ),
+                  ),
+
                 // ─── Плаваща (sticky) табела с постния период (вляво) ────
                 // Аналогична на месечната, но границата на избутване е
                 // краят на самия постен период (постовете не граничат).
@@ -1133,6 +1145,39 @@ class _MonthPageState extends State<_MonthPage>
         ),
       ],
     );
+  }
+
+  // ─── Знакът „днес" ───────────────────────────────────────────────────────
+  // Като в дневния изглед, но по-малък: под дясната дата, 2/3 в реда.
+  // Рисува се над списъка (иначе следващият ред би го закрил).
+  Widget _buildTodaySeal(List<DateTime> days, bool showOldStyle) {
+    if (!_scrollController.hasClients) return const SizedBox.shrink();
+    final index = days.indexWhere((d) => _rowBackground(d, false) == AppColors.todayBg);
+    if (index < 0) return const SizedBox.shrink();
+    final listBox = _listStackKey.currentContext?.findRenderObject() as RenderBox?;
+    final rowBox = _rowKeys[index]?.currentContext?.findRenderObject() as RenderBox?;
+    if (listBox == null || rowBox == null) return const SizedBox.shrink();
+    final rowTop = rowBox.localToGlobal(Offset.zero, ancestor: listBox).dy;
+    final rowBottom = rowTop + rowBox.size.height;
+    if (rowBottom < 0 || rowTop > listBox.size.height) return const SizedBox.shrink();
+
+    final day = days[index];
+    final dbDate = (AppSettings.isOldStyle && AppSettings.oldStyleFirst) ? _toNewStyle(day) : day;
+    // Цветът под звездата = фонът на реда: сиво (полупрозрачно върху фона)
+    // в делник, бордо в неделя.
+    final fill = dbDate.weekday == 7
+        ? AppColors.sundayTodayBg
+        : Color.alphaBlend(AppColors.todayBg, AppColors.background);
+    const size = 32.0;
+    // Средата — под дясната дата (колона 32 с отстъп 8, числото е в първите 22).
+    final right = showOldStyle ? 8 + 32 - 11 - size / 2 : 8.0;
+    return Stack(children: [
+      Positioned(
+        right: right,
+        top: rowBottom - size * 2 / 3,
+        child: TodaySeal(fill: fill, size: size),
+      ),
+    ]);
   }
 
   // ─── Плаваща табела със справочния месец ────────────────────────────────

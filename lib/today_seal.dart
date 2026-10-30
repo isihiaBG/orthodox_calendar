@@ -29,13 +29,17 @@ class TodaySeal extends StatelessWidget {
               width: size,
               height: size,
               child: Center(
-                child: Text('днес',
-                    style: TextStyle(
-                        fontSize: size * 0.235,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.4,
-                        height: 1,
-                        color: gold)),
+                // 2 px нагоре при 44 — така стои в средата на око (автора).
+                child: Transform.translate(
+                  offset: Offset(0, -size * 2 / 44),
+                  child: Text('днес',
+                      style: TextStyle(
+                          fontSize: size * 0.235,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.4,
+                          height: 1,
+                          color: gold)),
+                ),
               ),
             ),
           ),
