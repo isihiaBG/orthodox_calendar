@@ -147,7 +147,13 @@ class AudioChapter {
   final String mp3Path;
   final double duration;
   final List<AudioSentence> sentences;
-  const AudioChapter(this.part, this.mp3Path, this.duration, this.sentences);
+
+  /// Препратките към Писанието в скоби — отрязъци (от, до) в секунди, които
+  /// се прескачат, ако [VoiceBibleRefs] е изключена. От
+  /// `assets/speech/ref_skips.json`, само за същата версия на записа.
+  final List<(double, double)> refSkips;
+  const AudioChapter(this.part, this.mp3Path, this.duration, this.sentences,
+      [this.refSkips = const []]);
 
   /// Кое изречение звучи в секунда [t] (последното, което е почнало).
   int indexAt(double t) {
@@ -683,6 +689,31 @@ class AudioBook {
     }
   }
 
+  /// `assets/speech/ref_skips.json` (tools/tts/ref_skips.py) — веднъж.
+  static Future<Map>? _refSkips;
+
+  Future<List<(double, double)>> _refSkipsOf(Directory d, String part) async {
+    try {
+      final all = await (_refSkips ??= rootBundle
+          .loadString('assets/speech/ref_skips.json')
+          .then((s) => jsonDecode(s) as Map));
+      final e = (all[assetPath] as Map?)?[part] as Map?;
+      if (e == null) return const [];
+      // Отрязъците са за точно този звук: друга версия — без прескачане.
+      final have = (await File(join(d.path, '$part.v')).readAsString()).trim();
+      if (have != e['v'] && have != e['lv']) {
+        audioLogAdd('$part: ref_skips за друга версия ($have) — без прескачане');
+        return const [];
+      }
+      return [
+        for (final x in e['x'] as List) ((x[0] as num).toDouble(), (x[1] as num).toDouble()),
+      ];
+    } catch (e) {
+      audioLogAdd('$part: ref_skips не се прочете: $e');
+      return const [];
+    }
+  }
+
   Future<AudioChapter> _readChapter(String part) async {
     final d = await _folder();
     final j = jsonDecode(await File(join(d.path, '$part.json')).readAsString()) as Map;
@@ -702,6 +733,7 @@ class AudioBook {
               s['s'] as String, [for (final n in (s['n'] as List? ?? [])) (n as num).toInt()],
               kindOf(s['p'])),
       ],
+      await _refSkipsOf(d, part),
     );
   }
 
@@ -948,6 +980,7 @@ class AudioPlayback implements ReadAloud {
   bool _isCaption(int i) =>
       i >= 0 && i < chapter.sentences.length && _captionKinds.contains(chapter.sentences[i].kind);
   int _allowFrom = -1, _allowTo = -1; // надписът, пуснат изрично
+  double _lastT = -1; // предишната позиция — за препратките
   bool _skipping = false;
   bool _endedEarly = false;
 
@@ -1029,6 +1062,19 @@ class AudioPlayback implements ReadAloud {
         _notesDone.add(cur);
         unawaited(_playNotes(s.notes));
         return;
+      }
+    }
+    final last = _lastT;
+    _lastT = t;
+    if (!_skipping && !_endedEarly && !VoiceBibleRefs.value) {
+      // Препратка в скоби — само ако се влиза в нея отпреди (не след скок
+      // на човека право в нея).
+      for (final (a, b) in chapter.refSkips) {
+        if (t >= a && t < b - 0.1 && last > a - 1.5 && last < a + 0.3) {
+          _lastT = b;
+          unawaited(_main.seek(Duration(milliseconds: (b * 1000).round())));
+          return;
+        }
       }
     }
     final i = chapter.indexAt(t);

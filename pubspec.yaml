@@ -130,6 +130,8 @@ flutter:
     - assets/release_notes.json
     # Речникът на ударенията за гласа на телефона (lib/test_mode.dart).
     - assets/speech/phone_accents.txt
+    # Препратките в скоби в звукозаписите — отрязъци за прескачане.
+    - assets/speech/ref_skips.json
     # Илюстрациите към житията на българските светии (икони, стенописи,
     # мозайки), свалени от pravoslavieto.com — виж tools/lives_bg/.
     #
