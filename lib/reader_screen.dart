@@ -35,6 +35,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'app_theme.dart';
 import 'audio_background.dart';
 import 'audio_ui.dart';
+import 'audio_outro.dart' show AudioOutroSetting;
+import 'audio_prehod.dart';
 import 'audiobook.dart' show ReadAloud;
 import 'phone_voice.dart';
 import 'bookmarks.dart';
@@ -2550,6 +2552,7 @@ class _ReaderScreenState extends State<ReaderScreen>
       AudioBackground.detach(pb);
       unawaited(pb.dispose());
     }
+    unawaited(_prehod.dispose());
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
     // Прибираме евентуален висящ SnackBar веднага — иначе остава да виси и
@@ -2768,6 +2771,32 @@ class _ReaderScreenState extends State<ReaderScreen>
   // ---------------------------------------------------------------
   ReadAloud? _playback;
   List<(int, int, int, int)?> _sentLoc = const [];
+
+  // Завършекът: звън и пеене след житието (audio_prehod.dart). Тук
+  // следващо четиво няма — преходът просто отзвучава.
+  final AudioPrehod _prehod = AudioPrehod();
+  bool _prehodBegun = false;
+
+  void _onListenPosition() {
+    final pb = _playback;
+    if (pb == null || _prehodBegun || !AudioOutroSetting.value || !pb.playing.value) return;
+    if (pb.position.value >= pb.readEnd - PrehodTiming.lead) _beginPrehod();
+  }
+
+  void _beginPrehod() {
+    _prehodBegun = true;
+    unawaited(_prehod.beginBed('life|${widget.texts.slug}'));
+  }
+
+  /// Откъде почват тропарите и кондаците (-1 — няма).
+  int _prayerBlock() {
+    final p = _prepared;
+    if (p == null) return -1;
+    for (var i = 1; i < p.regions.length; i++) {
+      if (p.regions[i].content.contains('class="prayerhead"')) return i;
+    }
+    return -1;
+  }
   DateTime _userScrolledAt = DateTime(0);
 
   static bool _isSource(String html) => html.contains('class="source"');
@@ -2820,7 +2849,8 @@ class _ReaderScreenState extends State<ReaderScreen>
       return;
     }
     final next = PhoneVoicePlayback(
-        'life', '${widget.texts.slug}|${widget._mode.name}', _speechBlocks(quote));
+        'life', '${widget.texts.slug}|${widget._mode.name}', _speechBlocks(quote),
+        prayerBlock: _prayerBlock());
     if (next.sents.isEmpty) {
       await next.dispose();
       return;
@@ -2845,8 +2875,19 @@ class _ReaderScreenState extends State<ReaderScreen>
     next.onError = (msg) =>
         messenger.showSnackBar(SnackBar(content: Text('Гласът на устройството спря ($msg).')));
     next.sentence.addListener(_onSentence);
-    // Едно житие — в края плейърът просто спира.
-    next.onFinished = () {};
+    next.position.addListener(_onListenPosition);
+    // Едно житие — в края звънът и пеенето довършват (ако не са влезли
+    // още — веднага) и плейърът спира.
+    next.onFinished = () {
+      if (!AudioOutroSetting.value) return;
+      if (!_prehodBegun) _beginPrehod();
+      unawaited(_prehod.finish(onNext: () {}));
+    };
+    next.onUserAction = () {
+      _prehodBegun = false;
+      unawaited(_prehod.stop(why: 'действие на човека'));
+    };
+    _prehodBegun = false;
     setState(() {
       _sentLoc = loc;
       _playback = next;
@@ -2861,7 +2902,10 @@ class _ReaderScreenState extends State<ReaderScreen>
   Future<void> _stopListening() async {
     final pb = _playback;
     if (pb == null) return;
+    unawaited(_prehod.stop(why: 'спрян звук'));
+    _prehodBegun = false;
     pb.sentence.removeListener(_onSentence);
+    pb.position.removeListener(_onListenPosition);
     _playback = null;
     AudioBackground.detach(pb);
     if (mounted) {

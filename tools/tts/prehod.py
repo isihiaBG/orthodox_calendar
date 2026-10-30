@@ -18,7 +18,8 @@
   viz_part1/2.ogg   — византийско пеене, по 22,5 мин (Commons, CC0):
                       Byzantine_Ecclesiastical_Hymn_part1 / _Hymns_Part2
 
-Изход: zvan_<N>.mp3 и pesen_<N>.mp3, стерео 96 kbps, БЕЗ влизане и
+Изход: assets/audio_prehod/zvan_<N>.mp3 (стерео 96 kbps) и pesen_<N>.mp3
+(моно 64 kbps — записите са моно), БЕЗ влизане и
 затихване (те са в смесването), изравнени по средна сила (линейно, без
 динамично нормализиране — то дърпа звъна надолу, когато пеенето влезе).
 Клепалото е удължено (средата му повторена с плавни шевове) и ограничено
@@ -33,8 +34,7 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SRC = os.path.join(ROOT, 'tools/tts/work/prehod_src')
-# Докато авторът избира — в work; после в assets/audio_prehod.
-OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'tools/tts/work/prehod_out')
+OUT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, 'assets/audio_prehod')
 
 ZVAN_LEN = 50  # звънът стига до края: влизане на пеенето ~8–9 s + пеене 40 s
 PESEN_LEN = 40
@@ -71,15 +71,15 @@ def mean_db(inp, pre=()):
     return get('mean_volume'), get('max_volume')
 
 
-def save(name, inp, pre=(), extra=''):
+def save(name, inp, pre=(), mono=False):
     m, peak = mean_db(inp, pre)
     g = MEAN_DB - m
     # Не над -1 dBFS — иначе ограничител (клепалото и шумните видеа).
     lim = ',alimiter=limit=0.89:attack=1:release=50:level=false' if peak + g > -1 else ''
     out = os.path.join(OUT, name + '.mp3')
     run(['ffmpeg', '-y', '-loglevel', 'error', *pre, '-i', inp, '-af',
-         f'aformat=channel_layouts=stereo{extra},volume={g:.2f}dB{lim}',
-         '-ar', '44100', '-b:a', '96k', out])
+         f'aformat=channel_layouts={"mono" if mono else "stereo"},volume={g:.2f}dB{lim}',
+         '-ar', '44100', '-b:a', '64k' if mono else '96k', out])
     print(f'{name}: {g:+.1f} dB{" (ограничител)" if lim else ""}')
 
 
@@ -97,8 +97,9 @@ def main():
     save(KLEPALO, tmp)
     os.remove(tmp)
     for n, (part, start) in enumerate(PESEN, 1):
+        # Записите на пеенето са моно — стерео би било два еднакви канала.
         save(f'pesen_{n}', os.path.join(SRC, f'viz_part{part}.ogg'),
-             ('-ss', str(start), '-t', str(PESEN_LEN)))
+             ('-ss', str(start), '-t', str(PESEN_LEN)), mono=True)
 
 
 if __name__ == '__main__':

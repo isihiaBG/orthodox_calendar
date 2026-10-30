@@ -32,6 +32,7 @@ import 'package:flutter_html/flutter_html.dart';
 import 'app_theme.dart';
 import 'audio_background.dart';
 import 'audio_outro.dart';
+import 'audio_prehod.dart';
 import 'audio_ui.dart';
 import 'audiobook.dart';
 import 'book_image.dart';
@@ -480,7 +481,8 @@ class _BookReaderState extends State<BookReader>
     _bgWaitOn?.playing.removeListener(_bgRearm);
     _audio?.revision.removeListener(_onAudioRevision);
     unawaited(_stopAudio(quiet: true));
-    unawaited(_outro.dispose());
+    unawaited(_duduk.dispose());
+    unawaited(_prehod.dispose());
     _searchDebounce?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     ReaderDropCapScale.notifier.removeListener(_onDropCapScaleChanged);
@@ -1297,8 +1299,13 @@ class _BookReaderState extends State<BookReader>
   late final AudioBook? _audio = AudioBook.forAsset(widget.book.assetPath);
   ReadAloud? _playback;
 
-  // Музиката в края на беседата — виж audio_outro.dart.
-  final AudioOutro _outro = AudioOutro();
+  // Музиката в края на беседата — виж audio_outro.dart; в томовете с
+  // житията — звънът с пеенето (audio_prehod.dart, 30.10.2026).
+  final AudioOutro _duduk = AudioOutro();
+  final AudioPrehod _prehod = AudioPrehod();
+  late final bool _prehodOn = widget.book.assetPath.contains('Жития на светиите');
+  EndMusic get _outro => _prehodOn ? _prehod : _duduk;
+  String get _prehodKey => '${widget.book.assetPath}|${_current.href}';
   double _outroAt = 0; // откъде в беседата влиза
   bool _outroBegun = false; // влязла ли е за тази беседа
   bool _outroPending = false; // засилване/задържане — чака да пусне следващата
@@ -1381,6 +1388,15 @@ class _BookReaderState extends State<BookReader>
     }
   }
 
+  /// Откъде почват тропарите и кондаците след житието (-1 — няма).
+  int _prayerBlock() {
+    final regions = _currentRegions();
+    for (var i = 1; i < regions.length; i++) {
+      if (regions[i].content.contains('class="prayerhead"')) return i;
+    }
+    return -1;
+  }
+
   /// Блоковете за гласа на телефона — същият текст като [_quoteBlocks]
   /// (по него се маркира), плюс връзките и бележките от HTML-а.
   List<ReadingBlock> _speechBlocks(List<String> quote) {
@@ -1425,7 +1441,8 @@ class _BookReaderState extends State<BookReader>
       await askPhoneVoiceInstall(context);
       return;
     }
-    final pb = PhoneVoicePlayback(widget.book.assetPath, _phonePart, _speechBlocks(quote));
+    final pb = PhoneVoicePlayback(widget.book.assetPath, _phonePart, _speechBlocks(quote),
+        prayerBlock: _prayerBlock());
     if (pb.sents.isEmpty) {
       await pb.dispose();
       return;
@@ -1511,6 +1528,12 @@ class _BookReaderState extends State<BookReader>
   /// глава със звук и я пуска. ⚠ Не сваля нищо само (мрежа само по воля на
   /// човека): несвалена следваща беседа — съобщение и стоп.
   Future<void> _onAudioFinished() async {
+    // Житията: преходът е винаги, щом е включен — и ако гласът свърши,
+    // преди да е влязъл (кратко последно изречение).
+    if (_prehodOn && AudioOutroSetting.value && !_outroBegun) {
+      _outroBegun = true;
+      unawaited(_outro.beginBed(_prehodKey));
+    }
     if (_outroBegun && _outro.active) {
       // Гласът свърши под тихата музика: тя се засилва, звучи сама и
       // затихва, а следващата беседа почва върху затихването.
@@ -1537,6 +1560,15 @@ class _BookReaderState extends State<BookReader>
     // дава позиция, която изглеждаше като връщане (15.10.2026).
     if (_outroBegun) return;
     if (!AudioOutroSetting.value || !pb.playing.value) return;
+    if (_prehodOn) {
+      // Звънът влиза малко преди края на гласа (преди тропарите, ако те
+      // не се четат).
+      if (t >= pb.readEnd - PrehodTiming.lead) {
+        _outroBegun = true;
+        unawaited(_outro.beginBed(_prehodKey));
+      }
+      return;
+    }
     if (t >= _outroAt && t < pb.chapter.duration - 0.3) {
       _outroBegun = true;
       unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, pb.chapter.part, _index)));

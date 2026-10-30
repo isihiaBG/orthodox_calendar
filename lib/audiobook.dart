@@ -824,6 +824,40 @@ class VoiceBibleRefs {
   }
 }
 
+/// Тропарите, кондаците и молитвите след житието: да се четат ли
+/// (30.10.2026, автора). По подразбиране — не: четенето спира преди тях и
+/// следва преходът. Пуснато изрично ОТ тях (▶ при маркиране) — четат се.
+/// Важи и за гласа на телефона, и за записите.
+class VoiceTroparia {
+  static const _key = 'voice_troparia';
+  static final ValueNotifier<bool> notifier = ValueNotifier(false);
+  static bool _loaded = false;
+
+  static bool get value => notifier.value;
+
+  static Future<void> loadOnce() async {
+    if (_loaded) return;
+    _loaded = true;
+    try {
+      final p = await SharedPreferences.getInstance();
+      notifier.value = p.getBool(_key) ?? false;
+    } catch (_) {}
+  }
+
+  static Future<void> toggle() async {
+    notifier.value = !notifier.value;
+    try {
+      final p = await SharedPreferences.getInstance();
+      await p.setBool(_key, notifier.value);
+    } catch (_) {}
+  }
+}
+
+/// Заглавие на тропар/кондак/молитва след житието („Тропар, глас 4",
+/// „Друг кондак", „Ин кондак"…).
+final RegExp kPrayerHead =
+    RegExp(r'^\s*(Тропар|Кондак|Друг|Ин |Икос|Молитва|Величание|Светилен|Стихира)');
+
 /// Настройка на гласа на устройството от менюто в плейъра (скорост,
 /// височина, паузи) — САМО за него; при запис е сива (автора, 29.10.2026).
 class VoiceSetting {
@@ -900,6 +934,11 @@ abstract class ReadAloud {
 
   /// Гласът на телефона, не запис.
   bool get isPhoneVoice;
+
+  /// Докъде ще се чете (секунди в [chapter]): краят на последното
+  /// изречение — преди тропарите, ако те не се четат. По него влиза
+  /// преходът.
+  double get readEnd;
 
   Future<void> start({int fromSentence = 0});
   Future<void> seekToSentence(int i, {bool user = true});
@@ -980,6 +1019,33 @@ class AudioPlayback implements ReadAloud {
   bool _isCaption(int i) =>
       i >= 0 && i < chapter.sentences.length && _captionKinds.contains(chapter.sentences[i].kind);
   int _allowFrom = -1, _allowTo = -1; // надписът, пуснат изрично
+
+  // ── Тропарите след житието (виж [VoiceTroparia]) ─────────────────────
+  /// Първото изречение на тропарите (-1 — няма): заглавие „Тропар…" след
+  /// текста на житието.
+  late final int prayerStart = () {
+    final ss = chapter.sentences;
+    var text = false;
+    for (var i = 0; i < ss.length; i++) {
+      if (ss[i].kind == 'text') text = true;
+      if (text && ss[i].kind == 'head' && kPrayerHead.hasMatch(ss[i].text)) return i;
+    }
+    return -1;
+  }();
+  bool _prayersOn = true; // пуснато от тях / настройката — четат се
+
+  void _prayersFor(int i) =>
+      _prayersOn = prayerStart < 0 || VoiceTroparia.value || i >= prayerStart;
+
+  @override
+  double get readEnd {
+    final ss = chapter.sentences;
+    var last = (!_prayersOn && prayerStart > 0) ? prayerStart - 1 : ss.length - 1;
+    while (last > 0 && _isCaption(last)) {
+      last--;
+    }
+    return ss.isEmpty ? chapter.duration : ss[last].end;
+  }
   double _lastT = -1; // предишната позиция — за препратките
   bool _skipping = false;
   bool _endedEarly = false;
@@ -988,6 +1054,17 @@ class AudioPlayback implements ReadAloud {
   /// е пауза ПРЕДИ продължаването (заглавната: дудукът влиза в нея).
   @override
   Future<Duration> Function(int to)? onCaptionSkip;
+
+  Future<void> _endHere() async {
+    _endedEarly = true;
+    audioLogAdd('${chapter.part}: край преди тропарите');
+    await _main.pause();
+    playing.value = false;
+    if (!_finished) {
+      _finished = true;
+      onFinished?.call();
+    }
+  }
 
   Future<void> _skipCaptions(int i) async {
     _skipping = true;
@@ -1079,6 +1156,14 @@ class AudioPlayback implements ReadAloud {
     }
     final i = chapter.indexAt(t);
     if (_skipping || _endedEarly) return;
+    // Тропарите — краят е преди тях (със същото изпреварване като при
+    // надписите).
+    if (!_prayersOn && prayerStart > 0 && i >= prayerStart - 1 &&
+        t >= math.max(chapter.sentences[prayerStart - 1].end + _kCaptionAfterEnd,
+            chapter.sentences[prayerStart].start - _kCaptionLead)) {
+      unawaited(_endHere());
+      return;
+    }
     if (_isCaption(i) && !(i >= _allowFrom && i <= _allowTo)) {
       unawaited(_skipCaptions(i));
       return;
@@ -1130,6 +1215,7 @@ class AudioPlayback implements ReadAloud {
     i = i.clamp(0, chapter.sentences.length - 1);
     _finished = false;
     _endedEarly = false;
+    _prayersFor(i);
     // Пуснато от надпис — той (целият, ако е от няколко изречения) се чете.
     _allowFrom = _allowTo = -1;
     if (_isCaption(i)) {
@@ -1175,6 +1261,7 @@ class AudioPlayback implements ReadAloud {
     }
     final t = (_main.position.inMilliseconds / 1000.0 + seconds)
         .clamp(0.0, chapter.duration);
+    _prayersFor(chapter.indexAt(t));
     _notesDone.removeWhere((k) => chapter.sentences[k].end > t);
     _finished = false;
     _endedEarly = false;

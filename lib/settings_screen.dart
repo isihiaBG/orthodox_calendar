@@ -677,9 +677,10 @@ class _SettingsContentState extends State<SettingsContent> {
           setState(() => _outro = v);
           AudioOutroSetting.set(v);
         },
-        title: const Text('Музика в края на беседата'),
+        title: const Text('Музика в края на четивото'),
         subtitle: Text(
-          'Тиха мелодия на дудук след последните думи, преди следващата беседа.',
+          'След беседите — тиха мелодия на дудук; след житията — камбани '
+          '(или клепало) и пеене.',
           style: TextStyle(color: AppColors.textMuted, fontSize: 12),
         ),
       ),

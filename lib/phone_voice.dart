@@ -312,10 +312,17 @@ class PhoneVoicePlayback implements ReadAloud {
   int _uBlock = -1, _uFrom = 0, _uEnd = 0;
   SpokenText? _uSpoken;
 
-  PhoneVoicePlayback._(this.id, this.blocks, this.sents, this.chapter);
+  /// Първият блок на тропарите след житието (-1 — няма) — виж
+  /// [VoiceTroparia]. Не се ли четат, четенето свършва преди него.
+  final int prayerBlock;
+  int _limit = 1 << 30; // блоковете от него нататък не се четат
 
-  /// [part] — ключ на главата; [blocks] — блоковете ѝ поред.
-  factory PhoneVoicePlayback(String id, String part, List<ReadingBlock> blocks) {
+  PhoneVoicePlayback._(this.id, this.blocks, this.sents, this.chapter, this.prayerBlock);
+
+  /// [part] — ключ на главата; [blocks] — блоковете ѝ поред;
+  /// [prayerBlock] — откъде почват тропарите (-1 — няма).
+  factory PhoneVoicePlayback(String id, String part, List<ReadingBlock> blocks,
+      {int prayerBlock = -1}) {
     final sents = <PhoneSentence>[];
     for (var b = 0; b < blocks.length; b++) {
       for (final (s, e) in splitSentences(blocks[b].text)) {
@@ -329,7 +336,23 @@ class PhoneVoicePlayback implements ReadAloud {
       list.add(AudioSentence(t, t + d, blocks[b].text.substring(s, e), const []));
       t += d;
     }
-    return PhoneVoicePlayback._(id, blocks, sents, AudioChapter(part, '', t, list));
+    return PhoneVoicePlayback._(id, blocks, sents, AudioChapter(part, '', t, list), prayerBlock);
+  }
+
+  /// Пуснато (от човека) от изречение [k]: от житието — до тропарите; от
+  /// самите тропари или при включена настройка — докрай.
+  void _limitFor(int k) {
+    final b = sents.isEmpty ? 0 : sents[k.clamp(0, sents.length - 1)].$1;
+    _limit = (prayerBlock > 0 && !VoiceTroparia.value && b < prayerBlock) ? prayerBlock : 1 << 30;
+  }
+
+  @override
+  double get readEnd {
+    var last = sents.length - 1;
+    while (last > 0 && sents[last].$1 >= _limit) {
+      last--;
+    }
+    return last < 0 ? 0 : chapter.sentences[last].end;
   }
 
   @override
@@ -342,7 +365,10 @@ class PhoneVoicePlayback implements ReadAloud {
   bool get completed => _completed;
 
   @override
-  Future<void> start({int fromSentence = 0}) => _speakFrom(fromSentence);
+  Future<void> start({int fromSentence = 0}) {
+    _limitFor(fromSentence);
+    return _speakFrom(fromSentence);
+  }
 
   Future<void> _speakFrom(int k) async {
     if (sents.isEmpty) return;
@@ -440,6 +466,11 @@ class PhoneVoicePlayback implements ReadAloud {
         break;
       }
     }
+    // Тропарите след житието — краят е преди тях.
+    if (next >= 0 && sents[next].$1 >= _limit) {
+      audioLogAdd('гласът на устройството: край преди тропарите');
+      next = -1;
+    }
     if (next < 0) {
       playing.value = false;
       _completed = true;
@@ -473,6 +504,7 @@ class PhoneVoicePlayback implements ReadAloud {
     if (sents.isEmpty) return;
     if (user) onUserAction?.call();
     i = i.clamp(0, sents.length - 1);
+    if (user) _limitFor(i);
     if (playing.value) {
       await _speakFrom(i);
     } else {
@@ -489,7 +521,9 @@ class PhoneVoicePlayback implements ReadAloud {
       playing.value = false;
       await PhoneVoice._tts.stop();
     } else {
-      await _speakFrom(_completed ? 0 : (sentence.value < 0 ? 0 : sentence.value));
+      final k = _completed ? 0 : (sentence.value < 0 ? 0 : sentence.value);
+      if (_completed) _limitFor(k);
+      await _speakFrom(k);
     }
   }
 

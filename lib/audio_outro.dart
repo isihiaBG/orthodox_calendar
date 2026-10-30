@@ -133,11 +133,25 @@ class AudioOutroSetting {
   }
 }
 
+/// Музиката в края на четиво — дудукът ([AudioOutro], „Разговори…") или
+/// звънът с пеенето ([AudioPrehod], житията). Четецът знае само това.
+abstract class EndMusic {
+  bool get active;
+
+  /// Влиза под края на гласа. [what] — дудукът: файлът; преходът: четивото.
+  Future<void> beginBed(String what, {double? seconds});
+
+  /// Гласът свърши; [onNext] пуска следващото четиво върху затихването.
+  Future<bool> finish({required VoidCallback onNext});
+  Future<void> stop({double seconds = 1.0, String why = ''});
+  Future<void> dispose();
+}
+
 /// Един плейър за музиката, със силата в dB.
 ///
 /// ⚠ Силата се мени ЛИНЕЙНО В dB (равномерно за ухото), на малки стъпки —
 /// линейно по амплитуда затихването „пада" накрая.
-class AudioOutro {
+class AudioOutro implements EndMusic {
   // ⚠ Без собствено поемане на прекъсванията: аудио сесията я държи
   // плейърът на беседата, а музиката е само придружаване.
   final AudioPlayer _p = AudioPlayer(handleInterruptions: false);
@@ -148,6 +162,7 @@ class AudioOutro {
   bool _disposed = false;
 
   /// Звучи ли (или затихва).
+  @override
   bool get active => _active;
 
   static double _gain(double db) =>
@@ -194,6 +209,7 @@ class AudioOutro {
 
   /// Пуска [asset] от нищо до фона под гласа (за [seconds], по подразбиране
   /// [OutroTiming.bedIn]).
+  @override
   Future<void> beginBed(String asset, {double? seconds}) async {
     final gen = ++_gen;
     _active = true;
@@ -213,6 +229,7 @@ class AudioOutro {
   /// Гласът свърши: засилване, задържане, затихване. [onNext] се вика
   /// [OutroTiming.nextAt] секунди след началото на затихването (тогава
   /// почва следващата беседа). Връща false, ако е прекъснато.
+  @override
   Future<bool> finish({required VoidCallback onNext}) async {
     final gen = _gen;
     if (!_active) {
@@ -248,6 +265,7 @@ class AudioOutro {
 
   /// Прекъсване от човека (пауза, превъртане, затваряне): бързо, но
   /// плавно затихване — без рязко отрязване.
+  @override
   Future<void> stop({double seconds = 1.0, String why = ''}) async {
     if (_active) audioLogAdd('музика: стоп ($why)');
     if (!_active) {
@@ -263,6 +281,7 @@ class AudioOutro {
     } catch (_) {}
   }
 
+  @override
   Future<void> dispose() async {
     await stop(seconds: 0.8, why: 'четецът се затвори');
     _disposed = true;
