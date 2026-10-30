@@ -2986,6 +2986,14 @@ class _BookReaderState extends State<BookReader>
         matchOffset += _countHits(r.content) + [for (final p in r.rest) _countHits(p)].fold(0, (a, b) => a + b);
       }
     }
+    // В абзаците със син фон (цитатът, изречението, което звучи) —
+    // по-тъмното маркиране. Обвивката е винаги (с null — наследеното), за
+    // да не се мени дървото при всяко изречение.
+    for (int i = 0; i < children.length && i < regions.length; i++) {
+      final blue = i >= _quoteRegion && i <= _quoteRegionEnd && _quoteText.isNotEmpty;
+      children[i] = DefaultSelectionStyle.merge(
+          selectionColor: blue ? palette.quoteSelection : null, child: children[i]);
+    }
 
     // Корицата (`data-cover`, предната и задната в „Разговори…") излиза
     // ИЗВЪН полетата на страницата — от край до край (указание на автора).

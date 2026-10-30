@@ -3331,6 +3331,13 @@ class _ReaderScreenState extends State<ReaderScreen>
       }
       matchOffset += count;
     }
+    // В абзаците със син фон (цитатът, изречението, което звучи) —
+    // по-тъмното маркиране (същото като в четеца на книги).
+    for (int i = 0; i < regionWidgets.length; i++) {
+      final blue = i >= _quoteRegion && i <= _quoteRegionEnd && _quoteText.isNotEmpty;
+      regionWidgets[i] = DefaultSelectionStyle.merge(
+          selectionColor: blue ? ReaderTheme.palette.quoteSelection : null, child: regionWidgets[i]);
+    }
     // Разстояние след заглавната част (преди буквицата), ако имаше before-блок
     // (hasGap идва вече от _prepared — виж горе).
     if (hasGap) {
