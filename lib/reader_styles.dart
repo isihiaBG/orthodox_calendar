@@ -430,7 +430,7 @@ Map<String, Style> readerStyles({
     // срещу „това поиска да видиш"). Цветът е същият [ReaderPalette.quote],
     // с който библейският четец бележи поисканите стихове — един смисъл,
     // един цвят през цялото приложение.
-    '.quotehit': Style(backgroundColor: palette.quote),
+    '.quotehit': Style(backgroundColor: palette.quoteSpan),
     '.caption': Style(
       fontFamily: kBodyFamily,
       fontSize: FontSize(fontSize - 1),

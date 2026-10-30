@@ -2975,7 +2975,7 @@ class _BookReaderState extends State<BookReader>
             quoteText: (i >= _quoteRegion && i <= _quoteRegionEnd)
                 ? _quoteText
                 : '',
-            quoteColor: palette.quote,
+            quoteColor: palette.quoteSpan,
             // ⚠ И МЯСТОТО — инак къс цитат свети във всеки абзац на региона.
             quoteStart: (i >= _quoteRegion && i <= _quoteRegionEnd)
                 ? _quoteStart

@@ -3318,7 +3318,7 @@ class _ReaderScreenState extends State<ReaderScreen>
             quoteText: (i >= _quoteRegion && i <= _quoteRegionEnd)
                 ? _quoteText
                 : '',
-            quoteColor: _p.quote,
+            quoteColor: _p.quoteSpan,
             // ⚠ И МЯСТОТО — виж [DropCapParagraph.quoteStart]. Същият латентен
             // проблем го имаше и тук: къс цитат светваше във всеки изтеглен
             // до буквицата абзац.

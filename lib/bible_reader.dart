@@ -4163,7 +4163,7 @@ class _BibleReaderState extends State<BibleReader>
             TextSpan(
               text: sp.text,
               style: (sp.style ?? const TextStyle())
-                  .copyWith(backgroundColor: ReaderTheme.palette.quote),
+                  .copyWith(backgroundColor: ReaderTheme.palette.quoteSpan),
               children: sp.children,
             ),
         ];
@@ -4228,7 +4228,7 @@ class _BibleReaderState extends State<BibleReader>
       out.add(TextSpan(
         text: full.substring(a, b),
         style: inQuote(a)
-            ? base.copyWith(backgroundColor: ReaderTheme.palette.quote)
+            ? base.copyWith(backgroundColor: ReaderTheme.palette.quoteSpan)
             : base,
       ));
     }

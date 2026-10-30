@@ -403,7 +403,7 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
         if (bg == null) {
           for (final h in quote) {
             if (h.start <= a && h.end >= b) {
-              bg = p.quote;
+              bg = p.quoteSpan;
               break;
             }
           }
