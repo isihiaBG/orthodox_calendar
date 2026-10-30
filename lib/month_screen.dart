@@ -1175,8 +1175,8 @@ class _MonthPageState extends State<_MonthPage>
       Positioned(
         right: right,
         // Звездата е в реда, навън излизат само върховете на лентичките
-        // (12 от 46,8) — над числото на следващия ден (автор, 30.10.2026).
-        top: rowBottom - size * 1.3 + 12,
+        // (15 от 46,8) — над числото на следващия ден (автор, 30.10.2026).
+        top: rowBottom - size * 1.3 + 15,
         child: TodaySeal(fill: fill, size: size),
       ),
     ]);
