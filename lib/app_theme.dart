@@ -85,8 +85,8 @@ class AppColors {
 
   // Флашът върху самия днешен ден — по-кратък и малко по-светъл: сивата
   // следа вече показва мястото (автора, 31.10.2026, настроено на макета).
-  static const todayFlashToday  = Color(0xA5B4AF9A);
-  static const sundayFlashToday = Color(0xD2A65D77);
+  static const todayFlashToday  = Color(0x89B1AC97);
+  static const sundayFlashToday = Color(0xCEAF6680);
 
   // ─── Постна ивица (месечен изглед) ────────────────────────────────────
   // Ивицата се оцветява чрез придвижване на фона на реда към fastStripeTint.

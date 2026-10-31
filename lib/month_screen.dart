@@ -345,7 +345,7 @@ class _MonthPageState extends State<_MonthPage>
   TickerFuture _flashForward() {
     final d = _flashingDate;
     _flashController.duration = Duration(
-        milliseconds: d != null && _isToday(d) ? 2600 : 5000);
+        milliseconds: d != null && _isToday(d) ? 2200 : 5000);
     return _flashController.forward(from: 0);
   }
 
