@@ -666,7 +666,7 @@ class _SettingsContentState extends State<SettingsContent> {
         // звука" се четеше като за всичко — уточнено кратко (автора, 31.10.2026).
         'Само за озвучените беседи за сваляне (със златния печат), от следващото '
             'сваляне нататък. Озвучаването чрез вградения в системата говор '
-            'не зависи от това.',
+            '(там, където липсва златният печат) не зависи от това.',
         style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
       const Divider(height: 28, color: AppColors.sectionDivider, thickness: 1),
