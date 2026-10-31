@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart' show kIsWeb;
-import 'audiobook.dart' show AudioQuality;
+import 'audiobook.dart' show AudioQuality, VoiceBibleRefs;
 import 'audio_outro.dart' show AudioOutroSetting;
 import 'background_permission.dart' show BackgroundAudioTile;
 import 'package:flutter/material.dart';
@@ -623,7 +623,7 @@ class _SettingsContentState extends State<SettingsContent> {
     return [
       Padding(
         padding: const EdgeInsets.only(bottom: 12),
-        child: Text('КАЧЕСТВО НА ЗВУКА',
+        child: Text('КАЧЕСТВО НА ЗАПИСИТЕ',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11,
@@ -656,16 +656,16 @@ class _SettingsContentState extends State<SettingsContent> {
       const SizedBox(height: 12),
       Text(
         _audioLow
-            ? 'Файловете са около три пъти по-малки (около 9 MB на час) и се '
-                'свалят по-лесно. Гласът звучи почти както в оригинала.'
-            : 'Оригиналният запис (около 29 MB на час) — най-доброто качество, '
-                'но файловете са около три пъти по-големи.',
+            ? 'Около 9 MB на час — три пъти по-малко, почти без разлика в звука.'
+            : 'Оригиналният запис — около 29 MB на час.',
         style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
       const SizedBox(height: 6),
       Text(
-        'Изборът важи за следващите сваляния. Вече свалените беседи остават '
-            'в качеството, в което са свалени.',
+        // ⚠ Откакто има и глас на устройството (28.10.2026), „качество на
+        // звука" се четеше като за всичко — уточнено кратко (автора, 31.10.2026).
+        'Само за записите за сваляне (със златния печат), от следващото '
+            'сваляне нататък. Гласът на устройството не зависи от това.',
         style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
       const Divider(height: 28, color: AppColors.sectionDivider, thickness: 1),
@@ -682,6 +682,23 @@ class _SettingsContentState extends State<SettingsContent> {
           'След беседите — тиха мелодия на дудук; след житията — камбани '
           '(или клепало) и пеене.',
           style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+        ),
+      ),
+      // Същата настройка като в плъзгачите на плейъра — и за гласа, и за записите.
+      ValueListenableBuilder<bool>(
+        valueListenable: VoiceBibleRefs.notifier,
+        builder: (_, refs, _) => SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          dense: true,
+          value: refs,
+          onChanged: (_) => VoiceBibleRefs.toggle(),
+          title: const Text('Препратките към Писанието'),
+          subtitle: Text(
+            refs
+                ? 'При четене на глас се чете и „(Мт. 5:3)“.'
+                : 'При четене на глас „(Мт. 5:3)“ се прескача.',
+            style: TextStyle(color: AppColors.textMuted, fontSize: 12),
+          ),
         ),
       ),
       const Divider(height: 28, color: AppColors.sectionDivider, thickness: 1),
