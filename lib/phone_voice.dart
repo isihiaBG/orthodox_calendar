@@ -332,7 +332,11 @@ class PhoneVoicePlayback implements ReadAloud {
     var t = 0.0;
     final list = <AudioSentence>[];
     for (final (b, s, e) in sents) {
-      final d = (e - s) / PhoneVoice.charsPerSecond;
+      // Неизговаряното (източникът накрая) — без време: инак краят на
+      // гласа ([readEnd]) беше след него и преходът влизаше чак там, а не
+      // под последното изречение (автора, 31.10.2026).
+      final silent = blocks[b].drop.any((r) => r.$1 <= s && e <= r.$2);
+      final d = silent ? 0.0 : (e - s) / PhoneVoice.charsPerSecond;
       list.add(AudioSentence(t, t + d, blocks[b].text.substring(s, e), const []));
       t += d;
     }
