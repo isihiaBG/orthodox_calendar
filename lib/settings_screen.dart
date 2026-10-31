@@ -623,7 +623,7 @@ class _SettingsContentState extends State<SettingsContent> {
     return [
       Padding(
         padding: const EdgeInsets.only(bottom: 12),
-        child: Text('КАЧЕСТВО НА ЗАПИСИТЕ',
+        child: Text('КАЧЕСТВО НА ОЗВУЧЕНИТЕ БЕСЕДИ',
             style: TextStyle(
               color: AppColors.textMuted,
               fontSize: 11,
@@ -664,7 +664,7 @@ class _SettingsContentState extends State<SettingsContent> {
       Text(
         // ⚠ Откакто има и глас на устройството (28.10.2026), „качество на
         // звука" се четеше като за всичко — уточнено кратко (автора, 31.10.2026).
-        'Само за записите за сваляне (със златния печат), от следващото '
+        'Само за озвучените беседи за сваляне (със златния печат), от следващото '
             'сваляне нататък. Гласът на устройството не зависи от това.',
         style: TextStyle(color: AppColors.textMuted, fontSize: 12),
       ),
