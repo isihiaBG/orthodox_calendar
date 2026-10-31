@@ -472,8 +472,11 @@ class PhoneVoicePlayback implements ReadAloud {
       next = -1;
     }
     if (next < 0) {
-      playing.value = false;
+      // ⚠ Първо „свърших“, после „спрях“: слушателят на `playing` вижда
+      // незавършено спиране като прекъсване и маха прехода — звънът
+      // замлъкваше при последната дума и почваше отначало (31.10.2026).
       _completed = true;
+      playing.value = false;
       _uSpoken = null;
       onFinished?.call();
       return;

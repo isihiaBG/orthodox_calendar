@@ -1675,7 +1675,13 @@ class _BookReaderState extends State<BookReader>
     // записът му, пуска него).
     final cur = _playback;
     if (mounted && cur != null && cur.isPhoneVoice && AudioAutoNext.value) {
-      final next = _index + 1;
+      // ⚠ В томовете денят и първото му житие са два записа в
+      // съдържанието с ЕДИН И СЪЩ файл — следващият запис може да е същото
+      // четиво; без прескачането то почваше отначало (31.10.2026).
+      var next = _index + 1;
+      while (next < _chapters.length && _chapters[next].href == _current.href) {
+        next++;
+      }
       if (next >= _chapters.length) return;
       await _goTo(next);
       if (!mounted || _index != next) return;
@@ -1687,7 +1693,7 @@ class _BookReaderState extends State<BookReader>
     int? next;
     for (var j = _index + 1; j < _chapters.length; j++) {
       final part = AudioBook.partOf(_chapters[j].href);
-      if (part != null && a.has(part)) {
+      if (part != null && a.has(part) && _chapters[j].href != _current.href) {
         next = j;
         break;
       }
