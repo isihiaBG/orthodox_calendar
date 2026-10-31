@@ -333,11 +333,31 @@ class _MonthPageState extends State<_MonthPage>
 
     if (leadingFlash.year == widget.year && leadingFlash.month == widget.month) {
       _flashingDate = leadingFlash;
-      _flashController.forward(from: 0).then((_) {
+      _flashForward().then((_) {
         AppSettings.flashDate = null;
         _flashingDate = null;
       });
     }
+  }
+
+  // Днес вече има сива следа — флашът там само обръща внимание: почти
+  // двойно по-кратък и малко по-светъл (автора, 31.10.2026, по макета).
+  TickerFuture _flashForward() {
+    final d = _flashingDate;
+    _flashController.duration = Duration(
+        milliseconds: d != null && _isToday(d) ? 2600 : 5000);
+    return _flashController.forward(from: 0);
+  }
+
+  bool _isToday(DateTime day) {
+    final DateTime dbDate = (AppSettings.isOldStyle && AppSettings.oldStyleFirst)
+        ? _toNewStyle(day)
+        : day;
+    final today = AppSettings.today;
+    return today != null &&
+        dbDate.year == today.year &&
+        dbDate.month == today.month &&
+        dbDate.day == today.day;
   }
 
   // Скролира до конкретна дата в 2:1 позиция (горна:долна)
@@ -439,7 +459,7 @@ class _MonthPageState extends State<_MonthPage>
 		}
 		// setState(() => _flashingDate = leadingDate);
 		setState(() => _flashingDate = leadingDate);
-		_flashController.forward(from: 0).then((_) {
+		_flashForward().then((_) {
 		  if (mounted) setState(() => _flashingDate = null);
 		});
 	  });
@@ -876,9 +896,10 @@ class _MonthPageState extends State<_MonthPage>
                             builder: (context, _) {
                               Color rowColor = baseColor;
                               if (isFlashing) {
+                              final today = _isToday(day);
                               final flashColor = isSunday
-                                ? AppColors.sundayFlash
-                                : AppColors.todayFlash;
+                                ? (today ? AppColors.sundayFlashToday : AppColors.sundayFlash)
+                                : (today ? AppColors.todayFlashToday : AppColors.todayFlash);
                               rowColor = Color.lerp(
                                 baseColor, flashColor, _flashAnimation.value)!;
                               }
