@@ -20,6 +20,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 
 import 'audiobook.dart';
+import 'speech_tables.g.dart' show kSpeechTitles;
 import 'speech_text.dart';
 import 'test_mode.dart' show PhoneStress;
 
@@ -229,12 +230,15 @@ ReadingBlock readingBlockOf(String html, {String Function(String)? decode}) {
 }
 
 // Съкращения, след чиято точка изречението НЕ свършва (accent.NO_SPLIT).
-const _noSplit = {
+final _noSplit = {
   'св', 'свт', 'свв', 'прп', 'преп', 'мч', 'мчк', 'ап', 'равноап', 'гл', 'вж', 'срв',
   'стр', 'архим', 'йером', 'йеросхим', 'еп', 'митр', 'прот', 'о', 'т', 'е',
   'напр', 'др', 'сл', 'пр', 'р', 'ок', 'бел', 'вл', 'ст', 'изд', 'т.е',
   // Само тук (маркирането): „в с. Скрино", „гр. Солун".
   'с', 'гр',
+  // ⚠ И всички титли („Вмч. Артемий", „Свв. мчч. Гурий") — инак при паузите
+  // „Великомъченик" се чете като отделно изречение (автора, 02.11.2026).
+  ...kSpeechTitles.keys,
 };
 final _sentEnd = RegExp('[.!?…]+[»“”"\')\\]]*(?=\\s+[„"«(–—-]?\\s*[А-ЯA-ZЍ])');
 final _wordBefore = RegExp(r'([А-Яа-яA-Za-z.]+)$');
