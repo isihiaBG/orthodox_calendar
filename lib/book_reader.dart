@@ -800,6 +800,10 @@ class _BookReaderState extends State<BookReader>
     final at = _topmostLine();
     _savedRegion = at?.$1 ?? -1;
     _savedChar = at?.$2 ?? 0;
+    final parent = _dayTitleOf(_current);
+    final titles = parent.isNotEmpty
+        ? (_current.title, parent)
+        : epubEntryTitles(widget.book, _current.href, _current.title);
     BookPositionStore.save(
       widget.book.assetPath,
       _current.href,
@@ -808,8 +812,8 @@ class _BookReaderState extends State<BookReader>
         offset: _scroll.offset,
         region: _savedRegion,
         charInRegion: _savedChar,
-        chapterTitle: _current.title,
-        parentTitle: _dayTitleOf(_current),
+        chapterTitle: titles.$1,
+        parentTitle: titles.$2,
         savedAtMs: DateTime.now().millisecondsSinceEpoch,
       ),
     );
@@ -4723,4 +4727,18 @@ class _NoteSheet extends StatelessWidget {
       ],
     );
   }
+}
+
+/// (заглавие, ден) за отметката. ⚠ Отворен ли е САМИЯТ ДЕН („Памет на 20
+/// октомври"), а първото му житие е същият файл — отметката е на житието:
+/// иначе в списъка стоеше денят без светията (автора, 03.11.2026).
+(String, String) epubEntryTitles(EpubBook book, String href, String title) {
+  for (final day in book.toc) {
+    if (day.title == title &&
+        day.children.isNotEmpty &&
+        day.children.first.href == href) {
+      return (day.children.first.title, day.title);
+    }
+  }
+  return (title, '');
 }

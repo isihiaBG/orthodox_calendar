@@ -8,10 +8,10 @@
 // и обратното: подобрение по списъка (избиране с задържане, разтърсването
 // на кошчето, потвържденията) идва наведнъж за всички.
 //
-// Групите: житията вървят непосредствено, а отметките в книгите се събират
-// под заглавието на своя том. Причината е практическа — един том носи
-// стотици четива и изписването на заглавието му на всеки ред би заело
-// повече място от самите отметки.
+// Два етажа (автора, 03.11.2026): РАЗДЕЛ — откъде е четивото („Жития от
+// azbyka.ru", „Жития по Димитрий Ростовски", „Читалня"), и в него ГРУПА —
+// месецът на тома или книгата. Записите под група са отместени навътре, за
+// да се вижда чии са. Кой запис в кой раздел е — решава bookmarks_all.dart.
 
 import 'package:flutter/material.dart';
 
@@ -31,7 +31,11 @@ class BookmarkEntry {
   /// глава от книга.
   final String typeLabel;
 
-  /// Заглавие на групата. Празно = записът върви без група (житията).
+  /// Разделът — горният етаж („Жития от azbyka.ru"). Празно = без раздел
+  /// (любимите цитати).
+  final String section;
+
+  /// Групата в раздела — месецът на тома, книгата. Празно = без група.
   final String group;
 
   final int savedAtMs;
@@ -47,12 +51,34 @@ class BookmarkEntry {
     required this.id,
     required this.title,
     required this.typeLabel,
+    this.section = '',
     required this.group,
     required this.savedAtMs,
     required this.delete,
     required this.open,
   });
+
+  /// Същият запис, сложен на мястото си в списъка.
+  BookmarkEntry placed({
+    required String section,
+    String group = '',
+    String? typeLabel,
+    String? title,
+  }) =>
+      BookmarkEntry(
+        id: id,
+        title: title ?? this.title,
+        typeLabel: typeLabel ?? this.typeLabel,
+        section: section,
+        group: group,
+        savedAtMs: savedAtMs,
+        delete: delete,
+        open: open,
+      );
 }
+
+/// Ред от списъка: заглавие на раздел, на група или запис.
+typedef _Row = ({String? section, String? group, BookmarkEntry? entry, bool inset});
 
 /// Списък с всички запазени отметки.
 ///
@@ -236,19 +262,25 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
 
   Future<void> _open(BookmarkEntry e) => e.open(context);
 
-  /// Редовете за рисуване: заглавие на група или запис.
-  List<(String?, BookmarkEntry?)> _rows(List<BookmarkEntry> items) {
-    final rows = <(String?, BookmarkEntry?)>[];
-    String? current;
+  /// Редовете за рисуване. Записите идват вече подредени по раздел и група.
+  List<_Row> _rows(List<BookmarkEntry> items) {
+    final rows = <_Row>[];
+    String? section, group;
     for (final e in items) {
-      final g = e.group;
-      if (g.isNotEmpty && g != current) {
-        rows.add((g, null));
-        current = g;
-      } else if (g.isEmpty) {
-        current = null;
+      if (e.section != section) {
+        section = e.section;
+        group = null;
+        if (section.isNotEmpty) {
+          rows.add((section: section, group: null, entry: null, inset: false));
+        }
       }
-      rows.add((null, e));
+      if (e.group != group) {
+        group = e.group;
+        if (group.isNotEmpty) {
+          rows.add((section: null, group: group, entry: null, inset: false));
+        }
+      }
+      rows.add((section: null, group: null, entry: e, inset: e.group.isNotEmpty));
     }
     return rows;
   }
@@ -357,21 +389,48 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(color: AppColors.textPrimary, fontSize: 16),
           ),
-          const SizedBox(height: 3),
-          Text(
-            e.typeLabel,
-            style: const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
-          ),
+          if (e.typeLabel.isNotEmpty) ...[
+            const SizedBox(height: 3),
+            Text(
+              e.typeLabel,
+              style:
+                  const TextStyle(color: AppColors.sectionTitle, fontSize: 13),
+            ),
+          ],
         ],
       );
 
+  /// Отместването на записите под група — колкото да се види, че са нейни.
+  static const _inset = 30.0;
+
+  /// Разделът: главни букви, разредено — като разделите в Настройки, но в
+  /// синьото на заглавията. Над всеки следващ — плътна черта през целия ред.
+  Widget _sectionHeader(String title, {required bool first}) => Container(
+        decoration: first
+            ? null
+            : const BoxDecoration(
+                border: Border(
+                    top: BorderSide(color: AppColors.sectionDivider, width: 6))),
+        padding: EdgeInsets.fromLTRB(16, first ? 18 : 20, 16, 4),
+        child: Text(
+          title.toUpperCase(),
+          style: const TextStyle(
+            color: AppColors.sectionTitle,
+            fontSize: 12,
+            fontWeight: FontWeight.w700,
+            letterSpacing: 1.4,
+          ),
+        ),
+      );
+
+  /// Групата в раздела (месецът, книгата) — по-тиха от раздела.
   Widget _groupHeader(String title) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 2),
         child: Text(
           title,
           style: const TextStyle(
-            color: AppColors.sectionTitle,
-            fontSize: 14,
+            color: AppColors.textSecondary,
+            fontSize: 15,
             fontWeight: FontWeight.w600,
           ),
         ),
@@ -383,25 +442,28 @@ class _BookmarksListScreenState extends State<BookmarksListScreen> {
     return ListView.separated(
       itemCount: rows.length,
       separatorBuilder: (_, i) {
-        // Пред заглавие на група чертата е по-плътна — тя дели книгите
-        // една от друга, а не редовете вътре в тях.
-        final nextIsHeader = i + 1 < rows.length && rows[i + 1].$1 != null;
+        // Тънка черта само между два записа от една група — отместена
+        // колкото тях. Заглавията си носят своя въздух.
+        final a = rows[i], b = rows[i + 1];
+        if (a.entry == null || b.entry == null) return const SizedBox.shrink();
         return Divider(
-          height: nextIsHeader ? 12 : 1,
-          thickness: nextIsHeader ? 1 : 0,
+          height: 1,
+          thickness: 0.5,
+          indent: b.inset ? _inset : 16,
           color: AppColors.sectionDivider,
         );
       },
       itemBuilder: (context, i) {
-        final (header, entry) = rows[i];
-        if (header != null) return _groupHeader(header);
-        final e = entry!;
+        final row = rows[i];
+        if (row.section != null) return _sectionHeader(row.section!, first: i == 0);
+        if (row.group != null) return _groupHeader(row.group!);
+        final e = row.entry!;
         return InkWell(
           onTap: _editing ? null : () => _open(e),
           // Задържането е другият вход в редакцията, освен моливчето.
           onLongPress: _editing ? null : _startEditing,
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 10, 8, 10),
+            padding: EdgeInsets.fromLTRB(row.inset ? _inset : 16, 10, 8, 10),
             child: Row(children: [
               Expanded(child: _entryText(e)),
               _editing
