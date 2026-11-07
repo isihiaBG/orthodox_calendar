@@ -945,6 +945,8 @@ void _colloquialNumbers(SpokenText t) {
 
 SpokenText _forPhoneVoice(SpokenText t) {
   _colloquialNumbers(t);
+  // Тирето между думи — като запетая, инак гласът ги слива (автора, 07.11.2026).
+  t.sub(RegExp(',?[ \u00a0]+[–—][ \u00a0]+'), (_) => ', ');
   t.sub(RegExp('([оОуУ])[́̀̑]'), (m) => switch (m[1]) {
         'о' => 'ó',
         'О' => 'Ó',
