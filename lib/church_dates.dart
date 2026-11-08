@@ -121,12 +121,22 @@ String civilDateHtml(DateTime civil, {bool? oldStyle, bool? oldFirst}) {
       oldFirst ?? AppSettings.oldStyleFirst);
 }
 
+/// „⟦стар: (по стар стил)⟧" — уточнение, което се вижда САМО по стар стил
+/// (и в двата варианта). По нов стил го няма изобщо, все едно е изтрито: за
+/// човек с един календар „по стар стил" е без значение и дразни (автора,
+/// 08.11.2026). Местата са подбрани поотделно — tools/corrections/style_notes.py.
+final RegExp _oldStyleNote = RegExp(r'⟦стар:([^⟦⟧]*)⟧');
+
 /// Заменя всички запушалки за дати в готовото HTML.
-String expandChurchDates(String html, {bool? oldStyle, bool? oldFirst}) =>
-    html.replaceAllMapped(
-        _placeholder,
-        (m) => churchDateHtml(int.parse(m.group(1)!), int.parse(m.group(2)!),
-            oldStyle: oldStyle, oldFirst: oldFirst));
+String expandChurchDates(String html, {bool? oldStyle, bool? oldFirst}) {
+  final old = oldStyle ?? AppSettings.isOldStyle;
+  return html
+      .replaceAllMapped(_oldStyleNote, (m) => old ? m.group(1)! : '')
+      .replaceAllMapped(
+          _placeholder,
+          (m) => churchDateHtml(int.parse(m.group(1)!), int.parse(m.group(2)!),
+              oldStyle: old, oldFirst: oldFirst));
+}
 
 /// Същото, но за гол текст (заглавия, надписи) — там таг не може да влезе,
 /// тъй че църквицата се подменя с думата. Ползва се от PDF-а и от всяко
