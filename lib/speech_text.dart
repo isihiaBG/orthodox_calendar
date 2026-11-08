@@ -172,8 +172,20 @@ typedef SpeechLink = (int start, int end, String href);
 SpokenText speechText(String shown,
         {List<SpeechLink> links = const [],
         List<(int, int)> drop = const [],
-        List<(int, int, String)> spans = const []}) =>
-    _forPhoneVoice(speechExpand(shown, links: links, drop: drop, spans: spans));
+        List<(int, int, String)> spans = const []}) {
+  _yearWords = phoneYearWords;
+  try {
+    return _forPhoneVoice(speechExpand(shown, links: links, drop: drop, spans: spans));
+  } finally {
+    _yearWords = const {};
+  }
+}
+
+/// Своите думи за съставките на годините („Годините на глас" в тестовия
+/// режим): ключ „<вид>_<стойност>_<0 бройно | 1 редно>" → думата. Само за
+/// гласа на телефона — [speechExpand] (общото с ElevenLabs) не ги вижда.
+Map<String, String> phoneYearWords = const {};
+Map<String, String> _yearWords = const {};
 
 /// Само разгъването — общото с ElevenLabs (сверява се с Python).
 SpokenText speechExpand(String shown,
@@ -280,10 +292,48 @@ String _ordWord(String kind, int v, String gender) {
 /// Редно: 343 → „триста четиридесет и трета" (ж. р. — „година").
 String ordinal(int n, [String gender = 'f']) {
   final parts = _parts(n, gender);
-  final words = [for (final p in parts.sublist(0, parts.length - 1)) p.$3];
+  // Своите думи — само в женски род (годината).
+  final own = gender == 'f' ? _yearWords : const <String, String>{};
+  final words = [
+    for (final p in parts.sublist(0, parts.length - 1)) _own(own['${p.$1}_${p.$2}_0']) ?? p.$3
+  ];
   final last = parts.last;
-  words.add(_ordWord(last.$1, last.$2, gender));
+  words.add(_own(own['${last.$1}_${last.$2}_1']) ?? _ordWord(last.$1, last.$2, gender));
   return _join(words);
+}
+
+/// Своята дума с пазач отпред — разговорните замени не я пипат
+/// („шестдесет" остава „шестдесет"); [_forPhoneVoice] маха пазача.
+const _ownMark = '\uF8FF';
+String? _own(String? w) => w == null ? null : '$_ownMark$w';
+
+/// Съставките на годините за таблицата: (ключ без колоната, стойност,
+/// бройно, редно) — както ги казва гласът на телефона без своите думи.
+List<(String, int, String, String)> yearParts() {
+  String said(String w) {
+    final t = SpokenText(w);
+    _colloquialNumbers(t);
+    return t.text;
+  }
+
+  final out = <(String, int, String, String)>[];
+  void add(String kind, int v, int n) {
+    final p = _parts(n, 'f').single;
+    out.add(('${kind}_$v', n, said(p.$3), said(_ordWord(kind, v, 'f'))));
+  }
+
+  for (final (kind, from, to, mul) in [
+    ('th', 1, 2, 1000),
+    ('h', 1, 9, 100),
+    ('t', 2, 9, 10),
+    ('teen', 10, 19, 1),
+    ('u', 1, 9, 1),
+  ]) {
+    for (var v = from; v <= to; v++) {
+      add(kind, v, v * mul);
+    }
+  }
+  return out;
 }
 
 const _romanV = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100};
@@ -930,13 +980,13 @@ const _spokenNumbers = [
   ('четиридесет', 'четиресет'),
   ('шестдесет', 'шейсет'),
 ];
-final _teenStem = RegExp(r'(?<![А-Яа-я])(един|два|три|четири|пет|шест|седем|осем|девет)надесет',
+final _teenStem = RegExp('(?<![А-Яа-я$_ownMark])' r'(един|два|три|четири|пет|шест|седем|осем|девет)надесет',
     caseSensitive: false);
 
 void _colloquialNumbers(SpokenText t) {
   t.sub(_teenStem, (m) => '${m[1]}найсет');
   for (final (book, said) in _spokenNumbers) {
-    t.sub(RegExp('(?<![А-Яа-я])$book', caseSensitive: false), (m) {
+    t.sub(RegExp('(?<![А-Яа-я$_ownMark])$book', caseSensitive: false), (m) {
       final first = m[0]![0];
       return first == first.toLowerCase() ? said : said[0].toUpperCase() + said.substring(1);
     });
@@ -955,5 +1005,6 @@ SpokenText _forPhoneVoice(SpokenText t) {
       });
   t.sub(RegExp('[́̀̑]'), (_) => '');
   t.sub(RegExp('ѐ'), (_) => 'е');
+  t.sub(RegExp(_ownMark), (_) => '');
   return t;
 }

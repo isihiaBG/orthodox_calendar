@@ -23,6 +23,7 @@ import 'audiobook.dart';
 import 'speech_tables.g.dart' show kSpeechTitles;
 import 'speech_text.dart';
 import 'test_mode.dart' show PhoneStress;
+import 'year_voice.dart' show YearWords;
 
 /// Готов ли е гласът на телефона.
 enum PhoneVoiceState {
@@ -84,6 +85,7 @@ class PhoneVoice {
       VoiceSetting.speed.notifier.addListener(_onTone);
       VoiceSetting.pitch.notifier.addListener(_onTone);
       await PhoneStress.loadOnce();
+      await YearWords.loadOnce();
       await _tts.awaitSpeakCompletion(false);
       _tts.setProgressHandler((_, s, e, _) => _owner?._onProgress(s, e));
       _tts.setStartHandler(() => _owner?._started = true);

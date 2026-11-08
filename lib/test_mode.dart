@@ -22,6 +22,7 @@ import 'phone_voice.dart';
 import 'reader_theme.dart';
 import 'speech_text.dart';
 import 'stress_progress.dart';
+import 'year_voice.dart';
 
 class TestMode {
   TestMode._();
@@ -968,6 +969,7 @@ class TestModeSettings extends StatelessWidget {
               },
             ),
           ),
+          const YearVoiceTile(),
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton(
