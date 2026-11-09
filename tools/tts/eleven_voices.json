@@ -29,5 +29,17 @@
     "voice_id": "31jwlwrRwpOA5yGuVAby",
     "name": "Georgi - Tender, Rich, and Reassuring",
     "_note": "кандидат за Ивайло (намерен от потребителя, 09.11.2026); български глас от библиотеката (bg). Само проба — Ивайло остава George, докато авторът не реши на слух. За API трябва първо да се добави в „My Voices“."
+  },
+  "tsetso_proba_petar": {
+    "voice_id": "406EiNlYvqFqcz3vsnOm",
+    "name": "Peter K - Warm, Round, and Smooth",
+    "speed": 0.95,
+    "_note": "кандидат за Цецо (потребителят, 09.11.2026; „Petar K“ / „Kosta“), български. Темпото е като на Цецо — пробата влиза наготово в кеша при замяната."
+  },
+  "tsetso_proba_kosta": {
+    "voice_id": "NG3DzyUGmLkog1AFB5iv",
+    "name": "Yakim Petrov",
+    "speed": 0.95,
+    "_note": "кандидат за Цецо (потребителят, 09.11.2026; „Petar K“ / „Kosta“), български. Темпото е като на Цецо — пробата влиза наготово в кеша при замяната."
   }
 }
