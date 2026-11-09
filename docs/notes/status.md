@@ -7,7 +7,7 @@
 
 Авторът намери „Georgi - Tender, Rich, and Reassuring“ (`31jwlwrRwpOA5yGuVAby`, български, от библиотеката) — в `tools/tts/eleven_voices.json` като `ivaylo_proba`. На 09.11 остават 9 кредита — пробата чака подновяването на 10.XI. План: добави гласа в „My Voices“, генерирай няколко реплики на Ивайло от c02 (бл. 2–4, ~800 зн., ~400 кр.), страница за сравнение с George (от кеша, без кредити). Не сменя Ивайло без решение на автора.
 
-Цецо — два кандидата (09.11, автора; клони към Petar): „Peter K - Warm, Round, and Smooth“ (`406EiNlYvqFqcz3vsnOm`) и „Kosta“ (`NG3DzyUGmLkog1AFB5iv`, в ElevenLabs се казва „Yakim Petrov“) — `tsetso_proba_petar` / `tsetso_proba_kosta`, темпо 0.95 като Цецо. Може да замести плана 3б (Adrien +1 полутон). Пробата — scratchpad `ivaylo/proba.py --new`: Ивайло c02 бл. 2–9 (2720 зн.), Цецо c03 бл. 2, 10, 12, 15, 24 (409 зн.), ~1 600 кр. общо. Пробата е със същия ключ на кеша като пълното генериране — при замяната се взема наготово.
+Цецо — два кандидата (09.11, автора; клони към Petar): „Peter K - Warm, Round, and Smooth“ (`406EiNlYvqFqcz3vsnOm`) и „Yakim Petrov“ (`NG3DzyUGmLkog1AFB5iv`) — `tsetso_proba_petar` / `tsetso_proba_yakim`, темпо 0.95 като Цецо. Може да замести плана 3б (Adrien +1 полутон). Пробата — scratchpad `ivaylo/proba.py --new`: Ивайло c02 бл. 2–9 (2720 зн.), Цецо c03 бл. 2, 10, 12, 15, 24 (409 зн.), ~1 600 кр. общо. Пробата е със същия ключ на кеша като пълното генериране — при замяната се взема наготово.
 
 ## 🔨 09.11.2026 — билд 2234 (локален, НЕ е публикуван)
 
