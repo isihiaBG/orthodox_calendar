@@ -7,15 +7,15 @@
     "_speed": "малко по-бавно (желание на потребителя); нагласява се на слух"
   },
   "ivaylo": {
-    "voice_id": "JBFqnCBsd6RMkjVDRZzb",
-    "name": "George - Warm, Captivating Storyteller",
-    "_note": "сменен от Will - Deep, Smooth and Affectionate (прекалено театрален); избран на слух от потребителя, 11.10.2026"
+    "voice_id": "31jwlwrRwpOA5yGuVAby",
+    "name": "Georgi - Tender, Rich, and Reassuring",
+    "_note": "избран на слух от автора (11.11.2026, проба c02); български глас. Преди: George (JBFqnCBsd6RMkjVDRZzb), още по-рано Will"
   },
   "tsetso": {
-    "voice_id": "C1npRmjB19a6yNkEucvx",
-    "name": "Arthur – Clear & Engaging American Male Audio",
+    "voice_id": "406EiNlYvqFqcz3vsnOm",
+    "name": "Peter K - Warm, Round, and Smooth",
     "speed": 0.95,
-    "_note": "сменен от Adam - Compelling (звучеше напрегнато); избран на слух от потребителя, 11.10.2026",
+    "_note": "избран на слух от автора (11.11.2026, проба c03; срещу Yakim Petrov); български глас. Преди: Arthur (C1npRmjB19a6yNkEucvx), още по-рано Adam",
     "_stability": "0.65 → 0.75 → общите 0.85 (11.10.2026), за по-малко вариране"
   },
   "narrator": {
@@ -24,22 +24,5 @@
     "_note": "разказвачът (заглавията), решение на потребителя",
     "stability": 0.6,
     "_stability": "0.85 звучеше като робот (потребителят, 11.10.2026)"
-  },
-  "ivaylo_proba": {
-    "voice_id": "31jwlwrRwpOA5yGuVAby",
-    "name": "Georgi - Tender, Rich, and Reassuring",
-    "_note": "кандидат за Ивайло (намерен от потребителя, 09.11.2026); български глас от библиотеката (bg). Само проба — Ивайло остава George, докато авторът не реши на слух. За API трябва първо да се добави в „My Voices“."
-  },
-  "tsetso_proba_petar": {
-    "voice_id": "406EiNlYvqFqcz3vsnOm",
-    "name": "Peter K - Warm, Round, and Smooth",
-    "speed": 0.95,
-    "_note": "кандидат за Цецо (потребителят, 09.11.2026; „Petar K“ / „Kosta“), български. Темпото е като на Цецо — пробата влиза наготово в кеша при замяната."
-  },
-  "tsetso_proba_yakim": {
-    "voice_id": "NG3DzyUGmLkog1AFB5iv",
-    "name": "Yakim Petrov",
-    "speed": 0.95,
-    "_note": "кандидат за Цецо (потребителят, 09.11.2026; „Petar K“ / „Yakim Petrov“), български. Темпото е като на Цецо — пробата влиза наготово в кеша при замяната."
   }
 }
