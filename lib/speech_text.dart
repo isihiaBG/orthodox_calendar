@@ -173,7 +173,7 @@ SpokenText speechText(String shown,
         {List<SpeechLink> links = const [],
         List<(int, int)> drop = const [],
         List<(int, int, String)> spans = const []}) {
-  _yearWords = phoneYearWords;
+  _yearWords = {...kYearWordsBuiltin, ...phoneYearWords};
   try {
     return _forPhoneVoice(speechExpand(shown, links: links, drop: drop, spans: spans));
   } finally {
@@ -186,6 +186,57 @@ SpokenText speechText(String shown,
 /// гласа на телефона — [speechExpand] (общото с ElevenLabs) не ги вижда.
 Map<String, String> phoneYearWords = const {};
 Map<String, String> _yearWords = const {};
+
+/// Думите на ПРИЛОЖЕНИЕТО за съставките на годините — изслушани и подбрани от
+/// автора в „Годините на глас" (24.11.2026), ДОСЛОВНО: тиретата и удвоените
+/// гласни („стоо") са нарочни — така гласът на телефона ги казва правилно.
+/// Своите думи от тестовия режим ([phoneYearWords]) имат предимство.
+const kYearWordsBuiltin = <String, String>{
+  'th_1_0': 'хи-ляда', // 1000 бройно (беше хиляда)
+  'th_1_1': 'хилядна-та', // 1000 редно (беше хилядна)
+  'th_2_1': 'две хилядна-та', // 2000 редно (беше двехилядна)
+  'h_1_0': 'стоо', // 100 бройно (беше сто)
+  'h_1_1': 'стотната', // 100 редно (беше стотна)
+  'h_2_1': 'две-стотната', // 200 редно (беше двестотна)
+  'h_3_1': 'три-стотна-та', // 300 редно (беше тристотна)
+  'h_4_0': 'четристот-ин', // 400 бройно (беше четиристотин)
+  'h_4_1': 'четри-стотна-та', // 400 редно (беше четиристотна)
+  'h_5_1': 'пет-стотна-та', // 500 редно (беше петстотна)
+  'h_6_0': 'шес-тот-ин', // 600 бройно (беше шестстотин)
+  'h_6_1': 'шест-тотна-та', // 600 редно (беше шестстотна)
+  'h_7_0': 'седем-стот-ин', // 700 бройно (беше седемстотин)
+  'h_7_1': 'седем-стотна-та', // 700 редно (беше седемстотна)
+  'h_8_0': 'осем-стот-ин', // 800 бройно (беше осемстотин)
+  'h_8_1': 'осем-стотна-та', // 800 редно (беше осемстотна)
+  'h_9_0': 'девет-стот-ин', // 900 бройно (беше деветстотин)
+  'h_9_1': 'девет-стотна-та', // 900 редно (беше деветстотна)
+  't_2_0': 'двайсе', // 20 бройно (беше двайсет)
+  't_2_1': 'двайста', // 20 редно (беше двайсета)
+  't_3_0': 'трийсе', // 30 бройно (беше трийсет)
+  't_3_1': 'три-йста', // 30 редно (беше трийсета)
+  't_4_0': 'че-тиресе', // 40 бройно (беше четиресет)
+  't_4_1': 'че-тиреста', // 40 редно (беше четиресета)
+  't_5_0': 'педе-се', // 50 бройно (беше петдесет)
+  't_5_1': 'педе-сета', // 50 редно (беше петдесета)
+  't_6_0': 'шейсе', // 60 бройно (беше шейсет)
+  't_6_1': 'шей-сета', // 60 редно (беше шейсета)
+  't_7_0': 'седемде-се', // 70 бройно (беше седемдесет)
+  't_7_1': 'седемде-сета', // 70 редно (беше седемдесета)
+  't_8_0': 'усемде-се', // 80 бройно (беше осемдесет)
+  't_8_1': 'усемде-сета', // 80 редно (беше осемдесета)
+  't_9_0': 'деведе-се', // 90 бройно (беше деветдесет)
+  't_9_1': 'деведе-сета', // 90 редно (беше деветдесета)
+  'teen_11_0': 'иди-найсет', // 11 бройно (беше единадесет)
+  'teen_11_1': 'иди-найста', // 11 редно (беше единадесета)
+  'teen_12_1': 'двъ-найста', // 12 редно (беше дванайсета)
+  'teen_13_1': 'три-найста', // 13 редно (беше тринайсета)
+  'teen_14_1': 'четри-найста', // 14 редно (беше четиринайсета)
+  'teen_15_1': 'пет-найста', // 15 редно (беше петнайсета)
+  'teen_16_1': 'шес-найста', // 16 редно (беше шестнайсета)
+  'teen_17_1': 'седем-найста', // 17 редно (беше седемнайсета)
+  'teen_18_1': 'усем-найста', // 18 редно (беше осемнайсета)
+  'teen_19_1': 'девет-найста', // 19 редно (беше деветнайсета)
+};
 
 /// Само разгъването — общото с ElevenLabs (сверява се с Python).
 SpokenText speechExpand(String shown,
@@ -290,15 +341,18 @@ String _ordWord(String kind, int v, String gender) {
 }
 
 /// Редно: 343 → „триста четиридесет и трета" (ж. р. — „година").
-String ordinal(int n, [String gender = 'f']) {
+///
+/// [own] — своите/вградените думи от „Годините на глас" (само в женски род).
+/// `false` за редните, които НЕ са година: главата, „12-та" (автора слуша
+/// и подбира думите само за годините, 24.11.2026).
+String ordinal(int n, [String gender = 'f', bool own = true]) {
   final parts = _parts(n, gender);
-  // Своите думи — само в женски род (годината).
-  final own = gender == 'f' ? _yearWords : const <String, String>{};
+  final own_ = own && gender == 'f' ? _yearWords : const <String, String>{};
   final words = [
-    for (final p in parts.sublist(0, parts.length - 1)) _own(own['${p.$1}_${p.$2}_0']) ?? p.$3
+    for (final p in parts.sublist(0, parts.length - 1)) _own(own_['${p.$1}_${p.$2}_0']) ?? p.$3
   ];
   final last = parts.last;
-  words.add(_own(own['${last.$1}_${last.$2}_1']) ?? _ordWord(last.$1, last.$2, gender));
+  words.add(_own(own_['${last.$1}_${last.$2}_1']) ?? _ordWord(last.$1, last.$2, gender));
   return _join(words);
 }
 
@@ -308,7 +362,8 @@ const _ownMark = '\uF8FF';
 String? _own(String? w) => w == null ? null : '$_ownMark$w';
 
 /// Съставките на годините за таблицата: (ключ без колоната, стойност,
-/// бройно, редно) — както ги казва гласът на телефона без своите думи.
+/// бройно, редно) — както ги казва гласът на телефона без своите думи
+/// (с вградените [kYearWordsBuiltin]).
 List<(String, int, String, String)> yearParts() {
   String said(String w) {
     final t = SpokenText(w);
@@ -319,7 +374,10 @@ List<(String, int, String, String)> yearParts() {
   final out = <(String, int, String, String)>[];
   void add(String kind, int v, int n) {
     final p = _parts(n, 'f').single;
-    out.add(('${kind}_$v', n, said(p.$3), said(_ordWord(kind, v, 'f'))));
+    final key = '${kind}_$v';
+    // Вградената дума (ако има) е „думата на приложението" в таблицата.
+    out.add((key, n, kYearWordsBuiltin['${key}_0'] ?? said(p.$3),
+        kYearWordsBuiltin['${key}_1'] ?? said(_ordWord(kind, v, 'f'))));
   }
 
   for (final (kind, from, to, mul) in [
@@ -566,7 +624,7 @@ void suffixedText(SpokenText t) {
   });
   t.sub(_re('$_wb([1-9]\\d{0,3})\\s*[-–]\\s*([а-я]{1,4})$_we'), (m) {
     for (final (end, gender, art) in _suffixes) {
-      if (m[2]!.endsWith(end)) return ordinal(_i(m[1]), gender) + art;
+      if (m[2]!.endsWith(end)) return ordinal(_i(m[1]), gender, false) + art;
     }
     return m[0]!;
   });
@@ -680,7 +738,7 @@ String _verses(List<(int, int)> items) {
   return 'стихове $body';
 }
 
-String _chapter(String code, int c) => code == 'Ps' ? '${_v(c)} псалом' : '${ordinal(c)} глава';
+String _chapter(String code, int c) => code == 'Ps' ? '${_v(c)} псалом' : '${ordinal(c, 'f', false)} глава';
 
 final _crossChapter = RegExp(r'^(\d+):(\d+)-(\d+):(\d+)$');
 final _placeTok = RegExp(r'^(?:(\d+):)?(\d+)(?:-(\d+))?$');

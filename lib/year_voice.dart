@@ -29,7 +29,13 @@ class YearWords {
           final p = await SharedPreferences.getInstance();
           final s = p.getString(_kWords);
           if (s != null) {
-            phoneYearWords = Map<String, String>.from(jsonDecode(s) as Map);
+            final m = Map<String, String>.from(jsonDecode(s) as Map);
+            // Своята дума, станала вградена (24.11.2026), вече не е „своя" —
+            // маха се, за да не излиза в „Копирай" като поправка.
+            final n = m.length;
+            m.removeWhere((k, v) => kYearWordsBuiltin[k] == v);
+            phoneYearWords = m;
+            if (m.length != n) await p.setString(_kWords, jsonEncode(m));
           }
         } catch (_) {}
       }();
