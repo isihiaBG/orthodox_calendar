@@ -270,6 +270,22 @@ def _death_word(m):
     return 'преставили се' if plural else 'преставила се' if fem else 'преставил се'
 
 
+# Мъжки имена на -а/-я — с тях числото остава в мъжки род („Сава I").
+_MALE_A = {'Сава', 'Никола', 'Илия', 'Лука', 'Фома', 'Никита', 'Кузма', 'Иона', 'Йона',
+           'Захария', 'Иеремия', 'Исая', 'Осия', 'Софония', 'Авдия'}
+_NAME_ROMAN = re.compile(r'(?<![\w-])([А-Я][а-я]+(?:-[А-Я][а-я]+)?)\s+'
+                         r'(?=[IVX])(X{0,3}(?:IX|IV|V?I{0,3}))(?:-(?:ви|ри|ти|ми|и))?(?![\w])')
+
+
+def _name_roman(m):
+    name, num = m.group(1), m.group(2)
+    if not num:
+        return m.group(0)
+    last = name.split('-')[-1]
+    female = last[-1] in 'ая' and last not in _MALE_A
+    return name + ' ' + ordinal(roman(num), 'f' if female else 'm')
+
+
 def years_text(txt):
     # Диапазон с „г.": „(343–356 г.)", „от 813–820 г.", „между 471–474 г.".
     def rng(m):
@@ -313,9 +329,17 @@ def years_text(txt):
                            f'{ordinal(roman(m.group(2)), "m")} век', txt)
     txt = re.sub(r'\b([IVXLC]+)\s*в(?:в)?\.',
                  lambda m: ordinal(roman(m.group(1)), 'm') + ' век', txt)
+    # И диапазонът с думата: „през XII–XIII век" (24.11.2026).
+    txt = re.sub(r'\b([IVXLC]+)' + _DASH + r'([IVXLC]+)\s+(век|века|векове)\b',
+                 lambda m: f'{ordinal(roman(m.group(1)), "m")} – '
+                           f'{ordinal(roman(m.group(2)), "m")} {m.group(3)}', txt)
     # И изписаното с думата: „в VI век" (беседа 7, 11.10.2026).
     txt = re.sub(r'\b([IVXLC]+)\s+(век|века|векове)\b',
                  lambda m: ordinal(roman(m.group(1)), 'm') + ' ' + m.group(2), txt)
+    # Римско число СЛЕД ИМЕ — редно: „Петър I" → „Петър първи", „Екатерина II"
+    # → „Екатерина втора" (автора, 24.11.2026; гласът четеше латински букви).
+    # Векове — по-горе, преди това правило. „I-ви" — окончанието се поглъща.
+    txt = re.sub(_NAME_ROMAN, _name_roman, txt)
     for pat, rep in _ERA:
         txt = re.sub(pat, rep, txt)
     return misc_text(suffixed_text(txt))

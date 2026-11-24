@@ -396,6 +396,14 @@ List<(String, int, String, String)> yearParts() {
 
 const _romanV = {'I': 1, 'V': 5, 'X': 10, 'L': 50, 'C': 100};
 
+/// Мъжки имена на -а/-я — с тях числото остава в мъжки род („Сава I").
+const _maleA = {'Сава', 'Никола', 'Илия', 'Лука', 'Фома', 'Никита', 'Кузма', 'Иона', 'Йона',
+    'Захария', 'Иеремия', 'Исая', 'Осия', 'Софония', 'Авдия'};
+final _nameRoman = RegExp(
+    r'(?<![\p{L}\p{N}_-])([А-Я][а-я]+(?:-[А-Я][а-я]+)?)\s+'
+    r'(?=[IVX])(X{0,3}(?:IX|IV|V?I{0,3}))(?:-(?:ви|ри|ти|ми|и))?(?![\p{L}\p{N}_])',
+    unicode: true);
+
 int roman(String s) {
   var total = 0;
   for (var i = 0; i < s.length; i++) {
@@ -599,9 +607,22 @@ void yearsText(SpokenText t) {
   t.sub(_re('$_wb([IVXLC]+)$_dash([IVXLC]+)\\s*в(?:в)?\\.'),
       (m) => '${ordinal(roman(m[1]!), 'm')} – ${ordinal(roman(m[2]!), 'm')} век');
   t.sub(_re('$_wb([IVXLC]+)\\s*в(?:в)?\\.'), (m) => '${ordinal(roman(m[1]!), 'm')} век');
+  // И диапазонът с думата: „през XII–XIII век" (24.11.2026, numbers_bg.py).
+  t.sub(_re('$_wb([IVXLC]+)$_dash([IVXLC]+)\\s+(век|века|векове)$_we'),
+      (m) => '${ordinal(roman(m[1]!), 'm')} – ${ordinal(roman(m[2]!), 'm')} ${m[3]}');
   // И изписаното с думата: „в VI век".
   t.sub(_re('$_wb([IVXLC]+)\\s+(век|века|векове)$_we'),
       (m) => '${ordinal(roman(m[1]!), 'm')} ${m[2]}');
+  // Римско число СЛЕД ИМЕ — редно: „Петър I" → „Петър първи", „Екатерина II"
+  // → „Екатерина втора" (автора, 24.11.2026; гласът четеше латински букви).
+  // Векове — по-горе. „I-ви" — окончанието се поглъща. (numbers_bg.py)
+  t.sub(_nameRoman, (m) {
+    final name = m[1]!, num = m[2]!;
+    if (num.isEmpty) return m[0]!;
+    final last = name.split('-').last;
+    final female = (last.endsWith('а') || last.endsWith('я')) && !_maleA.contains(last);
+    return '$name ${ordinal(roman(num), female ? 'f' : 'm', false)}';
+  });
   for (final (p, rep) in _eras) {
     t.sub(_re(p), (_) => rep);
   }
