@@ -371,6 +371,56 @@ def move_canon_head(units, pdf_units, start):
           % len(head_unit['csr']))
 
 
+# 6-та песен на параклиса — на ЧАСТИ, за да стоят една срещу друга (автора,
+# 24.11.2026): бг и цс гр. имат след песента ектения, кондак, ЕВАНГЕЛИЕ и
+# стихира, а цс шрифт (Канонникът, за домашно четене) — кондак, икос, втори
+# кондак и стихира, БЕЗ евангелие. Цяла песен течеше разминато. Части:
+# тропарите | кондакът | евангелието | стихирата. Началото на всяка част —
+# по първия ѝ абзац на всеки език; None = частта я няма в този език (тогава
+# вдясно излиза цс гр. — четецът избира езика за всяка единица поотделно).
+SPLIT_SONG = {203: ('Пе́снь 6', [
+    {'bg': 'Тропари', 'csl': 'Гдⷭ҇и, поми́лꙋй.', 'csr': 'Свяще́нник помина́ет'},
+    {'bg': 'Евангелско чтение', 'csl': None, 'csr': 'И а́бие: Проки́мен'},
+    {'bg': 'Стихира', 'csl': 'Стихи́ра', 'csr': 'Гла́с 6:'},
+])}
+
+
+def split_song(units, title_csl, cuts):
+    at = [i for i, u in enumerate(units) if u['title_csl'] == title_csl]
+    if len(at) != 1:
+        raise SystemExit('⚠ разделяне: „%s“ — %d' % (title_csl, len(at)))
+    song = units[at[0]]
+    parts = [dict(song)] + [{'title_csl': None, 'title_bg': None, 'bg': [], 'csl': [],
+                             'csr': [], 'sources': song['sources']} for _ in cuts]
+    for lang in ('bg', 'csl', 'csr'):
+        bl = song[lang]
+        starts = []
+        for c in cuts:
+            if c[lang] is None:
+                starts.append(None)
+                continue
+            hit = [j for j, b in enumerate(bl)
+                   if re.sub(r'<[^>]+>', '', b['html']).startswith(c[lang])]
+            if len(hit) != 1:
+                raise SystemExit('⚠ разделяне %s/%s: „%s“ — %d' % (title_csl, lang, c[lang], len(hit)))
+            starts.append(hit[0])
+        idx = [0] + starts + [len(bl)]
+        # Частта без начало (None) е празна: краят на предходната е следващото начало.
+        known = [x for x in starts if x is not None]
+        if known != sorted(known):
+            raise SystemExit('⚠ разделяне %s/%s: началата не са по ред' % (title_csl, lang))
+        for k in range(len(parts)):
+            a = idx[k]
+            if a is None:
+                parts[k][lang] = []
+                continue
+            b = next((x for x in idx[k + 1:] if x is not None), len(bl))
+            parts[k][lang] = bl[a:b]
+    units[at[0]:at[0] + 1] = parts
+    print('     %s → %d части (бг %s · цс %s · цс гр. %s)' % (
+        title_csl, len(parts), *['/'.join(str(len(p[l])) for p in parts) for l in ('bg', 'csl', 'csr')]))
+
+
 def add_links(out):
     by = {x['sec']: x for x in out}
     for sid, n, lang, old, new in LINKS:
@@ -703,6 +753,8 @@ def main():
             print('     цс от PDF: %d съвпаднали, %d отпаднали' % (h, m))
             if sid in CANON_HEAD:
                 move_canon_head(units, pdf_attach[sid], CANON_HEAD[sid])
+            if sid in SPLIT_SONG:
+                split_song(units, *SPLIT_SONG[sid])
             pdf_src = PDF_SOURCE
         if sid == 221 and pdf_great:
             # ⚠ Целият канон: цс от Канонника (службата в четвъртък на 5-та
