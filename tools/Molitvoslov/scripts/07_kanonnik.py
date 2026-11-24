@@ -292,6 +292,41 @@ def csl_unit(pu):
 # песен, който основата няма отделно) се долепя към ПРЕДИШНАТА — инак отпада.
 PDF_FOLD = {203}
 
+# Единица, взета от ДРУГ раздел на PDF-а: {раздел: (ключ тук, раздел-извор,
+# ключ там)}. Молитвата „О Пресвятая Госпоже Владычице“ след параклиса (цс
+# гр. и бг) в PDF-а стои при благодарствения канон; при параклиса там са
+# други две („Царице моя преблагая“, „К кому возопию“) — без съответствие,
+# излизаха срещу бг молитвата (24.11.2026, автора).
+PDF_BORROW = {203: (('prayer', 9, 1), 204, ('prayer', 9, 2))}
+
+
+def borrow_pdf(attach):
+    for sid, (key, src, src_key) in PDF_BORROW.items():
+        got = [u for u in attach[src] if tuple(u['key']) == src_key]
+        if len(got) != 1:
+            raise SystemExit('⚠ PDF_BORROW: %s в %d не е намерено' % (src_key, src))
+        attach[sid] = [u for u in attach[sid] if u['key'][0] != key[0]] + \
+            [dict(got[0], key=list(key))]
+
+
+def move_bg_prayer(units):
+    """Бг страницата слага молитвата накрая В 9-та песен, а основата (цс гр.)
+    я има като отделна единица „Молитва…“ — инак не стоят една срещу друга.
+    Мести се от червеното „Молитва…“ нататък."""
+    for i, u in enumerate(units[:-1]):
+        nxt = units[i + 1]
+        if nxt['bg'] or not (nxt['title_csl'] or '').replace(ak.ACUTE, '').startswith('Молитва'):
+            continue
+        at = [j for j, b in enumerate(u['bg'])
+              if b['kind'] == 'rubric' and b['html'].startswith('Молитва')]
+        if at:
+            j = at[-1]
+            nxt['title_bg'] = u['bg'][j]['html']
+            nxt['bg'] = u['bg'][j + 1:]
+            nxt['sources'] = u['sources']
+            u['bg'] = u['bg'][:j]
+            print('     бг: „%s“ → отделна единица (%d абзаца)' % (nxt['title_bg'], len(nxt['bg'])))
+
 
 def merge_pdf(units, pdf_units, title_of, insert_unmatched, fold=False):
     """Цс от PDF-а към готовите единици, по ключ. Несъвпадналите се вмъкват
@@ -471,6 +506,7 @@ def order(secs):
 def main():
     csl = csl_canons()
     pdf_attach, pdf_new, pdf_great = pdf_sections()
+    borrow_pdf(pdf_attach)
     out = []
     for sid, kfile, title_bg, songs_only, csl_role, bg_page in KANONS:
         units = []
@@ -500,6 +536,7 @@ def main():
                 for u in units:
                     if u['bg']:
                         u['sources'] = [BG_URL % bg_page]
+                move_bg_prayer(units)
             else:
                 # Само бг (Великият канон): единица на песен.
                 for n in sorted(segs):

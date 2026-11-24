@@ -155,6 +155,10 @@ def units(ls, indent=(52, 75)):
         nonlocal para
         if para:
             h = runs_html(para)
+            # „Въ ѡ҆главле́нїе.“ е връзката към съдържанието в PDF-а, не текст
+            # (излизаше в края на 27 раздела от Канонника, 24.11.2026).
+            if h and re.sub(r'<[^>]+>', '', h).strip() == 'Въ ѡ҆главле́нїе.':
+                h = None
             if h:
                 kind = 'refrain' if re.match(r'<span class="rubric">(Припѣ́въ|Запѣ́въ)', h) else 'text'
                 res[-1]['blocks'].append({'kind': kind, 'html': h})
