@@ -40,8 +40,11 @@ BG_URL = 'https://www.pravoslavieto.com/bogosluzhenie/kanoni/%s.htm'
 KANONS = [
     (201, 'index_split_018.xhtml', 'Канон покаен към Господ Иисус Христос', False, 'iisus', None),
     (202, 'index_split_011.xhtml', 'Канон умилителен към Господ Иисус Христос', True, None, None),
+    # ⚠ Цс НЕ от азбукинския молитвослов (там няма ирмоси, а пред последните
+    # два тропара стои пак „Прест҃а́ѧ бцⷣе“ вместо „Сла́ва“ / „И҆ ны́нѣ“) —
+    # целият е от PDF-а на Канонника, виж PDF_TOC (24.11.2026, автора).
     (203, 'index_split_014.xhtml', 'Канон молебен към Пресвета Богородица (Малък параклис)',
-     False, 'bogorodica', 'paraklis'),
+     False, None, 'paraklis'),
     (204, 'index_split_013.xhtml', 'Канон благодарствен към Пресвета Богородица', True, None, None),
     (205, 'index_split_019.xhtml', 'Канон към Пресвета Богородица Одигитрия', False, None, None),
     (206, 'index_split_015.xhtml', 'Канон към Ангела пазител', False, 'angel', None),
@@ -214,7 +217,7 @@ PDF_TOC = [
     (83, ('new', 233, 'Канон на Рождество Христово')),
     (99, ('new', 234, 'Канон към Честния и Животворящ Кръст')),
     (117, 'great'),                           # Великият канон — отделно
-    (318, None),                              # молебен — цс вече има
+    (318, ('attach', 203, 'all')),            # молебен — цял от PDF-а (виж KANONS)
     (334, ('attach', 204, 'songs')),
     (366, ('new', 235, 'Канон на Рождество Богородично')),
     (386, ('new', 236, 'Канон на Покрова на Пресвета Богородица')),
@@ -276,9 +279,15 @@ def csl_unit(pu):
             'csr': [], 'bg': [], 'csl': pu['blocks'], 'sources': []}
 
 
-def merge_pdf(units, pdf_units, title_of, insert_unmatched):
+# Раздели, при които несъвпадналата единица от PDF-а (кондакът след 6-та
+# песен, който основата няма отделно) се долепя към ПРЕДИШНАТА — инак отпада.
+PDF_FOLD = {203}
+
+
+def merge_pdf(units, pdf_units, title_of, insert_unmatched, fold=False):
     """Цс от PDF-а към готовите единици, по ключ. Несъвпадналите се вмъкват
-    СЛЕД последната съвпаднала (при Великия канон) или отпадат."""
+    СЛЕД последната съвпаднала (при Великия канон), долепят се към нея
+    (`fold`) или отпадат — и тогава се изброяват, за да не изчезнат тихо."""
     keys = csr_key_units(units, title_of)
     hit = miss = 0
     after = None
@@ -296,7 +305,15 @@ def merge_pdf(units, pdf_units, title_of, insert_unmatched):
             units.insert(units.index(after) + 1 if after else 0, new)
             after = new
             miss += 1
+        elif fold and after is not None:
+            # Заглавието на долепената единица („Конда́къ, гла́съ ѕ҃“) става
+            # червено указание — инак текстът излиза без етикет.
+            head = [{'kind': 'rubric', 'html': pu['title']}] if pu.get('title') else []
+            after['csl'] = after['csl'] + head + pu['blocks']
+            print('     цс от PDF: %s долепено към предишната единица' % (k,))
+            hit += 1
         else:
+            print('     ⚠ цс от PDF: %s отпада (няма съвпадаща единица)' % (k,))
             miss += 1
     return hit, miss
 
@@ -484,7 +501,8 @@ def main():
                                       'sources': [BG_URL % bg_page]})
         pdf_src = None
         if sid in pdf_attach:
-            h, m = merge_pdf(units, pdf_attach[sid], lambda u: u['title_csl'], False)
+            h, m = merge_pdf(units, pdf_attach[sid], lambda u: u['title_csl'], False,
+                             fold=sid in PDF_FOLD)
             print('     цс от PDF: %d съвпаднали, %d отпаднали' % (h, m))
             pdf_src = PDF_SOURCE
         if sid == 221 and pdf_great:
