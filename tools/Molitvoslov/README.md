@@ -18,6 +18,7 @@ python3 03b_parse_bgp.py   # молитвеникът на Патриаршия�
 python3 04_align.py        # + input/map_prayers.csv → work/aligned.json + отчет
 python3 06_akatisti.py     # Канонник + бг акатисти → work/akatisti.json
 python3 05_build_db.py     # → assets/db/molitvoslov.db (⚠ СЛЕД 04 и 06)
+# ⚠ 07_kanonnik.py чете work/psaltir.json (бележката „Бог Господ") → 08 преди 07
 ```
 
 ## Акатистите — `06_akatisti.py` (28.09.2026)

@@ -309,6 +309,124 @@ def borrow_pdf(attach):
             [dict(got[0], key=list(key))]
 
 
+# ── Препратките в началото на параклиса (24.11.2026, автора) ──────────────
+# Цс гр. дава Пс 142, „Бог Господь… со стихи" и Пс 50 само с първите думи;
+# който не ги знае наизуст, се спъва. Псалмите сочат Псалтира; „Бог Господь"
+# със стиховете е РАЗДЕЛ-БЕЛЕЖКА в скрит таб (не излиза в съдържанието),
+# отваря се в панела отдолу като всяка `mol:` препратка.
+NOTE_SID = 291
+NOTE_TAB = 'belezhki'          # няма го в `tabs` — затова не се изрежда
+NOTE_TITLE = 'Бог Господ със стиховете'
+NOTE_HREF = 'mol:/' + NOTE_TITLE
+PS_HREF = {
+    142: 'mol:Псалтир/Катизма 19 (псалми 134–142)#Ѱало́мъ дв҃дꙋ, є҆гда̀ гонѧ́ше',
+    50: 'mol:Псалтир/Катизма 7 (псалми 46–54)#Въ коне́цъ, ѱало́мъ дв҃дꙋ',
+}
+# (раздел, единица, език, точен низ, замяна) — всеки трябва да се срещне
+# ТОЧНО веднъж, инак скриптът спира (изворът се е сменил).
+LINKS = [
+    (203, 0, 'csr', 'Го́споди, услы́ши моли́тву мою́:',
+     '<a href="%s">Го́споди, услы́ши моли́тву мою́:</a>' % PS_HREF[142]),
+    (203, 0, 'csr', 'Бо́г Госпо́дь, и яви́ся на́м: <span class="rubric">со стихи́: Та́же:</span>',
+     '<a href="%s">Бо́г Госпо́дь, и яви́ся на́м:</a> <a href="%s" class="rubric">со стихи́:</a>'
+     ' <span class="rubric">Та́же:</span>' % (NOTE_HREF, NOTE_HREF)),
+    (203, 0, 'csr', 'Поми́луй мя́ Бо́же:',
+     '<a href="%s">Поми́луй мя́ Бо́же:</a>' % PS_HREF[50]),
+    (203, 0, 'bg', 'Бог е Господ и ни се яви; благословен е Идещият в името Господне!',
+     '<a href="%s">Бог е Господ и ни се яви; благословен е Идещият в името Господне!</a>'
+     % NOTE_HREF),
+]
+
+
+def add_links(out):
+    by = {x['sec']: x for x in out}
+    for sid, n, lang, old, new in LINKS:
+        bl = by[sid]['units'][n][lang]
+        hits = [b for b in bl if old in b['html']]
+        if len(hits) != 1 or hits[0]['html'].count(old) != 1:
+            raise SystemExit('⚠ препратка %d/%d/%s: „%s“ се среща %d пъти'
+                             % (sid, n, lang, old, len(hits)))
+        hits[0]['html'] = hits[0]['html'].replace(old, new)
+    print('     препратки в параклиса: %d' % len(LINKS))
+
+
+def _fold(h):
+    """За сверка на цс текст от два извора: без тагове, надредни знаци,
+    пунктуация и интервали; „ѹ"/„ᲂу"/„оу" → „у", „ѡ" → „о", малки букви."""
+    t = MARKS.sub('', re.sub(r'<[^>]+>', '', h)).lower()
+    for a, b in (('ᲂу', 'у'), ('оу', 'у'), ('ѹ', 'у'), ('ꙋ', 'у'), ('ѡ', 'о'), ('ѿ', 'от')):
+        t = t.replace(a, b)
+    return re.sub(r'[\s.,:;!·]', '', t)
+
+
+def note_bog_gospod(paraklis_bg):
+    """„Бог Господь" със стиховете. Цс — дословно от „Три канона" (таб
+    „Молитви", единицата „Та́же Бг҃ъ гдⷭ҇ь…"). Бг — припевът от бг страницата
+    на параклиса, стиховете — от бг Псалтира (Пс 117): номерът на всеки стих
+    се НАМИРА по цс текста му в цс Псалтира, не се пише на ръка."""
+    sec4 = [x for x in json.load(open(os.path.join(W, 'csl_units.json'), encoding='utf-8'))
+            if x['sec'] == 4][0]
+    got = [u for u in sec4['units'] if (u['title'] or '').startswith('Та́же Бг҃ъ гдⷭ҇ь')]
+    if len(got) != 1:
+        raise SystemExit('⚠ бележката: „Та́же Бг҃ъ гдⷭ҇ь" в „Три канона" — %d' % len(got))
+    csl = [dict(b) for b in got[0]['blocks']]
+    ps_path = os.path.join(W, 'psaltir.json')
+    if not os.path.exists(ps_path):
+        raise SystemExit('⚠ бележката иска work/psaltir.json — пусни 08_psaltir.py преди 07')
+    ps = None
+    for sec in json.load(open(ps_path, encoding='utf-8')):
+        for u in sec['units']:
+            if u.get('title_bg') == 'Псалом 117':
+                ps = u
+    if ps is None or len(ps['bg']) != len(ps['csl']):
+        raise SystemExit('⚠ бележката: Пс 117 в Псалтира липсва или бг/цс се разминават')
+    refrain_m = re.search(r'Бог е Господ и ни се яви;[^(<]*!', ' '.join(
+        b['html'] for b in paraklis_bg))
+    if not refrain_m:
+        raise SystemExit('⚠ бележката: бг „Бог е Господ…" не е намерено в параклиса')
+    refrain = refrain_m.group(0)
+    verse_cs = [_fold(re.sub(r'^<span class="rubric">[^<]*</span>', '', v['html']))
+                for v in ps['csl']]
+    bg = []
+    k = 0
+    for b in csl:
+        m = re.match(r'<span class="rubric">(Сті́хъ \S+)</span>\s*(.*)', b['html'])
+        if not m:
+            bg.append({'kind': 'text', 'html': refrain})
+            continue
+        k += 1
+        # Стихът може да е два стиха от псалма („Ка́мень… ѿ гдⷭ҇а бы́сть се́й…").
+        # Първото място, откъдето ПОРЕДНИ стихове дават точно този текст
+        # (Пс 117:1 и 117:29 са еднакви — взима се първият).
+        want, idx = _fold(m.group(2)), []
+        for i in range(len(verse_cs)):
+            acc, j = '', i
+            while j < len(verse_cs) and len(acc) < len(want):
+                acc += verse_cs[j]
+                j += 1
+            if acc == want:
+                idx = list(range(i, j))
+                break
+        if not idx:
+            raise SystemExit('⚠ бележката: стих %d не е намерен в Пс 117' % k)
+        text = ' '.join(re.sub(r'^<span class="rubric">\d+</span>\s*', '', ps['bg'][i]['html'])
+                        for i in idx)
+        text = re.sub(r'\s*—\s+', ' — ', text)
+        # Стихът е откъснат от псалма — изречението там продължава („…Господни:").
+        text = re.sub(r'\s*[:;,—]\s*$', '.', text)
+        nums = [re.match(r'<span class="rubric">(\d+)', ps['bg'][i]['html']).group(1) for i in idx]
+        print('     бележката: стих %d = Пс 117:%s' % (k, ', '.join(nums)))
+        bg.append({'kind': 'text', 'html': '<span class="rubric">Стих %d:</span> %s' % (k, text)})
+    if k != 4:
+        raise SystemExit('⚠ бележката: стиховете са %d, не 4' % k)
+    return {'sec': NOTE_SID, 'tab': NOTE_TAB, 'title_bg': NOTE_TITLE, 'title_csl': None,
+            'csr_source': None, 'csl_source': CSL_URL,
+            'units': [{'n': 0, 'title_bg': None, 'title_csl': None, 'csr': [], 'bg': bg,
+                       'csl': csl,
+                       'sources': [BG_URL % 'paraklis',
+                                   'Псалтир, прев. инок Евтимий Хинов (Пс 117)']}]}
+
+
 def move_bg_prayer(units):
     """Бг страницата слага молитвата накрая В 9-та песен, а основата (цс гр.)
     я има като отделна единица „Молитва…“ — инак не стоят една срещу друга.
@@ -578,6 +696,9 @@ def main():
         print('  %d  единици %3d  (цс %d · бг %d)  %s' % (
             sec['sec'], len(sec['units']), sum(1 for u in sec['units'] if u['csl']),
             sum(1 for u in sec['units'] if u['bg']), sec['title_bg']))
+    add_links(out)
+    out.append(note_bog_gospod(
+        [b for u in [x for x in out if x['sec'] == 203][0]['units'] for b in u['bg']]))
     out = order(out)
     json.dump(out, open(os.path.join(W, 'kanonnik.json'), 'w', encoding='utf-8'),
               ensure_ascii=False, indent=1)

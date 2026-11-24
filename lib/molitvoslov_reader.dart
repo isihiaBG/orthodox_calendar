@@ -1710,22 +1710,47 @@ class _MolitvoslovReaderState extends State<MolitvoslovReader>
 /// Адресът е същият като при [showRefSheet], само с друга схема.
 Future<void> openRefInPlace(BuildContext context, String href,
     {bool serviceMode = false}) async {
-  final m = RegExp(r'^molgo:([^/]+)/(.+)$').firstMatch(href);
+  final m = RegExp(r'^molgo:([^/]*)/(.+)$').firstMatch(href);
   if (m == null) return;
   final nav = Navigator.of(context);
+  final msg = ScaffoldMessenger.maybeOf(context);
   final all = await MolitvoslovDb.sections();
-  final sec = all.where((s) => s.book == m.group(1) && s.titleBg == m.group(2)).firstOrNull;
-  if (sec == null) return;
+  final sec = _refTarget(all, m.group(1)!, m.group(2)!);
+  if (sec == null) {
+    _refMissing(msg, href);
+    return;
+  }
   nav.pushReplacement(MaterialPageRoute(
       builder: (_) => MolitvoslovReader(section: sec, serviceMode: serviceMode)));
 }
 
+/// Целта на препратка `mol:<книга>/<раздел>`. Книгата е като в плаващото
+/// копче ([bookKeyOf]: и „Псалтир"); празна книга (`mol:/<раздел>`) —
+/// раздел без книга, напр. бележките в скрития таб `belezhki` („Бог Господ
+/// със стиховете" към параклиса, 24.11.2026).
+MolSection? _refTarget(List<MolSection> all, String book, String title) => all
+    .where((s) => (bookKeyOf(s) ?? '') == book && s.titleBg == title)
+    .firstOrNull;
+
+/// Неразчетена препратка — казва се, не се мълчи (правило на проекта).
+/// ⚠ `ScaffoldMessengerState` се взима ПРЕДИ първото `await`.
+void _refMissing(ScaffoldMessengerState? msg, String href) {
+  debugPrint('Молитвослов: препратката не води никъде: $href');
+  msg?.showSnackBar(
+      const SnackBar(content: Text('Този раздел го няма в молитвослова.')));
+}
+
 Future<void> showRefSheet(BuildContext context, String href) async {
-  final m = RegExp(r'^mol:([^/]+)/([^#]+)(?:#(.+))?$').firstMatch(href);
+  final m = RegExp(r'^mol:([^/]*)/([^#]+)(?:#(.+))?$').firstMatch(href);
   if (m == null) return;
+  final msg = ScaffoldMessenger.maybeOf(context);
   final all = await MolitvoslovDb.sections();
-  final sec = all.where((s) => s.book == m.group(1) && s.titleBg == m.group(2)).firstOrNull;
-  if (sec == null || !context.mounted) return;
+  final sec = _refTarget(all, m.group(1)!, m.group(2)!);
+  if (sec == null) {
+    _refMissing(msg, href);
+    return;
+  }
+  if (!context.mounted) return;
   (int, int)? start;
   final anchor = m.group(3);
   if (anchor != null) {
