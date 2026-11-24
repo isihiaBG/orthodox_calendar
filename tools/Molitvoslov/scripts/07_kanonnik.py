@@ -346,24 +346,29 @@ LINKS = [
 # Указанието за канона („И кано́н Пресвяты́я Богоро́дицы…", „Гла́с 8.") е в
 # края на встъплението в основата — откъснато от канона: празнината под
 # бг псалмите и стрелката ↓ падаха МЕЖДУ указанието и 1-ва песен (автора,
-# 24.11.2026). Мести се в началото на 1-ва песен; в цс шрифт там — заглавието
-# на канона от PDF-а (встъплението на PDF-а иначе не се ползва).
+# 24.11.2026). Става СВОЯ единица между встъплението и 1-ва песен — заглавието
+# „Песен 1" е над целия текст на единицата, а указанието е ПРЕДИ него (автора).
+# В цс шрифт там — заглавието на канона от PDF-а. Текстът е като в книгата
+# („без ирмосо́в" остава, макар ирмосите да са дадени — автора).
 CANON_HEAD = {203: 'И кано́н'}
 
 
 def move_canon_head(units, pdf_units, start):
-    intro, first = units[0], units[1]
+    intro = units[0]
     at = [j for j, b in enumerate(intro['csr']) if b['html'].startswith(start)]
     if len(at) != 1:
         raise SystemExit('⚠ указанието за канона „%s…“ — %d' % (start, len(at)))
-    first['csr'] = intro['csr'][at[0]:] + first['csr']
+    head_unit = {'title_csl': None, 'title_bg': None, 'csr': intro['csr'][at[0]:],
+                 'bg': [], 'csl': [], 'sources': []}
     intro['csr'] = intro['csr'][:at[0]]
+    units.insert(1, head_unit)
     head = [b for u in pdf_units if tuple(u['key']) == ('intro', 0) for b in u['blocks']
             if b['kind'] == 'rubric' and b['html'].startswith('Канѡ́нъ')]
     if len(head) != 1:
         raise SystemExit('⚠ заглавието на канона в PDF-а — %d' % len(head))
-    first['csl'] = head + first['csl']
-    print('     указанието за канона → 1-ва песен (цс гр. %d, цс 1)' % (len(first['csr']) and 2))
+    head_unit['csl'] = head
+    print('     указанието за канона → своя единица преди 1-ва песен (цс гр. %d, цс 1)'
+          % len(head_unit['csr']))
 
 
 def add_links(out):
