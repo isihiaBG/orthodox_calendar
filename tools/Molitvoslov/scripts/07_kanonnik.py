@@ -332,10 +332,38 @@ LINKS = [
      ' <span class="rubric">Та́же:</span>' % (NOTE_HREF, NOTE_HREF)),
     (203, 0, 'csr', 'Поми́луй мя́ Бо́же:',
      '<a href="%s">Поми́луй мя́ Бо́же:</a>' % PS_HREF[50]),
+    # И самите червени „Псало́м 142" / „псало́м 50." — по-лесно се улучват.
+    (203, 0, 'csr', 'Псало́м 142', '<a href="%s" class="rubric">Псало́м 142</a>' % PS_HREF[142]),
+    (203, 0, 'csr', '<span class="rubric">Та́же псало́м 50.</span> ',
+     '<span class="rubric">Та́же</span> <a href="%s" class="rubric">псало́м 50.</a> '
+     % PS_HREF[50]),
     (203, 0, 'bg', 'Бог е Господ и ни се яви; благословен е Идещият в името Господне!',
      '<a href="%s">Бог е Господ и ни се яви; благословен е Идещият в името Господне!</a>'
      % NOTE_HREF),
 ]
+
+
+# Указанието за канона („И кано́н Пресвяты́я Богоро́дицы…", „Гла́с 8.") е в
+# края на встъплението в основата — откъснато от канона: празнината под
+# бг псалмите и стрелката ↓ падаха МЕЖДУ указанието и 1-ва песен (автора,
+# 24.11.2026). Мести се в началото на 1-ва песен; в цс шрифт там — заглавието
+# на канона от PDF-а (встъплението на PDF-а иначе не се ползва).
+CANON_HEAD = {203: 'И кано́н'}
+
+
+def move_canon_head(units, pdf_units, start):
+    intro, first = units[0], units[1]
+    at = [j for j, b in enumerate(intro['csr']) if b['html'].startswith(start)]
+    if len(at) != 1:
+        raise SystemExit('⚠ указанието за канона „%s…“ — %d' % (start, len(at)))
+    first['csr'] = intro['csr'][at[0]:] + first['csr']
+    intro['csr'] = intro['csr'][:at[0]]
+    head = [b for u in pdf_units if tuple(u['key']) == ('intro', 0) for b in u['blocks']
+            if b['kind'] == 'rubric' and b['html'].startswith('Канѡ́нъ')]
+    if len(head) != 1:
+        raise SystemExit('⚠ заглавието на канона в PDF-а — %d' % len(head))
+    first['csl'] = head + first['csl']
+    print('     указанието за канона → 1-ва песен (цс гр. %d, цс 1)' % (len(first['csr']) and 2))
 
 
 def add_links(out):
@@ -668,6 +696,8 @@ def main():
             h, m = merge_pdf(units, pdf_attach[sid], lambda u: u['title_csl'], False,
                              fold=sid in PDF_FOLD)
             print('     цс от PDF: %d съвпаднали, %d отпаднали' % (h, m))
+            if sid in CANON_HEAD:
+                move_canon_head(units, pdf_attach[sid], CANON_HEAD[sid])
             pdf_src = PDF_SOURCE
         if sid == 221 and pdf_great:
             # ⚠ Целият канон: цс от Канонника (службата в четвъртък на 5-та
