@@ -118,6 +118,15 @@ def _bg_html(inner):
     """Абзац от страницата → html: курсивът („Ирмос:", „Слава:") става
     винено указание, <br> остава (стихотворният превод е ред по ред)."""
     inner = re.sub(r'<br\s*/?>', '\x00', inner, flags=re.I)
+    # ⚠ Курсив през ЦЕЛИЯ дълъг абзац не е указание: така pravoslavieto.com
+    # е набрал евангелското четиво в параклиса („В ония дни, стана Мариям…")
+    # и то излизаше цялото винено (24.11.2026, автора). Остава обикновен
+    # текст — червената буквица четецът слага сам.
+    whole = re.fullmatch(r'\s*<i>(.*)</i>(?:\s*</?(?:p|blockquote)\b[^>]*>)*\s*', inner,
+                         flags=re.S | re.I)
+    if whole and '<i>' not in whole.group(1).lower() and \
+            len(re.sub(r'<[^>]+>|\s+', '', whole.group(1))) > 200:
+        inner = whole.group(1)
     inner = re.sub(r'<i>(.*?)</i>', '\x01\\1\x02', inner, flags=re.S | re.I)
     t = html.unescape(re.sub(r'<[^>]+>', '', inner)).replace('\xa0', ' ')
     t = re.sub(r'[ \t\r\n]+', ' ', t).strip()
