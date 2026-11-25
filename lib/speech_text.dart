@@ -342,18 +342,33 @@ String _ordWord(String kind, int v, String gender) {
 
 /// Редно: 343 → „триста четиридесет и трета" (ж. р. — „година").
 ///
-/// [own] — своите/вградените думи от „Годините на глас" (само в женски род).
-/// `false` за редните, които НЕ са година: главата, „12-та" (автора слуша
-/// и подбира думите само за годините, 24.11.2026).
-String ordinal(int n, [String gender = 'f', bool own = true]) {
+/// [own] — своите/вградените думи от „Годините на глас". По подразбиране
+/// само в женски род (годината); `false` за редните, които НЕ са година:
+/// главата, „12-та" (автора слуша и подбира думите само за годините,
+/// 24.11.2026). `true` и в мъжки род — римските числа (векове, „Йоан XIV"):
+/// автора, 25.11.2026 — „четри-найсти", не „четиринадесети".
+String ordinal(int n, [String gender = 'f', bool? own]) {
   final parts = _parts(n, gender);
-  final own_ = own && gender == 'f' ? _yearWords : const <String, String>{};
+  final use = (own ?? gender == 'f') && (gender == 'f' || gender == 'm');
+  final own_ = use ? _yearWords : const <String, String>{};
   final words = [
     for (final p in parts.sublist(0, parts.length - 1)) _own(own_['${p.$1}_${p.$2}_0']) ?? p.$3
   ];
   final last = parts.last;
-  words.add(_own(own_['${last.$1}_${last.$2}_1']) ?? _ordWord(last.$1, last.$2, gender));
+  words.add(_own(_ownOrd(own_, last.$1, last.$2, gender)) ?? _ordWord(last.$1, last.$2, gender));
   return _join(words);
+}
+
+/// Редната своя дума в рода: думите са подбрани в женски род („четри-найста");
+/// мъжкият сменя крайното „а" с „и" („четри-найсти") — само за десетиците и
+/// „-найсет"; стотните и хилядните са с член („стотната") — там остава общото.
+String? _ownOrd(Map<String, String> own, String kind, int v, String gender) {
+  final w = own['${kind}_${v}_1'];
+  if (w == null || gender == 'f') return w;
+  if ((kind == 't' || kind == 'teen') && w.endsWith('а')) {
+    return '${w.substring(0, w.length - 1)}и';
+  }
+  return null;
 }
 
 /// Своята дума с пазач отпред — разговорните замени не я пипат
@@ -495,8 +510,8 @@ String _deathInCentury(RegExpMatch m) {
     final w = m[1]!.split(RegExp(r'\s+'));
     pre = 'в ${w[w.length - 2]} на';
   }
-  var c = ordinal(roman(m[2]!), 'm');
-  if (m[3] != null) c += ' – ${ordinal(roman(m[3]!), 'm')}';
+  var c = ordinal(roman(m[2]!), 'm', true);
+  if (m[3] != null) c += ' – ${ordinal(roman(m[3]!), 'm', true)}';
   return _say('(', _deathWord(m), pre, '$c век${m[4]})');
 }
 
@@ -605,14 +620,14 @@ void yearsText(SpokenText t) {
   t.sub(_re('$_wb([1-9]\\d{0,3})$_gEnd'), (m) => ordinal(_i(m[1])) + _g(m, 2));
   // Векове: „XV в.", „XV–XVI в."
   t.sub(_re('$_wb([IVXLC]+)$_dash([IVXLC]+)\\s*в(?:в)?\\.'),
-      (m) => '${ordinal(roman(m[1]!), 'm')} – ${ordinal(roman(m[2]!), 'm')} век');
-  t.sub(_re('$_wb([IVXLC]+)\\s*в(?:в)?\\.'), (m) => '${ordinal(roman(m[1]!), 'm')} век');
+      (m) => '${ordinal(roman(m[1]!), 'm', true)} – ${ordinal(roman(m[2]!), 'm', true)} век');
+  t.sub(_re('$_wb([IVXLC]+)\\s*в(?:в)?\\.'), (m) => '${ordinal(roman(m[1]!), 'm', true)} век');
   // И диапазонът с думата: „през XII–XIII век" (24.11.2026, numbers_bg.py).
   t.sub(_re('$_wb([IVXLC]+)$_dash([IVXLC]+)\\s+(век|века|векове)$_we'),
-      (m) => '${ordinal(roman(m[1]!), 'm')} – ${ordinal(roman(m[2]!), 'm')} ${m[3]}');
+      (m) => '${ordinal(roman(m[1]!), 'm', true)} – ${ordinal(roman(m[2]!), 'm', true)} ${m[3]}');
   // И изписаното с думата: „в VI век".
   t.sub(_re('$_wb([IVXLC]+)\\s+(век|века|векове)$_we'),
-      (m) => '${ordinal(roman(m[1]!), 'm')} ${m[2]}');
+      (m) => '${ordinal(roman(m[1]!), 'm', true)} ${m[2]}');
   // Римско число СЛЕД ИМЕ — редно: „Петър I" → „Петър първи", „Екатерина II"
   // → „Екатерина втора" (автора, 24.11.2026; гласът четеше латински букви).
   // Векове — по-горе. „I-ви" — окончанието се поглъща. (numbers_bg.py)
@@ -621,7 +636,7 @@ void yearsText(SpokenText t) {
     if (num.isEmpty) return m[0]!;
     final last = name.split('-').last;
     final female = (last.endsWith('а') || last.endsWith('я')) && !_maleA.contains(last);
-    return '$name ${ordinal(roman(num), female ? 'f' : 'm', false)}';
+    return '$name ${ordinal(roman(num), female ? 'f' : 'm', true)}';
   });
   for (final (p, rep) in _eras) {
     t.sub(_re(p), (_) => rep);
