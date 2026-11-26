@@ -33,8 +33,40 @@ class HtmlRun {
   /// повдигнат; виж коментара при [kSupScale].
   final bool sup;
   final String? href;
+  /// Думата „църк. " на мястото на църквицата (`<hram>`). Рисува се, но я
+  /// НЯМА в плоския текст на четеца (`_plainTextOf` маха таговете) — виж
+  /// [quotePlainOf].
+  final bool hram;
   const HtmlRun(this.text,
-      {this.bold = false, this.italic = false, this.sup = false, this.href});
+      {this.bold = false, this.italic = false, this.sup = false, this.href,
+      this.hram = false});
+}
+
+/// Текстът на парчетата БЕЗ думата на църквицата — в координатите на
+/// `regionPlainTexts` / изреченията за гласа — и откъде идва всеки знак в
+/// пълния текст на парчетата.
+///
+/// ⚠⚠ Дотук цитатът и изречението, което звучи, се търсеха в текста С
+/// „църк. ", а идваха от текста БЕЗ нея: изречението с жива дата не светваше,
+/// а отместването от 6 знака гасеше и първото изречение на всеки следващ
+/// абзац от региона с буквицата (автора, 26.11.2026: прп. Теодор Студит —
+/// „…(памет 19 юни / църк. 6 юни)…", „През 845 г. …", „Преподобни Теодор
+/// както приживе…").
+(String, List<int>) quotePlainOf(List<HtmlRun> runs) {
+  final sb = StringBuffer();
+  final map = <int>[];
+  var pos = 0;
+  for (final r in runs) {
+    if (!r.hram) {
+      sb.write(r.text);
+      for (var i = 0; i < r.text.length; i++) {
+        map.add(pos + i);
+      }
+    }
+    pos += r.text.length;
+  }
+  map.add(pos); // краят
+  return (sb.toString(), map);
 }
 
 /// Колко от размера на текста заема горният индекс. Същата стойност както в
@@ -168,13 +200,14 @@ List<HtmlRun> htmlRuns(String html) {
   var lastWasSpace = true; // началните интервали отпадат, както при trim
   final hrefRe = RegExp(r'href="([^"]*)"', caseSensitive: false);
 
-  void push(String t) {
+  void push(String t, {bool hram = false}) {
     if (t.isEmpty) return;
     runs.add(HtmlRun(t,
         bold: bold > 0,
         italic: italic > 0,
         sup: sup > 0,
-        href: hrefs.isEmpty ? null : hrefs.last));
+        href: hrefs.isEmpty ? null : hrefs.last,
+        hram: hram));
   }
 
   for (final m in RegExp(r'<[^>]*>|[^<]+').allMatches(html)) {
@@ -221,7 +254,7 @@ List<HtmlRun> htmlRuns(String html) {
         //
         // ⚠ Същата дума стои и в PDF-а (`_parseBlocks` в pdf_export.dart),
         // тъй че видовете са два, а не три.
-        push('църк. ');
+        push('църк. ', hram: true);
         lastWasSpace = false;
       }
       continue;
@@ -745,8 +778,10 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // (буквицата е отрязана оттам), а тогава тя НЕ е част от него.
         var capIsInQuote = false;
 
-        List<(int, int)> quoteRangesIn(String paraText,
+        List<(int, int)> quoteRangesIn(List<HtmlRun> paraRuns,
             {bool first = false, int paraOffset = 0}) {
+          final (paraText, toRuns) = quotePlainOf(paraRuns);
+          (int, int) back((int, int) r) => (toRuns[r.$1], toRuns[r.$2 - 1] + 1);
           if (widget.quoteText.isEmpty) return const [];
           final full = fold(widget.quoteText).text;
           if (full.isEmpty) return const [];
@@ -780,7 +815,7 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               if (rest.isEmpty) return const [];
               if (f.text.startsWith(rest)) {
                 capIsInQuote = true;
-                return [(0, f.origIndex[rest.length - 1] + 1)];
+                return [back((0, f.origIndex[rest.length - 1] + 1))];
               }
             }
           }
@@ -800,10 +835,10 @@ class DropCapParagraphState extends State<DropCapParagraph> {
               }
             }
           }
-          return [(f.origIndex[at], f.origIndex[at + full.length - 1] + 1)];
+          return [back((f.origIndex[at], f.origIndex[at + full.length - 1] + 1))];
         }
 
-        final quoteRanges = quoteRangesIn(plain, first: true);
+        final quoteRanges = quoteRangesIn(runs, first: true);
 
         // Буквицата свети само когато остатъкът наистина е седнал в
         // началото — виж дългата бележка горе.
@@ -1083,16 +1118,17 @@ class DropCapParagraphState extends State<DropCapParagraph> {
         // ⚠ Отместването на всеки абзац в СГЛОБЕНИЯ текст на региона —
         // блоковете се слепват с „\n" (виж `_quoteBlocks` в двата четеца),
         // тъй че разделителят се брои за един знак.
-        var restOffset = plain.length;
+        // ⚠ В координатите БЕЗ „църк." — като `_quoteBlocks` ([quotePlainOf]).
+        var restOffset = quotePlainOf(runs).$1.length;
 
         for (final p in widget.restParagraphs) {
           final runsI = htmlRuns(p);
           final plainI = runsI.map((r) => r.text).join();
           final matchesI = _matchRanges(plainI, widget.searchQuery);
           final paraOffsetI = restOffset + 1;
-          restOffset = paraOffsetI + plainI.length;
+          restOffset = paraOffsetI + quotePlainOf(runsI).$1.length;
           // ⚠ СВОИТЕ диапазони — не тези на първия абзац.
-          final qRangesI = quoteRangesIn(plainI, paraOffset: paraOffsetI);
+          final qRangesI = quoteRangesIn(runsI, paraOffset: paraOffsetI);
           final matchBaseI = matchBase;
           matchBase += matchesI.length;
 
