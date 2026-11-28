@@ -1460,7 +1460,10 @@ class _BookReaderState extends State<BookReader>
     }
     pb.onError = (msg) =>
         messenger.showSnackBar(SnackBar(content: Text('Гласът на устройството спря ($msg).')));
-    _wireAudio(pb, outroAt: double.infinity);
+    // Дудукът влиза както при записа — под последното изречение (по
+    // приблизителните времена на гласа; автора, 28.11.2026). Само в книгите
+    // със записи („Разговори…"); в останалите — без музика, както досега.
+    _wireAudio(pb, outroAt: _phoneDuduk ? outroStartOf(pb.chapter) : double.infinity);
     setState(() {
       _sentLoc = loc;
       _playback = pb;
@@ -1538,6 +1541,13 @@ class _BookReaderState extends State<BookReader>
       _outroBegun = true;
       unawaited(_outro.beginBed(_prehodKey));
     }
+    // Гласът на телефона: времената са приблизителни — изговори ли се
+    // по-бързо, отколкото сме смятали, дудукът влиза поне в края.
+    final pb = _playback;
+    if (_phoneDuduk && pb != null && pb.isPhoneVoice && AudioOutroSetting.value && !_outroBegun) {
+      _outroBegun = true;
+      unawaited(_outro.beginBed(_dudukClip(pb)));
+    }
     if (_outroBegun && _outro.active) {
       // Гласът свърши под тихата музика: тя се засилва, звучи сама и
       // затихва, а следващата беседа почва върху затихването.
@@ -1575,9 +1585,16 @@ class _BookReaderState extends State<BookReader>
     }
     if (t >= _outroAt && t < pb.chapter.duration - 0.3) {
       _outroBegun = true;
-      unawaited(_outro.beginBed(outroClipFor(widget.book.assetPath, pb.chapter.part, _index)));
+      unawaited(_outro.beginBed(_dudukClip(pb)));
     }
   }
+
+  /// Дудукът на беседата — същият и при записа, и при гласа на телефона
+  /// (там ключът на главата е друг — `phone:…`).
+  bool get _phoneDuduk => !_prehodOn && _audio != null;
+
+  String _dudukClip(ReadAloud pb) => outroClipFor(
+      widget.book.assetPath, pb.isPhoneVoice ? _audioPart : pb.chapter.part, _index);
 
   /// Пауза насред музиката — тя затихва бързо (и влиза пак при пускане);
   /// пуснато наново след края, докато музиката звучи — преходът се отменя.
