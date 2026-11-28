@@ -1087,7 +1087,109 @@ void _colloquialNumbers(SpokenText t) {
   }
 }
 
+/// Още съкращения — само за гласа на телефона (автора, 28.11.2026: „т.нар."
+/// не се разгъваше). ⚠ НЕ в [expandAbbr]: той е общ с Python (сверката в
+/// speech_text_test) и звукът от ElevenLabs вече е готов.
+void _phoneAbbr(SpokenText t) {
+  const nb = r'(?<![А-Яа-яЍѝ])';
+  // Главна в текста → главна и в разгънатото („Ср." → „Сравни").
+  String keep(String src, String w) =>
+      src[0] != src[0].toLowerCase() ? w[0].toUpperCase() + w.substring(1) : w;
+  void rule(String re, String Function(Match) to, {bool anyCase = true}) =>
+      t.sub(RegExp(nb + re, caseSensitive: !anyCase, unicode: true), to);
+  // [end] — може да е краят на изречението: следва ли главна, точката остава
+  // („Полтавска губ. Починал" → „губерния. Починал").
+  void plain(String re, String w, {bool anyCase = true, bool end = false}) =>
+      rule(re, (m) {
+        // ⚠ По самия текст, не в регулярния израз: без главни/малки там
+        // [А-Я] хваща и малките.
+        final after = RegExp(r'^\s+([А-ЯЍ])').firstMatch(m.input.substring(m.end));
+        return keep(m[0]!, w) + (end && after != null ? '.' : '');
+      }, anyCase: anyCase);
+  // ⚠ Еднобуквените — само с малка: „Р. Иванов", „Н. Е. Пестов" са инициали.
+  // „т.нар." — по следващата дума: „т.нар. бисквитки" → „така наречените",
+  // „т. нар. „Светогорски томос“" → „така наречения".
+  rule(r'т\.\s?нар\.(\s*)(?=[„"«(]?\s*([А-Яа-яЍѝ]*)(?:\s+([А-Яа-яЍѝ]+))?)', (m) {
+    // Първата дума е прилагателно („Спорадски острови") — родът е по втората.
+    var w = m[2]!.toLowerCase();
+    if (RegExp(r'(ск|цк|жк|чк)и$').hasMatch(w) && m[3] != null) w = m[3]!.toLowerCase();
+    final end = w.endsWith('а') || w.endsWith('я')
+        ? 'ата'
+        : w.endsWith('о') || w.endsWith('е')
+            ? 'ото'
+            : w.endsWith('и') && !RegExp(r'(ск|цк|жк|чк)и$').hasMatch(w)
+                ? 'ите'
+                : 'ия';
+    return '${keep(m[0]!, 'така')} наречен$end${m[1]!.isEmpty ? ' ' : m[1]!}';
+  });
+  plain(r'в\s+т\.\s?ч\.', 'в това число');
+  plain(r'т\.\s?к\.', 'тъй като');
+  plain(r'бел\.\s?ред\.', 'бележка на редактора', end: true);
+  plain(r'бел\.\s?пр\.', 'бележка на преводача', end: true);
+  plain(r'бел\.\s?авт?\.', 'бележка на автора', end: true);
+  plain(r'бел\.', 'бележка');
+  plain(r'букв\.', 'буквално');
+  plain(r'пр\.\s?н\.\s?е\.', 'преди новата ера', anyCase: false, end: true);
+  plain(r'сл\.\s?н\.\s?е\.', 'от новата ера', anyCase: false, end: true);
+  plain(r'(?<=година\s)н\.\s?е\.', 'от новата ера', anyCase: false, end: true);
+  plain(r'н\.\s?е\.', 'новата ера', anyCase: false, end: true);
+  plain(r'и\s+пр\.', 'и прочие', end: true);
+  plain(r'вел\.\s?кн\.', 'велик княз');
+  plain(r'кн\.(?=\s*[А-Я])', 'княз', anyCase: false);
+  plain(r'кн\.(?=\s*\d)', 'книга');
+  plain(r'т\.(?=\s*(?:[IVXLC]+|\d))', 'том');
+  plain(r'стр\.(?=\s*\d)', 'страница');
+  plain(r'бр\.(?=\s*\d)', 'брой');
+  plain(r'лл\.(?=\s*\d)', 'листове');
+  plain(r'л\.(?=\s*\d)', 'лист', anyCase: false);
+  plain(r'поч\.', 'починал', anyCase: false);
+  plain(r'изд\.', 'издание');
+  plain(r'нач\.', 'началото на');
+  plain(r'кр\.', 'края на', anyCase: false);
+  plain(r'ср\.', 'сравни');
+  plain(r'ул\.', 'улица');
+  plain(r'губ\.', 'губерния', end: true);
+  plain(r'обл\.', 'област', end: true);
+  plain(r'р\.(?=\s*[А-Я])', 'река', anyCase: false);
+  plain(r'гр\.(?=\s*[А-Я][а-я])', 'град', anyCase: false);
+  plain(r'гр\.', 'гръцки');
+  plain(r'лат\.', 'латински');
+  rule(r'(към|до)\s+[Ее]вр\.', (m) => '${m[1]} евреите', anyCase: false);
+  plain(r'евр\.', 'еврейски');
+  plain(r'гръц\.', 'гръцки');
+  plain(r'сп\.', 'списание', anyCase: false);
+  plain(r'с\.(?=\s*\d)', 'страница', anyCase: false);
+  plain(r'гл\.(?=\s*(?:\d|[IVXLC]+\b))', 'глава');
+  plain(r'рус\.', 'руски');
+  plain(r'англ\.', 'английски');
+  plain(r'посл\.', 'послание');
+  plain(r'канд\.\s?ист\.\s?науки', 'кандидат на историческите науки');
+  plain(r'канд\.', 'кандидат');
+  plain(r'прот\.(?=\s*[А-Я])', 'протойерей');
+  plain(r'свещ\.', 'свещеник', end: true);
+  plain(r'архим\.', 'архимандрит');
+  plain(r'йером\.', 'йеромонах');
+  rule(r'игум\.(\s*)(?=([А-Яа-я]*))', (m) {
+    final n = m[2]!.toLowerCase();
+    final fem = n.endsWith('а') || n.endsWith('я');
+    return keep(m[0]!, fem ? 'игумения' : 'игумен') + (m[1]!.isEmpty ? ' ' : m[1]!);
+  });
+  rule(r'дн\.(\s*)(?=([А-Яа-я]*))', (m) {
+    final n = m[2]!.toLowerCase();
+    final fem = n.endsWith('а') || n.endsWith('я');
+    return keep(m[0]!, fem ? 'днешна' : 'днешен') + (m[1]!.isEmpty ? ' ' : m[1]!);
+  });
+  t.sub(RegExp(r'(\d)\s*ч\.(?=\s*\d)'), (m) => '${m[1]} часа и');
+  t.sub(RegExp(r'(\d)\s*ч\.'), (m) => '${m[1]} часа');
+  t.sub(RegExp(r'(\d)\s*мин\.'), (m) => '${m[1]} минути');
+  // „ч. 1" — част (часовете вече са разгънати отгоре).
+  plain(r'ч\.(?=\s*\d)', 'част', anyCase: false);
+  t.sub(RegExp(r'(\d)\s*хил\.'), (m) => '${m[1]} хиляди');
+  t.sub(RegExp(r'(\d)\s*км(?![А-Яа-я])'), (m) => '${m[1]} километра');
+}
+
 SpokenText _forPhoneVoice(SpokenText t) {
+  _phoneAbbr(t);
   _colloquialNumbers(t);
   // Тирето между думи — като запетая, инак гласът ги слива (автора, 07.11.2026).
   t.sub(RegExp(',?[ \u00a0]+[–—][ \u00a0]+'), (_) => ', ');
