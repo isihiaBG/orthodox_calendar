@@ -440,7 +440,8 @@ class PhoneStress {
         if (_isPhrase(f.word)) f.word
     }.toList()
       ..sort((a, b) => b.length.compareTo(a.length));
-    const l = '[А-Яа-яЍѝ]';
+    // Граница на дума — и при латиница/гръцки: „est" не бива да хваща „estin".
+    const l = '[А-Яа-яЍѝA-Za-zÀ-ɏͰ-Ͽἀ-῿]';
     return [
       for (final p in phrases)
         '${RegExp('^$l').hasMatch(p) ? '(?<!$l)' : ''}'
@@ -533,9 +534,14 @@ class PhoneStress {
 /// (автора, 29.10.2026). Буква в края му не бива да е част от по-дълга дума.
 String? stressWordOf(String? selected) {
   final w = (selected ?? '').replaceAll(RegExp(r'\s+'), ' ').trim();
-  if (w.isEmpty || w.length > 40 || !w.contains(PhoneStress._word)) return null;
+  // И чуждите думи на латиница/гръцки („Big Data", „Sola Scriptura") — за
+  // тях само „свой" изговор (автора, 28.11.2026: „а́" не излизаше).
+  if (w.isEmpty || w.length > 40 || !w.contains(_anyLetter)) return null;
   return w;
 }
+
+/// Буква от кирилица, латиница или гръцки.
+final _anyLetter = RegExp(r'[А-Яа-яЍѝA-Za-zÀ-ɏͰ-Ͽἀ-῿]');
 
 /// Откъс, не дума: „по-", „света Петка".
 bool _isPhrase(String w) => !RegExp(r'^[А-Яа-яЍѝ]+$').hasMatch(w);
